@@ -2,15 +2,17 @@ import variableHolster as vH
 import background as bG
 import pygame as pg
 
-playerSpeed = 3.5
-playerSize = vH.tileSizeGlobal / 2
+playerSpeed = 3.5 / (vH.frameRate / 120)
+playerSize = vH.tileSizeGlobal
 playerColor = pg.Color(0,0,255)
+canMove = [True, True, True, True]
 
 lockX = (vH.sW / 2) - (playerSize/2)
 lockY = (vH.sH / 2) - (playerSize/2)
 
+playerRect = pg.Rect(lockX, lockY, playerSize, playerSize)
+
 def movePlayer():
-    global posX, posY
     dX, dY = 0,0
 
     if vH.keys[pg.K_w]: dY -= 1
@@ -21,10 +23,14 @@ def movePlayer():
     if abs(dX) + abs(dY) == 2: scalar = 0.707
     else: scalar = 1
 
-    bG.posX -= dX * scalar * playerSpeed
-    bG.posY -= dY * scalar * playerSpeed
+    newPosX = bG.playerPosX - dX * scalar * playerSpeed
+    newPosY = bG.playerPosY - dY * scalar * playerSpeed
+
+    bG.playerPosX = newPosX
+    bG.playerPosY = newPosY
     
 def drawPlayer():
-    bG.drawBackground()
-    pg.draw.rect(vH.screen, playerColor, pg.Rect(lockX, lockY, playerSize, playerSize))
-    
+    pg.draw.rect(vH.screen, playerColor, playerRect)
+
+def drawBackground():
+    bG.moveAndDrawBackground(bG.basicRoomRects)

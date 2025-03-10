@@ -18,6 +18,7 @@ def main():
         
 def runGame():
     baseInputCollection()
+    cH.drawBackground()
     cH.movePlayer()
     cH.drawPlayer()
 
@@ -35,7 +36,6 @@ def runTitle():
     
 def runLeveling():
     baseInputCollection()
-
 
 
     paintAndClearScreen(vH.backgroundColor)
