@@ -1,14 +1,9 @@
-from os import environ
 import variableHolster as vH
-import pygame
-
+import character as cH
+import pygame as pg
 
 #Main Function
 def main():
-    environ['SDL_VIDEO_CENTERED'] = '1'
-    pygame.init()  # Initializes a window
-    pygame.display.set_caption("RotBoiRemastered")
-    
     while not vH.done:
         match vH.state:
             #This state is the title screen
@@ -21,25 +16,44 @@ def main():
             case vH.States.LEVELING:
                 runLeveling()
         
-        
 def runGame():
-    inputCollection()
-    print("game")
+    baseInputCollection()
+    cH.movePlayer()
+    cH.drawPlayer()
+
+
+    paintAndClearScreen(vH.backgroundColor)
+
     
 def runTitle():
-    inputCollection()
-    print("title")
+    baseInputCollection()
+
+
+
+    paintAndClearScreen(vH.backgroundColor)
+    
     
 def runLeveling():
-    inputCollection()
-    print("leveling")
+    baseInputCollection()
+
+
+
+    paintAndClearScreen(vH.backgroundColor)
     
-def inputCollection():
-    for event in pygame.event.get(): 
-            if event.type == pygame.QUIT: vH.done = True  # Close the entire program when windows x is clicked
-            if event.type == pygame.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
-            if event.type == pygame.MOUSEBUTTONUP: vH.mouseDown = False
     
+def baseInputCollection():
+    vH.clock.tick(vH.frameRate)
+    vH.keys = pg.key.get_pressed()
+    for event in pg.event.get(): 
+        if event.type == pg.QUIT: vH.done = True  # Close the entire program when windows x is clicked
+        if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
+        if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
+    if vH.keys[pg.K_ESCAPE]: vH.done = True
+    vH.mouseX, vH.mouseY = pg.mouse.get_pos() # Saves current mouse position
+
+def paintAndClearScreen(color):
+    pg.display.flip()  # Displays currently drawn frame
+    vH.screen.fill(color)  # Clears screen with a black color
     
 if __name__=="__main__":
     main()
