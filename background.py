@@ -1,6 +1,5 @@
 import pygame as pg
 import variableHolster as vH
-import character as cH
 
 import csv
 
@@ -26,29 +25,37 @@ def loadBackgroundRects(roomFile):
                                             vH.tileSizeGlobal)])
     return newRects
 
-# Example usage:
-basicRoomFile = 'backgrounds/basicRoom.csv'
-basicRoomRects = loadBackgroundRects(basicRoomFile)
-currRoomRects = basicRoomRects
+def drawRepasteableBackground(roomRects):
+    newSurface = pg.surface.Surface((len(roomRects[0]) * vH.tileSizeGlobal, len(roomRects)* vH.tileSizeGlobal))
+    for i in range(len(roomRects)):
+        for j in range(len(roomRects[0])):
+            currRectData = roomRects[i][j]
+            currRectData[1].left = (vH.tileSizeGlobal * j)
+            currRectData[1].top = (vH.tileSizeGlobal * i)
+            pg.draw.rect(newSurface, tileTypes[roomRects[i][j][0]][1], currRectData[1])
+    return newSurface
 
-playerPosX = 0
-playerPosY = 0
+def moveAndDisplayBackground(surface):
+    vH.screen.blit(surface, (-playerPosX + lockX, -playerPosY + lockY))
+
+# Example usage:
 
 tileTypes = {
             0 : ["default", pg.Color(170,170,170)],
             1 : ["wall", pg.Color(90,90,90)]
             }
 
-def moveAndDrawBackground(roomRects):
-    for i in range(len(roomRects)):
-        for j in range(len(roomRects[0])):
-            currRectData = roomRects[i][j]
-            oldRectData = currRectData
-            currRectData[1].left = playerPosX + vH.tileSizeGlobal * j
-            currRectData[1].top = playerPosY + vH.tileSizeGlobal * i
-            if currRectData[0] == 1:
-                if cH.playerRect.colliderect(currRectData[1]):        
-                    currRectData = oldRectData
-                    return 1
-            pg.draw.rect(vH.screen, tileTypes[roomRects[i][j][0]][1], currRectData[1])
-    return 0
+basicRoomFile = 'backgrounds/basicRoom.csv'
+basicRoomRects = loadBackgroundRects(basicRoomFile)
+currRoomRects = basicRoomRects
+
+#playerPosX = ((len(currRoomRects[0]) * vH.tileSizeGlobal)/2)
+#playerPosY = ((len(currRoomRects) * vH.tileSizeGlobal)/2)
+
+lockX = (vH.sW / 2)
+lockY = (vH.sH / 2)
+
+playerPosX = 100
+playerPosY = 100
+
+repasteableRoomSurface = drawRepasteableBackground(currRoomRects)

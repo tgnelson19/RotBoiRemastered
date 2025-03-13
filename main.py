@@ -44,7 +44,7 @@ def runLeveling():
 def baseInputCollection():
     vH.clock.tick(vH.frameRate)
     vH.keys = pg.key.get_pressed()
-    for event in pg.event.get(): 
+    for event in pg.event.get():
         if event.type == pg.QUIT: vH.done = True  # Close the entire program when windows x is clicked
         if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
         if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
