@@ -21,6 +21,8 @@ def runGame():
     cH.drawBackground()
     cH.movePlayer()
     cH.drawPlayer()
+    cH.handlingBulletCreation()
+    cH.handlingBulletUpdating()
 
 
     paintAndClearScreen(vH.backgroundColor)
