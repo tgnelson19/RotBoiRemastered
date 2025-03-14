@@ -58,4 +58,7 @@ lockY = (vH.sH / 2)
 playerPosX = 100
 playerPosY = 100
 
+currNumOfXTiles = len(currRoomRects[0])
+currNumOfYTiles = len(currRoomRects)
+
 repasteableRoomSurface = drawRepasteableBackground(currRoomRects)

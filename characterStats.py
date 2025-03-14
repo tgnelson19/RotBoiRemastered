@@ -4,7 +4,7 @@ import background as bG
 
 playerSpeed = 3.5
 playerSize = vH.tileSizeGlobal
-playerColor = pg.Color(0,0,255)
+playerColor = pg.Color(0,0,120)
 
 dX, dY = 0, 0
 
@@ -38,4 +38,7 @@ healthPoints = 10
 maxHealthPoints = 10
 defense = 0
 
+enemyOneInFramesChance = 10
+
 bulletHolster = []
+enemyHolster = []

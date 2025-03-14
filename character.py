@@ -3,6 +3,7 @@ import background as bG
 import characterStats as cS
 import pygame as pg
 from bullet import Bullet
+from enemy import Enemy
 
 from math import floor, ceil, pi, atan, trunc
 from random import randint
@@ -64,10 +65,13 @@ def movePlayer():
         elif bG.currRoomRects[newTileLocYMin][floor(currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(currTileY)][floor(currTileX)][1].top
             
     if not flagX: bG.playerPosX = newABSPosX
+    else: cS.dX = 0
     if not flagY: bG.playerPosY = newABSPosY
+    else: cS.dY = 0
 
 def drawPlayer():
     pg.draw.rect(vH.screen, cS.playerColor, cS.playerRect)
+    print(bG.playerPosX, bG.playerPosY)
 
 def drawBackground():
     bG.moveAndDisplayBackground(bG.repasteableRoomSurface)
@@ -132,16 +136,32 @@ def handlingBulletUpdating():
 
         for bullet in cS.bulletHolster:
             bullet.updateAndDrawBullet(vH.screen, cS.dX, cS.dY, bG.playerPosX, bG.playerPosY)
-
-            # currX = bullet.posX / vH.tileSizeGlobal #Current Position in tiles
-            # currY = bullet.posY / vH.tileSizeGlobal #Current Position in tiles
-
-            # try:
-            #     if(noNoZone[int(currX + bullet.bulletSize)][int(currY + bullet.bulletSize)] == "wall"):
-            #         bulletHolster.remove(bullet)
-            #     elif (bullet.remFlag == True):
-            #         bulletHolster.remove(bullet)
-
-            # except IndexError:
-            #     bulletHolster.remove(bullet)
             if bullet.remFlag: cS.bulletHolster.remove(bullet)
+
+def handlingEnemyCreation():
+    eSpeed = 2
+    eSize = 20
+    eColor = pg.Color(255,0,0)
+    eDamage = 5
+    eHP = 20
+    eEXP = 10
+
+    if (randint(1, cS.enemyOneInFramesChance) == 1):
+        newXTile = randint(1, bG.currNumOfXTiles - 2)
+        newYTile = randint(1, bG.currNumOfXTiles - 2)
+        cS.enemyHolster.append(Enemy(
+            (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
+            (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
+            eSpeed,
+            eSize,
+            eColor,
+            eDamage,
+            eHP,
+            eEXP,
+            vH.frameRate
+        ))
+
+def handlingEnemyUpdatesAndDrawing():
+    for enemy in cS.enemyHolster:
+        enemy.updateEnemy(bG.lockX + cS.playerSize/2, bG.lockY + cS.playerSize/2, cS.dX, cS.dY)
+        enemy.drawEnemy(vH.screen)

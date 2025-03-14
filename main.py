@@ -23,6 +23,8 @@ def runGame():
     cH.drawPlayer()
     cH.handlingBulletCreation()
     cH.handlingBulletUpdating()
+    cH.handlingEnemyCreation()
+    cH.handlingEnemyUpdatesAndDrawing()
 
 
     paintAndClearScreen(vH.backgroundColor)
