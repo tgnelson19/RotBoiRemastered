@@ -145,35 +145,31 @@ def handlingEnemyCreation():
         eHP = 20
         eEXP = 10
         
-        if not cS.enemyCreated:
-            cS.enemyCreated = True
-    
-        
-            whichSideSpawned = randint(1,4)
-            if (whichSideSpawned <=2) : 
-                newXTile = randint(1, bG.currNumOfXTiles - 1)
-                if (whichSideSpawned == 1):
-                    newYTile = 1
-                else:
-                    newYTile = bG.currNumOfYTiles - 1
+        whichSideSpawned = randint(1,4)
+        if (whichSideSpawned <=2) : 
+            newXTile = randint(1, bG.currNumOfXTiles - 2)
+            if (whichSideSpawned == 1):
+                newYTile = 1
             else:
-                newYTile = randint(1, bG.currNumOfYTiles - 1)
-                if (whichSideSpawned == 3):
-                    newXTile = 1
-                else:
-                    newXTile = bG.currNumOfXTiles - 1
-            
-            cS.enemyHolster.append(Enemy(
-                (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
-                (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
-                eSpeed,
-                eSize,
-                eColor,
-                eDamage,
-                eHP,
-                eEXP,
-                vH.frameRate
-            ))
+                newYTile = bG.currNumOfYTiles - 2
+        else:
+            newYTile = randint(1, bG.currNumOfYTiles - 2)
+            if (whichSideSpawned == 3):
+                newXTile = 1
+            else:
+                newXTile = bG.currNumOfXTiles - 2
+        
+        cS.enemyHolster.append(Enemy(
+            (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
+            (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
+            eSpeed,
+            eSize,
+            eColor,
+            eDamage,
+            eHP,
+            eEXP,
+            vH.frameRate
+        ))
 
 def handlingEnemyUpdatesAndDrawing():
     for enemy in cS.enemyHolster:

@@ -43,7 +43,5 @@ defense = 0
 
 enemyOneInFramesChance = 360
 
-enemyCreated = False
-
 bulletHolster = []
 enemyHolster = []

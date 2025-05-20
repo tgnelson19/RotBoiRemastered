@@ -64,23 +64,27 @@ class Enemy:
         newTileLocXMax = ceil(newABSPosX / vH.tileSizeGlobal) #Exact tile to the right
         newTileLocYMax = ceil(newABSPosY / vH.tileSizeGlobal) #Exact tile to the bottom
         
-            # CASE: moving RIGHT
-        if dX < 0: 
-            if bG.currRoomRects[floor(postPDY)][newTileLocXMax][0] == 1: flagX = True
-            elif bG.currRoomRects[ceil(postPDY)][newTileLocXMax][0] == 1: flagX = True
-        # CASE: moving LEFT
-        elif dX > 0:
-            if bG.currRoomRects[ceil(postPDY)][newTileLocXMin][0] == 1: flagX = True
-            elif bG.currRoomRects[floor(postPDY)][newTileLocXMin][0] == 1: flagX = True
-        
-        # CASE: moving DOWN
-        if dY < 0:
-            if bG.currRoomRects[newTileLocYMax][floor(postPDX)][0] == 1: flagY = True
-            elif bG.currRoomRects[newTileLocYMax][ceil(postPDX)][0] == 1: flagY = True
-        # CASE: moving UP
-        elif dY > 0:
-            if bG.currRoomRects[newTileLocYMin][ceil(postPDX)][0] == 1: flagY = True
-            elif bG.currRoomRects[newTileLocYMin][floor(postPDX)][0] == 1: flagY = True
+        try:
+                # CASE: moving RIGHT
+            if dX < 0: 
+                if bG.currRoomRects[floor(postPDY)][newTileLocXMax][0] == 1: flagX = True
+                elif bG.currRoomRects[ceil(postPDY)][newTileLocXMax][0] == 1: flagX = True
+            # CASE: moving LEFT
+            elif dX > 0:
+                if bG.currRoomRects[ceil(postPDY)][newTileLocXMin][0] == 1: flagX = True
+                elif bG.currRoomRects[floor(postPDY)][newTileLocXMin][0] == 1: flagX = True
+            
+            # CASE: moving DOWN
+            if dY < 0:
+                if bG.currRoomRects[newTileLocYMax][floor(postPDX)][0] == 1: flagY = True
+                elif bG.currRoomRects[newTileLocYMax][ceil(postPDX)][0] == 1: flagY = True
+            # CASE: moving UP
+            elif dY > 0:
+                if bG.currRoomRects[newTileLocYMin][ceil(postPDX)][0] == 1: flagY = True
+                elif bG.currRoomRects[newTileLocYMin][floor(postPDX)][0] == 1: flagY = True
+                
+        except IndexError:
+            flagX, flagY = True, True
 
         if not flagX: self.posX -= dX
         else: dX = 0
