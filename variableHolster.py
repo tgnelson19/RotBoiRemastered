@@ -17,7 +17,7 @@ pg.display.set_caption("RotBoiRemastered")
 tileSizeGlobal = 40 #Global tile size that should hopefully not look too bad for people...
 frameRate = 240 #Default maximum framerate for the game to run at
 
-scalar = 2 #For future use for non-fullscreen gameplay
+scalar = 1 #For future use for non-fullscreen gameplay
 infoObject = pg.display.Info() # Gets info about native monitor res
 
 sW, sH = (infoObject.current_w/scalar, infoObject.current_h/scalar)

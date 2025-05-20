@@ -17,30 +17,35 @@ def main():
                 runLeveling()
         
 def runGame():
-    baseInputCollection()
-    cH.drawBackground()
+    
+    baseInputCollection() #Collects the inputs from the player
+    
+    cH.drawBackground() #Draws the base level background
+    
+    #Player Handling
     cH.movePlayer()
     cH.drawPlayer()
+    
+    #Bullet Handling
     cH.handlingBulletCreation()
     cH.handlingBulletUpdating()
+    
+    #Enemy Handling
     cH.handlingEnemyCreation()
     cH.handlingEnemyUpdatesAndDrawing()
 
-
+    #Paints and clears screen for next frame
     paintAndClearScreen(vH.backgroundColor)
 
     
 def runTitle():
     baseInputCollection()
 
-
-
     paintAndClearScreen(vH.backgroundColor)
     
     
 def runLeveling():
     baseInputCollection()
-
 
     paintAndClearScreen(vH.backgroundColor)
     

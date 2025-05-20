@@ -33,9 +33,6 @@ def movePlayer():
     currTileX = bG.playerPosX / vH.tileSizeGlobal
     currTileY = bG.playerPosY / vH.tileSizeGlobal
 
-    
-
-
     newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
     newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
     newTileLocXMax = ceil(newABSPosX / vH.tileSizeGlobal) #Exact tile to the right
@@ -147,8 +144,21 @@ def handlingEnemyCreation():
     eEXP = 10
 
     if (randint(1, cS.enemyOneInFramesChance) == 1):
-        newXTile = randint(1, bG.currNumOfXTiles - 2)
-        newYTile = randint(1, bG.currNumOfXTiles - 2)
+        
+        whichSideSpawned = randint(1,4)
+        if (whichSideSpawned <=2) : 
+            newXTile = randint(1, bG.currNumOfXTiles - 1)
+            if (whichSideSpawned == 1):
+                newYTile = 1
+            else:
+                newYTile = bG.currNumOfYTiles - 1
+        else:
+            newYTile = randint(1, bG.currNumOfYTiles - 1)
+            if (whichSideSpawned == 3):
+                newXTile = 1
+            else:
+                newXTile = bG.currNumOfXTiles - 1
+        
         cS.enemyHolster.append(Enemy(
             (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
             (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
