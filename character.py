@@ -30,8 +30,8 @@ def movePlayer():
     newABSPosY = ((bG.playerPosY) - cS.dY)
 
     #Current Exact position in TILES (float)
-    currTileX = bG.playerPosX / vH.tileSizeGlobal
-    currTileY = bG.playerPosY / vH.tileSizeGlobal
+    cS.currTileX = bG.playerPosX / vH.tileSizeGlobal
+    cS.currTileY = bG.playerPosY / vH.tileSizeGlobal
 
     newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
     newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
@@ -45,21 +45,21 @@ def movePlayer():
 
     # CASE: moving RIGHT
     if cS.dX < 0: 
-        if bG.currRoomRects[floor(currTileY)][newTileLocXMax][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[ceil(currTileY)][ceil(currTileX)][1].left
-        elif bG.currRoomRects[ceil(currTileY)][newTileLocXMax][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[ceil(currTileY)][ceil(currTileX)][1].left
+        if bG.currRoomRects[floor(cS.currTileY)][newTileLocXMax][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].left
+        elif bG.currRoomRects[ceil(cS.currTileY)][newTileLocXMax][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].left
     # CASE: moving LEFT
     elif cS.dX > 0:
-        if bG.currRoomRects[ceil(currTileY)][newTileLocXMin][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[floor(currTileY)][floor(currTileX)][1].left
-        elif bG.currRoomRects[floor(currTileY)][newTileLocXMin][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[floor(currTileY)][floor(currTileX)][1].left
+        if bG.currRoomRects[ceil(cS.currTileY)][newTileLocXMin][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].left
+        elif bG.currRoomRects[floor(cS.currTileY)][newTileLocXMin][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].left
     
     # CASE: moving DOWN
     if cS.dY < 0:
-        if bG.currRoomRects[newTileLocYMax][floor(currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[ceil(currTileY)][ceil(currTileX)][1].top
-        elif bG.currRoomRects[newTileLocYMax][ceil(currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[ceil(currTileY)][ceil(currTileX)][1].top
+        if bG.currRoomRects[newTileLocYMax][floor(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].top
+        elif bG.currRoomRects[newTileLocYMax][ceil(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].top
     # CASE: moving UP
     elif cS.dY > 0:
-        if bG.currRoomRects[newTileLocYMin][ceil(currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(currTileY)][floor(currTileX)][1].top
-        elif bG.currRoomRects[newTileLocYMin][floor(currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(currTileY)][floor(currTileX)][1].top
+        if bG.currRoomRects[newTileLocYMin][ceil(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].top
+        elif bG.currRoomRects[newTileLocYMin][floor(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].top
             
     if not flagX: bG.playerPosX = newABSPosX
     else: cS.dX = 0
@@ -68,7 +68,6 @@ def movePlayer():
 
 def drawPlayer():
     pg.draw.rect(vH.screen, cS.playerColor, cS.playerRect)
-    print(bG.playerPosX, bG.playerPosY)
 
 def drawBackground():
     bG.moveAndDisplayBackground(bG.repasteableRoomSurface)
@@ -136,40 +135,45 @@ def handlingBulletUpdating():
             if bullet.remFlag: cS.bulletHolster.remove(bullet)
 
 def handlingEnemyCreation():
-    eSpeed = 2
-    eSize = 20
-    eColor = pg.Color(255,0,0)
-    eDamage = 5
-    eHP = 20
-    eEXP = 10
-
+    
     if (randint(1, cS.enemyOneInFramesChance) == 1):
         
-        whichSideSpawned = randint(1,4)
-        if (whichSideSpawned <=2) : 
-            newXTile = randint(1, bG.currNumOfXTiles - 1)
-            if (whichSideSpawned == 1):
-                newYTile = 1
-            else:
-                newYTile = bG.currNumOfYTiles - 1
-        else:
-            newYTile = randint(1, bG.currNumOfYTiles - 1)
-            if (whichSideSpawned == 3):
-                newXTile = 1
-            else:
-                newXTile = bG.currNumOfXTiles - 1
+        eSpeed = 2
+        eSize = 40
+        eColor = pg.Color(255,0,0)
+        eDamage = 5
+        eHP = 20
+        eEXP = 10
         
-        cS.enemyHolster.append(Enemy(
-            (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
-            (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
-            eSpeed,
-            eSize,
-            eColor,
-            eDamage,
-            eHP,
-            eEXP,
-            vH.frameRate
-        ))
+        if not cS.enemyCreated:
+            cS.enemyCreated = True
+    
+        
+            whichSideSpawned = randint(1,4)
+            if (whichSideSpawned <=2) : 
+                newXTile = randint(1, bG.currNumOfXTiles - 1)
+                if (whichSideSpawned == 1):
+                    newYTile = 1
+                else:
+                    newYTile = bG.currNumOfYTiles - 1
+            else:
+                newYTile = randint(1, bG.currNumOfYTiles - 1)
+                if (whichSideSpawned == 3):
+                    newXTile = 1
+                else:
+                    newXTile = bG.currNumOfXTiles - 1
+            
+            cS.enemyHolster.append(Enemy(
+                (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
+                (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
+                eSpeed,
+                eSize,
+                eColor,
+                eDamage,
+                eHP,
+                eEXP,
+                vH.frameRate
+            ))
 
 def handlingEnemyUpdatesAndDrawing():
     for enemy in cS.enemyHolster:

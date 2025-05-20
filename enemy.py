@@ -2,6 +2,9 @@ import pygame
 from math import pi, atan, cos, sin
 from bullet import Bullet
 import background as bG
+from math import floor, ceil
+import variableHolster as vH
+import characterStats as cS
 
 #Collects basic enemy variables that are used for game calculations
 class Enemy:
@@ -40,6 +43,60 @@ class Enemy:
         else:
             if(deltaX > 0): self.direction = atan(deltaY/deltaX)
             else: deltaX = abs(self.posX - originX); self.direction = -atan(deltaY/deltaX) + pi
+            
+        dX = (self.speed*cos(self.direction) * (120/self.frameRate))
+        dY = (self.speed*sin(self.direction) * (120/self.frameRate))
+        
+        flagX, flagY = False, False
+            
+        currPosXG = (self.posX - bG.lockX)
+        currPosYG = (self.posY - bG.lockY)
+        
+        postPDX = cS.currTileX + (currPosXG/vH.tileSizeGlobal)
+        postPDY = cS.currTileY + (currPosYG/vH.tileSizeGlobal)
+        
+        #Current exact position
+        newABSPosX = (postPDX * vH.tileSizeGlobal) - dX
+        newABSPosY = (postPDY * vH.tileSizeGlobal) - dY
+        
+        newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
+        newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
+        newTileLocXMax = ceil(newABSPosX / vH.tileSizeGlobal) #Exact tile to the right
+        newTileLocYMax = ceil(newABSPosY / vH.tileSizeGlobal) #Exact tile to the bottom
+        
+            # CASE: moving RIGHT
+        if dX < 0: 
+            if bG.currRoomRects[floor(postPDY)][newTileLocXMax][0] == 1: flagX = True
+            elif bG.currRoomRects[ceil(postPDY)][newTileLocXMax][0] == 1: flagX = True
+        # CASE: moving LEFT
+        elif dX > 0:
+            if bG.currRoomRects[ceil(postPDY)][newTileLocXMin][0] == 1: flagX = True
+            elif bG.currRoomRects[floor(postPDY)][newTileLocXMin][0] == 1: flagX = True
+        
+        # CASE: moving DOWN
+        if dY < 0:
+            if bG.currRoomRects[newTileLocYMax][floor(postPDX)][0] == 1: flagY = True
+            elif bG.currRoomRects[newTileLocYMax][ceil(postPDX)][0] == 1: flagY = True
+        # CASE: moving UP
+        elif dY > 0:
+            if bG.currRoomRects[newTileLocYMin][ceil(postPDX)][0] == 1: flagY = True
+            elif bG.currRoomRects[newTileLocYMin][floor(postPDX)][0] == 1: flagY = True
 
-        self.posX -= (self.speed*cos(self.direction) * (120/self.frameRate)) - pDX
-        self.posY -= (self.speed*sin(self.direction) * (120/self.frameRate)) - pDY
+        if not flagX: self.posX -= dX
+        else: dX = 0
+        if not flagY: self.posY -= dY
+        else: dY = 0
+        
+        self.posX += pDX
+        self.posY += pDY
+        
+        
+        
+        
+        
+        
+        
+        
+
+        
+        

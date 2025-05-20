@@ -8,6 +8,9 @@ playerColor = pg.Color(0,0,120)
 
 dX, dY = 0, 0
 
+currTileX = 0
+currTileY = 0
+
 playerRect = pg.Rect(bG.lockX, bG.lockY, playerSize, playerSize)
 
 projectileCount = 1
@@ -38,7 +41,9 @@ healthPoints = 10
 maxHealthPoints = 10
 defense = 0
 
-enemyOneInFramesChance = 10
+enemyOneInFramesChance = 360
+
+enemyCreated = False
 
 bulletHolster = []
 enemyHolster = []
