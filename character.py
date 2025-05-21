@@ -4,6 +4,8 @@ import characterStats as cS
 import pygame as pg
 from bullet import Bullet
 from enemy import Enemy
+from damageText import DamageText
+from experienceBubble import ExperienceBubble
 
 from math import floor, ceil, pi, atan, trunc
 from random import randint
@@ -175,3 +177,81 @@ def handlingEnemyUpdatesAndDrawing():
     for enemy in cS.enemyHolster:
         enemy.updateEnemy(bG.lockX + cS.playerSize/2, bG.lockY + cS.playerSize/2, cS.dX, cS.dY)
         enemy.drawEnemy(vH.screen)
+        
+def handlingDamagingEnemies():
+    for bullet in cS.bulletHolster:
+            originX = bullet.posX + bullet.size/2
+            originY = bullet.posY + bullet.size/2
+            for eman in cS.enemyHolster:
+                if(originX + bullet.size/2 > eman.posX and originX - bullet.size/2< eman.posX + eman.size):
+                    if(originY + bullet.size/2> eman.posY and originY - bullet.size/2< eman.posY + eman.size):
+                        if (bullet not in eman.cantTouchMeList):
+                            eman.cantTouchMeList.append(bullet)
+                            bullet.bPierce -= 1
+                            if (bullet.bPierce <= 0):
+                                bullet.remFlag = True
+                            eman.hp -= bullet.damage
+                            if(bullet.currCrit):
+                                currColor = pg.Color(128,0,128)
+                            else:
+                                currColor = pg.Color(200,120,0)
+                            cS.damageTextList.append(DamageText(eman.posX, eman.posY, cS.damageTextSizeBase, currColor, bullet.damage, eman.size, vH.frameRate))
+                            if (eman.hp <= 0):
+                                cS.enemyHolster.remove(eman)
+                                cS.numOfEnemiesKilled += 1
+                                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), vH.frameRate))
+                                
+def updateDamageTexts():
+        for dText in cS.damageTextList:
+            dText.drawAndUpdateDamageText(cS.dX, cS.dY)
+            if (dText.deleteMe == True):
+                cS.damageTextList.remove(dText)
+                
+def updateExperience():
+        for bubble in cS.experienceList:
+            bubble.updateBubble(cS.auraSpeed, cS.dX, cS.dY)
+            
+def expForPlayer():
+    
+    for bubble in cS.experienceList:
+        if(bG.lockX + cS.playerSize > bubble.posX and bG.lockX < bubble.posX + bubble.size):
+            if(bG.lockY + cS.playerSize > bubble.posY and bG.lockY < bubble.posY + bubble.size):
+                cS.expCount += bubble.value
+                cS.experienceList.remove(bubble)
+
+        if(bG.lockX + cS.playerSize + cS.aura > bubble.posX and bG.lockX - cS.aura < bubble.posX + bubble.size):
+            if(bG.lockY + cS.playerSize + cS.aura > bubble.posY and bG.lockY - cS.aura < bubble.posY + bubble.size):
+
+                bubble.naturalSpawn = False
+                
+                originX = bG.lockX + cS.playerSize/2
+                originY = bG.lockY + cS.playerSize/2
+
+                #This is direct center x, y of player
+
+                deltaX = bubble.posX - originX
+                deltaY = bubble.posY - originY
+
+                #This is direct xhat, yhat vector towards player
+
+                if (deltaX == 0):
+                    if(deltaY > 0):
+                        bubble.direction = pi/2
+                    else:
+                        bubble.direction = -pi/2
+                else:
+                    
+                    if(deltaX > 0):
+
+                        bubble.direction = atan(deltaY/deltaX)
+                    else:
+                        deltaX = abs(bubble.posX - originX)
+
+                        bubble.direction = -atan(deltaY/deltaX) + pi
+            else:
+                bubble.naturalSpawn = True
+        else:
+            bubble.naturalSpawn = True
+    
+def drawInformationSheet():
+    cS.informationSheet.drawSheet()

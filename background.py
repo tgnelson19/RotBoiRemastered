@@ -52,11 +52,11 @@ currRoomRects = basicRoomRects
 #playerPosX = ((len(currRoomRects[0]) * vH.tileSizeGlobal)/2)
 #playerPosY = ((len(currRoomRects) * vH.tileSizeGlobal)/2)
 
-lockX = (vH.sW / 2)
+lockX = ((vH.sW * 0.75) / 2)
 lockY = (vH.sH / 2)
 
-playerPosX = 100
-playerPosY = 100
+playerPosX = 200
+playerPosY = 200
 
 currNumOfXTiles = len(currRoomRects[0])
 currNumOfYTiles = len(currRoomRects)

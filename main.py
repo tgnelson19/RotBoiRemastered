@@ -33,6 +33,13 @@ def runGame():
     #Enemy Handling
     cH.handlingEnemyCreation()
     cH.handlingEnemyUpdatesAndDrawing()
+    cH.handlingDamagingEnemies()
+    
+    cH.updateDamageTexts()
+    cH.updateExperience()
+    cH.expForPlayer()
+    
+    cH.drawInformationSheet()
 
     #Paints and clears screen for next frame
     paintAndClearScreen(vH.backgroundColor)

@@ -1,6 +1,7 @@
 import pygame as pg
 import variableHolster as vH
 import background as bG
+from informationSheet import InformationSheet
 
 playerSpeed = 3.5
 playerSize = vH.tileSizeGlobal
@@ -16,7 +17,7 @@ playerRect = pg.Rect(bG.lockX, bG.lockY, playerSize, playerSize)
 projectileCount = 1
 azimuthalProjectileAngle = 0
 
-attackCooldownStat = 20
+attackCooldownStat = 10
 attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
 
 bulletDamage = 1
@@ -33,6 +34,7 @@ auraSpeed = 4
 levelMod = 1.1
 xpMult = 1
 currentLevel = 0
+expCount = 0
 expNeededForNextLevel = 50
 baseExpNeededForNextLevel = 50
 levelScaleIncreaseFunction = 1.2
@@ -43,5 +45,16 @@ defense = 0
 
 enemyOneInFramesChance = 360
 
+damageTextSizeBase = 40
+
+numOfEnemiesKilled = 0
+currentStage = 1
+xpMult = 1
+experienceStageMod = 1.1
+
 bulletHolster = []
 enemyHolster = []
+damageTextList = []
+experienceList = []
+
+informationSheet = InformationSheet()
