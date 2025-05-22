@@ -10,6 +10,8 @@ class States(Enum):
     
 state = States.GAMERUN
 
+hasBeenReset = False
+
 environ['SDL_VIDEO_CENTERED'] = '1'
 pg.init()  # Initializes a window
 pg.display.set_caption("RotBoiRemastered")
@@ -17,7 +19,7 @@ pg.display.set_caption("RotBoiRemastered")
 tileSizeGlobal = 40 #Global tile size that should hopefully not look too bad for people...
 frameRate = 240 #Default maximum framerate for the game to run at
 
-scalar = 1.5 #For future use for non-fullscreen gameplay
+scalar = 2 #For future use for non-fullscreen gameplay
 infoObject = pg.display.Info() # Gets info about native monitor res
 
 sW, sH = (infoObject.current_w/scalar, infoObject.current_h/scalar)
@@ -43,3 +45,5 @@ mouseX = 0
 mouseY = 0
 
 backgroundColor = pg.Color(0,0,0)
+
+damageTextFont = pg.font.Font("media/coolveticarg.otf", 40)

@@ -12,20 +12,36 @@ from random import randint
 
 def movePlayer():
     global playerColor
-
-    #Velocity at current time
-    cS.dX, cS.dY = 0,0
-
-    if vH.keys[pg.K_w]: cS.dY += 1
-    if vH.keys[pg.K_a]: cS.dX += 1
-    if vH.keys[pg.K_s]: cS.dY -= 1
-    if vH.keys[pg.K_d]: cS.dX -= 1
     
-    if abs(cS.dX) + abs(cS.dY) == 2: scalar = 0.707
-    else: scalar = 1
+    if vH.keys[pg.K_SPACE] and cS.currDashCooldown == 0: cS.dashing = True; cS.currDashCooldown = cS.dashCooldownMax; cS.fdX = cS.dX; cS.fdY = cS.dY
+    
+    if cS.currDashCooldown > 0: cS.currDashCooldown -= 1
+    
+    if(not cS.dashing):
 
-    #Now we have velocities scaled by diagonal if needed
-    cS.dX, cS.dY = cS.dX * scalar * cS.playerSpeed * (120/vH.frameRate), cS.dY * scalar * cS.playerSpeed * (120/vH.frameRate)
+        #Velocity at current time
+        cS.dX, cS.dY = 0,0
+
+        if vH.keys[pg.K_w]: cS.dY += 1
+        if vH.keys[pg.K_a]: cS.dX += 1
+        if vH.keys[pg.K_s]: cS.dY -= 1
+        if vH.keys[pg.K_d]: cS.dX -= 1
+        
+        if abs(cS.dX) + abs(cS.dY) == 2: scalar = 0.707
+        else: scalar = 1
+
+        #Now we have velocities scaled by diagonal if needed
+        cS.dX, cS.dY = cS.dX * scalar * cS.playerSpeed * (120/vH.frameRate), cS.dY * scalar * cS.playerSpeed * (120/vH.frameRate)
+    
+    else:
+        if abs(cS.dX) + abs(cS.dY) == 2: scalar = 0.707
+        else: scalar = 1
+        
+        #Now we have velocities scaled by diagonal if needed
+        cS.dX, cS.dY = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * (120/vH.frameRate), cS.fdY * scalar * cS.playerSpeed * (120/vH.frameRate)
+        
+        if cS.currDashCooldown <= (cS.dashCooldownMax - cS.dashDuration):
+            cS.dashing = False
 
     #FUTURE exact position (NOT TILES) (floats)
     newABSPosX = ((bG.playerPosX) - cS.dX)
@@ -195,7 +211,7 @@ def handlingDamagingEnemies():
                                 currColor = pg.Color(128,0,128)
                             else:
                                 currColor = pg.Color(200,120,0)
-                            cS.damageTextList.append(DamageText(eman.posX, eman.posY, cS.damageTextSizeBase, currColor, bullet.damage, eman.size, vH.frameRate))
+                            cS.damageTextList.append(DamageText(eman.posX, eman.posY, currColor, bullet.damage, eman.size, vH.frameRate))
                             if (eman.hp <= 0):
                                 cS.enemyHolster.remove(eman)
                                 cS.numOfEnemiesKilled += 1
@@ -217,6 +233,12 @@ def expForPlayer():
         if(bG.lockX + cS.playerSize > bubble.posX and bG.lockX < bubble.posX + bubble.size):
             if(bG.lockY + cS.playerSize > bubble.posY and bG.lockY < bubble.posY + bubble.size):
                 cS.expCount += bubble.value
+                
+                while (cS.expCount >= cS.expNeededForNextLevel):
+                    cS.currentLevel += 1
+                    cS.expCount -= cS.expNeededForNextLevel
+                    cS.informationSheet.updateCurrLevel()
+                
                 cS.experienceList.remove(bubble)
 
         if(bG.lockX + cS.playerSize + cS.aura > bubble.posX and bG.lockX - cS.aura < bubble.posX + bubble.size):
@@ -252,6 +274,23 @@ def expForPlayer():
                 bubble.naturalSpawn = True
         else:
             bubble.naturalSpawn = True
+            
+def hurtPlayer():
+    for eman in cS.enemyHolster:
+        if(bG.lockX + cS.playerSize > eman.posX and bG.lockX < eman.posX + eman.size):
+            if(bG.lockY + cS.playerSize > eman.posY and bG.lockY < eman.posY + eman.size):
+                cS.numOfEnemiesKilled += 1
+                cS.enemyHolster.remove(eman)
+                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult* (eman.expValue*(cS.currentStage*cS.experienceStageMod)), vH.frameRate))
+                trueDMG = eman.damage - cS.defense
+                if (trueDMG < 0):
+                    trueDMG = 0
+                cS.damageTextList.append(DamageText(bG.lockX, bG.lockY, pg.Color(200,100,0), trueDMG, vH.tileSizeGlobal, vH.frameRate))
+                
+                cS.healthPoints -= trueDMG
+                if (cS.healthPoints <= 0):
+                    vH.state = vH.States.TITLESCREEN
+                    cS.highestLevel = cS.currentLevel
     
 def drawInformationSheet():
     cS.informationSheet.drawSheet()

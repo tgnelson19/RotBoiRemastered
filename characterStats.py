@@ -3,6 +3,8 @@ import variableHolster as vH
 import background as bG
 from informationSheet import InformationSheet
 
+highestLevel = 0
+
 playerSpeed = 3.5
 playerSize = vH.tileSizeGlobal
 playerColor = pg.Color(0,0,120)
@@ -20,7 +22,7 @@ azimuthalProjectileAngle = 0
 attackCooldownStat = 10
 attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
 
-bulletDamage = 1
+bulletDamage = 10
 bulletSpeed = 5
 bulletRange = 200
 bulletSize = vH.tileSizeGlobal / 2
@@ -45,12 +47,20 @@ defense = 0
 
 enemyOneInFramesChance = 360
 
-damageTextSizeBase = 40
-
 numOfEnemiesKilled = 0
 currentStage = 1
 xpMult = 1
 experienceStageMod = 1.1
+
+dashDuration = vH.frameRate * 0.1
+dashing = False
+
+dashModifier = 4
+
+dashCooldownMax = vH.frameRate * 1
+currDashCooldown = 0
+
+fdX, fdY = 0, 0
 
 bulletHolster = []
 enemyHolster = []

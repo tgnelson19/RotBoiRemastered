@@ -1,6 +1,7 @@
 import variableHolster as vH
 import character as cH
 import pygame as pg
+import characterStats as cS
 
 #Main Function
 def main():
@@ -17,6 +18,9 @@ def main():
                 runLeveling()
         
 def runGame():
+    
+    if vH.hasBeenReset:
+        vH.hasBeenReset = False
     
     baseInputCollection() #Collects the inputs from the player
     
@@ -38,6 +42,7 @@ def runGame():
     cH.updateDamageTexts()
     cH.updateExperience()
     cH.expForPlayer()
+    cH.hurtPlayer()
     
     cH.drawInformationSheet()
 
@@ -47,6 +52,9 @@ def runGame():
     
 def runTitle():
     baseInputCollection()
+    
+    if not vH.hasBeenReset:
+        vH.hasBeenReset = True
 
     paintAndClearScreen(vH.backgroundColor)
     
@@ -65,6 +73,7 @@ def baseInputCollection():
         if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
         if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
     if vH.keys[pg.K_ESCAPE]: vH.done = True
+    if vH.keys[pg.K_l]: vH.state = vH.States.GAMERUN
     vH.mouseX, vH.mouseY = pg.mouse.get_pos() # Saves current mouse position
 
 def paintAndClearScreen(color):
