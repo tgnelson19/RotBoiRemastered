@@ -74,8 +74,12 @@ def baseInputCollection():
         if event.type == pg.QUIT: vH.done = True  # Close the entire program when windows x is clicked
         if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
         if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
+    if cS.autoFire: vH.mouseDown = True
+    if vH.keys[pg.K_i]: 
+        if (not cS.autoFire): cS.autoFire = True
+        else: cS.autoFire = False
     if vH.keys[pg.K_ESCAPE]: vH.done = True
-    if vH.keys[pg.K_l]: vH.state = vH.States.GAMERUN
+    
     vH.mouseX, vH.mouseY = pg.mouse.get_pos() # Saves current mouse position
 
 def paintAndClearScreen(color):

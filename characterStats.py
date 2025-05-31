@@ -61,6 +61,8 @@ dashModifier = 4
 dashCooldownMax = vH.frameRate * 1
 currDashCooldown = 0
 
+autoFire = False
+
 fdX, fdY = 0, 0
 
 bulletHolster = []
