@@ -7,6 +7,7 @@ from enemy import Enemy
 from damageText import DamageText
 from experienceBubble import ExperienceBubble
 from informationSheet import InformationSheet
+from levelingHandler import LevelingHandler
 
 from math import floor, ceil, pi, atan, trunc
 from random import randint
@@ -16,6 +17,9 @@ from random import randint
 #   This is bad design, but I am working on figuring out a way to reset the stats without using this
 #   Also note that some stats are located in different sheets and must be accounted for as well
 #
+
+titleFont = pg.font.Font("media/coolveticarg.otf", int(vH.tileSizeGlobal*(2/3)))
+textColor = (245,245,220)
 
 def resetAllStats():
     
@@ -85,6 +89,83 @@ def resetAllStats():
     cS.experienceList = []
 
     cS.informationSheet = InformationSheet()
+    
+    cS.levelingHandler = LevelingHandler()
+    
+    cS.newRandoUps = False
+    
+    cS.collectiveStats = {"Defense" : cS.defense, "Bullet Pierce" : cS.bulletPierce, "Bullet Count" : cS.projectileCount, "Spread Angle" : cS.azimuthalProjectileAngle, 
+                                  "Attack Speed" : cS.attackCooldownStat, "Bullet Speed" : cS.bulletSpeed, "Bullet Range" : cS.bulletRange, "Bullet Damage" : cS.bulletDamage, 
+                                  "Bullet Size" : cS.bulletSize, "Player Speed" : cS.playerSpeed, "Crit Chance" : cS.critChance, "Crit Damage" : cS.critDamage, 
+                                  "Aura Size" : cS.aura, "Aura Strength" : cS.auraSpeed, "Exp Multiplier": cS.xpMult}
+        
+    cS.collectiveAddStats = {"Defense" : [0], "Bullet Pierce" : [0], "Bullet Count" : [0], "Spread Angle" : [0], 
+                                "Attack Speed" : [0], "Bullet Speed" : [0], "Bullet Range" : [0], "Bullet Damage" : [0], 
+                                "Bullet Size" : [0], "Player Speed" : [0], "Crit Chance": [0], "Crit Damage": [0],
+                                "Aura Size" : [0], "Aura Strength" : [0], "Exp Multiplier": [0]}
+    
+    cS.collectiveMultStats = {"Defense" : [1], "Bullet Pierce" : [1], "Bullet Count" : [1], "Spread Angle" : [1], 
+                                "Attack Speed" : [1], "Bullet Speed" : [1], "Bullet Range" : [1], "Bullet Damage" : [1], 
+                                "Bullet Size" : [1], "Player Speed" : [1], "Crit Chance": [1], "Crit Damage": [1],
+                                "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
+    
+def multiply_list(list):
+        result = 1
+        for num in list:
+            result *= num
+        return result
+    
+def combarinoPlayerStats():
+    cS.projectileCount = (cS.collectiveStats["Bullet Count"] + sum(cS.collectiveAddStats["Bullet Count"])) * (multiply_list(cS.collectiveMultStats["Bullet Count"]))
+    cS.azimuthalProjectileAngle = (cS.collectiveStats["Spread Angle"] + sum(cS.collectiveAddStats["Spread Angle"])) * (multiply_list(cS.collectiveMultStats["Spread Angle"]))
+    cS.playerSpeed = (cS.collectiveStats["Player Speed"] + sum(cS.collectiveAddStats["Player Speed"])) * (multiply_list(cS.collectiveMultStats["Player Speed"]))
+    cS.attackCooldownStat = (cS.collectiveStats["Attack Speed"] + sum(cS.collectiveAddStats["Attack Speed"])) * (multiply_list(cS.collectiveMultStats["Attack Speed"]))
+    if(cS.attackCooldownStat <= 1): cS.attackCooldownStat = 1
+    cS.bulletSpeed = (cS.collectiveStats["Bullet Speed"] + sum(cS.collectiveAddStats["Bullet Speed"])) * (multiply_list(cS.collectiveMultStats["Bullet Speed"]))
+    cS.bulletRange = (cS.collectiveStats["Bullet Range"] + sum(cS.collectiveAddStats["Bullet Range"])) * (multiply_list(cS.collectiveMultStats["Bullet Range"]))
+    cS.bulletSize = (cS.collectiveStats["Bullet Size"] + sum(cS.collectiveAddStats["Bullet Size"])) * (multiply_list(cS.collectiveMultStats["Bullet Size"]))
+    cS.bulletDamage = (cS.collectiveStats["Bullet Damage"] + sum(cS.collectiveAddStats["Bullet Damage"])) * (multiply_list(cS.collectiveMultStats["Bullet Damage"]))
+    cS.bulletPierce = (cS.collectiveStats["Bullet Pierce"] + sum(cS.collectiveAddStats["Bullet Pierce"])) * (multiply_list(cS.collectiveMultStats["Bullet Pierce"]))
+    cS.defense = (cS.collectiveStats["Defense"] + sum(cS.collectiveAddStats["Defense"])) * (multiply_list(cS.collectiveMultStats["Defense"]))
+    cS.critChance = (cS.collectiveStats["Crit Chance"] + sum(cS.collectiveAddStats["Crit Chance"])) * (multiply_list(cS.collectiveMultStats["Crit Chance"]))
+    cS.critDamage = (cS.collectiveStats["Crit Damage"] + sum(cS.collectiveAddStats["Crit Damage"])) * (multiply_list(cS.collectiveMultStats["Crit Damage"]))
+    cS.aura = (cS.collectiveStats["Aura Size"] + sum(cS.collectiveAddStats["Aura Size"])) * (multiply_list(cS.collectiveMultStats["Aura Size"]))
+    cS.auraSpeed = (cS.collectiveStats["Aura Strength"] + sum(cS.collectiveAddStats["Aura Strength"])) * (multiply_list(cS.collectiveMultStats["Aura Strength"]))
+    cS.xpMult = (cS.collectiveStats["Exp Multiplier"]+ sum(cS.collectiveAddStats["Exp Multiplier"])) * (multiply_list(cS.collectiveMultStats["Exp Multiplier"]))
+
+def handleLevelingProcess():
+    
+    if (not cS.newRandoUps):
+        cS.levelingHandler.randomizeLevelUp()
+        cS.newRandoUps = True
+
+    cS.levelingHandler.drawCards()
+    
+    pDecision = cS.levelingHandler.PlayerClicked()
+
+    if (pDecision == "leftCard"):
+        if (cS.levelingHandler.leftCardUpgradeMath == "addative"):
+            cS.collectiveAddStats[cS.levelingHandler.leftCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.leftCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.leftCardUpgradeType])
+        if (cS.levelingHandler.leftCardUpgradeMath == "multiplicative"):
+            cS.collectiveMultStats[cS.levelingHandler.leftCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.leftCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.leftCardUpgradeType])
+
+    elif (pDecision == "midCard"):
+        if (cS.levelingHandler.midCardUpgradeMath == "addative"):
+            cS.collectiveAddStats[cS.levelingHandler.midCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.midCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.midCardUpgradeType])
+        if (cS.levelingHandler.midCardUpgradeMath == "multiplicative"):
+            cS.collectiveMultStats[cS.levelingHandler.midCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.midCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.midCardUpgradeType])
+
+    elif (pDecision == "rightCard"):
+        if (cS.levelingHandler.rightCardUpgradeMath == "addative"):
+            cS.collectiveAddStats[cS.levelingHandler.rightCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.rightCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.rightCardUpgradeType])
+        if (cS.levelingHandler.rightCardUpgradeMath == "multiplicative"):
+            cS.collectiveMultStats[cS.levelingHandler.rightCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.rightCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.rightCardUpgradeType])
+
+    if (pDecision != "none"):
+        combarinoPlayerStats()
+        cS.newRandoUps = False
+        cS.gracePeriod = vH.frameRate * 2
+        vH.state = vH.States.GAMERUN
 
 def movePlayer():
     global playerColor
@@ -314,6 +395,7 @@ def expForPlayer():
                     cS.currentLevel += 1
                     cS.expCount -= cS.expNeededForNextLevel
                     cS.informationSheet.updateCurrLevel()
+                    vH.state = vH.States.LEVELING
                 
                 cS.experienceList.remove(bubble)
 
@@ -370,3 +452,23 @@ def hurtPlayer():
     
 def drawInformationSheet():
     cS.informationSheet.drawSheet()
+    
+def runTheTitleScreen():
+    
+    #Displays title texts on title screen
+    textRender = titleFont.render("RbR : Press Space To Play", True, textColor)
+    textRect = textRender.get_rect(center = (vH.sW/2, vH.sH/2))
+    vH.screen.blit(textRender, textRect)
+
+    textRender = titleFont.render("WASD to Move, Mouse to Shoot, I to Autofire, O for light/dark mode", True, textColor)
+    textRect = textRender.get_rect(center = (vH.sW/2, vH.sH*(2/3)))
+    vH.screen.blit(textRender, textRect)
+
+    textRender = titleFont.render("Highest Level So Far: " + str(cS.highestLevel), True, textColor)
+    textRect = textRender.get_rect(center = (vH.sW/2, vH.sH*(4/5)))
+    vH.screen.blit(textRender, textRect)
+
+    if (vH.keys[pg.K_SPACE]):
+        vH.state = vH.States.GAMERUN
+        cS.highestLevel = 0
+        

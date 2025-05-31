@@ -48,7 +48,13 @@ def runGame():
 
     #Paints and clears screen for next frame
     paintAndClearScreen(vH.backgroundColor)
-
+    
+def runLeveling():
+    baseInputCollection()
+    
+    cH.handleLevelingProcess()
+    
+    paintAndClearScreen(vH.backgroundColor)
     
 def runTitle():
     baseInputCollection()
@@ -56,15 +62,10 @@ def runTitle():
     if not vH.hasBeenReset:
         cH.resetAllStats()
         vH.hasBeenReset = True
+        
+    cH.runTheTitleScreen()
 
     paintAndClearScreen(vH.backgroundColor)
-    
-    
-def runLeveling():
-    baseInputCollection()
-
-    paintAndClearScreen(vH.backgroundColor)
-    
     
 def baseInputCollection():
     vH.clock.tick(vH.frameRate)
