@@ -54,6 +54,7 @@ def runTitle():
     baseInputCollection()
     
     if not vH.hasBeenReset:
+        cH.resetAllStats()
         vH.hasBeenReset = True
 
     paintAndClearScreen(vH.backgroundColor)

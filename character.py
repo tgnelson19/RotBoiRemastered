@@ -6,9 +6,85 @@ from bullet import Bullet
 from enemy import Enemy
 from damageText import DamageText
 from experienceBubble import ExperienceBubble
+from informationSheet import InformationSheet
 
 from math import floor, ceil, pi, atan, trunc
 from random import randint
+
+#
+#   Warning, all stats added to character stats needs to be included in reset here in order to be reset
+#   This is bad design, but I am working on figuring out a way to reset the stats without using this
+#   Also note that some stats are located in different sheets and must be accounted for as well
+#
+
+def resetAllStats():
+    
+    bG.playerPosX = 200
+    bG.playerPosY = 200
+    
+    cS.playerSpeed = 3.5
+    cS.playerSize = vH.tileSizeGlobal
+    cS.playerColor = pg.Color(0,0,120)
+
+    cS.dX, dY = 0, 0
+
+    cS.currTileX = 0
+    cS.currTileY = 0
+
+    cS.playerRect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
+
+    cS.projectileCount = 1
+    cS.azimuthalProjectileAngle = 0
+
+    cS.attackCooldownStat = 10
+    cS.attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
+
+    cS.bulletDamage = 10
+    cS.bulletSpeed = 5
+    cS.bulletRange = 200
+    cS.bulletSize = vH.tileSizeGlobal / 2
+    cS.bulletColor = pg.Color(125,125,125)
+    cS.bulletPierce = 1
+    cS.critChance = 0.05
+    cS.critDamage = 2
+
+    cS.aura = 50
+    cS.auraSpeed = 4
+    cS.levelMod = 1.1
+    cS.xpMult = 1
+    cS.currentLevel = 0
+    cS.expCount = 0
+    cS.expNeededForNextLevel = 50
+    cS.baseExpNeededForNextLevel = 50
+    cS.levelScaleIncreaseFunction = 1.2
+
+    cS.healthPoints = 10
+    cS.maxHealthPoints = 10
+    cS.defense = 0
+
+    cS.enemyOneInFramesChance = 360
+
+    cS.numOfEnemiesKilled = 0
+    cS.currentStage = 1
+    cS.xpMult = 1
+    cS.experienceStageMod = 1.1
+
+    cS.dashDuration = vH.frameRate * 0.1
+    cS.dashing = False
+
+    cS.dashModifier = 4
+
+    cS.dashCooldownMax = vH.frameRate * 1
+    cS.currDashCooldown = 0
+
+    cS.fdX, cS.fdY = 0, 0
+
+    cS.bulletHolster = []
+    cS.enemyHolster = []
+    cS.damageTextList = []
+    cS.experienceList = []
+
+    cS.informationSheet = InformationSheet()
 
 def movePlayer():
     global playerColor
