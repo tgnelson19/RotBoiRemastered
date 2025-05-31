@@ -195,7 +195,7 @@ def movePlayer():
         else: scalar = 1
         
         #Now we have velocities scaled by diagonal if needed
-        cS.dX, cS.dY = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * (120/vH.frameRate), cS.fdY * scalar * cS.playerSpeed * (120/vH.frameRate)
+        cS.dX, cS.dY = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * (120/vH.frameRate), cS.fdY * scalar * cS.dashModifier * cS.playerSpeed * (120/vH.frameRate)
         
         if cS.currDashCooldown <= (cS.dashCooldownMax - cS.dashDuration):
             cS.dashing = False

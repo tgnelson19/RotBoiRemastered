@@ -18,7 +18,7 @@ currTileY = 0
 playerRect = pg.Rect(bG.lockX, bG.lockY, playerSize, playerSize)
 
 projectileCount = 1
-azimuthalProjectileAngle = 0
+azimuthalProjectileAngle = 25
 
 attackCooldownStat = 10
 attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
@@ -91,4 +91,4 @@ collectiveMultStats = {"Defense" : [1], "Bullet Pierce" : [1], "Bullet Count" : 
                             "Bullet Size" : [1], "Player Speed" : [1], "Crit Chance": [1], "Crit Damage": [1],
                             "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
 
-gracePeriod = 2
+gracePeriod = 10
