@@ -40,7 +40,7 @@ def resetAllStats():
 
     cS.playerRect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
 
-    cS.projectileCount = 2
+    cS.projectileCount = 1
     cS.azimuthalProjectileAngle = pi/8
 
     cS.attackCooldownStat = 40
@@ -48,7 +48,7 @@ def resetAllStats():
 
     cS.bulletDamage = 1
     cS.bulletSpeed = 4
-    cS.bulletRange = 150
+    cS.bulletRange = 250
     cS.bulletSize = vH.tileSizeGlobal / 2
     cS.bulletColor = pg.Color(125,125,125)
     cS.bulletPierce = 1
@@ -252,7 +252,7 @@ def drawBackground():
 
 def handlingBulletCreation():
 
-    if (cS.attackCooldownTimer <= 0 and vH.mouseDown):
+    if (cS.attackCooldownTimer <= 0 and (cS.autoFire or vH.mouseDown)):
         cS.attackCooldownTimer = cS.attackCooldownStat
 
         currCrit = False
@@ -400,6 +400,7 @@ def expForPlayer():
                     cS.informationSheet.updateCurrLevel()
                     cS.expNeededForNextLevel *= cS.levelScaleIncreaseFunction
                     cS.healthPoints = cS.maxHealthPoints
+                    cS.enemyOneInFramesChance = cS.enemyOneInFramesChance / (cS.levelMod)
                     vH.state = vH.States.LEVELING
                 
                 cS.experienceList.remove(bubble)

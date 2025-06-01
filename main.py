@@ -70,15 +70,22 @@ def runTitle():
 def baseInputCollection():
     vH.clock.tick(vH.frameRate)
     vH.keys = pg.key.get_pressed()
+    
+    if vH.keys[pg.K_i]: 
+        if (not cS.autoFire and not cS.autoFlop): cS.autoFire = True; cS.autoFlop = True
+        elif (not cS.autoFlop): cS.autoFire = False; cS.autoFlop = True
+    else: cS.autoFlop = False
+    
+    print(cS.autoFire, cS.autoFlop)
+        
     for event in pg.event.get():
         if event.type == pg.QUIT: vH.done = True  # Close the entire program when windows x is clicked
         if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
         if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
-    if cS.autoFire: vH.mouseDown = True
     
-    if vH.keys[pg.K_i]: 
-        if (not cS.autoFire): cS.autoFire = True
-        else: cS.autoFire = False
+    
+    
+    
         
     if vH.keys[pg.K_ESCAPE]: vH.done = True
     

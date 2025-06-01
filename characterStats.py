@@ -62,6 +62,7 @@ dashCooldownMax = vH.frameRate * 1
 currDashCooldown = 0
 
 autoFire = False
+autoFlop = False
 
 fdX, fdY = 0, 0
 
