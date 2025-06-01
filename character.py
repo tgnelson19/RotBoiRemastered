@@ -8,6 +8,7 @@ from damageText import DamageText
 from experienceBubble import ExperienceBubble
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
+from math import pi
 
 from math import floor, ceil, pi, atan, trunc
 from random import randint
@@ -16,6 +17,8 @@ from random import randint
 #   Warning, all stats added to character stats needs to be included in reset here in order to be reset
 #   This is bad design, but I am working on figuring out a way to reset the stats without using this
 #   Also note that some stats are located in different sheets and must be accounted for as well
+#
+#   FOR QUICK STAT MODIFICATIONS CHANGE THEM HERE
 #
 
 titleFont = pg.font.Font("media/coolveticarg.otf", int(vH.tileSizeGlobal*(2/3)))
@@ -26,7 +29,7 @@ def resetAllStats():
     bG.playerPosX = 200
     bG.playerPosY = 200
     
-    cS.playerSpeed = 3.5
+    cS.playerSpeed = 2.5
     cS.playerSize = vH.tileSizeGlobal
     cS.playerColor = pg.Color(0,0,120)
 
@@ -37,15 +40,15 @@ def resetAllStats():
 
     cS.playerRect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
 
-    cS.projectileCount = 1
-    cS.azimuthalProjectileAngle = 0
+    cS.projectileCount = 2
+    cS.azimuthalProjectileAngle = pi/8
 
-    cS.attackCooldownStat = 10
+    cS.attackCooldownStat = 40
     cS.attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
 
-    cS.bulletDamage = 10
-    cS.bulletSpeed = 5
-    cS.bulletRange = 200
+    cS.bulletDamage = 1
+    cS.bulletSpeed = 4
+    cS.bulletRange = 150
     cS.bulletSize = vH.tileSizeGlobal / 2
     cS.bulletColor = pg.Color(125,125,125)
     cS.bulletPierce = 1
@@ -53,13 +56,13 @@ def resetAllStats():
     cS.critDamage = 2
 
     cS.aura = 50
-    cS.auraSpeed = 4
+    cS.auraSpeed = 2
     cS.levelMod = 1.1
     cS.xpMult = 1
     cS.currentLevel = 0
     cS.expCount = 0
-    cS.expNeededForNextLevel = 50
-    cS.baseExpNeededForNextLevel = 50
+    cS.expNeededForNextLevel = 25
+    cS.baseExpNeededForNextLevel = 25
     cS.levelScaleIncreaseFunction = 1.2
 
     cS.healthPoints = 10
@@ -249,58 +252,58 @@ def drawBackground():
 
 def handlingBulletCreation():
 
-        if (cS.attackCooldownTimer <= 0 and vH.mouseDown):
-            cS.attackCooldownTimer = cS.attackCooldownStat
+    if (cS.attackCooldownTimer <= 0 and vH.mouseDown):
+        cS.attackCooldownTimer = cS.attackCooldownStat
 
-            currCrit = False
-            currCritChance = floor(cS.critChance)
-            chance = randint(1, 100)
-            if (chance <= 100*(cS.critChance - trunc(cS.critChance))): currCrit = True; currCritChance = floor(cS.critChance) + 1
-            currDamage = cS.bulletDamage * (cS.critDamage **(currCritChance))
+        currCrit = False
+        currCritChance = floor(cS.critChance)
+        chance = randint(1, 100)
+        if (chance <= 100*(cS.critChance - trunc(cS.critChance))): currCrit = True; currCritChance = floor(cS.critChance) + 1
+        currDamage = cS.bulletDamage * (cS.critDamage **(currCritChance))
 
-            currProjectileCount = floor(cS.projectileCount)
-            chance = randint(1, 100)
-            if (chance <= 100*(cS.projectileCount - trunc(cS.projectileCount))): currProjectileCount = floor(cS.projectileCount) + 1
+        currProjectileCount = floor(cS.projectileCount)
+        chance = randint(1, 100)
+        if (chance <= 100*(cS.projectileCount - trunc(cS.projectileCount))): currProjectileCount = floor(cS.projectileCount) + 1
 
-            currPierce = floor(cS.bulletPierce)
-            chance = randint(1, 100)
-            if (chance <= 100*(cS.bulletPierce - trunc(cS.bulletPierce))): currPierce = floor(cS.bulletPierce) + 1
+        currPierce = floor(cS.bulletPierce)
+        chance = randint(1, 100)
+        if (chance <= 100*(cS.bulletPierce - trunc(cS.bulletPierce))): currPierce = floor(cS.bulletPierce) + 1
 
-            for bNum in range(0,int(currProjectileCount)):
-                
-                originX, originY = bG.lockX + (cS.playerSize / 2), bG.lockY + (cS.playerSize / 2)
-                deltaX, deltaY = vH.mouseX - originX, vH.mouseY - originY
-                direction = 0
+        for bNum in range(0,int(currProjectileCount)):
+            
+            originX, originY = bG.lockX + (cS.playerSize / 2), bG.lockY + (cS.playerSize / 2)
+            deltaX, deltaY = vH.mouseX - originX, vH.mouseY - originY
+            direction = 0
 
-                if (deltaX == 0):
-                    if(deltaY > 0): direction = 0
-                    else: direction = -pi
-                else:
-                    if(deltaX > 0): direction = -atan(deltaY/deltaX)
-                    else: deltaX = abs(vH.mouseX - originX); direction = atan(deltaY/deltaX) + pi
+            if (deltaX == 0):
+                if(deltaY > 0): direction = 0
+                else: direction = -pi
+            else:
+                if(deltaX > 0): direction = -atan(deltaY/deltaX)
+                else: deltaX = abs(vH.mouseX - originX); direction = atan(deltaY/deltaX) + pi
 
-                if(currProjectileCount != 1):
-                    dirDelta = -(cS.azimuthalProjectileAngle / 2)
-                    direction += dirDelta + bNum*(cS.azimuthalProjectileAngle / (currProjectileCount-1))
+            if(currProjectileCount != 1):
+                dirDelta = -(cS.azimuthalProjectileAngle / 2)
+                direction += dirDelta + bNum*(cS.azimuthalProjectileAngle / (currProjectileCount-1))
 
-                cS.bulletHolster.append(Bullet(bG.lockX + (cS.playerSize / 2) - (cS.bulletSize / 2),
-                                                bG.lockY + (cS.playerSize / 2) - (cS.bulletSize / 2),
-                                                cS.dX,
-                                                cS.dY,
-                                                cS.bulletSpeed,
-                                                direction,
-                                                cS.bulletRange,
-                                                cS.bulletSize,
-                                                cS.bulletColor,
-                                                currPierce,
-                                                currDamage,
-                                                currCrit,
-                                                vH.sW,
-                                                vH.sH,
-                                                vH.frameRate))
+            cS.bulletHolster.append(Bullet(bG.lockX + (cS.playerSize / 2) - (cS.bulletSize / 2),
+                                            bG.lockY + (cS.playerSize / 2) - (cS.bulletSize / 2),
+                                            cS.dX,
+                                            cS.dY,
+                                            cS.bulletSpeed,
+                                            direction,
+                                            cS.bulletRange,
+                                            cS.bulletSize,
+                                            cS.bulletColor,
+                                            currPierce,
+                                            currDamage,
+                                            currCrit,
+                                            vH.sW,
+                                            vH.sH,
+                                            vH.frameRate))
 
-        elif(cS.attackCooldownTimer > 0):
-            cS.attackCooldownTimer -= 1 * (120/vH.frameRate)
+    elif(cS.attackCooldownTimer > 0):
+        cS.attackCooldownTimer -= 1 * (120/vH.frameRate)
 
 
 def handlingBulletUpdating():
@@ -313,12 +316,12 @@ def handlingEnemyCreation():
     
     if (randint(1, cS.enemyOneInFramesChance) == 1):
         
-        eSpeed = 2
-        eSize = 40
+        eSpeed = 1 * (cS.levelMod ** cS.currentLevel)
+        eSize = vH.tileSizeGlobal
         eColor = pg.Color(255,0,0)
-        eDamage = 5
-        eHP = 20
-        eEXP = 10
+        eDamage = 1 * (cS.levelMod ** cS.currentLevel)
+        eHP = 3 * (cS.levelMod ** cS.currentLevel)
+        eEXP = 3 * (cS.levelMod ** cS.currentLevel)
         
         whichSideSpawned = randint(1,4)
         if (whichSideSpawned <=2) : 
@@ -395,6 +398,8 @@ def expForPlayer():
                     cS.currentLevel += 1
                     cS.expCount -= cS.expNeededForNextLevel
                     cS.informationSheet.updateCurrLevel()
+                    cS.expNeededForNextLevel *= cS.levelScaleIncreaseFunction
+                    cS.healthPoints = cS.maxHealthPoints
                     vH.state = vH.States.LEVELING
                 
                 cS.experienceList.remove(bubble)

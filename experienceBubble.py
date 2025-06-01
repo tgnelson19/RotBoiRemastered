@@ -17,7 +17,7 @@ class ExperienceBubble:
         self.value = value
         self.direction = randint(0,360) * 0.0174533
         self.speedSpan = 40
-        self.speed = 2.5
+        self.speed = 1
         self.naturalSpawn = True
         self.frameRate = frameRate
 
