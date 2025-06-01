@@ -64,6 +64,9 @@ currDashCooldown = 0
 autoFire = False
 autoFlop = False
 
+lightSwitch = True
+lightFlop = False
+
 fdX, fdY = 0, 0
 
 bulletHolster = []

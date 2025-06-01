@@ -76,10 +76,10 @@ def resetAllStats():
     cS.xpMult = 1
     cS.experienceStageMod = 1.1
 
-    cS.dashDuration = vH.frameRate * 0.1
+    cS.dashDuration = vH.frameRate * 0.25
     cS.dashing = False
 
-    cS.dashModifier = 4
+    cS.dashModifier = 8
 
     cS.dashCooldownMax = vH.frameRate * 1
     cS.currDashCooldown = 0
@@ -314,7 +314,7 @@ def handlingBulletUpdating():
 
 def handlingEnemyCreation():
     
-    if (randint(1, cS.enemyOneInFramesChance) == 1):
+    if (randint(1, int(cS.enemyOneInFramesChance)) == 1):
         
         eSpeed = 1 * (cS.levelMod ** cS.currentLevel)
         eSize = vH.tileSizeGlobal

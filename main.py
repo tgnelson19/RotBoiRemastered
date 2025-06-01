@@ -76,7 +76,14 @@ def baseInputCollection():
         elif (not cS.autoFlop): cS.autoFire = False; cS.autoFlop = True
     else: cS.autoFlop = False
     
-    print(cS.autoFire, cS.autoFlop)
+    #This is the thing that will eventually allow for light/dark mode, just not really needed right now
+    
+    if vH.keys[pg.K_o]: 
+        if (not cS.lightSwitch and not cS.lightFlop): 
+            cS.lightSwitch = True
+            cS.lightFlop = True
+        elif (not cS.lightFlop): cS.lightSwitch = False; cS.lightFlop = True
+    else: cS.lightFlop = False
         
     for event in pg.event.get():
         if event.type == pg.QUIT: vH.done = True  # Close the entire program when windows x is clicked

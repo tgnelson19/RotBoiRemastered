@@ -16,7 +16,7 @@ environ['SDL_VIDEO_CENTERED'] = '1'
 pg.init()  # Initializes a window
 pg.display.set_caption("RotBoiRemastered")
 
-tileSizeGlobal = 40 #Global tile size that should hopefully not look too bad for people...
+tileSizeGlobal = 50 #Global tile size that should hopefully not look too bad for people...
 frameRate = 360 #Default maximum framerate for the game to run at
 
 scalar = 1 #For future use for non-fullscreen gameplay, it does work in it's current state however which is nice
