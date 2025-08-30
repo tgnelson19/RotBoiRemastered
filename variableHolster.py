@@ -46,4 +46,4 @@ mouseY = 0
 
 backgroundColor = pg.Color(0,0,0)
 
-damageTextFont = pg.font.Font("media/coolveticarg.otf", 40)
+damageTextFont = pg.font.Font("data/media/coolveticarg.otf", 40)

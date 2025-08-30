@@ -45,7 +45,7 @@ tileTypes = {
             1 : ["wall", pg.Color(90,90,90)]
             }
 
-basicRoomFile = 'backgrounds/basicRoom.csv'
+basicRoomFile = 'data/backgrounds/basicRoom.csv'
 basicRoomRects = loadBackgroundRects(basicRoomFile)
 currRoomRects = basicRoomRects
 

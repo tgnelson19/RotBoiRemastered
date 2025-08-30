@@ -90,9 +90,6 @@ def baseInputCollection():
         if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
         if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
     
-    
-    
-    
         
     if vH.keys[pg.K_ESCAPE]: vH.done = True
     

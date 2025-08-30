@@ -21,7 +21,7 @@ from random import randint
 #   FOR QUICK STAT MODIFICATIONS CHANGE THEM HERE
 #
 
-titleFont = pg.font.Font("media/coolveticarg.otf", int(vH.tileSizeGlobal*(2/3)))
+titleFont = pg.font.Font("data/media/coolveticarg.otf", int(vH.tileSizeGlobal*(2/3)))
 textColor = (245,245,220)
 
 def resetAllStats():

@@ -18,8 +18,8 @@ class LevelingHandler:
         self.tileSize = min(self.sW, self.sH) / 20  
 
         # Scale fonts
-        self.titleFont = pygame.font.Font("media/coolveticarg.otf", int(self.tileSize * 1.3))
-        self.descFont = pygame.font.Font("media/coolveticarg.otf", int(self.tileSize *.7))
+        self.titleFont = pygame.font.Font("data/media/coolveticarg.otf", int(self.tileSize * 1.3))
+        self.descFont = pygame.font.Font("data/media/coolveticarg.otf", int(self.tileSize *.7))
 
         self.textColor = pygame.Color(0,0,0)
 

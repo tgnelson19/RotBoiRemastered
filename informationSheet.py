@@ -21,7 +21,7 @@ class InformationSheet:
         self.dashBar = DashBar()
         self.hpBar = HPBar()
         
-        self.informationFont = pg.font.Font("media/coolveticarg.otf", 10)
+        self.informationFont = pg.font.Font("data/media/coolveticarg.otf", 10)
         
         self.levelBarTextColor = pg.Color(200,200,200)
         
