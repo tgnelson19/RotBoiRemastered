@@ -11,7 +11,7 @@ class DamageText:
         self.value = value
         self.lifetimeMax = framerate
         self.frameRate = framerate
-        self.lifetime = framerate
+        self.lifetime = framerate / 2
         self.objSize = objSize
         self.deleteMe = False
         self.deltaVal = 10

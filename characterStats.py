@@ -4,6 +4,9 @@ import background as bG
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 
+enemyCap = 50
+currEnemyCount = 0
+
 highestLevel = 0
 
 playerSpeed = 2.5
@@ -32,7 +35,7 @@ bulletPierce = 1
 critChance = 0.05
 critDamage = 2
 
-aura = 50
+aura = 80
 auraSpeed = 2
 levelMod = 1.1
 xpMult = 1

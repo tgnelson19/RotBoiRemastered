@@ -9,7 +9,7 @@ import characterStats as cS
 #Collects basic enemy variables that are used for game calculations
 class Enemy:
 
-    def __init__(self, posX, posY, speed, size, color, damage, hp, expValue, frameRate):
+    def __init__(self, posX, posY, speed, size, color, damage, hp, expValue, difficulty, frameRate):
         self.posX = posX
         self.posY = posY
         self.speed = speed
@@ -21,13 +21,14 @@ class Enemy:
         self.frameRate = frameRate
         self.cantTouchMeList = []
         self.expValue = expValue
+        self.difficulty = difficulty
 
     def drawEnemy(self, screen):
         pygame.draw.rect(screen, self.color, pygame.Rect(self.posX, self.posY, self.size, self.size))
 
     def updateEnemy(self, playerX, playerY, pDX, pDY):
         
-        #Logic for a basic crawler enemy
+        #Logic for a basic crawler enemy that simply runs towards the enemy
         
         originX, originY = playerX, playerY
 
@@ -48,12 +49,14 @@ class Enemy:
         dY = (self.speed*sin(self.direction) * (120/self.frameRate))
         
         flagX, flagY = False, False
-            
+
         currPosXG = (self.posX - bG.lockX)
         currPosYG = (self.posY - bG.lockY)
         
-        postPDX = cS.currTileX + (currPosXG/vH.tileSizeGlobal)
-        postPDY = cS.currTileY + (currPosYG/vH.tileSizeGlobal)
+        #This should be the exact tile X and tile Y that the PLAYER is located
+
+        postPDX = cS.currTileX + ((currPosXG)/vH.tileSizeGlobal)
+        postPDY = cS.currTileY + ((currPosYG)/vH.tileSizeGlobal)
         
         #Current exact position
         newABSPosX = (postPDX * vH.tileSizeGlobal) - dX
@@ -61,11 +64,11 @@ class Enemy:
         
         newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
         newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
-        newTileLocXMax = ceil(newABSPosX / vH.tileSizeGlobal) #Exact tile to the right
-        newTileLocYMax = ceil(newABSPosY / vH.tileSizeGlobal) #Exact tile to the bottom
+        newTileLocXMax = ceil((newABSPosX + self.size) / vH.tileSizeGlobal) - 1 #Exact tile to the right
+        newTileLocYMax = ceil((newABSPosY + self.size) / vH.tileSizeGlobal) - 1 #Exact tile to the bottom
         
         try:
-                # CASE: moving RIGHT
+            # CASE: moving RIGHT
             if dX < 0: 
                 if bG.currRoomRects[floor(postPDY)][newTileLocXMax][0] == 1: flagX = True
                 elif bG.currRoomRects[ceil(postPDY)][newTileLocXMax][0] == 1: flagX = True
@@ -93,14 +96,4 @@ class Enemy:
         
         self.posX += pDX
         self.posY += pDY
-        
-        
-        
-        
-        
-        
-        
-        
-
-        
         

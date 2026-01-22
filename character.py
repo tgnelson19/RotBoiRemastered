@@ -254,10 +254,10 @@ def handlingBulletCreation():
 
     if (cS.attackCooldownTimer <= 0 and (cS.autoFire or vH.mouseDown)):
         cS.attackCooldownTimer = cS.attackCooldownStat
-
         currCrit = False
         currCritChance = floor(cS.critChance)
         chance = randint(1, 100)
+        
         if (chance <= 100*(cS.critChance - trunc(cS.critChance))): currCrit = True; currCritChance = floor(cS.critChance) + 1
         currDamage = cS.bulletDamage * (cS.critDamage **(currCritChance))
 
@@ -314,40 +314,63 @@ def handlingBulletUpdating():
 
 def handlingEnemyCreation():
     
-    if (randint(1, int(cS.enemyOneInFramesChance)) == 1):
-        
-        eSpeed = 1 * (cS.levelMod ** cS.currentLevel)
-        eSize = vH.tileSizeGlobal
-        eColor = pg.Color(255,0,0)
-        eDamage = 1 * (cS.levelMod ** cS.currentLevel)
-        eHP = 3 * (cS.levelMod ** cS.currentLevel)
-        eEXP = 3 * (cS.levelMod ** cS.currentLevel)
-        
-        whichSideSpawned = randint(1,4)
-        if (whichSideSpawned <=2) : 
-            newXTile = randint(1, bG.currNumOfXTiles - 2)
-            if (whichSideSpawned == 1):
-                newYTile = 1
+    if (cS.currEnemyCount <= cS.enemyCap):
+        if (randint(1, int(cS.enemyOneInFramesChance)) == 1):
+
+            cS.currEnemyCount += 1
+
+            eDiff = randint(1, 100)
+
+            if eDiff < 50:
+                eDiff = 1
+                eColor = pg.Color(255,0,0)
+            elif eDiff < 75:
+                eDiff = 1.5
+                eColor = pg.Color(139,0,0)
+            elif eDiff < 95:
+                eDiff = 2
+                eColor = pg.Color(1,50,32)
             else:
-                newYTile = bG.currNumOfYTiles - 2
-        else:
-            newYTile = randint(1, bG.currNumOfYTiles - 2)
-            if (whichSideSpawned == 3):
-                newXTile = 1
-            else:
-                newXTile = bG.currNumOfXTiles - 2
+                eDiff = 3
+                eColor = pg.Color(255,223,0)
+                
+
+            eMod = randint(50, 300)
+            eMod = eMod / 100
         
-        cS.enemyHolster.append(Enemy(
-            (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
-            (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
-            eSpeed,
-            eSize,
-            eColor,
-            eDamage,
-            eHP,
-            eEXP,
-            vH.frameRate
-        ))
+            eSpeed = 1 * (cS.levelMod ** cS.currentLevel) * eDiff * eMod
+            eSize = vH.tileSizeGlobal * eDiff / eMod
+            
+            eDamage = 1 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
+            eHP = 3 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
+            eEXP = 3 * (cS.levelMod ** cS.currentLevel) * (eDiff * 2)
+            
+            whichSideSpawned = randint(1,4)
+            if (whichSideSpawned <=2) : 
+                newXTile = randint(1, bG.currNumOfXTiles - 2)
+                if (whichSideSpawned == 1):
+                    newYTile = 1
+                else:
+                    newYTile = bG.currNumOfYTiles - 2
+            else:
+                newYTile = randint(1, bG.currNumOfYTiles - 2)
+                if (whichSideSpawned == 3):
+                    newXTile = 1
+                else:
+                    newXTile = bG.currNumOfXTiles - 2
+            
+            cS.enemyHolster.append(Enemy(
+                (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
+                (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
+                eSpeed,
+                eSize,
+                eColor,
+                eDamage,
+                eHP,
+                eEXP,
+                eDiff,
+                vH.frameRate
+            ))
 
 def handlingEnemyUpdatesAndDrawing():
     for enemy in cS.enemyHolster:
@@ -373,9 +396,10 @@ def handlingDamagingEnemies():
                                 currColor = pg.Color(200,120,0)
                             cS.damageTextList.append(DamageText(eman.posX, eman.posY, currColor, bullet.damage, eman.size, vH.frameRate))
                             if (eman.hp <= 0):
+                                cS.currEnemyCount -= 1
                                 cS.enemyHolster.remove(eman)
                                 cS.numOfEnemiesKilled += 1
-                                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), vH.frameRate))
+                                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
                                 
 def updateDamageTexts():
         for dText in cS.damageTextList:
@@ -390,8 +414,9 @@ def updateExperience():
 def expForPlayer():
     
     for bubble in cS.experienceList:
-        if(bG.lockX + cS.playerSize > bubble.posX and bG.lockX < bubble.posX + bubble.size):
+        if(bG.lockX + cS.playerSize > bubble.posX and bG.lockX < bubble.posX + bubble.size): 
             if(bG.lockY + cS.playerSize > bubble.posY and bG.lockY < bubble.posY + bubble.size):
+
                 cS.expCount += bubble.value
                 
                 while (cS.expCount >= cS.expNeededForNextLevel):
@@ -405,8 +430,8 @@ def expForPlayer():
                 
                 cS.experienceList.remove(bubble)
 
-        if(bG.lockX + cS.playerSize + cS.aura > bubble.posX and bG.lockX - cS.aura < bubble.posX + bubble.size):
-            if(bG.lockY + cS.playerSize + cS.aura > bubble.posY and bG.lockY - cS.aura < bubble.posY + bubble.size):
+        if(bG.lockX + cS.playerSize + (cS.aura + bubble.size) > bubble.posX + bubble.size and bG.lockX - (cS.aura + bubble.size) < bubble.posX + bubble.size):
+            if(bG.lockY + cS.playerSize + (cS.aura + bubble.size) > bubble.posY + bubble.size and bG.lockY - (cS.aura + bubble.size) < bubble.posY + bubble.size):
 
                 bubble.naturalSpawn = False
                 
@@ -445,7 +470,7 @@ def hurtPlayer():
             if(bG.lockY + cS.playerSize > eman.posY and bG.lockY < eman.posY + eman.size):
                 cS.numOfEnemiesKilled += 1
                 cS.enemyHolster.remove(eman)
-                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult* (eman.expValue*(cS.currentStage*cS.experienceStageMod)), vH.frameRate))
+                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult* (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
                 trueDMG = eman.damage - cS.defense
                 if (trueDMG < 0):
                     trueDMG = 0

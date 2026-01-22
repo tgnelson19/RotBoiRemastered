@@ -34,6 +34,9 @@ class InformationSheet:
         self.hpBarTextRender = vH.damageTextFont.render("Hit Points" , True, self.levelBarTextColor)
         self.hpBarTextRenderRect = self.hpBarTextRender.get_rect(center = (self.hpBar.posX + self.hpBar.totalLength/2, self.hpBar.posY + self.hpBar.totalHeight/2))
 
+        self.enemyCountTextRender = vH.damageTextFont.render("Curr. Enemy Count: " + str(cS.currEnemyCount), True, self.levelBarTextColor)
+        self.enemyCountTextRenderRect = self.enemyCountTextRender.get_rect(left=(vH.sW * 0.77),top = (vH.sH * 0.38))
+
     def updateCurrLevel(self):
         self.levelBarTextRender = vH.damageTextFont.render("Level : " + str(cS.currentLevel) , True, self.levelBarTextColor)
         self.levelBarTextRenderRect = self.levelBarTextRender.get_rect(center = (self.levelBar.posX + self.levelBar.totalLength/2, self.levelBar.posY + self.levelBar.totalHeight/2))
@@ -43,7 +46,12 @@ class InformationSheet:
         self.levelBar.drawBar(vH.screen, cS.expCount / cS.expNeededForNextLevel)
         self.dashBar.drawBar(vH.screen, 1-(cS.currDashCooldown / cS.dashCooldownMax))
         self.hpBar.drawBar(vH.screen, cS.healthPoints/cS.maxHealthPoints)
+
+        #Update the enemy count please
+        self.enemyCountTextRender = vH.damageTextFont.render("Curr. Enemy Count: " + str(cS.currEnemyCount), True, self.levelBarTextColor)
+        self.enemyCountTextRenderRect = self.enemyCountTextRender.get_rect(left=(vH.sW * 0.77),top = (vH.sH * 0.38))
         
         vH.screen.blit(self.levelBarTextRender, self.levelBarTextRenderRect)
         vH.screen.blit(self.dashBarTextRender, self.dashBarTextRenderRect)
         vH.screen.blit(self.hpBarTextRender, self.hpBarTextRenderRect)
+        vH.screen.blit(self.enemyCountTextRender, self.enemyCountTextRenderRect)

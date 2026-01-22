@@ -7,8 +7,8 @@ import characterStats as cS
 
 #Lil' bubble that chases player when in aura and helps level up
 class ExperienceBubble:    
-    def __init__(self, oX, oY, value, frameRate):
-        self.size = 20
+    def __init__(self, oX, oY, value, diffDead, frameRate):
+        self.size = 20 * diffDead
         self.color = pygame.Color(0,200,0)
         self.oX = oX
         self.posX = oX
@@ -50,8 +50,8 @@ class ExperienceBubble:
             
             newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
             newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
-            newTileLocXMax = ceil(newABSPosX / vH.tileSizeGlobal) #Exact tile to the right
-            newTileLocYMax = ceil(newABSPosY / vH.tileSizeGlobal) #Exact tile to the bottom
+            newTileLocXMax = ceil((newABSPosX + self.size) / vH.tileSizeGlobal) #Exact tile to the right
+            newTileLocYMax = ceil((newABSPosY + self.size) / vH.tileSizeGlobal) #Exact tile to the bottom
             
             try:
                     # CASE: moving RIGHT
