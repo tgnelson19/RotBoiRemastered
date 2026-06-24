@@ -3,9 +3,10 @@ import variableHolster as vH
 
 import csv
 
+
 def loadCSVToBG(filename):
     """Loads data from a CSV file into a list of lists (array)."""
-    data_array = []
+    data_array = [] # The background as displayed in the editor is stored as a 2D array of integers, where each integer corresponds to a tile type.
     with open(filename, 'r') as file:
         csv_reader = csv.reader(file)
         for row in csv_reader:
@@ -15,25 +16,72 @@ def loadCSVToBG(filename):
 def loadBackgroundRects(roomFile):
     roomCSV = loadCSVToBG(roomFile)
     newRects = []
-    for i in range(len(roomCSV)):
-            newRects.append([])
-            for j in range(len(roomCSV[0])):
-                newRects[i].append([int(roomCSV[i][j]), 
-                                     pg.Rect(i*vH.tileSizeGlobal, 
-                                            j*vH.tileSizeGlobal, 
-                                            vH.tileSizeGlobal,
-                                            vH.tileSizeGlobal)])
+    for rowIndex, row in enumerate(roomCSV):
+        newRects.append([])
+        for colIndex, cell in enumerate(row):
+            newRects[rowIndex].append([
+                int(cell),
+                pg.Rect(colIndex * vH.tileSizeGlobal,
+                        rowIndex * vH.tileSizeGlobal,
+                        vH.tileSizeGlobal,
+                        vH.tileSizeGlobal)
+            ])
     return newRects
 
 def drawRepasteableBackground(roomRects):
-    newSurface = pg.surface.Surface((len(roomRects[0]) * vH.tileSizeGlobal, len(roomRects)* vH.tileSizeGlobal))
-    for i in range(len(roomRects)):
-        for j in range(len(roomRects[0])):
-            currRectData = roomRects[i][j]
-            currRectData[1].left = (vH.tileSizeGlobal * j)
-            currRectData[1].top = (vH.tileSizeGlobal * i)
-            pg.draw.rect(newSurface, tileTypes[roomRects[i][j][0]][1], currRectData[1])
+    newSurface = pg.surface.Surface((len(roomRects[0]) * vH.tileSizeGlobal, len(roomRects) * vH.tileSizeGlobal))
+    for rowIndex in range(len(roomRects)):
+        for colIndex in range(len(roomRects[0])):
+            currRectData = roomRects[rowIndex][colIndex]
+            currRectData[1].left = (vH.tileSizeGlobal * colIndex)
+            currRectData[1].top = (vH.tileSizeGlobal * rowIndex)
+            pg.draw.rect(newSurface, tileTypes[currRectData[0]][1], currRectData[1])
     return newSurface
+
+def screen_to_world(screen_x, screen_y):
+    """Convert a screen coordinate into a world coordinate."""
+    return screen_x - lockX + playerPosX, screen_y - lockY + playerPosY
+
+def world_to_screen(world_x, world_y):
+    """Convert a world coordinate into a screen coordinate."""
+    return world_x - playerPosX + lockX, world_y - playerPosY + lockY
+
+def rect_hits_wall(world_rect):
+    """Return True if any tile overlapped by the world rect is a wall."""
+    left = int(world_rect.left // vH.tileSizeGlobal)
+    top = int(world_rect.top // vH.tileSizeGlobal)
+    right = int((world_rect.right - 1) // vH.tileSizeGlobal)
+    bottom = int((world_rect.bottom - 1) // vH.tileSizeGlobal)
+
+    if left < 0 or top < 0 or bottom >= len(currRoomRects) or right >= len(currRoomRects[0]):
+        return True
+
+    for tileY in range(top, bottom + 1):
+        for tileX in range(left, right + 1):
+            if currRoomRects[tileY][tileX][0] == 1:
+                return True
+    return False
+
+
+def count_overlapping_walls(world_rect):
+    """Return the number of wall tiles overlapped by world_rect.
+
+    Out-of-bounds areas count as a large number so callers treat them as impassable.
+    """
+    left = int(world_rect.left // vH.tileSizeGlobal)
+    top = int(world_rect.top // vH.tileSizeGlobal)
+    right = int((world_rect.right - 1) // vH.tileSizeGlobal)
+    bottom = int((world_rect.bottom - 1) // vH.tileSizeGlobal)
+
+    if left < 0 or top < 0 or bottom >= len(currRoomRects) or right >= len(currRoomRects[0]):
+        return 10**6
+
+    count = 0
+    for tileY in range(top, bottom + 1):
+        for tileX in range(left, right + 1):
+            if currRoomRects[tileY][tileX][0] == 1:
+                count += 1
+    return count
 
 def moveAndDisplayBackground(surface):
     vH.screen.blit(surface, (-playerPosX + lockX, -playerPosY + lockY))

@@ -48,13 +48,12 @@ class Bullet:
 
         bWRTBGX = (playerX + (self.posX - self.iPosX))
         bWRTBGY = (playerY + (self.posY - self.iPosY))
-
-        currTileX = int((bWRTBGX + self.size/2) / vH.tileSizeGlobal)
-        currTileY = int((bWRTBGY + self.size/2) / vH.tileSizeGlobal)
-
+        # World-space rect for the bullet; use centralized collision helper
+        world_rect = pygame.Rect(bWRTBGX, bWRTBGY, self.size, self.size)
         pygame.draw.rect(screen, self.color, pygame.Rect(self.posX, self.posY, self.size, self.size))
 
-        if bG.currRoomRects[currTileY][currTileX][0] == 1: self.remFlag = True
+        if bG.rect_hits_wall(world_rect):
+            self.remFlag = True
 
         self.bRange -= (400/vH.frameRate)
         if self.bRange <= 0:

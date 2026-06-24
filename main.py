@@ -3,7 +3,7 @@ import character as cH
 import pygame as pg
 import characterStats as cS
 
-#Main Function
+#Main State Machine Function
 def main():
     while not vH.done:
         match vH.state:
@@ -68,36 +68,56 @@ def runTitle():
     paintAndClearScreen(vH.backgroundColor)
     
 def baseInputCollection():
+    """Collect input state, handle toggles, mouse events, and quit requests."""
     vH.clock.tick(vH.frameRate)
     vH.keys = pg.key.get_pressed()
-    
-    if vH.keys[pg.K_i]: 
-        if (not cS.autoFire and not cS.autoFlop): cS.autoFire = True; cS.autoFlop = True
-        elif (not cS.autoFlop): cS.autoFire = False; cS.autoFlop = True
-    else: cS.autoFlop = False
-    
-    #This is the thing that will eventually allow for light/dark mode, just not really needed right now
-    
-    if vH.keys[pg.K_o]: 
-        if (not cS.lightSwitch and not cS.lightFlop): 
+
+    update_input_toggles()
+    handle_input_events()
+
+    if vH.keys[pg.K_ESCAPE]:
+        vH.done = True
+
+    vH.mouseX, vH.mouseY = pg.mouse.get_pos()  # Save mouse position for aim and clicks
+
+
+def update_input_toggles():
+    """Toggle autofire and light mode once per key press."""
+    if vH.keys[pg.K_i]:
+        if not cS.autoFire and not cS.autoFlop:
+            cS.autoFire = True
+            cS.autoFlop = True
+        elif not cS.autoFlop:
+            cS.autoFire = False
+            cS.autoFlop = True
+    else:
+        cS.autoFlop = False
+
+    if vH.keys[pg.K_o]:
+        if not cS.lightSwitch and not cS.lightFlop:
             cS.lightSwitch = True
             cS.lightFlop = True
-        elif (not cS.lightFlop): cS.lightSwitch = False; cS.lightFlop = True
-    else: cS.lightFlop = False
-        
+        elif not cS.lightFlop:
+            cS.lightSwitch = False
+            cS.lightFlop = True
+    else:
+        cS.lightFlop = False
+
+
+def handle_input_events():
+    """Process pygame events and update global input state."""
     for event in pg.event.get():
-        if event.type == pg.QUIT: vH.done = True  # Close the entire program when windows x is clicked
-        if event.type == pg.MOUSEBUTTONDOWN: vH.mouseDown = True #Click logic
-        if event.type == pg.MOUSEBUTTONUP: vH.mouseDown = False
-    
-        
-    if vH.keys[pg.K_ESCAPE]: vH.done = True
-    
-    vH.mouseX, vH.mouseY = pg.mouse.get_pos() # Saves current mouse position
+        if event.type == pg.QUIT:
+            vH.done = True
+        elif event.type == pg.MOUSEBUTTONDOWN:
+            vH.mouseDown = True
+        elif event.type == pg.MOUSEBUTTONUP:
+            vH.mouseDown = False
+
 
 def paintAndClearScreen(color):
-    pg.display.flip()  # Displays currently drawn frame
-    vH.screen.fill(color)  # Clears screen with a black color
+    pg.display.flip()  # Show the frame that was drawn this update
+    vH.screen.fill(color)  # Clear screen for the next frame
     
 if __name__=="__main__":
     main()

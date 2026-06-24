@@ -26,74 +26,64 @@ class Enemy:
     def drawEnemy(self, screen):
         pygame.draw.rect(screen, self.color, pygame.Rect(self.posX, self.posY, self.size, self.size))
 
+    def _world_rect(self):
+        world_x = self.posX + bG.playerPosX - bG.lockX
+        world_y = self.posY + bG.playerPosY - bG.lockY
+        return pygame.Rect(world_x, world_y, self.size, self.size)
+
     def updateEnemy(self, playerX, playerY, pDX, pDY):
         
-        #Logic for a basic crawler enemy that simply runs towards the enemy
-        
+        # Logic for a basic crawler enemy that simply runs towards the player
         originX, originY = playerX, playerY
 
-        #This is direct center x, y of player
-
+        # This is direct center x, y of player
         deltaX, deltaY = self.posX - originX, self.posY - originY
 
-        #This is direct xhat, yhat vector towards player
-
-        if (deltaX == 0):
-            if(deltaY > 0): self.direction = pi/2
-            else: self.direction = -pi/2
+        # This is direct xhat, yhat vector towards player
+        if deltaX == 0:
+            self.direction = pi/2 if deltaY > 0 else -pi/2
         else:
-            if(deltaX > 0): self.direction = atan(deltaY/deltaX)
-            else: deltaX = abs(self.posX - originX); self.direction = -atan(deltaY/deltaX) + pi
-            
-        dX = (self.speed*cos(self.direction) * (120/self.frameRate))
-        dY = (self.speed*sin(self.direction) * (120/self.frameRate))
-        
-        flagX, flagY = False, False
+            if deltaX > 0:
+                self.direction = atan(deltaY / deltaX)
+            else:
+                deltaX = abs(self.posX - originX)
+                self.direction = -atan(deltaY / deltaX) + pi
 
-        currPosXG = (self.posX - bG.lockX)
-        currPosYG = (self.posY - bG.lockY)
-        
-        #This should be the exact tile X and tile Y that the PLAYER is located
+        dX = self.speed * cos(self.direction) * (120 / self.frameRate)
+        dY = self.speed * sin(self.direction) * (120 / self.frameRate)
 
-        postPDX = cS.currTileX + ((currPosXG)/vH.tileSizeGlobal)
-        postPDY = cS.currTileY + ((currPosYG)/vH.tileSizeGlobal)
-        
-        #Current exact position
-        newABSPosX = (postPDX * vH.tileSizeGlobal) - dX
-        newABSPosY = (postPDY * vH.tileSizeGlobal) - dY
-        
-        newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
-        newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
-        newTileLocXMax = ceil((newABSPosX + self.size) / vH.tileSizeGlobal) - 1 #Exact tile to the right
-        newTileLocYMax = ceil((newABSPosY + self.size) / vH.tileSizeGlobal) - 1 #Exact tile to the bottom
-        
-        try:
-            # CASE: moving RIGHT
-            if dX < 0: 
-                if bG.currRoomRects[floor(postPDY)][newTileLocXMax][0] == 1: flagX = True
-                elif bG.currRoomRects[ceil(postPDY)][newTileLocXMax][0] == 1: flagX = True
-            # CASE: moving LEFT
-            elif dX > 0:
-                if bG.currRoomRects[ceil(postPDY)][newTileLocXMin][0] == 1: flagX = True
-                elif bG.currRoomRects[floor(postPDY)][newTileLocXMin][0] == 1: flagX = True
-            
-            # CASE: moving DOWN
-            if dY < 0:
-                if bG.currRoomRects[newTileLocYMax][floor(postPDX)][0] == 1: flagY = True
-                elif bG.currRoomRects[newTileLocYMax][ceil(postPDX)][0] == 1: flagY = True
-            # CASE: moving UP
-            elif dY > 0:
-                if bG.currRoomRects[newTileLocYMin][ceil(postPDX)][0] == 1: flagY = True
-                elif bG.currRoomRects[newTileLocYMin][floor(postPDX)][0] == 1: flagY = True
-                
-        except IndexError:
-            flagX, flagY = True, True
+        current_world = self._world_rect()
 
-        if not flagX: self.posX -= dX
-        else: dX = 0
-        if not flagY: self.posY -= dY
-        else: dY = 0
-        
+        # Try the X move; if it increases overlap with walls and the enemy is currently overlapping,
+        # allow the move only if it reduces the number of overlapped wall tiles. This prevents getting
+        # permanently stuck inside walls while still preventing walking through solid tiles.
+        next_world = current_world.copy()
+        next_world.x -= dX
+        if not bG.rect_hits_wall(next_world):
+            self.posX -= dX
+            current_world = next_world
+        else:
+            # If currently overlapping walls, see if this X move reduces overlap
+            curr_overlap = bG.count_overlapping_walls(current_world)
+            next_overlap = bG.count_overlapping_walls(next_world)
+            if curr_overlap > 0 and next_overlap < curr_overlap:
+                self.posX -= dX
+                current_world = next_world
+            else:
+                dX = 0
+
+        next_world = current_world.copy()
+        next_world.y -= dY
+        if not bG.rect_hits_wall(next_world):
+            self.posY -= dY
+        else:
+            curr_overlap = bG.count_overlapping_walls(current_world)
+            next_overlap = bG.count_overlapping_walls(next_world)
+            if curr_overlap > 0 and next_overlap < curr_overlap:
+                self.posY -= dY
+            else:
+                dY = 0
+
         self.posX += pDX
         self.posY += pDY
         

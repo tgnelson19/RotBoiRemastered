@@ -8,10 +8,32 @@ from damageText import DamageText
 from experienceBubble import ExperienceBubble
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
-from math import pi
-
-from math import floor, ceil, pi, atan, trunc
+from math import atan, atan2, ceil, floor, pi, trunc
 from random import randint
+
+# helper functions for repeated game calculations
+
+def multiply_list(values):
+    result = 1
+    for num in values:
+        result *= num
+    return result
+
+
+def _combine_stat(stat_name):
+    base_value = cS.collectiveStats[stat_name]
+    additive = sum(cS.collectiveAddStats[stat_name])
+    multiplicative = multiply_list(cS.collectiveMultStats[stat_name])
+    return (base_value + additive) * multiplicative
+
+
+def _is_overlap(x1, y1, size1, x2, y2, size2):
+    return (x1 + size1 > x2 and x1 < x2 + size2 and
+            y1 + size1 > y2 and y1 < y2 + size2)
+
+
+def _direction_to_target(origin_x, origin_y, target_x, target_y):
+    return atan2(origin_y - target_y, target_x - origin_x)
 
 #
 #   Warning, all stats added to character stats needs to be included in reset here in order to be reset
@@ -33,7 +55,7 @@ def resetAllStats():
     cS.playerSize = vH.tileSizeGlobal
     cS.playerColor = pg.Color(0,0,120)
 
-    cS.dX, dY = 0, 0
+    cS.dX, cS.dY = 0, 0
 
     cS.currTileX = 0
     cS.currTileY = 0
@@ -112,12 +134,6 @@ def resetAllStats():
                                 "Bullet Size" : [1], "Player Speed" : [1], "Crit Chance": [1], "Crit Damage": [1],
                                 "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
     
-def multiply_list(list):
-        result = 1
-        for num in list:
-            result *= num
-        return result
-    
 def combarinoPlayerStats():
     cS.projectileCount = (cS.collectiveStats["Bullet Count"] + sum(cS.collectiveAddStats["Bullet Count"])) * (multiply_list(cS.collectiveMultStats["Bullet Count"]))
     cS.azimuthalProjectileAngle = (cS.collectiveStats["Spread Angle"] + sum(cS.collectiveAddStats["Spread Angle"])) * (multiply_list(cS.collectiveMultStats["Spread Angle"]))
@@ -171,78 +187,51 @@ def handleLevelingProcess():
         vH.state = vH.States.GAMERUN
 
 def movePlayer():
-    global playerColor
+    if vH.keys[pg.K_SPACE] and cS.currDashCooldown == 0:
+        cS.dashing = True
+        cS.currDashCooldown = cS.dashCooldownMax
+        cS.fdX = cS.dX
+        cS.fdY = cS.dY
     
-    if vH.keys[pg.K_SPACE] and cS.currDashCooldown == 0: cS.dashing = True; cS.currDashCooldown = cS.dashCooldownMax; cS.fdX = cS.dX; cS.fdY = cS.dY
+    if cS.currDashCooldown > 0:
+        cS.currDashCooldown -= 1
     
-    if cS.currDashCooldown > 0: cS.currDashCooldown -= 1
-    
-    if(not cS.dashing):
-
-        #Velocity at current time
-        cS.dX, cS.dY = 0,0
+    if not cS.dashing:
+        cS.dX, cS.dY = 0, 0
 
         if vH.keys[pg.K_w]: cS.dY += 1
         if vH.keys[pg.K_a]: cS.dX += 1
         if vH.keys[pg.K_s]: cS.dY -= 1
         if vH.keys[pg.K_d]: cS.dX -= 1
         
-        if abs(cS.dX) + abs(cS.dY) == 2: scalar = 0.707
-        else: scalar = 1
-
-        #Now we have velocities scaled by diagonal if needed
-        cS.dX, cS.dY = cS.dX * scalar * cS.playerSpeed * (120/vH.frameRate), cS.dY * scalar * cS.playerSpeed * (120/vH.frameRate)
-    
+        scalar = 0.707 if abs(cS.dX) + abs(cS.dY) == 2 else 1
+        cS.dX *= scalar * cS.playerSpeed * (120 / vH.frameRate)
+        cS.dY *= scalar * cS.playerSpeed * (120 / vH.frameRate)
     else:
-        if abs(cS.dX) + abs(cS.dY) == 2: scalar = 0.707
-        else: scalar = 1
-        
-        #Now we have velocities scaled by diagonal if needed
-        cS.dX, cS.dY = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * (120/vH.frameRate), cS.fdY * scalar * cS.dashModifier * cS.playerSpeed * (120/vH.frameRate)
+        scalar = 0.707 if abs(cS.dX) + abs(cS.dY) == 2 else 1
+        cS.dX = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * (120 / vH.frameRate)
+        cS.dY = cS.fdY * scalar * cS.dashModifier * cS.playerSpeed * (120 / vH.frameRate)
         
         if cS.currDashCooldown <= (cS.dashCooldownMax - cS.dashDuration):
             cS.dashing = False
 
-    #FUTURE exact position (NOT TILES) (floats)
-    newABSPosX = ((bG.playerPosX) - cS.dX)
-    newABSPosY = ((bG.playerPosY) - cS.dY)
+    newABSPosX = bG.playerPosX - cS.dX
+    newABSPosY = bG.playerPosY - cS.dY
 
-    #Current Exact position in TILES (float)
     cS.currTileX = bG.playerPosX / vH.tileSizeGlobal
     cS.currTileY = bG.playerPosY / vH.tileSizeGlobal
 
-    newTileLocXMin = floor(newABSPosX / vH.tileSizeGlobal) #Exact tile to the left
-    newTileLocYMin = floor(newABSPosY / vH.tileSizeGlobal) #Exact tile to the top
-    newTileLocXMax = ceil(newABSPosX / vH.tileSizeGlobal) #Exact tile to the right
-    newTileLocYMax = ceil(newABSPosY / vH.tileSizeGlobal) #Exact tile to the bottom
+    if not bG.rect_hits_wall(pg.Rect(newABSPosX, bG.playerPosY, cS.playerSize, cS.playerSize)):
+        bG.playerPosX = newABSPosX
+    else:
+        cS.dX = 0
 
-    playerColor = pg.Color(0,0,255)
+    if not bG.rect_hits_wall(pg.Rect(bG.playerPosX, newABSPosY, cS.playerSize, cS.playerSize)):
+        bG.playerPosY = newABSPosY
+    else:
+        cS.dY = 0
 
-    flagX = False
-    flagY = False
-
-    # CASE: moving RIGHT
-    if cS.dX < 0: 
-        if bG.currRoomRects[floor(cS.currTileY)][newTileLocXMax][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].left
-        elif bG.currRoomRects[ceil(cS.currTileY)][newTileLocXMax][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].left
-    # CASE: moving LEFT
-    elif cS.dX > 0:
-        if bG.currRoomRects[ceil(cS.currTileY)][newTileLocXMin][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].left
-        elif bG.currRoomRects[floor(cS.currTileY)][newTileLocXMin][0] == 1: flagX = True; bG.playerPosX = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].left
-    
-    # CASE: moving DOWN
-    if cS.dY < 0:
-        if bG.currRoomRects[newTileLocYMax][floor(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].top
-        elif bG.currRoomRects[newTileLocYMax][ceil(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[ceil(cS.currTileY)][ceil(cS.currTileX)][1].top
-    # CASE: moving UP
-    elif cS.dY > 0:
-        if bG.currRoomRects[newTileLocYMin][ceil(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].top
-        elif bG.currRoomRects[newTileLocYMin][floor(cS.currTileX)][0] == 1: flagY = True; bG.playerPosY = bG.currRoomRects[floor(cS.currTileY)][floor(cS.currTileX)][1].top
-            
-    if not flagX: bG.playerPosX = newABSPosX
-    else: cS.dX = 0
-    if not flagY: bG.playerPosY = newABSPosY
-    else: cS.dY = 0
+    cS.playerRect.topleft = (bG.lockX, bG.lockY)
 
 def drawPlayer():
     pg.draw.rect(vH.screen, cS.playerColor, cS.playerRect)
@@ -378,108 +367,82 @@ def handlingEnemyUpdatesAndDrawing():
         enemy.drawEnemy(vH.screen)
         
 def handlingDamagingEnemies():
-    for bullet in cS.bulletHolster:
-            originX = bullet.posX + bullet.size/2
-            originY = bullet.posY + bullet.size/2
-            for eman in cS.enemyHolster:
-                if(originX + bullet.size/2 > eman.posX and originX - bullet.size/2< eman.posX + eman.size):
-                    if(originY + bullet.size/2> eman.posY and originY - bullet.size/2< eman.posY + eman.size):
-                        if (bullet not in eman.cantTouchMeList):
-                            eman.cantTouchMeList.append(bullet)
-                            bullet.bPierce -= 1
-                            if (bullet.bPierce <= 0):
-                                bullet.remFlag = True
-                            eman.hp -= bullet.damage
-                            if(bullet.currCrit):
-                                currColor = pg.Color(128,0,128)
-                            else:
-                                currColor = pg.Color(200,120,0)
-                            cS.damageTextList.append(DamageText(eman.posX, eman.posY, currColor, bullet.damage, eman.size, vH.frameRate))
-                            if (eman.hp <= 0):
-                                cS.currEnemyCount -= 1
-                                cS.enemyHolster.remove(eman)
-                                cS.numOfEnemiesKilled += 1
-                                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
-                                
+    for bullet in cS.bulletHolster[:]:
+        bullet_rect = pg.Rect(bullet.posX, bullet.posY, bullet.size, bullet.size)
+        for eman in cS.enemyHolster[:]:
+            eman_rect = pg.Rect(eman.posX, eman.posY, eman.size, eman.size)
+            if bullet_rect.colliderect(eman_rect):
+                if bullet not in eman.cantTouchMeList:
+                    eman.cantTouchMeList.append(bullet)
+                    bullet.bPierce -= 1
+                    if bullet.bPierce <= 0:
+                        bullet.remFlag = True
+                    eman.hp -= bullet.damage
+                    currColor = pg.Color(128,0,128) if bullet.currCrit else pg.Color(200,120,0)
+                    cS.damageTextList.append(DamageText(eman.posX, eman.posY, currColor, bullet.damage, eman.size, vH.frameRate))
+                    if eman.hp <= 0:
+                        cS.currEnemyCount -= 1
+                        cS.enemyHolster.remove(eman)
+                        cS.numOfEnemiesKilled += 1
+                        cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
 def updateDamageTexts():
-        for dText in cS.damageTextList:
-            dText.drawAndUpdateDamageText(cS.dX, cS.dY)
-            if (dText.deleteMe == True):
-                cS.damageTextList.remove(dText)
+    for dText in cS.damageTextList[:]:
+        dText.drawAndUpdateDamageText(cS.dX, cS.dY)
+        if dText.deleteMe:
+            cS.damageTextList.remove(dText)
                 
 def updateExperience():
-        for bubble in cS.experienceList:
-            bubble.updateBubble(cS.auraSpeed, cS.dX, cS.dY)
+    for bubble in cS.experienceList[:]:
+        bubble.updateBubble(cS.auraSpeed, cS.dX, cS.dY)
             
 def expForPlayer():
-    
-    for bubble in cS.experienceList:
-        if(bG.lockX + cS.playerSize > bubble.posX and bG.lockX < bubble.posX + bubble.size): 
-            if(bG.lockY + cS.playerSize > bubble.posY and bG.lockY < bubble.posY + bubble.size):
+    player_rect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
 
-                cS.expCount += bubble.value
-                
-                while (cS.expCount >= cS.expNeededForNextLevel):
-                    cS.currentLevel += 1
-                    cS.expCount -= cS.expNeededForNextLevel
-                    cS.informationSheet.updateCurrLevel()
-                    cS.expNeededForNextLevel *= cS.levelScaleIncreaseFunction
-                    cS.healthPoints = cS.maxHealthPoints
-                    cS.enemyOneInFramesChance = cS.enemyOneInFramesChance / (cS.levelMod)
-                    vH.state = vH.States.LEVELING
-                
-                cS.experienceList.remove(bubble)
+    for bubble in cS.experienceList[:]:
+        bubble_rect = pg.Rect(bubble.posX, bubble.posY, bubble.size, bubble.size)
 
-        if(bG.lockX + cS.playerSize + (cS.aura + bubble.size) > bubble.posX + bubble.size and bG.lockX - (cS.aura + bubble.size) < bubble.posX + bubble.size):
-            if(bG.lockY + cS.playerSize + (cS.aura + bubble.size) > bubble.posY + bubble.size and bG.lockY - (cS.aura + bubble.size) < bubble.posY + bubble.size):
+        if player_rect.colliderect(bubble_rect):
+            cS.expCount += bubble.value
+            while cS.expCount >= cS.expNeededForNextLevel:
+                cS.currentLevel += 1
+                cS.expCount -= cS.expNeededForNextLevel
+                cS.informationSheet.updateCurrLevel()
+                cS.expNeededForNextLevel *= cS.levelScaleIncreaseFunction
+                cS.healthPoints = cS.maxHealthPoints
+                cS.enemyOneInFramesChance /= cS.levelMod
+                vH.state = vH.States.LEVELING
+            cS.experienceList.remove(bubble)
+            continue
 
-                bubble.naturalSpawn = False
-                
-                originX = bG.lockX + cS.playerSize/2
-                originY = bG.lockY + cS.playerSize/2
+        aura_rect = player_rect.inflate(2 * (cS.aura + bubble.size), 2 * (cS.aura + bubble.size))
+        if aura_rect.colliderect(bubble_rect):
+            bubble.naturalSpawn = False
+            originX = bG.lockX + cS.playerSize / 2
+            originY = bG.lockY + cS.playerSize / 2
+            deltaX = bubble.posX - originX
+            deltaY = bubble.posY - originY
 
-                #This is direct center x, y of player
-
-                deltaX = bubble.posX - originX
-                deltaY = bubble.posY - originY
-
-                #This is direct xhat, yhat vector towards player
-
-                if (deltaX == 0):
-                    if(deltaY > 0):
-                        bubble.direction = pi/2
-                    else:
-                        bubble.direction = -pi/2
-                else:
-                    
-                    if(deltaX > 0):
-
-                        bubble.direction = atan(deltaY/deltaX)
-                    else:
-                        deltaX = abs(bubble.posX - originX)
-
-                        bubble.direction = -atan(deltaY/deltaX) + pi
+            if deltaX == 0:
+                bubble.direction = pi/2 if deltaY > 0 else -pi/2
             else:
-                bubble.naturalSpawn = True
+                bubble.direction = atan(deltaY / deltaX) if deltaX > 0 else -atan(deltaY / abs(deltaX)) + pi
         else:
             bubble.naturalSpawn = True
             
 def hurtPlayer():
-    for eman in cS.enemyHolster:
-        if(bG.lockX + cS.playerSize > eman.posX and bG.lockX < eman.posX + eman.size):
-            if(bG.lockY + cS.playerSize > eman.posY and bG.lockY < eman.posY + eman.size):
-                cS.numOfEnemiesKilled += 1
-                cS.enemyHolster.remove(eman)
-                cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult* (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
-                trueDMG = eman.damage - cS.defense
-                if (trueDMG < 0):
-                    trueDMG = 0
-                cS.damageTextList.append(DamageText(bG.lockX, bG.lockY, pg.Color(200,100,0), trueDMG, vH.tileSizeGlobal, vH.frameRate))
-                
-                cS.healthPoints -= trueDMG
-                if (cS.healthPoints <= 0):
-                    vH.state = vH.States.TITLESCREEN
-                    cS.highestLevel = cS.currentLevel
+    player_rect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
+    for eman in cS.enemyHolster[:]:
+        enemy_rect = pg.Rect(eman.posX, eman.posY, eman.size, eman.size)
+        if player_rect.colliderect(enemy_rect):
+            cS.numOfEnemiesKilled += 1
+            cS.enemyHolster.remove(eman)
+            cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue * (cS.currentStage * cS.experienceStageMod)), eman.difficulty, vH.frameRate))
+            trueDMG = max(eman.damage - cS.defense, 0)
+            cS.damageTextList.append(DamageText(bG.lockX, bG.lockY, pg.Color(200,100,0), trueDMG, vH.tileSizeGlobal, vH.frameRate))
+            cS.healthPoints -= trueDMG
+            if cS.healthPoints <= 0:
+                vH.state = vH.States.TITLESCREEN
+                cS.highestLevel = cS.currentLevel
     
 def drawInformationSheet():
     cS.informationSheet.drawSheet()
