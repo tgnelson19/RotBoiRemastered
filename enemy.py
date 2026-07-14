@@ -49,8 +49,8 @@ class Enemy:
                 deltaX = abs(self.posX - originX)
                 self.direction = -atan(deltaY / deltaX) + pi
 
-        dX = self.speed * cos(self.direction) * (120 / self.frameRate)
-        dY = self.speed * sin(self.direction) * (120 / self.frameRate)
+        dX = self.speed * cos(self.direction) * vH.get_frame_scale()
+        dY = self.speed * sin(self.direction) * vH.get_frame_scale()
 
         current_world = self._world_rect()
 
@@ -63,14 +63,21 @@ class Enemy:
             self.posX -= dX
             current_world = next_world
         else:
-            # If currently overlapping walls, see if this X move reduces overlap
             curr_overlap = bG.count_overlapping_walls(current_world)
             next_overlap = bG.count_overlapping_walls(next_world)
             if curr_overlap > 0 and next_overlap < curr_overlap:
                 self.posX -= dX
                 current_world = next_world
             else:
-                dX = 0
+                # Preserve the wall-parallel component and only reduce the perpendicular one.
+                if abs(dX) > 0.1:
+                    wall_follow_world = current_world.copy()
+                    wall_follow_world.x -= dX * 0.25
+                    if not bG.rect_hits_wall(wall_follow_world):
+                        self.posX -= dX * 0.25
+                        current_world = wall_follow_world
+                    else:
+                        dX = 0
 
         next_world = current_world.copy()
         next_world.y -= dY
@@ -82,7 +89,20 @@ class Enemy:
             if curr_overlap > 0 and next_overlap < curr_overlap:
                 self.posY -= dY
             else:
-                dY = 0
+                # Preserve the wall-parallel component and only reduce the perpendicular one.
+                if abs(dY) > 0.1:
+                    wall_follow_world = current_world.copy()
+                    wall_follow_world.y -= dY * 0.25
+                    if not bG.rect_hits_wall(wall_follow_world):
+                        self.posY -= dY * 0.25
+                        current_world = wall_follow_world
+                    else:
+                        dY = 0
+
+        if bG.rect_hits_wall(current_world):
+            current_world = bG.find_nearest_open_rect(current_world, self.size)
+            self.posX = current_world.x - bG.playerPosX + bG.lockX
+            self.posY = current_world.y - bG.playerPosY + bG.lockY
 
         self.posX += pDX
         self.posY += pDY

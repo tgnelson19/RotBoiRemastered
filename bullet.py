@@ -42,19 +42,18 @@ class Bullet:
         self.currCrit = currCrit
 
     def updateAndDrawBullet(self, screen, dX, dY, playerX, playerY):
+        step_scale = vH.get_frame_scale()
+        self.posX += ((self.speed * cos(self.direc) - self.iDX) * step_scale + dX)
+        self.posY -= ((self.speed * sin(self.direc) + self.iDY) * step_scale - dY)
 
-        self.posX = self.posX + ((self.speed*cos(self.direc) - self.iDX) * (120/self.frameRate) + dX)
-        self.posY = self.posY - ((self.speed*sin(self.direc) + self.iDY) * (120/self.frameRate) - dY)
-
-        bWRTBGX = (playerX + (self.posX - self.iPosX))
-        bWRTBGY = (playerY + (self.posY - self.iPosY))
-        # World-space rect for the bullet; use centralized collision helper
+        bWRTBGX = playerX + (self.posX - self.iPosX)
+        bWRTBGY = playerY + (self.posY - self.iPosY)
         world_rect = pygame.Rect(bWRTBGX, bWRTBGY, self.size, self.size)
         pygame.draw.rect(screen, self.color, pygame.Rect(self.posX, self.posY, self.size, self.size))
 
         if bG.rect_hits_wall(world_rect):
             self.remFlag = True
 
-        self.bRange -= (400/vH.frameRate)
+        self.bRange -= 400 * vH.get_frame_scale() / 360
         if self.bRange <= 0:
             self.remFlag = True

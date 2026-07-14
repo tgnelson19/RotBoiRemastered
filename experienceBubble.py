@@ -27,12 +27,10 @@ class ExperienceBubble:
         return pygame.Rect(world_x, world_y, self.size, self.size)
 
     def updateBubble(self, pAuraSpeed, pDX, pDY):
-
         if self.naturalSpawn:
-
             if self.speedSpan > 0:
-                self.speedSpan -= 1 * (120/self.frameRate)
-                
+                self.speedSpan -= vH.get_frame_scale()
+
             if self.speedSpan <= 0:
                 self.speed = 0
             elif self.speedSpan < 20:
@@ -56,12 +54,11 @@ class ExperienceBubble:
                 self.posY -= dY
             else:
                 dY = 0
-
         else:
-            self.posX -= pAuraSpeed * cos(self.direction) * (120/self.frameRate)
-            self.posY -= pAuraSpeed * sin(self.direction) * (120/self.frameRate)
+            move_scale = vH.get_frame_scale()
+            self.posX -= pAuraSpeed * cos(self.direction) * move_scale
+            self.posY -= pAuraSpeed * sin(self.direction) * move_scale
 
         self.posX += pDX
         self.posY += pDY
-
         pygame.draw.rect(vH.screen, self.color, pygame.Rect(self.posX, self.posY, self.size, self.size))

@@ -33,7 +33,7 @@ class LevelingHandler:
         self.upgradeRarityChancesOneIn = {"Common" : 1, "Rare" : 4, "Epic" : 10, "Legendary" : 25, "Mythical" : 100}
         
         #Rarity multiplier for the upgrade's value
-        self.upgradeRarity = {"Common" : 1, "Rare" : 2, "Epic" : 3, "Legendary" : 5, "Mythical" : 10}
+        self.upgradeRarity = {"Common" : 1, "Rare" : 1.6, "Epic" : 2.4, "Legendary" : 4, "Mythical" : 7}
 
         self.upgradeRarityListReversed = ["Mythical", "Legendary", "Epic", "Rare", "Common"]
         self.upgradeBasicsMaths = {"addative" : "Addatively", "multiplicative" : "Multiplicatively"}
@@ -45,15 +45,15 @@ class LevelingHandler:
         
         #Base values for upgrades at common
 
-        self.upgradeBasicTypesAdd = {"Defense" : 1, "Bullet Pierce" : 0.25, "Bullet Count" : 0.25, "Spread Angle" : pi/8, 
-                                  "Attack Speed" : -1, "Bullet Speed" : 4, "Bullet Range" : 100, "Bullet Damage" : 0.25, 
-                                  "Bullet Size" : 5, "Player Speed" : 0.25, "Crit Chance" : 0.1, "Crit Damage" : 0.5,
-                                    "Aura Size" : 10, "Aura Strength" : 1, "Exp Multiplier": .25}
+        self.upgradeBasicTypesAdd = {"Defense" : 1, "Bullet Pierce" : 0.25, "Bullet Count" : 0.25, "Spread Angle" : pi/10, 
+                                  "Attack Speed" : -1, "Bullet Speed" : 3, "Bullet Range" : 75, "Bullet Damage" : 0.25, 
+                                  "Bullet Size" : 4, "Player Speed" : 0.2, "Crit Chance" : 0.08, "Crit Damage" : 0.4,
+                                    "Aura Size" : 8, "Aura Strength" : 0.8, "Exp Multiplier": .2}
         
-        self.upgradeBasicTypesMult = {"Defense" : 0.2, "Bullet Pierce" : 0.2, "Bullet Count" : 0.2, "Spread Angle" : 0.2, 
-                                  "Attack Speed" : -0.05, "Bullet Speed" : 0.25, "Bullet Range" : 0.25, "Bullet Damage" : 0.2, 
-                                  "Bullet Size" : 0.2, "Player Speed" : 0.2, "Crit Chance" : 0.05, "Crit Damage" : 0.2,
-                                   "Aura Size" : 0.2, "Aura Strength" : 0.2, "Exp Multiplier": 0.2}
+        self.upgradeBasicTypesMult = {"Defense" : 0.12, "Bullet Pierce" : 0.12, "Bullet Count" : 0.12, "Spread Angle" : 0.12, 
+                                  "Attack Speed" : -0.04, "Bullet Speed" : 0.18, "Bullet Range" : 0.18, "Bullet Damage" : 0.16, 
+                                  "Bullet Size" : 0.12, "Player Speed" : 0.16, "Crit Chance" : 0.04, "Crit Damage" : 0.16,
+                                   "Aura Size" : 0.14, "Aura Strength" : 0.14, "Exp Multiplier": 0.16}
         
         self.upgradeBasicTypesMapper = {"Defense" : "defense", "Bullet Pierce" : "bulletPierce", "Bullet Count" : "projectileCount", "Spread Angle" : "azimuthalProjectileAngle", 
                                   "Attack Speed" : "attackCooldownStat", "Bullet Speed" : "bulletSpeed", "Bullet Range" : "bulletRange", "Bullet Damage" : "damage", 

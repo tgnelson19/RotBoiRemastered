@@ -79,13 +79,13 @@ def resetAllStats():
 
     cS.aura = 50
     cS.auraSpeed = 2
-    cS.levelMod = 1.1
+    cS.levelMod = 1.08
     cS.xpMult = 1
     cS.currentLevel = 0
     cS.expCount = 0
-    cS.expNeededForNextLevel = 25
-    cS.baseExpNeededForNextLevel = 25
-    cS.levelScaleIncreaseFunction = 1.2
+    cS.expNeededForNextLevel = 40
+    cS.baseExpNeededForNextLevel = 40
+    cS.levelScaleIncreaseFunction = 1.25
 
     cS.healthPoints = 10
     cS.maxHealthPoints = 10
@@ -98,10 +98,10 @@ def resetAllStats():
     cS.xpMult = 1
     cS.experienceStageMod = 1.1
 
-    cS.dashDuration = vH.frameRate * 0.25
+    cS.dashDuration = vH.frameRate * 0.15
     cS.dashing = False
 
-    cS.dashModifier = 8
+    cS.dashModifier = 4
 
     cS.dashCooldownMax = vH.frameRate * 1
     cS.currDashCooldown = 0
@@ -116,6 +116,7 @@ def resetAllStats():
     cS.informationSheet = InformationSheet()
     
     cS.levelingHandler = LevelingHandler()
+    cS.reset_upgrade_tracking()
     
     cS.newRandoUps = False
     
@@ -135,6 +136,7 @@ def resetAllStats():
                                 "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
     
 def combarinoPlayerStats():
+
     cS.projectileCount = (cS.collectiveStats["Bullet Count"] + sum(cS.collectiveAddStats["Bullet Count"])) * (multiply_list(cS.collectiveMultStats["Bullet Count"]))
     cS.azimuthalProjectileAngle = (cS.collectiveStats["Spread Angle"] + sum(cS.collectiveAddStats["Spread Angle"])) * (multiply_list(cS.collectiveMultStats["Spread Angle"]))
     cS.playerSpeed = (cS.collectiveStats["Player Speed"] + sum(cS.collectiveAddStats["Player Speed"])) * (multiply_list(cS.collectiveMultStats["Player Speed"]))
@@ -163,18 +165,21 @@ def handleLevelingProcess():
     pDecision = cS.levelingHandler.PlayerClicked()
 
     if (pDecision == "leftCard"):
+        cS.record_upgrade(cS.levelingHandler.leftCardUpgradeType, cS.levelingHandler.leftCardUpgradeRarity)
         if (cS.levelingHandler.leftCardUpgradeMath == "addative"):
             cS.collectiveAddStats[cS.levelingHandler.leftCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.leftCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.leftCardUpgradeType])
         if (cS.levelingHandler.leftCardUpgradeMath == "multiplicative"):
             cS.collectiveMultStats[cS.levelingHandler.leftCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.leftCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.leftCardUpgradeType])
 
     elif (pDecision == "midCard"):
+        cS.record_upgrade(cS.levelingHandler.midCardUpgradeType, cS.levelingHandler.midCardUpgradeRarity)
         if (cS.levelingHandler.midCardUpgradeMath == "addative"):
             cS.collectiveAddStats[cS.levelingHandler.midCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.midCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.midCardUpgradeType])
         if (cS.levelingHandler.midCardUpgradeMath == "multiplicative"):
             cS.collectiveMultStats[cS.levelingHandler.midCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.midCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.midCardUpgradeType])
 
     elif (pDecision == "rightCard"):
+        cS.record_upgrade(cS.levelingHandler.rightCardUpgradeType, cS.levelingHandler.rightCardUpgradeRarity)
         if (cS.levelingHandler.rightCardUpgradeMath == "addative"):
             cS.collectiveAddStats[cS.levelingHandler.rightCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.rightCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.rightCardUpgradeType])
         if (cS.levelingHandler.rightCardUpgradeMath == "multiplicative"):
@@ -205,12 +210,14 @@ def movePlayer():
         if vH.keys[pg.K_d]: cS.dX -= 1
         
         scalar = 0.707 if abs(cS.dX) + abs(cS.dY) == 2 else 1
-        cS.dX *= scalar * cS.playerSpeed * (120 / vH.frameRate)
-        cS.dY *= scalar * cS.playerSpeed * (120 / vH.frameRate)
+        movement_scale = vH.get_frame_scale()
+        cS.dX *= scalar * cS.playerSpeed * movement_scale
+        cS.dY *= scalar * cS.playerSpeed * movement_scale
     else:
         scalar = 0.707 if abs(cS.dX) + abs(cS.dY) == 2 else 1
-        cS.dX = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * (120 / vH.frameRate)
-        cS.dY = cS.fdY * scalar * cS.dashModifier * cS.playerSpeed * (120 / vH.frameRate)
+        movement_scale = vH.get_frame_scale()
+        cS.dX = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * movement_scale * 0.4
+        cS.dY = cS.fdY * scalar * cS.dashModifier * cS.playerSpeed * movement_scale * 0.4
         
         if cS.currDashCooldown <= (cS.dashCooldownMax - cS.dashDuration):
             cS.dashing = False
@@ -292,7 +299,7 @@ def handlingBulletCreation():
                                             vH.frameRate))
 
     elif(cS.attackCooldownTimer > 0):
-        cS.attackCooldownTimer -= 1 * (120/vH.frameRate)
+        cS.attackCooldownTimer -= 1
 
 
 def handlingBulletUpdating():
@@ -310,29 +317,29 @@ def handlingEnemyCreation():
 
             eDiff = randint(1, 100)
 
-            if eDiff < 50:
-                eDiff = 1
+            if eDiff < 45:
+                eDiff = 1.0
                 eColor = pg.Color(255,0,0)
             elif eDiff < 75:
-                eDiff = 1.5
+                eDiff = 1.25
                 eColor = pg.Color(139,0,0)
             elif eDiff < 95:
-                eDiff = 2
+                eDiff = 1.5
                 eColor = pg.Color(1,50,32)
             else:
-                eDiff = 3
+                eDiff = 1.75
                 eColor = pg.Color(255,223,0)
                 
 
-            eMod = randint(50, 300)
+            eMod = randint(80, 140)
             eMod = eMod / 100
         
-            eSpeed = 1 * (cS.levelMod ** cS.currentLevel) * eDiff * eMod
-            eSize = vH.tileSizeGlobal * eDiff / eMod
+            eSpeed = 0.8 * (cS.levelMod ** cS.currentLevel) * eDiff * eMod
+            eSize = vH.tileSizeGlobal * (eDiff * 0.7) / eMod
             
-            eDamage = 1 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
-            eHP = 3 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
-            eEXP = 3 * (cS.levelMod ** cS.currentLevel) * (eDiff * 2)
+            eDamage = 0.9 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
+            eHP = 2.2 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
+            eEXP = 2.4 * (cS.levelMod ** cS.currentLevel) * (eDiff * 1.5)
             
             whichSideSpawned = randint(1,4)
             if (whichSideSpawned <=2) : 
@@ -348,9 +355,10 @@ def handlingEnemyCreation():
                 else:
                     newXTile = bG.currNumOfXTiles - 2
             
+            spawn_rect = bG.find_spawn_rect(eSize)
             cS.enemyHolster.append(Enemy(
-                (newXTile*vH.tileSizeGlobal) - bG.playerPosX + bG.lockX,
-                (newYTile*vH.tileSizeGlobal) - bG.playerPosY + bG.lockY,
+                spawn_rect.x - bG.playerPosX + bG.lockX,
+                spawn_rect.y - bG.playerPosY + bG.lockY,
                 eSpeed,
                 eSize,
                 eColor,
@@ -362,15 +370,19 @@ def handlingEnemyCreation():
             ))
 
 def handlingEnemyUpdatesAndDrawing():
+
     for enemy in cS.enemyHolster:
         enemy.updateEnemy(bG.lockX + cS.playerSize/2, bG.lockY + cS.playerSize/2, cS.dX, cS.dY)
         enemy.drawEnemy(vH.screen)
         
 def handlingDamagingEnemies():
+
     for bullet in cS.bulletHolster[:]:
         bullet_rect = pg.Rect(bullet.posX, bullet.posY, bullet.size, bullet.size)
+
         for eman in cS.enemyHolster[:]:
             eman_rect = pg.Rect(eman.posX, eman.posY, eman.size, eman.size)
+
             if bullet_rect.colliderect(eman_rect):
                 if bullet not in eman.cantTouchMeList:
                     eman.cantTouchMeList.append(bullet)
@@ -385,6 +397,7 @@ def handlingDamagingEnemies():
                         cS.enemyHolster.remove(eman)
                         cS.numOfEnemiesKilled += 1
                         cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
+
 def updateDamageTexts():
     for dText in cS.damageTextList[:]:
         dText.drawAndUpdateDamageText(cS.dX, cS.dY)
@@ -403,6 +416,7 @@ def expForPlayer():
 
         if player_rect.colliderect(bubble_rect):
             cS.expCount += bubble.value
+
             while cS.expCount >= cS.expNeededForNextLevel:
                 cS.currentLevel += 1
                 cS.expCount -= cS.expNeededForNextLevel
@@ -411,6 +425,7 @@ def expForPlayer():
                 cS.healthPoints = cS.maxHealthPoints
                 cS.enemyOneInFramesChance /= cS.levelMod
                 vH.state = vH.States.LEVELING
+                
             cS.experienceList.remove(bubble)
             continue
 

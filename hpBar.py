@@ -22,7 +22,7 @@ class HPBar:
         pygame.draw.rect(screen, self.fakeInnerColor, pygame.Rect(self.posX + self.inDel, self.posY + self.inDel, self.totalLength - 2*self.inDel, self.totalHeight- 2*self.inDel))
         
         if (currPercentage <= 0):
-            currPercentage =0
+            currPercentage = 0
             
         self.expColor = (int(255-255*(currPercentage)), int(255*(currPercentage)), 0)
         pygame.draw.rect(screen, pygame.Color(self.expColor), pygame.Rect(self.posX + self.inDel, self.posY + self.inDel, int(self.totalLength*(currPercentage)) - 2*self.inDel, self.totalHeight - 2*self.inDel))

@@ -4,6 +4,25 @@ import background as bG
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 
+upgradeCollection = {"types": {}, "rarities": {}}
+
+
+def reset_upgrade_tracking():
+    global upgradeCollection
+    upgradeCollection = {"types": {}, "rarities": {}}
+
+
+def record_upgrade(upgrade_type, rarity):
+    global upgradeCollection
+    if upgrade_type not in upgradeCollection["types"]:
+        upgradeCollection["types"][upgrade_type] = 0
+    upgradeCollection["types"][upgrade_type] += 1
+
+    if rarity not in upgradeCollection["rarities"]:
+        upgradeCollection["rarities"][rarity] = 0
+    upgradeCollection["rarities"][rarity] += 1
+
+
 enemyCap = 50
 currEnemyCount = 0
 
@@ -56,7 +75,7 @@ currentStage = 1
 xpMult = 1
 experienceStageMod = 1.1
 
-dashDuration = vH.frameRate * 0.1
+dashDuration = vH.frameRate * 0.15
 dashing = False
 
 dashModifier = 4
