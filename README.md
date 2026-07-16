@@ -15,7 +15,8 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
-- `B`: hidden debug shortcut that clears the arena and summons Dissonance
+- `A` / `D`, arrows, or click: select a content path on the title screen
+- `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
 - `Escape`: pause during a run; quit from the title screen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
@@ -57,3 +58,15 @@ Cards are grouped into build families such as Volley, Critical, Harvest, and
 Survival. Drafts remain varied, but become modestly more likely to support the
 synergies already collected during a run. Gameplay rules for the draft live in
 `upgrades.py`; presentation remains in `levelingHandler.py`.
+
+Runs begin on one of five isolated content paths. Sound contains the original
+arena, Beaudis, and Dissonance. Touch uses a dense sewer-prison, heavy Rotton
+enemies, Bair, and Sting. Sight is an open blue-orange field of small quick
+hunter enemies led by Ishe and Chronos. Chemesthesis scatters ruin fragments and
+long-lived, mostly unaimed hazards around durable enemies, Kage, and Rot.
+Phantasia uses broad dark-pink dream courts with a few ornate structures, Hypno,
+and Malady.
+
+The path boundary lives in `gamePaths.py`. Shared enemy profiles, projectile
+rules, boss rosters, and path-exclusive encounter registration belong there so
+new content does not branch the leveling, statistics, or HUD code.
