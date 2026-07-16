@@ -2,15 +2,114 @@ import pygame as pg
 import variableHolster as vH
 import gameProfile
 import background as bG
+from types import MappingProxyType
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 
 upgradeCollection = {"types": {}, "rarities": {}, "history": []}
+bossAfflictions = {
+    "exposure": 0.0, "decay_delay": 0.0,
+    "slow": 0.0, "slow_remaining": 0.0,
+    "pull": 0.0, "pull_remaining": 0.0, "pull_source": None,
+}
+dreamState = {
+    "belief": 0.0, "clarity": 0.0, "peak_belief": 0.0,
+    "decay_delay": 0.0, "false_rules": 0, "truths_read": 0,
+}
 
 
 def reset_upgrade_tracking():
     global upgradeCollection
     upgradeCollection = {"types": {}, "rarities": {}, "history": []}
+
+
+def reset_boss_afflictions():
+    bossAfflictions.update({
+        "exposure": 0.0, "decay_delay": 0.0,
+        "slow": 0.0, "slow_remaining": 0.0,
+        "pull": 0.0, "pull_remaining": 0.0, "pull_source": None,
+    })
+
+
+def reset_dream_state():
+    dreamState.update({
+        "belief": 0.0, "clarity": 0.0, "peak_belief": 0.0,
+        "decay_delay": 0.0, "false_rules": 0, "truths_read": 0,
+    })
+
+
+def alter_belief(amount, false_rule=False, truth=False):
+    dreamState["belief"] = max(0.0, min(10.0, dreamState["belief"] + amount))
+    dreamState["peak_belief"] = max(dreamState["peak_belief"], dreamState["belief"])
+    dreamState["decay_delay"] = 2.0 if amount > 0 else dreamState["decay_delay"]
+    if false_rule:
+        dreamState["false_rules"] += 1
+    if truth:
+        dreamState["truths_read"] += 1
+        dreamState["clarity"] = min(5.0, dreamState["clarity"] + 1.0)
+
+
+def update_dream_state(seconds):
+    dreamState["decay_delay"] = max(0.0, dreamState["decay_delay"] - seconds)
+    dreamState["clarity"] = max(0.0, dreamState["clarity"] - seconds * .18)
+    if dreamState["decay_delay"] <= 0:
+        decay = .3 + dreamState["clarity"] * .12
+        dreamState["belief"] = max(0.0, dreamState["belief"] - seconds * decay)
+
+
+def apply_boss_affliction(kind, duration=0.0, strength=0.0, exposure=0.0, source=None):
+    """Apply a reusable movement affliction without permanently changing stats."""
+    bossAfflictions["exposure"] = min(10.0, bossAfflictions["exposure"] + exposure)
+    bossAfflictions["decay_delay"] = max(bossAfflictions["decay_delay"], 2.25)
+    if kind == "slow":
+        bossAfflictions["slow"] = max(bossAfflictions["slow"], strength)
+        bossAfflictions["slow_remaining"] = max(bossAfflictions["slow_remaining"], duration)
+    elif kind == "pull":
+        bossAfflictions["pull"] = max(bossAfflictions["pull"], strength)
+        bossAfflictions["pull_remaining"] = max(bossAfflictions["pull_remaining"], duration)
+        bossAfflictions["pull_source"] = source
+
+
+def update_boss_afflictions(seconds):
+    for name in ("slow_remaining", "pull_remaining", "decay_delay"):
+        bossAfflictions[name] = max(0.0, bossAfflictions[name] - seconds)
+    if bossAfflictions["slow_remaining"] <= 0:
+        bossAfflictions["slow"] = 0.0
+    if bossAfflictions["pull_remaining"] <= 0:
+        bossAfflictions["pull"] = 0.0
+        bossAfflictions["pull_source"] = None
+    if bossAfflictions["decay_delay"] <= 0:
+        bossAfflictions["exposure"] = max(0.0, bossAfflictions["exposure"] - seconds * .8)
+
+
+def boss_movement_multiplier():
+    exposure_penalty = bossAfflictions["exposure"] * .025
+    return max(.58, 1.0 - exposure_penalty - bossAfflictions["slow"])
+
+
+def player_build_snapshot():
+    """Return an immutable summary bosses may inspect without mutating the build."""
+    import upgrades
+    types = dict(upgradeCollection["types"])
+    categories = {}
+    for name, count in types.items():
+        definition = upgrades.DEFINITIONS_BY_NAME.get(name)
+        if definition:
+            categories[definition.category] = categories.get(definition.category, 0) + count
+    offense = {key: categories.get(key, 0)
+               for key in ("volley", "tempo", "precision", "power", "critical")}
+    dominant = max(offense, key=offense.get) if any(offense.values()) else "power"
+    stats = {
+        "projectile_count": projectileCount, "pierce": bulletPierce,
+        "crit_chance": critChance, "crit_damage": critDamage,
+        "bullet_speed": bulletSpeed, "bullet_size": bulletSize,
+    }
+    return MappingProxyType({
+        "types": MappingProxyType(types),
+        "categories": MappingProxyType(categories),
+        "stats": MappingProxyType(stats),
+        "dominant_offense": dominant,
+    })
 
 
 def record_upgrade(upgrade_type, rarity, math_type=None):

@@ -166,6 +166,8 @@ def resetAllStats():
 
     cS.levelingHandler = LevelingHandler()
     cS.reset_upgrade_tracking()
+    cS.reset_boss_afflictions()
+    cS.reset_dream_state()
     
     cS.newRandoUps = False
     
@@ -237,6 +239,8 @@ def handleLevelingProcess():
             vH.state = vH.States.GAMERUN
 
 def movePlayer():
+    cS.update_boss_afflictions(vH.get_timer_step() / max(1, vH.frameRate))
+    cS.update_dream_state(vH.get_timer_step() / max(1, vH.frameRate))
     input_x = int(bool(vH.keys[pg.K_a])) - int(bool(vH.keys[pg.K_d])) - vH.controllerMoveX
     input_y = int(bool(vH.keys[pg.K_w])) - int(bool(vH.keys[pg.K_s])) - vH.controllerMoveY
     direction_scale = 0.70710678 if input_x and input_y else 1.0
@@ -258,8 +262,9 @@ def movePlayer():
     
     if not cS.dashing:
         movement_scale = vH.get_frame_scale()
-        cS.dX = input_x * cS.playerSpeed * movement_scale
-        cS.dY = input_y * cS.playerSpeed * movement_scale
+        affliction_scale = cS.boss_movement_multiplier()
+        cS.dX = input_x * cS.playerSpeed * movement_scale * affliction_scale
+        cS.dY = input_y * cS.playerSpeed * movement_scale * affliction_scale
     else:
         movement_scale = vH.get_frame_scale()
         cS.dX = cS.fdX * cS.dashModifier * cS.playerSpeed * movement_scale
@@ -268,23 +273,40 @@ def movePlayer():
         if cS.currDashCooldown <= (cS.dashCooldownMax - cS.dashDuration):
             cS.dashing = False
 
+    pull_source = cS.bossAfflictions["pull_source"]
+    if pull_source and cS.bossAfflictions["pull_remaining"] > 0 and not cS.dashing:
+        player_x = bG.playerPosX + cS.playerSize / 2
+        player_y = bG.playerPosY + cS.playerSize / 2
+        pull_x, pull_y = pull_source[0] - player_x, pull_source[1] - player_y
+        pull_distance = max(1.0, hypot(pull_x, pull_y))
+        force = cS.bossAfflictions["pull"] * vH.get_frame_scale()
+        cS.dX -= pull_x / pull_distance * force
+        cS.dY -= pull_y / pull_distance * force
+
     newABSPosX = bG.playerPosX - cS.dX
     newABSPosY = bG.playerPosY - cS.dY
 
     cS.currTileX = bG.playerPosX / vH.tileSizeGlobal
     cS.currTileY = bG.playerPosY / vH.tileSizeGlobal
 
-    if not bG.rect_hits_wall(pg.Rect(newABSPosX, bG.playerPosY, cS.playerSize, cS.playerSize)):
+    boss = cS.activeBoss
+    boss_obstacles = (boss.movement_obstacles() if boss is not None
+                      and hasattr(boss, "movement_obstacles") else ())
+
+    next_x_rect = pg.Rect(newABSPosX, bG.playerPosY, cS.playerSize, cS.playerSize)
+    if (not bG.rect_hits_wall(next_x_rect)
+            and not any(next_x_rect.colliderect(obstacle) for obstacle in boss_obstacles)):
         bG.playerPosX = newABSPosX
     else:
         cS.dX = 0
 
-    if not bG.rect_hits_wall(pg.Rect(bG.playerPosX, newABSPosY, cS.playerSize, cS.playerSize)):
+    next_y_rect = pg.Rect(bG.playerPosX, newABSPosY, cS.playerSize, cS.playerSize)
+    if (not bG.rect_hits_wall(next_y_rect)
+            and not any(next_y_rect.colliderect(obstacle) for obstacle in boss_obstacles)):
         bG.playerPosY = newABSPosY
     else:
         cS.dY = 0
 
-    boss = cS.activeBoss
     if boss is not None and hasattr(boss, "arenaRadius"):
         arena_x, arena_y = boss._arena_center()
         player_x = bG.playerPosX + cS.playerSize / 2
@@ -853,6 +875,20 @@ def hurtPlayer():
 
     for projectile in cS.enemyProjectileHolster:
         if projectile.collides(player_world_rect):
+            belief_gain = getattr(projectile, "beliefGain", 0.0)
+            clarity_gain = getattr(projectile, "clarityGain", 0.0)
+            if belief_gain or clarity_gain:
+                cS.alter_belief(belief_gain - clarity_gain,
+                                false_rule=belief_gain >= 1.0,
+                                truth=clarity_gain > 0)
+            affliction = getattr(projectile, "affliction", None)
+            if affliction:
+                cS.apply_boss_affliction(
+                    affliction, getattr(projectile, "afflictionDuration", 0.0),
+                    getattr(projectile, "afflictionStrength", 0.0),
+                    getattr(projectile, "exposure", 0.0),
+                    getattr(projectile, "afflictionSource", None),
+                )
             if not getattr(projectile, "persistentHazard", False):
                 projectile.remFlag = True
             trueDMG = hostile_damage_after_defense(projectile.damage, cS.defense)
@@ -1108,6 +1144,20 @@ def drawBossHealthBar():
         return
     if getattr(boss, "entranceRemaining", 0) > 1.0:
         return
+    exposure = cS.bossAfflictions["exposure"]
+    if exposure > .05:
+        intensity = min(1.0, exposure / 10.0)
+        veil = pg.Surface(vH.screen.get_size(), pg.SRCALPHA)
+        edge = max(18, int(min(vH.screen.get_size()) * .055))
+        alpha = int(18 + intensity * 62)
+        color = (126, 48, 32, alpha)
+        pg.draw.rect(veil, color, (0, 0, vH.screen.get_width(), edge))
+        pg.draw.rect(veil, color, (0, vH.screen.get_height() - edge,
+                                  vH.screen.get_width(), edge))
+        pg.draw.rect(veil, color, (0, edge, edge, vH.screen.get_height() - edge * 2))
+        pg.draw.rect(veil, color, (vH.screen.get_width() - edge, edge, edge,
+                                  vH.screen.get_height() - edge * 2))
+        vH.screen.blit(veil, (0, 0))
     scale = ui.display_scale(vH.screen)
     arena_width = cS.informationSheet.arena_width
     width = min(arena_width * .62, 720 * scale)
@@ -1138,6 +1188,17 @@ def drawBossHealthBar():
                      else f"STAGGER // TIER {min(3, int(boss.stagger / boss.maxStagger * 4))}")
     ui.draw_text(vH.screen, stagger_label, 9 * scale, stagger_color,
                  (stagger_rect.x, stagger_rect.y - 2 * scale), "bottomleft")
+    if exposure > .05:
+        affliction = "PULLED" if cS.bossAfflictions["pull_remaining"] > 0 else (
+            "SLOWED" if cS.bossAfflictions["slow_remaining"] > 0 else "EXPOSED")
+        ui.draw_text(vH.screen, f"{affliction} // {exposure:.1f}", 9 * scale, ui.RED,
+                     (rect.right - 14 * scale, rect.bottom + 5 * scale), "topright")
+    belief = cS.dreamState["belief"]
+    if belief > .05:
+        label = "CLARITY" if cS.dreamState["clarity"] > belief * .35 else "BELIEF"
+        color = ui.BLUE if label == "CLARITY" else ui.PURPLE
+        ui.draw_text(vH.screen, f"{label} // {belief:.1f}", 9 * scale, color,
+                     (rect.x + 14 * scale, rect.bottom + 5 * scale), "topleft")
 
 def runTheTitleScreen():
     vH.screen.fill(ui.VOID)

@@ -41,6 +41,10 @@ class EnemyProjectile:
         self.orbitAngle = orbit_angle
         self.angularSpeed = angular_speed
         self.owner = owner
+        self.illusory = False
+        self.truthMarked = False
+        self.beliefGain = 0.0
+        self.clarityGain = 0.0
         # Dissonance bullets should paint complete lanes across the final arena.
         # Mines retain their deliberately local range and orbit fields retain lifetime rules.
         if (str(owner).startswith("dissonance") and path not in ("mine", "orbit")
@@ -77,6 +81,8 @@ class EnemyProjectile:
         return pygame.Rect(self.worldX, self.worldY, self.size, self.size)
 
     def collides(self, rect):
+        if self.illusory:
+            return False
         if self.path == "laser":
             if self.age < self.telegraphDuration:
                 return False
@@ -117,7 +123,10 @@ class EnemyProjectile:
                 width = max(8, int(self.size * (1.15 + .18 * sin(self.age * 18))))
                 pygame.draw.line(screen, ui.INK, start, end, width + 8)
                 pygame.draw.line(screen, self.color, start, end, width)
-                pygame.draw.line(screen, ui.CREAM, start, end, max(2, width // 3))
+                core_color = ui.MUTED if self.illusory else ui.CREAM
+                pygame.draw.line(screen, core_color, start, end, max(2, width // 3))
+                if self.truthMarked:
+                    pygame.draw.circle(screen, ui.CREAM, start, max(3, width // 3))
             expired = self.lifetime is not None and self.age >= self.lifetime
             if expired:
                 self.remFlag = True
@@ -227,6 +236,10 @@ class EnemyProjectile:
             pygame.draw.rect(screen, ui.lighten(self.color, 45), rect.inflate(-int(self.size * .5), -int(self.size * .5)))
         if gameProfile.profile["high_contrast"]:
             pygame.draw.rect(screen, ui.CREAM, rect.inflate(4, 4), max(2, int(self.size * .08)))
+        if self.truthMarked:
+            pygame.draw.circle(screen, ui.CREAM, rect.center, max(2, int(self.size * .1)))
+        elif self.illusory:
+            pygame.draw.circle(screen, ui.MUTED, rect.center, max(3, int(self.size * .22)), 2)
 
         expired = self.lifetime is not None and self.age >= self.lifetime
         range_spent = self.path != "orbit" and self.remainingRange <= 0

@@ -79,3 +79,130 @@ defeated before Dissonance can start at level 20. Defeating Dissonance marks the
 complete and leaves ordinary spawning disabled. Player progression is capped at 20.
 Defense can never nullify hostile damage completely: enemy and boss hits retain the
 greater of 0.25 damage or 10% of their pre-defense value (before casual-mode scaling).
+
+## Kage and Rot — Path of Chemesthesis
+
+Kage and Rot replace the Chemesthesis path's three-phase placeholders with a shared
+seven-sins projectile language. Their attacks favor long-lived mines, orbiting
+hazards, bombs, curved volleys, and telegraphed lasers so the path continues to feel
+like a durable organism contaminating the battlefield.
+
+Kage has four composite phases:
+
+1. **Feast** combines Gluttony and Greed in a spreading mine meal.
+2. **Provocation** combines Wrath and Pride in an aimed volley and retaliatory beam.
+3. **Stagnant Mirror** combines Sloth and Envy in slow curved copies and lingering mines.
+4. **Lure** combines Lust and Avarice in wide tempting lanes and a targeted bomb.
+
+Rot has seven phases, one per sin: **Crown** (Pride), **Hoard** (Greed), **Pull**
+(Lust), **Borrowed Shape** (Envy), **Consumption** (Gluttony), **Retort** (Wrath),
+and **The Rot** (Sloth). The final phase recalls simplified Pride, Gluttony, and Lust
+patterns over an expanding persistent mine field.
+
+Both fights advance phases at evenly divided health thresholds. Number-key boss
+practice supports all four Kage phases and all seven Rot phases through the shared
+debug phase interface.
+
+Rot is stationary and divides its seven sins into three cinematic acts. Act I,
+**Appetite**, contains Pride and Greed. Act II, **Temptation**, contains Lust and
+Envy. Act III, **Saturation**, contains Gluttony, Wrath, and the Sloth finale. Each
+act transition clears the existing hazard field, briefly protects Rot, and announces
+the next terrain vocabulary. Health gates prevent burst-damage builds from skipping
+a sin or its transition.
+
+Chemesthesis hazards can apply **Exposure**, a temporary movement-pressure meter
+that decays after avoiding contaminated terrain. Pull hazards briefly draw the player
+toward Rot, while Sloth hazards apply a direct slow. These effects never reduce
+movement below 58%, and dashing overrides pull, preserving a difficult escape option.
+
+Rot's Envy phase reads an immutable snapshot of the current build. Critical builds
+receive a telegraphed beam imitation, tempo builds receive fast narrow volleys,
+precision builds receive compact high-speed lanes, and volley or power builds receive
+scaled projectile fans. The snapshot cannot alter the player's upgrades.
+
+The encounters use a restrained visual grammar intended to preserve bullet clarity:
+faint chemical diagrams identify each sin beneath the boss, sparse spores rise from
+the reaction field, phase-colored ampoules fill as health gates are crossed, and
+seven orbiting reaction vessels show Rot's progress. Exposure adds a dark red edge
+vignette rather than a center-screen filter, leaving precise terrain routes visible.
+
+Each phase also has a bespoke geometric sin sigil. Pride rises into a crown, Greed
+closes into a faceted vessel, Lust converges into a sharp heart, Envy duplicates,
+Gluttony opens into a maw, Wrath fractures into crossed bolts, and Sloth descends
+into an incomplete spiral. Kage's four sigils combine strokes from the paired sins.
+Symbols are supersampled for crisp edges, progressively draw their strokes on phase
+entry, rotate the previous mark away, and appear on the boss ampoule, field diagram,
+and cinematic act card.
+
+### Further Chemesthesis directions
+
+Four cleansing vents surround Rot. Entering a ready vent removes Exposure, puts that
+vent on a twelve-second cooldown, and crystallizes the corresponding inner route for
+seven seconds. Greed and Sloth also grow temporary solid crystal walls. These walls
+participate in player movement collision, are capped to prevent an unsolvable field,
+and are cleared at phase transitions.
+
+Pride and Wrath derive their cardinal lanes from the camera orientation, alternating
+screen-horizontal and screen-vertical pressure in world space. Rot reports three
+stable challenge hooks: `clean_traversal` for staying at or below 3 Exposure,
+`vent_discipline` for using at most one vent, and `uncontaminated` for effectively
+never accumulating Exposure.
+
+### Additional directions
+
+Crystals now have brittle and reinforced variants. Brittle walls are registered as
+targetable boss parts and break after sustained player fire; reinforced walls cannot
+be damaged and must expire. Gluttony consumes the oldest active wall when attacking,
+draining 25% of Rot's stagger meter and producing a visible absorption pulse.
+
+Act transitions draw a clean-route preview between ready vents. During Sloth,
+opposite reinforced walls appear beyond the active field, telegraph for 2.5 seconds,
+then become solid and compress inward at a fixed rate. Compression repeats every
+twelve seconds and stops before eliminating the central traversal channel.
+
+### New recommendations
+
+- Allow critical hits to fracture brittle walls into two short-lived shrapnel lanes,
+  making destruction powerful but not automatically safe.
+- Give vents one of two visible reagents per run: cooling reagent could grant brief
+  slow immunity, while caustic reagent could increase damage during Exposure.
+- Add an accessibility toggle that increases crystal-warning contrast and extends
+  compression telegraphs without changing projectile damage.
+- Record a route-efficiency result based on distance traveled versus phase duration,
+  rewarding deliberate navigation rather than constant perimeter circling.
+- Let Kage reveal dormant, nonfunctional versions of vents and crystals so players
+  learn their silhouettes before Rot makes them mechanically important.
+- Add act sound layers once the project has a shared audio mixer, volume preference,
+  and accessibility option. Suggested motifs remain glass resonance for Appetite,
+  breath/heartbeat for Temptation, and low bubbling pressure for Saturation.
+
+## Hypno and Malady — Path of Phantasia
+
+Hypno now teaches five paired commandment concepts through **Idol**, **Spoken Rule**,
+**Inheritance**, **Chosen**, and **Offering**. Malady expands that language into ten
+health-gated phases: Authority, Image, Reverence, Rest, Lineage, Mercy, Fidelity,
+Ownership, Truth, and Contentment.
+
+Malady uses three theatrical acts: **The Doctrine** (phases 1–3), **The Covenant**
+(phases 4–6), and **The Testimony** (phases 7–10). Curtain transitions clear the
+projectile field, protect the boss, and draw the next commandment sigil before the
+court returns.
+
+Phantasia's shared meter is **Belief**. Real hostile projectiles carry a stable cream
+center mark; visually dense false projectiles are harmless and use a hollow muted
+center. Following false rules, breaking Rest, or accepting finale offerings raises
+Belief. Correct interpretation grants Clarity, which accelerates Belief decay. Higher
+Belief adds mask echoes, false halos, and extra court ornamentation without changing
+the real-threat marker.
+
+Malady's commandment mechanics include shifting authoritative projectile origins,
+mirrored false courts, protected names, a six-beat attack/Rest rhythm, inherited
+splitting projectiles, a harmless mercy procession, route-like Fidelity lasers,
+build-scaled stolen volleys, one true witness among false lasers, and four optional
+Contentment offerings that permanently intensify the finale pattern.
+
+All ten commandments have supersampled geometric sigils. The court renders several
+counter-rotating manuscript rings, floating diamonds, an ivory ceremonial mask, ten
+orbiting halo seals, Belief-driven false masks, illuminated rule banners, and ornate
+phase cards. This is intentionally the game's most visually chaotic boss, but its
+collision truth remains consistent.

@@ -2311,20 +2311,459 @@ class Chronos(Ishe):
     finalShotScale = .22
 
 
-class Kage(PathChaseBoss):
+class SinChemesthesisBoss(PathChaseBoss):
+    """Shared seven-sins pattern language for the Chemesthesis bosses."""
+
+    phaseFlavors = ()
+    phaseColors = ()
+    ACT_METADATA = {}
+    SIN_SIGILS = ()
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        self.phaseFlavor = self.phaseFlavors[0]
+        self.phaseAccent = self.phaseColors[0]
+        self.patternRotation = 0
+        self.actTransitionTimer = 0.0
+        self.actTransitionDuration = 2.2
+        self.actTitle = ""
+        self.phaseProtectionTimer = 0.0
+        self.previousSigilPhase = 1
+        self.sigilTransitionTimer = 1.25
+        self.sigilTransitionDuration = 1.25
+
+    def _update_phase(self):
+        if self.debugPhaseLocked:
+            return
+        count = len(self.phaseLabels)
+        ratio = max(0.0, min(1.0, self.hp / self.maxHp))
+        new_phase = min(count, int((1.0 - ratio) * count + 1e-9) + 1)
+        if new_phase != self.phase:
+            self._set_sin_phase(new_phase)
+
+    def _set_sin_phase(self, phase):
+        self.previousSigilPhase = self.phase
+        self.phase = max(1, min(len(self.phaseLabels), int(phase)))
+        self.phaseLabel = self.phaseLabels[self.phase - 1]
+        self.phaseFlavor = self.phaseFlavors[self.phase - 1]
+        self.phaseAccent = self.phaseColors[self.phase - 1]
+        self.attackCooldown = min(self.attackCooldown, vH.frameRate * .45)
+        self.transitionCleanupRequested = True
+        self.sigilTransitionTimer = self.sigilTransitionDuration
+        if self.phase in self.ACT_METADATA:
+            self.actTitle = self.ACT_METADATA[self.phase]
+            self.actTransitionTimer = self.actTransitionDuration
+            self.phaseProtectionTimer = self.actTransitionDuration
+
+    def debug_set_phase(self, phase):
+        self._set_sin_phase(phase)
+        self.debugPhaseLocked = True
+        self.attackCooldown = 0
+
+    def _shot(self, sink, direction, speed, damage, scale=.25, *, shape="diamond",
+              path="linear", lifetime=None, speed_decay=0, orbit_radius=0,
+              angular_speed=0, owner_suffix="sin", affliction=None,
+              affliction_duration=0.0, affliction_strength=0.0, exposure=0.0,
+              affliction_source=None):
+        center_x, center_y = self._center()
+        size = self.size * scale
+        shot = EnemyProjectile(
+            center_x - size / 2, center_y - size / 2, direction, speed, damage, size,
+            travel_range=vH.tileSizeGlobal * self.shotRangeTiles,
+            color=self.phaseAccent, shape=shape, path=path, lifetime=lifetime,
+            speed_decay=speed_decay, orbit_center=self._center() if orbit_radius else None,
+            orbit_radius=orbit_radius, orbit_angle=direction,
+            angular_speed=angular_speed,
+            owner=f"{self.ownerPrefix}_{owner_suffix}", ignore_walls=True,
+        )
+        shot.affliction = affliction
+        shot.afflictionDuration = affliction_duration
+        shot.afflictionStrength = affliction_strength
+        shot.exposure = exposure
+        shot.afflictionSource = affliction_source
+        sink.append(shot)
+
+    def _fan(self, sink, base, count, spread, speed, damage, suffix):
+        for index in range(count):
+            offset = 0 if count == 1 else -spread / 2 + spread * index / (count - 1)
+            self._shot(sink, base + offset, speed, damage, owner_suffix=suffix)
+
+    def _radial(self, sink, count, speed, damage, suffix, *, mine=False):
+        offset = self.patternRotation * .19
+        for index in range(count):
+            self._shot(sink, 2 * pi * index / count + offset, speed, damage,
+                       scale=.22 if not mine else .27,
+                       shape="mine" if mine else "diamond",
+                       path="mine" if mine else "linear",
+                       lifetime=18 if mine else None,
+                       speed_decay=.12 if mine else 0, owner_suffix=suffix,
+                       exposure=.45 if mine else 0.0)
+        self.patternRotation += 1
+
+    def _bomb(self, sink, target_x, target_y, damage, suffix):
+        center_x, center_y = self._center()
+        size = self.size * .34
+        bomb = EnemyProjectile(
+            center_x, center_y, 0, 0, damage, size, color=self.phaseAccent,
+            shape="bomb", path="bomb", lifetime=4.0,
+            target=(target_x, target_y), owner=f"{self.ownerPrefix}_{suffix}",
+            ignore_walls=True,
+        )
+        bomb.fuseDuration = 2.6
+        bomb.blastRadius = vH.tileSizeGlobal * 1.8
+        bomb.burstCount = 10
+        sink.append(bomb)
+
+    def _laser(self, sink, direction, damage, suffix, angular_speed=0):
+        center_x, center_y = self._center()
+        laser = EnemyProjectile(
+            center_x, center_y, direction, 0, damage, self.size * .16,
+            travel_range=vH.tileSizeGlobal * 30, color=self.phaseAccent,
+            shape="laser", path="laser", lifetime=2.35,
+            angular_speed=angular_speed, owner=f"{self.ownerPrefix}_{suffix}",
+            ignore_walls=True,
+        )
+        laser.telegraphDuration = .85
+        sink.append(laser)
+
+    def _parallel_lanes(self, sink, direction, count, spacing, damage, suffix):
+        """Draw an immediately legible wall of parallel, telegraphed lanes."""
+        center_x, center_y = self._center()
+        perpendicular = direction + pi / 2
+        for index in range(count):
+            offset = (index - (count - 1) / 2) * spacing
+            start_x = center_x + cos(perpendicular) * offset
+            start_y = center_y + sin(perpendicular) * offset
+            laser = EnemyProjectile(
+                start_x, start_y, direction, 0, damage, self.size * .14,
+                travel_range=vH.tileSizeGlobal * 34, color=self.phaseAccent,
+                shape="laser", path="laser", lifetime=2.3,
+                owner=f"{self.ownerPrefix}_{suffix}", ignore_walls=True,
+            )
+            laser.telegraphDuration = .95
+            sink.append(laser)
+
+    def take_damage(self, amount, part_id="body"):
+        if self.phaseProtectionTimer > 0 or self.actTransitionTimer > 0:
+            return HitResult(False, False, 0, blocked=True)
+        if str(part_id).startswith("crystal:"):
+            return self._damage_crystal(part_id, amount)
+        previous_hp = self.hp
+        multiplier = 1.25 if self.isStaggered else 1.0
+        result = super().take_damage(amount * multiplier, part_id)
+        if not self.isStaggered:
+            self.stagger = min(self.maxStagger,
+                               self.stagger + max(self.minimumStaggerPerHit,
+                                                  amount * .012))
+            if self.stagger >= self.maxStagger:
+                self.isStaggered = True
+                self.staggerRemaining = self.staggerDuration
+                self.transitionCleanupRequested = True
+        if not self.debugPhaseLocked and self.phase < len(self.phaseLabels):
+            threshold = self.maxHp * (len(self.phaseLabels) - self.phase) / len(self.phaseLabels)
+            self.hp = max(self.hp, threshold)
+        applied = max(0, previous_hp - self.hp)
+        return HitResult(result.applied, self.hp <= 0, applied, result.blocked)
+
+    def _damage_crystal(self, part_id, amount):
+        return HitResult(False, False, 0, blocked=True)
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        projectile_sink = projectile_sink if projectile_sink is not None else []
+        dt = self._seconds()
+        self.entranceRemaining = max(0.0, self.entranceRemaining - dt)
+        self.actTransitionTimer = max(0.0, self.actTransitionTimer - dt)
+        self.phaseProtectionTimer = max(0.0, self.phaseProtectionTimer - dt)
+        self.sigilTransitionTimer = max(0.0, self.sigilTransitionTimer - dt)
+        self._update_terrain(player_world_x, player_world_y, dt)
+        self._update_phase()
+        if self.entranceRemaining > 0 or self.actTransitionTimer > 0:
+            self.age += vH.get_timer_step()
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        if self.isStaggered:
+            self.staggerRemaining = max(0.0, self.staggerRemaining - dt)
+            if self.staggerRemaining <= 0:
+                self.isStaggered = False
+                self.stagger = 0.0
+            self.age += vH.get_timer_step()
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        Enemy.updateEnemy(self, player_world_x, player_world_y, projectile_sink)
+        self.attackCooldown -= vH.get_timer_step()
+        if self.attackCooldown <= 0:
+            self._fire_pattern(player_world_x, player_world_y, projectile_sink)
+            rate = max(.36, 1.0 - .08 * (self.phase - 1))
+            self.attackCooldown = self.attackCooldownMax * rate * self.rng.uniform(.92, 1.08)
+
+    def _update_terrain(self, player_x, player_y, dt):
+        """Optional persistent terrain hook used by Rot."""
+
+    def movement_obstacles(self):
+        return ()
+
+    def get_screen_hitboxes(self):
+        return super().get_screen_hitboxes()
+
+    def drawEnemy(self, screen):
+        self._draw_field_diagram(screen)
+        super().drawEnemy(screen)
+        self._draw_chemical_body(screen)
+        if self.actTransitionTimer <= 0:
+            return
+        progress = 1 - self.actTransitionTimer / self.actTransitionDuration
+        alpha = int(185 * min(1, progress * 5, (1 - progress) * 5))
+        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        pygame.draw.rect(veil, (ui.VOID.r, ui.VOID.g, ui.VOID.b, alpha),
+                         (0, screen.get_height() * .3,
+                          screen.get_width(), screen.get_height() * .4))
+        screen.blit(veil, (0, 0))
+        scale = ui.display_scale(screen)
+        ui.draw_text(screen, self.actTitle, 31 * scale, self.phaseAccent,
+                     (screen.get_width() / 2, screen.get_height() * .43), "center")
+        ui.draw_text(screen, f"{self.phaseLabel} SPREADS", 13 * scale, ui.CREAM,
+                     (screen.get_width() / 2, screen.get_height() * .51), "center")
+        ui.draw_text(screen, self.phaseFlavor, 11 * scale, ui.lighten(self.phaseAccent, 45),
+                     (screen.get_width() / 2, screen.get_height() * .56), "center")
+        sigil_name = self._draw_sigil(
+            screen, (screen.get_width() / 2, screen.get_height() * .64),
+            34 * scale, min(1.0, progress * 2.4), 0, phase=self.phase)
+        ui.draw_text(screen, sigil_name, 9 * scale, self.phaseAccent,
+                     (screen.get_width() / 2, screen.get_height() * .70), "center")
+
+    def _draw_field_diagram(self, screen):
+        """Render a phase-specific chemical diagram beneath the static boss."""
+        center = bG.world_to_screen(*self._center())
+        tile = vH.tileSizeGlobal
+        extent = int(tile * (7.2 if self.finalBoss else 4.8))
+        field = pygame.Surface((extent * 2, extent * 2), pygame.SRCALPHA)
+        local = (extent, extent)
+        pulse = .5 + .5 * sin(self.age * .025)
+        faint = (*self.phaseAccent[:3], int(24 + pulse * 18))
+        bright = (*ui.lighten(self.phaseAccent, 35)[:3], int(58 + pulse * 30))
+
+        for ring in range(1, 4):
+            radius = int(tile * (1.15 + ring * 1.18 + .08 * pulse))
+            pygame.draw.circle(field, faint, local, radius, max(1, ring % 3 + 1))
+
+        motif = (self.phase - 1) % 7
+        if motif == 0:  # Pride: a rigid crown and cardinal axes.
+            for angle in (0, pi / 2, pi, 3 * pi / 2):
+                end = (local[0] + cos(angle) * extent * .82,
+                       local[1] + sin(angle) * extent * .82)
+                pygame.draw.line(field, bright, local, end, 2)
+            crown = [(local[0] - tile * 1.5, local[1] - tile * .6),
+                     (local[0] - tile * .75, local[1] - tile * 1.45),
+                     (local[0], local[1] - tile * .72),
+                     (local[0] + tile * .75, local[1] - tile * 1.45),
+                     (local[0] + tile * 1.5, local[1] - tile * .6)]
+            pygame.draw.lines(field, bright, False, crown, 3)
+        elif motif == 1:  # Greed: nested containment cells.
+            for radius in (tile * 1.7, tile * 2.7, tile * 3.7):
+                rect = pygame.Rect(0, 0, radius * 2, radius * 2)
+                rect.center = local
+                pygame.draw.rect(field, bright, rect, 2)
+        elif motif == 2:  # Lust: converging attraction spokes.
+            for index in range(8):
+                angle = index * pi / 4 + self.age * .002
+                outer = (local[0] + cos(angle) * extent * .82,
+                         local[1] + sin(angle) * extent * .82)
+                inner = (local[0] + cos(angle + .22) * tile * 1.1,
+                         local[1] + sin(angle + .22) * tile * 1.1)
+                pygame.draw.line(field, faint, outer, inner, 3)
+        elif motif == 3:  # Envy: two offset copies of one diagram.
+            for side in (-1, 1):
+                copy = pygame.Rect(0, 0, tile * 2.5, tile * 2.5)
+                copy.center = (local[0] + side * tile * 1.35, local[1])
+                pygame.draw.rect(field, bright if side > 0 else faint, copy, 3)
+        elif motif == 4:  # Gluttony: an open maw of broken rings.
+            for radius in (tile * 1.5, tile * 2.5, tile * 3.5):
+                rect = pygame.Rect(0, 0, radius * 2, radius * 2)
+                rect.center = local
+                pygame.draw.arc(field, bright, rect, .35, 2 * pi - .35, 3)
+        elif motif == 5:  # Wrath: an uncompromising cross-lane reticle.
+            pygame.draw.line(field, bright, (local[0] - extent, local[1]),
+                             (local[0] + extent, local[1]), 4)
+            pygame.draw.line(field, bright, (local[0], local[1] - extent),
+                             (local[0], local[1] + extent), 4)
+        else:  # Sloth: a sagging, incomplete containment spiral.
+            points = []
+            for index in range(48):
+                angle = index * .34
+                radius = tile * (.35 + index * .075)
+                points.append((local[0] + cos(angle) * radius,
+                               local[1] + sin(angle) * radius * .72))
+            pygame.draw.lines(field, faint, False, points, 4)
+
+        # Slow rising spores make the field feel alive without hiding projectile lanes.
+        for index in range(9 if self.finalBoss else 5):
+            angle = index * 2.399 + self.age * .003
+            radius = tile * (1.2 + (index % 4) * 1.1)
+            point = (local[0] + cos(angle) * radius,
+                     local[1] + sin(angle) * radius - (self.age * .04 + index * 13) % tile)
+            pygame.draw.circle(field, bright, point, 2 + index % 3)
+        screen.blit(field, (center[0] - extent, center[1] - extent))
+        sigil_progress = 1 - self.sigilTransitionTimer / self.sigilTransitionDuration
+        self._draw_sigil(screen, center, tile * (2.25 if self.finalBoss else 1.55),
+                         max(0.0, sigil_progress), self.age * .0008,
+                         alpha=55, phase=self.phase)
+        self._draw_persistent_terrain(screen)
+
+    def _draw_persistent_terrain(self, screen):
+        """Optional world-terrain rendering hook used by Rot."""
+
+    def _draw_chemical_body(self, screen):
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        pulse = .5 + .5 * sin(self.age * .04)
+        # Seven reaction vessels make Rot's phase progression readable on its body.
+        pip_count = 7 if self.finalBoss else 4
+        pip_radius = self.size * .62
+        for index in range(pip_count):
+            angle = -pi / 2 + index * 2 * pi / pip_count
+            point = (rect.centerx + cos(angle) * pip_radius,
+                     rect.centery + sin(angle) * pip_radius)
+            active = index < self.phase
+            color = self.phaseAccent if active else ui.BORDER
+            pygame.draw.circle(screen, ui.INK, point, max(4, int(self.size * .065)))
+            pygame.draw.circle(screen, color, point,
+                               max(2, int(self.size * (.034 + .008 * pulse))))
+        # A glassy central ampoule and rising reaction line distinguish this family.
+        vessel = rect.inflate(-self.size * .58, -self.size * .24)
+        pygame.draw.rect(screen, ui.INK, vessel.inflate(6, 6), border_radius=8)
+        pygame.draw.rect(screen, ui.VOID, vessel, border_radius=6)
+        fill_height = vessel.height * min(1.0, self.phase / max(1, len(self.phaseLabels)))
+        fluid = pygame.Rect(vessel.x, vessel.bottom - fill_height, vessel.width, fill_height)
+        pygame.draw.rect(screen, self.phaseAccent, fluid, border_radius=5)
+        pygame.draw.line(screen, ui.CREAM, (vessel.x + vessel.width * .28, vessel.y + 5),
+                         (vessel.x + vessel.width * .28, vessel.bottom - 5), 2)
+        transition = self.sigilTransitionTimer / self.sigilTransitionDuration
+        if transition > 0 and self.previousSigilPhase != self.phase:
+            self._draw_sigil(screen, rect.center, self.size * .34, 1.0,
+                             -transition * pi * .35, alpha=int(120 * transition),
+                             phase=self.previousSigilPhase)
+        self._draw_sigil(screen, rect.center, self.size * .36,
+                         max(0.05, 1 - transition), transition * pi * .55,
+                         alpha=255, phase=self.phase)
+        if getattr(self, "consumedCrystalPulse", 0) > 0:
+            radius = self.size * (1.0 + (1 - self.consumedCrystalPulse) * .65)
+            pulse_rect = pygame.Rect(0, 0, radius * 2, radius * 2)
+            pulse_rect.center = rect.center
+            pygame.draw.ellipse(screen, ui.CREAM, pulse_rect,
+                                max(2, int(5 * self.consumedCrystalPulse)))
+
+    def _draw_sigil(self, screen, center, radius, progress=1.0, rotation=0.0,
+                    alpha=255, phase=None):
+        if not self.SIN_SIGILS:
+            return ""
+        phase = self.phase if phase is None else phase
+        index = max(0, min(len(self.SIN_SIGILS) - 1, phase - 1))
+        name, strokes = self.SIN_SIGILS[index]
+        progress = max(0.0, min(1.0, progress))
+        extent = max(8, int(radius * 2.8))
+        aa = 2
+        symbol = pygame.Surface((extent * aa, extent * aa), pygame.SRCALPHA)
+        origin = (extent * aa / 2, extent * aa / 2)
+        cos_angle, sin_angle = cos(rotation), sin(rotation)
+        line_width = max(2, int(radius * .09)) * aa
+        glow_width = line_width + max(3, int(radius * .09)) * aa
+        stroke_budget = progress * len(strokes)
+        for stroke_index, stroke in enumerate(strokes):
+            local_progress = max(0.0, min(1.0, stroke_budget - stroke_index))
+            if local_progress <= 0 or len(stroke) < 2:
+                continue
+            transformed = []
+            for x, y in stroke:
+                x, y = x * radius * aa, y * radius * aa
+                transformed.append((origin[0] + x * cos_angle - y * sin_angle,
+                                    origin[1] + x * sin_angle + y * cos_angle))
+            visible = []
+            segment_budget = local_progress * (len(transformed) - 1)
+            visible.append(transformed[0])
+            for segment in range(len(transformed) - 1):
+                if segment_budget <= segment:
+                    break
+                fraction = min(1.0, segment_budget - segment)
+                start, end = transformed[segment], transformed[segment + 1]
+                visible.append((start[0] + (end[0] - start[0]) * fraction,
+                                start[1] + (end[1] - start[1]) * fraction))
+                if fraction < 1:
+                    break
+            if len(visible) > 1:
+                pygame.draw.lines(symbol, (*ui.INK[:3], alpha), False, visible, glow_width)
+                pygame.draw.lines(symbol, (*self.phaseAccent[:3], alpha), False,
+                                  visible, line_width)
+                pygame.draw.lines(symbol, (*ui.CREAM[:3], alpha), False, visible,
+                                  max(1, line_width // 3))
+                pygame.draw.circle(symbol, (*ui.CREAM[:3], alpha), visible[-1],
+                                   max(1, line_width // 2))
+        symbol = pygame.transform.smoothscale(symbol, (extent, extent))
+        screen.blit(symbol, (center[0] - extent / 2, center[1] - extent / 2))
+        return name
+
+
+class Kage(SinChemesthesisBoss):
     bossName = "KAGE"
     subtitle = "THE FIRST REACTION"
-    phaseLabels = ("SEED", "FUME", "SATURATE")
+    phaseLabels = ("FEAST", "PROVOCATION", "STAGNANT MIRROR", "LURE")
+    phaseFlavors = (
+        "Take all that you can carry.",
+        "Strike. I insist.",
+        "Stillness learns your shape.",
+        "Come closer. There is plenty.",
+    )
+    phaseColors = (
+        pygame.Color(214, 154, 52), pygame.Color(205, 62, 38),
+        pygame.Color(101, 133, 64), pygame.Color(202, 82, 99),
+    )
+    SIN_SIGILS = (
+        ("HUNGER / WANT", (
+            ((-.72, -.25), (-.28, -.72), (.28, -.72), (.72, -.25),
+             (.28, .18), (-.28, .18), (-.72, -.25)),
+            ((0, -.72), (0, .72)), ((-.42, .42), (0, .72), (.42, .42)),
+        )),
+        ("CROWN / RETORT", (
+            ((-.7, .38), (-.52, -.5), (0, -.12), (.52, -.5), (.7, .38)),
+            ((-.52, .08), (.52, .08)), ((-.34, .68), (0, .2), (.34, .68)),
+        )),
+        ("MIRROR / STILLNESS", (
+            ((-.68, -.35), (-.2, -.68), (-.2, .5), (-.68, .18), (-.68, -.35)),
+            ((.68, -.35), (.2, -.68), (.2, .5), (.68, .18), (.68, -.35)),
+            ((-.2, .5), (0, .72), (.2, .5)),
+        )),
+        ("LURE / AVARICE", (
+            ((-.68, -.38), (0, .08), (.68, -.38)),
+            ((-.68, .38), (0, -.08), (.68, .38)),
+            ((0, -.72), (0, .72)), ((-.22, .48), (0, .72), (.22, .48)),
+        )),
+    )
     pattern = "minefield"
     ownerPrefix = "kage_chemesthesis"
     bodyColor = pygame.Color(169, 65, 36)
     accentColor = pygame.Color(106, 132, 52)
-    movementSpeed = .18
+    movementSpeed = .055
     bodyScale = 2.05
     cooldownSeconds = 1.8
     shotSpeed = .30
     shotScale = .26
     shotRangeTiles = 34
+
+    def _fire_pattern(self, player_x, player_y, projectile_sink):
+        center_x, center_y = self._center()
+        aimed = atan2(player_y - center_y, player_x - center_x)
+        if self.phase == 1:  # Gluttony / Greed: a feast of lingering morsels.
+            self._radial(projectile_sink, 5, .34, 245, "feast", mine=True)
+        elif self.phase == 2:  # Wrath / Pride: invitation followed by retaliation.
+            self._fan(projectile_sink, aimed, 5, 1.05, .82, 270, "provocation")
+            self._laser(projectile_sink, aimed + pi, 240, "retort")
+        elif self.phase == 3:  # Sloth / Envy: slow mirrors occupy the field.
+            for side in (-1, 1):
+                self._shot(projectile_sink, aimed + side * .72, .42, 250,
+                           path="sine", owner_suffix="stagnant_mirror")
+            self._radial(projectile_sink, 4, .18, 230, "stagnation", mine=True)
+        else:  # Lust / Avarice: converging lanes make tempting gaps.
+            self._fan(projectile_sink, aimed, 7, 2.2, .56, 265, "lure")
+            self._bomb(projectile_sink, player_x, player_y, 280, "lure_reward")
+        self._mark_attack(.5)
 
 
 class Rot(Kage):
@@ -2338,35 +2777,836 @@ class Rot(Kage):
     finalCooldownSeconds = 1.35
     finalShotSpeed = .38
     finalShotScale = .29
+    movementSpeed = 0.0
+    ACT_METADATA = {
+        3: "ACT II // TEMPTATION",
+        5: "ACT III // SATURATION",
+    }
+    phaseLabels = ("CROWN", "HOARD", "PULL", "BORROWED SHAPE",
+                   "CONSUMPTION", "RETORT", "THE ROT")
+    phaseFlavors = (
+        "There is room for only one above.",
+        "Nothing is enough.",
+        "Every nerve bends toward desire.",
+        "Your strength looks better on me.",
+        "The field must feed.",
+        "Every wound demands an answer.",
+        "Rest. Become part of the garden.",
+    )
+    phaseColors = (
+        pygame.Color(232, 196, 84), pygame.Color(211, 145, 45),
+        pygame.Color(216, 80, 112), pygame.Color(111, 155, 88),
+        pygame.Color(153, 77, 42), pygame.Color(224, 55, 35),
+        pygame.Color(91, 117, 52),
+    )
+    SIN_SIGILS = (
+        ("PRIDE", (
+            ((-.72, .52), (-.58, -.22), (-.25, .08), (0, -.72),
+             (.25, .08), (.58, -.22), (.72, .52)),
+            ((-.58, .28), (.58, .28)), ((0, -.72), (0, .68)),
+        )),
+        ("GREED", (
+            ((0, -.74), (.62, -.18), (.42, .58), (0, .74),
+             (-.42, .58), (-.62, -.18), (0, -.74)),
+            ((-.42, -.06), (0, .28), (.42, -.06)),
+            ((0, -.42), (0, .74)),
+        )),
+        ("LUST", (
+            ((0, .72), (-.68, -.04), (-.42, -.6), (0, -.22),
+             (.42, -.6), (.68, -.04), (0, .72)),
+            ((-.72, 0), (.72, 0)),
+        )),
+        ("ENVY", (
+            ((-.74, 0), (-.36, -.42), (0, 0), (-.36, .42), (-.74, 0)),
+            ((.74, 0), (.36, -.42), (0, 0), (.36, .42), (.74, 0)),
+            ((-.36, 0), (.36, 0)),
+        )),
+        ("GLUTTONY", (
+            ((-.7, -.34), (-.34, -.68), (.34, -.68), (.7, -.34)),
+            ((-.7, .34), (-.34, .68), (.34, .68), (.7, .34)),
+            ((-.7, -.34), (-.28, 0), (-.7, .34)),
+            ((.7, -.34), (.28, 0), (.7, .34)),
+        )),
+        ("WRATH", (
+            ((-.58, -.7), (.1, -.08), (-.18, .08), (.58, .7)),
+            ((.58, -.7), (-.1, -.08), (.18, .08), (-.58, .7)),
+            ((-.72, 0), (.72, 0)),
+        )),
+        ("SLOTH", (
+            ((-.62, -.56), (.48, -.56), (.48, .34), (-.28, .34),
+             (-.28, -.1), (.14, -.1), (.14, .06)),
+            ((0, -.76), (0, -.56)),
+            ((-.48, .62), (0, .76), (.48, .62)),
+        )),
+    )
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        self.actTitle = "ACT I // APPETITE"
+        self.actTransitionTimer = self.actTransitionDuration
+        self.phaseProtectionTimer = self.actTransitionDuration
+        self.crystalWalls = []
+        self.cleansingVents = []
+        self.ventsUsed = 0
+        self.peakExposure = 0.0
+        self.compressionCooldown = 5.0
+        self.consumedCrystalPulse = 0.0
+        center_x, center_y = self._center()
+        for index in range(4):
+            angle = index * pi / 2 + pi / 4
+            self.cleansingVents.append({
+                "x": center_x + cos(angle) * vH.tileSizeGlobal * 5.7,
+                "y": center_y + sin(angle) * vH.tileSizeGlobal * 5.7,
+                "angle": angle, "cooldown": 0.0, "flash": 0.0,
+            })
+
+    def _set_sin_phase(self, phase):
+        super()._set_sin_phase(phase)
+        if hasattr(self, "crystalWalls"):
+            self.crystalWalls.clear()
+        if phase == 7 and hasattr(self, "compressionCooldown"):
+            self.compressionCooldown = 5.0
+
+    def _camera_cardinal_angle(self, quarter_turn=0):
+        screen_x, screen_y = bG.screen_vector_to_world(1, 0)
+        base = atan2(screen_y, screen_x)
+        return base + quarter_turn * pi / 2
+
+    def _grow_crystal_wall(self, angle, duration=8.0, kind=None, distance_tiles=3.9,
+                           compression=False):
+        center_x, center_y = self._center()
+        distance = vH.tileSizeGlobal * distance_tiles
+        wall_center_x = center_x + cos(angle) * distance
+        wall_center_y = center_y + sin(angle) * distance
+        horizontal = abs(cos(angle)) < abs(sin(angle))
+        width = vH.tileSizeGlobal * (3.5 if horizontal else .72)
+        height = vH.tileSizeGlobal * (.72 if horizontal else 3.5)
+        rect = pygame.Rect(0, 0, width, height)
+        rect.center = (wall_center_x, wall_center_y)
+        kind = kind or ("brittle" if self.patternRotation % 2 == 0 else "reinforced")
+        self.crystalWalls.append({"rect": rect, "remaining": duration,
+                                  "duration": duration, "angle": angle,
+                                  "kind": kind, "hp": 420 if kind == "brittle" else None,
+                                  "warning": 2.5 if compression else 0.0,
+                                  "compression": compression})
+        self.crystalWalls[:] = self.crystalWalls[-6:]
+
+    def _update_terrain(self, player_x, player_y, dt):
+        import characterStats as cS
+        self.peakExposure = max(self.peakExposure, cS.bossAfflictions["exposure"])
+        self.consumedCrystalPulse = max(0.0, self.consumedCrystalPulse - dt)
+        for wall in self.crystalWalls:
+            wall["remaining"] = max(0.0, wall["remaining"] - dt)
+            wall["warning"] = max(0.0, wall["warning"] - dt)
+            if wall["compression"] and wall["warning"] <= 0:
+                center_x, center_y = self._center()
+                delta_x = center_x - wall["rect"].centerx
+                delta_y = center_y - wall["rect"].centery
+                distance = max(1.0, hypot(delta_x, delta_y))
+                if distance > vH.tileSizeGlobal * 2.25:
+                    step = vH.tileSizeGlobal * .34 * dt
+                    wall["rect"].centerx += delta_x / distance * step
+                    wall["rect"].centery += delta_y / distance * step
+        self.crystalWalls[:] = [wall for wall in self.crystalWalls
+                                if wall["remaining"] > 0]
+        for vent in self.cleansingVents:
+            vent["cooldown"] = max(0.0, vent["cooldown"] - dt)
+            vent["flash"] = max(0.0, vent["flash"] - dt)
+            if (vent["cooldown"] <= 0 and cS.bossAfflictions["exposure"] > .25
+                    and hypot(player_x - vent["x"], player_y - vent["y"])
+                    <= vH.tileSizeGlobal * 1.05):
+                cS.reset_boss_afflictions()
+                vent["cooldown"] = 12.0
+                vent["flash"] = 1.0
+                self.ventsUsed += 1
+                # Cleansing opens the player's immediate position but seals the
+                # corresponding inner route, turning relief into a terrain choice.
+                self._grow_crystal_wall(vent["angle"], 7.0)
+        if self.phase == 7 and self.actTransitionTimer <= 0:
+            self.compressionCooldown -= dt
+            if self.compressionCooldown <= 0:
+                angle = self._camera_cardinal_angle(self.patternRotation % 2)
+                self._grow_crystal_wall(angle, 11.0, "reinforced", 6.2, True)
+                self._grow_crystal_wall(angle + pi, 11.0, "reinforced", 6.2, True)
+                self.compressionCooldown = 12.0
+
+    def movement_obstacles(self):
+        return tuple(wall["rect"] for wall in self.crystalWalls
+                     if wall["warning"] <= 0)
+
+    def get_screen_hitboxes(self):
+        hitboxes = super().get_screen_hitboxes()
+        for index, wall in enumerate(self.crystalWalls):
+            if wall["kind"] != "brittle" or wall["warning"] > 0:
+                continue
+            rect = wall["rect"]
+            corners = tuple(bG.world_to_screen(x, y) for x, y in (
+                (rect.left, rect.top), (rect.right, rect.top),
+                (rect.right, rect.bottom), (rect.left, rect.bottom)))
+            left = min(point[0] for point in corners)
+            top = min(point[1] for point in corners)
+            right = max(point[0] for point in corners)
+            bottom = max(point[1] for point in corners)
+            hitboxes.append((f"crystal:{index}", pygame.Rect(
+                left, top, max(1, right - left), max(1, bottom - top))))
+        return hitboxes
+
+    def _damage_crystal(self, part_id, amount):
+        index = int(str(part_id).split(":", 1)[1])
+        if not 0 <= index < len(self.crystalWalls):
+            return HitResult(False, False, 0, blocked=True)
+        wall = self.crystalWalls[index]
+        if wall["kind"] != "brittle":
+            return HitResult(False, False, 0, blocked=True)
+        applied = min(wall["hp"], round(amount))
+        wall["hp"] -= applied
+        if wall["hp"] <= 0:
+            self.crystalWalls.pop(index)
+        return HitResult(True, False, applied)
+
+    def _draw_persistent_terrain(self, screen):
+        for vent in self.cleansingVents:
+            point = bG.world_to_screen(vent["x"], vent["y"])
+            ready = vent["cooldown"] <= 0
+            color = ui.CREAM if vent["flash"] > 0 else (
+                pygame.Color(96, 185, 151) if ready else ui.BORDER)
+            radius = int(vH.tileSizeGlobal * (.42 if ready else .32))
+            pygame.draw.circle(screen, ui.INK, point, radius + 6)
+            pygame.draw.circle(screen, color, point, radius, 4)
+            pygame.draw.line(screen, color, (point[0] - radius, point[1]),
+                             (point[0] + radius, point[1]), 2)
+            pygame.draw.line(screen, color, (point[0], point[1] - radius),
+                             (point[0], point[1] + radius), 2)
+        for wall in self.crystalWalls:
+            rect = wall["rect"]
+            top_left = bG.world_to_screen(rect.left, rect.top)
+            bottom_right = bG.world_to_screen(rect.right, rect.bottom)
+            screen_rect = pygame.Rect(min(top_left[0], bottom_right[0]),
+                                      min(top_left[1], bottom_right[1]),
+                                      max(8, abs(bottom_right[0] - top_left[0])),
+                                      max(8, abs(bottom_right[1] - top_left[1])))
+            fade = min(1.0, wall["remaining"] * 2)
+            warning = wall["warning"] > 0
+            color = (ui.CREAM if warning else ui.lighten(
+                self.phaseAccent, 48 if wall["kind"] == "brittle" else int(20 * fade)))
+            pygame.draw.rect(screen, ui.INK, screen_rect.inflate(8, 8))
+            pygame.draw.rect(screen, color, screen_rect, 3 if warning else 0)
+            for offset in range(0, max(screen_rect.width, screen_rect.height),
+                                max(8, int(vH.tileSizeGlobal * .4))):
+                if screen_rect.width >= screen_rect.height:
+                    pygame.draw.line(screen, ui.CREAM,
+                                     (screen_rect.x + offset, screen_rect.bottom),
+                                     (screen_rect.x + offset + 9, screen_rect.y), 2)
+                else:
+                    pygame.draw.line(screen, ui.CREAM,
+                                     (screen_rect.x, screen_rect.y + offset),
+                                     (screen_rect.right, screen_rect.y + offset + 9), 2)
+        if self.actTransitionTimer > 0:
+            self._draw_route_preview(screen)
+
+    def _draw_route_preview(self, screen):
+        ready = [vent for vent in self.cleansingVents if vent["cooldown"] <= 0]
+        if len(ready) < 2:
+            return
+        color = pygame.Color(96, 185, 151)
+        start = bG.world_to_screen(ready[0]["x"], ready[0]["y"])
+        end = bG.world_to_screen(ready[2 if len(ready) > 2 else 1]["x"],
+                                 ready[2 if len(ready) > 2 else 1]["y"])
+        pygame.draw.line(screen, ui.INK, start, end, 9)
+        pygame.draw.line(screen, color, start, end, 3)
+        midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+        ui.draw_text(screen, "PREVIEW // CLEAN ROUTE", 9 * ui.display_scale(screen),
+                     color, midpoint, "center")
+
+    def challenge_results(self):
+        return {
+            "clean_traversal": self.peakExposure <= 3.0,
+            "vent_discipline": self.ventsUsed <= 1,
+            "uncontaminated": self.peakExposure <= .25,
+        }
+
+    def _fire_pattern(self, player_x, player_y, projectile_sink):
+        center_x, center_y = self._center()
+        aimed = atan2(player_y - center_y, player_x - center_x)
+        if self.phase == 1:  # Pride
+            lane_angle = self._camera_cardinal_angle(self.patternRotation % 2)
+            self._parallel_lanes(projectile_sink, lane_angle, 3,
+                                 vH.tileSizeGlobal * 2.4, 330, "pride_crown")
+            self.patternRotation += 1
+        elif self.phase == 2:  # Greed
+            self._radial(projectile_sink, 9, .25, 315, "greed_hoard", mine=True)
+            for index in range(3):
+                self._shot(projectile_sink, index * 2 * pi / 3, 0, 290, scale=.20,
+                           shape="mine", path="orbit", lifetime=12,
+                           orbit_radius=vH.tileSizeGlobal * (3.2 + index),
+                           angular_speed=.26 + index * .05, owner_suffix="greed_coin")
+            self._grow_crystal_wall(self._camera_cardinal_angle(self.patternRotation % 4))
+        elif self.phase == 3:  # Lust
+            for index in range(9):
+                offset = -1.3 + 2.6 * index / 8
+                self._shot(projectile_sink, aimed + offset, .62, 325,
+                           owner_suffix="lust_pull", affliction="pull",
+                           affliction_duration=1.4, affliction_strength=.32,
+                           exposure=.8, affliction_source=self._center())
+            self._bomb(projectile_sink, player_x, player_y, 340, "lust_lure")
+        elif self.phase == 4:  # Envy
+            import characterStats as cS
+            build = cS.player_build_snapshot()
+            identity = build["dominant_offense"]
+            count = max(3, min(9, round(build["stats"]["projectile_count"])))
+            if identity == "critical":
+                self._laser(projectile_sink, aimed, 375, "envy_critical")
+            elif identity == "tempo":
+                self._fan(projectile_sink, aimed, count, .55, 1.38, 300, "envy_tempo")
+            elif identity == "precision":
+                self._fan(projectile_sink, aimed, 3, .22, 1.65, 350, "envy_precision")
+            else:
+                self._fan(projectile_sink, aimed, count, .9, 1.05, 335,
+                          f"envy_{identity}")
+            self._fan(projectile_sink, aimed + pi, count, .9, .62, 310,
+                      "envy_reflection")
+        elif self.phase == 5:  # Gluttony
+            if self.crystalWalls:
+                self.crystalWalls.pop(0)
+                self.stagger = max(0.0, self.stagger - self.maxStagger * .25)
+                self.consumedCrystalPulse = 1.0
+            self._bomb(projectile_sink, player_x, player_y, 390, "gluttony_feast")
+            self._radial(projectile_sink, 7, .32, 325, "gluttony_morsel", mine=True)
+        elif self.phase == 6:  # Wrath
+            self._fan(projectile_sink, aimed, 7, .65, 1.2, 370, "wrath_retort")
+            lane_angle = self._camera_cardinal_angle(self.patternRotation % 2)
+            self._parallel_lanes(projectile_sink, lane_angle, 2,
+                                 vH.tileSizeGlobal * 3.2, 360, "wrath_answer")
+            self._parallel_lanes(projectile_sink, lane_angle + pi / 2, 2,
+                                 vH.tileSizeGlobal * 3.2, 360, "wrath_cross")
+            self.patternRotation += 1
+        else:  # Sloth: persistent rot plus callbacks from the other sins.
+            self._radial(projectile_sink, 12, .16, 335, "sloth_rot", mine=True)
+            for projectile in projectile_sink[-12:]:
+                projectile.affliction = "slow"
+                projectile.afflictionDuration = 2.1
+                projectile.afflictionStrength = .16
+                projectile.exposure = 1.15
+            callback = self.patternRotation % 3
+            if callback == 0:
+                self._laser(projectile_sink, aimed, 345, "rot_crown", .08)
+            elif callback == 1:
+                self._bomb(projectile_sink, player_x, player_y, 355, "rot_feast")
+            else:
+                self._fan(projectile_sink, aimed, 7, 1.5, .72, 345, "rot_desire")
+        self._mark_attack(.58)
 
 
-class Hypno(PathChaseBoss):
+COMMANDMENT_SIGILS = (
+    ("AUTHORITY", (((0, -.78), (0, .72)), ((-.62, -.26), (0, -.78), (.62, -.26)),
+                   ((-.48, .5), (0, .72), (.48, .5)))),
+    ("IMAGE", (((-.7, 0), (0, -.62), (.7, 0), (0, .62), (-.7, 0)),
+               ((-.34, 0), (0, -.28), (.34, 0), (0, .28), (-.34, 0)))),
+    ("REVERENCE", (((-.55, .66), (-.55, -.5), (0, -.76), (.55, -.5), (.55, .66)),
+                   ((-.28, -.1), (0, -.38), (.28, -.1)), ((0, -.38), (0, .48)))),
+    ("REST", (((-.7, -.45), (.7, -.45)), ((-.7, .45), (.7, .45)),
+              ((-.52, -.45), (-.52, .45)), ((.52, -.45), (.52, .45)))),
+    ("LINEAGE", (((0, .75), (0, -.18), (-.58, -.7)), ((0, -.18), (.58, -.7)),
+                 ((-.58, -.7), (-.22, -.7)), ((.58, -.7), (.22, -.7)))),
+    ("MERCY", (((-.65, -.58), (0, .68), (.65, -.58)),
+               ((-.42, -.22), (0, .15), (.42, -.22)), ((0, -.72), (0, .15)))),
+    ("FIDELITY", (((-.5, -.68), (-.5, .68), (.5, .68), (.5, -.68)),
+                  ((-.5, 0), (.5, 0)))),
+    ("OWNERSHIP", (((-.7, -.5), (0, -.12), (.7, -.5)),
+                   ((-.7, .5), (0, .12), (.7, .5)), ((0, -.72), (0, .72)))),
+    ("TRUTH", (((-.72, 0), (0, -.5), (.72, 0), (0, .5), (-.72, 0)),
+               ((0, -.68), (0, .68)), ((-.18, 0), (.18, 0)))),
+    ("CONTENTMENT", (((-.68, -.28), (-.3, .58), (0, .72), (.3, .58), (.68, -.28)),
+                     ((-.68, -.28), (-.3, -.62)), ((.68, -.28), (.3, -.62)),
+                     ((-.3, .1), (.3, .1)))),
+)
+
+
+class PhantasiaBoss(PathChaseBoss):
+    """Commandment-driven dream court shared by Hypno and Malady."""
+
+    phaseFlavors = ()
+    phaseColors = ()
+    phaseSigils = ()
+    ACT_METADATA = {}
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        self.phase = 1
+        self.phaseLabel = self.phaseLabels[0]
+        self.phaseFlavor = self.phaseFlavors[0]
+        self.phaseAccent = self.phaseColors[0]
+        self.phaseElapsed = 0.0
+        self.patternRotation = 0
+        self.actTransitionDuration = 2.4
+        self.actTransitionTimer = 0.0
+        self.actTitle = ""
+        self.phaseProtectionTimer = 0.0
+        self.previousSigilPhase = 1
+        self.sigilTransitionTimer = 1.35
+        self.sigilTransitionDuration = 1.35
+        self.restActive = False
+        self.restViolationLatched = False
+        self.acceptedOfferings = set()
+        self.offeringPositions = []
+        self.ruleText = "THE SIGIL SPEAKS TRUE"
+        self.ruleTruth = True
+        self.truthIndex = 0
+        self.peakBelief = 0.0
+        self.phaseAnnouncementTimer = 3.0
+
+    def _seconds(self):
+        return vH.get_timer_step() / max(1, vH.frameRate)
+
+    def _update_phase(self):
+        if self.debugPhaseLocked:
+            return
+        count = len(self.phaseLabels)
+        ratio = max(0.0, min(1.0, self.hp / self.maxHp))
+        phase = min(count, int((1 - ratio) * count + 1e-9) + 1)
+        if phase != self.phase:
+            self._set_dream_phase(phase)
+
+    def _set_dream_phase(self, phase):
+        self.previousSigilPhase = self.phase
+        self.phase = max(1, min(len(self.phaseLabels), int(phase)))
+        self.phaseLabel = self.phaseLabels[self.phase - 1]
+        self.phaseFlavor = self.phaseFlavors[self.phase - 1]
+        self.phaseAccent = self.phaseColors[self.phase - 1]
+        self.phaseElapsed = 0.0
+        self.sigilTransitionTimer = self.sigilTransitionDuration
+        self.phaseAnnouncementTimer = 3.2
+        self.attackCooldown = min(self.attackCooldown, vH.frameRate * .4)
+        self.transitionCleanupRequested = True
+        self.restActive = False
+        self.restViolationLatched = False
+        self.ruleTruth = True
+        if self.phase in self.ACT_METADATA:
+            self.actTitle = self.ACT_METADATA[self.phase]
+            self.actTransitionTimer = self.actTransitionDuration
+            self.phaseProtectionTimer = self.actTransitionDuration
+        if self.phase == len(self.phaseLabels):
+            self._place_offerings()
+
+    def debug_set_phase(self, phase):
+        self._set_dream_phase(phase)
+        self.debugPhaseLocked = True
+        self.attackCooldown = 0
+
+    def take_damage(self, amount, part_id="body"):
+        if self.actTransitionTimer > 0 or self.phaseProtectionTimer > 0:
+            return HitResult(False, False, 0, blocked=True)
+        previous = self.hp
+        result = super().take_damage(amount, part_id)
+        if not self.debugPhaseLocked and self.phase < len(self.phaseLabels):
+            gate = self.maxHp * (len(self.phaseLabels) - self.phase) / len(self.phaseLabels)
+            self.hp = max(self.hp, gate)
+        return HitResult(result.applied, self.hp <= 0, max(0, previous - self.hp), result.blocked)
+
+    def _shot_from(self, sink, origin, direction, speed, damage, suffix,
+                   *, illusion=False, shape="diamond", path="linear", color=None,
+                   belief=.45, clarity=0.0):
+        size = self.size * (.19 if self.finalBoss else .17)
+        shot = EnemyProjectile(
+            origin[0] - size / 2, origin[1] - size / 2, direction, speed,
+            damage, size, travel_range=vH.tileSizeGlobal * 34,
+            color=color or self.phaseAccent, shape=shape, path=path,
+            amplitude=vH.tileSizeGlobal * .58 if path == "sine" else 0,
+            owner=f"{self.ownerPrefix}_{suffix}", ignore_walls=True,
+        )
+        shot.illusory = illusion
+        shot.truthMarked = not illusion
+        shot.beliefGain = 0 if illusion else belief
+        shot.clarityGain = clarity
+        sink.append(shot)
+        return shot
+
+    def _fan_from(self, sink, origin, target, count, spread, speed, damage, suffix,
+                  illusion=False, path="linear", belief=.45):
+        base = atan2(target[1] - origin[1], target[0] - origin[0])
+        for index in range(count):
+            offset = 0 if count == 1 else -spread / 2 + spread * index / (count - 1)
+            self._shot_from(sink, origin, base + offset, speed, damage, suffix,
+                            illusion=illusion, path=path, belief=belief)
+
+    def _radial(self, sink, origin, count, speed, damage, suffix, illusion=False):
+        for index in range(count):
+            self._shot_from(sink, origin, index * 2 * pi / count + self.patternRotation * .13,
+                            speed, damage, suffix, illusion=illusion)
+
+    def _laser_from(self, sink, origin, direction, damage, suffix, illusion=False):
+        laser = EnemyProjectile(
+            origin[0], origin[1], direction, 0, damage, self.size * .13,
+            travel_range=vH.tileSizeGlobal * 35,
+            color=ui.MUTED if illusion else self.phaseAccent,
+            shape="laser", path="laser", lifetime=2.5,
+            owner=f"{self.ownerPrefix}_{suffix}", ignore_walls=True,
+        )
+        laser.telegraphDuration = 1.05
+        laser.illusory = illusion
+        laser.truthMarked = not illusion
+        laser.beliefGain = 0 if illusion else .7
+        sink.append(laser)
+
+    def _place_offerings(self):
+        center = self._center()
+        self.offeringPositions = [
+            {"x": center[0] + cos(i * pi / 2) * vH.tileSizeGlobal * 4.8,
+             "y": center[1] + sin(i * pi / 2) * vH.tileSizeGlobal * 4.8,
+             "name": ("POWER", "HASTE", "LIFE", "MULTITUDE")[i], "taken": False}
+            for i in range(4)
+        ]
+
+    def _update_special_rules(self, player_x, player_y, dt):
+        import characterStats as cS
+        self.peakBelief = max(self.peakBelief, cS.dreamState["belief"])
+        if self.finalBoss and self.phase == 4:
+            self.restActive = self.phaseElapsed % 7.0 >= 5.4
+            if self.restActive and cS.bulletHolster and not self.restViolationLatched:
+                cS.alter_belief(1.25, false_rule=True)
+                self.restViolationLatched = True
+            elif not self.restActive:
+                self.restViolationLatched = False
+        if self.finalBoss and self.phase == 10:
+            for offering in self.offeringPositions:
+                if (not offering["taken"] and hypot(player_x - offering["x"],
+                                                     player_y - offering["y"])
+                        <= vH.tileSizeGlobal * .9):
+                    offering["taken"] = True
+                    self.acceptedOfferings.add(offering["name"])
+                    cS.alter_belief(1.2, false_rule=True)
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        projectile_sink = projectile_sink if projectile_sink is not None else []
+        dt = self._seconds()
+        self.entranceRemaining = max(0.0, self.entranceRemaining - dt)
+        self.actTransitionTimer = max(0.0, self.actTransitionTimer - dt)
+        self.phaseProtectionTimer = max(0.0, self.phaseProtectionTimer - dt)
+        self.sigilTransitionTimer = max(0.0, self.sigilTransitionTimer - dt)
+        self.phaseAnnouncementTimer = max(0.0, self.phaseAnnouncementTimer - dt)
+        self.phaseElapsed += dt
+        self._update_phase()
+        self._update_special_rules(player_world_x, player_world_y, dt)
+        if self.entranceRemaining > 0 or self.actTransitionTimer > 0:
+            self.age += vH.get_timer_step()
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        Enemy.updateEnemy(self, player_world_x, player_world_y, projectile_sink)
+        self.attackCooldown -= vH.get_timer_step()
+        if self.restActive:
+            return
+        if self.attackCooldown <= 0:
+            self._fire_pattern(player_world_x, player_world_y, projectile_sink)
+            rate = max(.34, 1.0 - .055 * (self.phase - 1))
+            self.attackCooldown = self.attackCooldownMax * rate * self.rng.uniform(.88, 1.08)
+
+    def _draw_commandment_sigil(self, screen, center, radius, progress=1.0,
+                                phase=None, alpha=255, rotation=0.0):
+        phase = self.phase if phase is None else phase
+        if not self.phaseSigils:
+            return ""
+        sigil_index = self.phaseSigils[max(0, min(len(self.phaseSigils) - 1, phase - 1))]
+        name, strokes = COMMANDMENT_SIGILS[sigil_index]
+        extent = max(12, int(radius * 2.7))
+        aa = 2
+        layer = pygame.Surface((extent * aa, extent * aa), pygame.SRCALPHA)
+        origin = extent * aa / 2
+        c, s = cos(rotation), sin(rotation)
+        budget = max(0.0, min(1.0, progress)) * len(strokes)
+        width = max(2, int(radius * .08)) * aa
+        for stroke_index, stroke in enumerate(strokes):
+            amount = max(0.0, min(1.0, budget - stroke_index))
+            if amount <= 0:
+                continue
+            points = []
+            for x, y in stroke:
+                x, y = x * radius * aa, y * radius * aa
+                points.append((origin + x * c - y * s, origin + x * s + y * c))
+            count = max(2, min(len(points), int(amount * (len(points) - 1)) + 2))
+            points = points[:count]
+            pygame.draw.lines(layer, (*ui.INK[:3], alpha), False, points, width + 7)
+            pygame.draw.lines(layer, (*self.phaseAccent[:3], alpha), False, points, width)
+            pygame.draw.lines(layer, (*ui.CREAM[:3], alpha), False, points, max(1, width // 3))
+        layer = pygame.transform.smoothscale(layer, (extent, extent))
+        screen.blit(layer, (center[0] - extent / 2, center[1] - extent / 2))
+        return name
+
+    def _draw_dream_court(self, screen):
+        center = bG.world_to_screen(*self._center())
+        tile = vH.tileSizeGlobal
+        belief = __import__("characterStats").dreamState["belief"]
+        chaos = (1.0 + belief * .055) if self.finalBoss else 1.0
+        court = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        for ring in range(3 if not self.finalBoss else 5):
+            radius = tile * (2.1 + ring * 1.22 + sin(self.age * .018 + ring) * .18) * chaos
+            rect = pygame.Rect(0, 0, radius * 2, radius * 2)
+            rect.center = center
+            start = self.age * (.0018 + ring * .0007) * (-1 if ring % 2 else 1)
+            for segment in range(8 + ring * 2):
+                angle = start + segment * 2 * pi / (8 + ring * 2)
+                pygame.draw.arc(court, (*self.phaseAccent[:3], 32 + ring * 6), rect,
+                                angle, angle + pi / (9 + ring), 2 + ring % 2)
+        for index in range((8 if self.finalBoss else 4) + int(belief * .5)):
+            angle = index * 2.399 + self.age * .0025
+            radius = tile * (1.7 + index % 5)
+            point = (center[0] + cos(angle) * radius, center[1] + sin(angle) * radius)
+            size = 5 + index % 4
+            pygame.draw.polygon(court, (*self.phaseAccent[:3], 70),
+                                ((point[0], point[1] - size), (point[0] + size, point[1]),
+                                 (point[0], point[1] + size), (point[0] - size, point[1])))
+        screen.blit(court, (0, 0))
+        progress = 1 - self.sigilTransitionTimer / self.sigilTransitionDuration
+        self._draw_commandment_sigil(screen, center, tile * (2.0 if self.finalBoss else 1.45),
+                                     progress, rotation=self.age * .0007, alpha=62)
+
+    def _draw_mask_and_halоs(self, screen):
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        center = rect.center
+        for index in range(5 if not self.finalBoss else 10):
+            angle = self.age * (.005 + index * .0003) + index * 2 * pi / (10 if self.finalBoss else 5)
+            radius = self.size * (.72 + .08 * sin(self.age * .02 + index))
+            point = (center[0] + cos(angle) * radius, center[1] + sin(angle) * radius * .62)
+            pygame.draw.circle(screen, ui.INK, point, max(3, int(self.size * .045)))
+            pygame.draw.circle(screen, self.phaseAccent, point, max(2, int(self.size * .025)))
+        mask = rect.inflate(-self.size * .26, -self.size * .12)
+        pygame.draw.ellipse(screen, ui.INK, mask.inflate(8, 8))
+        pygame.draw.ellipse(screen, ui.CREAM, mask)
+        pygame.draw.arc(screen, self.phaseAccent, mask, pi, 2 * pi, max(3, int(self.size * .06)))
+        eye_y = mask.y + mask.height * .42
+        for side in (-1, 1):
+            eye = (mask.centerx + side * mask.width * .2, eye_y)
+            pygame.draw.line(screen, ui.INK, (eye[0] - 7, eye[1]), (eye[0] + 7, eye[1]), 4)
+            pygame.draw.circle(screen, self.phaseAccent, eye, 3)
+        transition = self.sigilTransitionTimer / self.sigilTransitionDuration
+        self._draw_commandment_sigil(screen, center, self.size * .3,
+                                     max(.05, 1 - transition), rotation=transition * pi)
+
+    def _draw_act_transition(self, screen):
+        progress = 1 - self.actTransitionTimer / self.actTransitionDuration
+        alpha = int(210 * min(1, progress * 6, (1 - progress) * 6))
+        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        curtain = int(screen.get_width() * min(.5, progress * .7))
+        pygame.draw.rect(veil, (42, 13, 52, alpha), (0, 0, curtain, screen.get_height()))
+        pygame.draw.rect(veil, (42, 13, 52, alpha),
+                         (screen.get_width() - curtain, 0, curtain, screen.get_height()))
+        screen.blit(veil, (0, 0))
+        scale = ui.display_scale(screen)
+        ui.draw_text(screen, self.actTitle, 34 * scale, self.phaseAccent,
+                     (screen.get_width() / 2, screen.get_height() * .4), "center")
+        name = self._draw_commandment_sigil(
+            screen, (screen.get_width() / 2, screen.get_height() * .55),
+            44 * scale, min(1, progress * 2.5), alpha=255)
+        ui.draw_text(screen, name, 11 * scale, ui.CREAM,
+                     (screen.get_width() / 2, screen.get_height() * .65), "center")
+
+    def drawEnemy(self, screen):
+        self._draw_dream_court(screen)
+        super().drawEnemy(screen)
+        self._draw_mask_and_halоs(screen)
+        import characterStats as cS
+        belief = cS.dreamState["belief"]
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        for index in range(int(belief // 2)):
+            angle = self.age * (.006 + index * .001) + index * 2.1
+            offset = self.size * (1.0 + index * .22)
+            ghost_center = (rect.centerx + cos(angle) * offset,
+                            rect.centery + sin(angle) * offset * .55)
+            ghost = pygame.Rect(0, 0, self.size * .42, self.size * .58)
+            ghost.center = ghost_center
+            pygame.draw.ellipse(screen, ui.INK, ghost.inflate(5, 5), 3)
+            pygame.draw.ellipse(screen, ui.MUTED, ghost, 2)
+        if ((not self.finalBoss and self.phase == 2)
+                or (self.finalBoss and self.phase in (3, 9))):
+            scale = ui.display_scale(screen)
+            banner = pygame.Rect(0, 0, min(screen.get_width() * .48, 620 * scale), 42 * scale)
+            banner.midtop = (screen.get_width() / 2, screen.get_height() * .13)
+            ui.draw_panel(screen, banner, ui.PANEL_RAISED,
+                          ui.CREAM if self.ruleTruth else self.phaseAccent, shadow=5)
+            ui.draw_text(screen, self.ruleText, 11 * scale,
+                         ui.CREAM if self.ruleTruth else self.phaseAccent,
+                         banner.center, "center")
+        if self.phaseAnnouncementTimer > 0 and self.actTransitionTimer <= 0:
+            scale = ui.display_scale(screen)
+            width = min(screen.get_width() * .56, 680 * scale)
+            banner = pygame.Rect(0, 0, width, 66 * scale)
+            banner.midbottom = (screen.get_width() / 2, screen.get_height() - 32 * scale)
+            ui.draw_panel(screen, banner, ui.PANEL, self.phaseAccent, shadow=6)
+            sigil_name = COMMANDMENT_SIGILS[self.phaseSigils[self.phase - 1]][0]
+            ui.draw_text(screen, f"{sigil_name} // {self.phaseLabel}", 13 * scale,
+                         self.phaseAccent, (banner.centerx, banner.y + 12 * scale), "midtop")
+            ui.draw_text(screen, self.phaseFlavor, 9 * scale, ui.CREAM,
+                         (banner.centerx, banner.bottom - 12 * scale), "midbottom")
+        if self.finalBoss and self.phase == 10:
+            for offering in self.offeringPositions:
+                if offering["taken"]:
+                    continue
+                point = bG.world_to_screen(offering["x"], offering["y"])
+                pygame.draw.circle(screen, ui.INK, point, int(vH.tileSizeGlobal * .38))
+                pygame.draw.circle(screen, self.phaseAccent, point, int(vH.tileSizeGlobal * .3), 4)
+                ui.draw_text(screen, offering["name"], 8 * ui.display_scale(screen),
+                             ui.CREAM, (point[0], point[1] + vH.tileSizeGlobal * .48), "center")
+        if self.restActive:
+            ui.draw_text(screen, "REST // DO NOT FIRE", 16 * ui.display_scale(screen),
+                         ui.CREAM, (screen.get_width() / 2, screen.get_height() * .18), "center")
+        if self.actTransitionTimer > 0:
+            self._draw_act_transition(screen)
+
+    def challenge_results(self):
+        import characterStats as cS
+        return {
+            "unbelieving": self.peakBelief <= 3.0,
+            "true_witness": cS.dreamState["false_rules"] == 0,
+            "content": len(self.acceptedOfferings) == 0,
+            "measured_desire": len(self.acceptedOfferings) == 1,
+        }
+
+
+class Hypno(PhantasiaBoss):
     bossName = "HYPNO"
     subtitle = "THE ORNATE SUGGESTION"
-    phaseLabels = ("INVITE", "REFRACT", "ENTHRALL")
-    pattern = "mirage"
+    phaseLabels = ("IDOL", "SPOKEN RULE", "INHERITANCE", "CHOSEN", "OFFERING")
+    phaseFlavors = (
+        "Surely you recognize the one before you.",
+        "A command is true because it is spoken.",
+        "What sleeps in one generation wakes in the next.",
+        "You chose. Do not pretend otherwise.",
+        "Everything offered was already mine.",
+    )
+    phaseColors = tuple(pygame.Color(*color) for color in (
+        (214, 89, 188), (111, 164, 224), (227, 180, 75),
+        (126, 205, 159), (211, 105, 115)))
+    phaseSigils = (0, 2, 4, 6, 9)
     ownerPrefix = "hypno_phantasia"
     bodyColor = pygame.Color(151, 56, 144)
     accentColor = pygame.Color(211, 91, 183)
-    movementSpeed = .27
+    movementSpeed = .18
     bodyScale = 1.8
-    cooldownSeconds = 2.05
-    shotSpeed = .92
-    shotScale = .22
-    shotRangeTiles = 22
+    cooldownSeconds = 1.8
+    shotRangeTiles = 28
+
+    def _fire_pattern(self, player_x, player_y, sink):
+        center = self._center()
+        target = (player_x, player_y)
+        if self.phase == 1:
+            for index in range(3):
+                origin = (center[0] + cos(index * 2 * pi / 3) * vH.tileSizeGlobal * 2.8,
+                          center[1] + sin(index * 2 * pi / 3) * vH.tileSizeGlobal * 2.8)
+                self._fan_from(sink, origin, target, 3, .55, .78, 260, "idol",
+                               illusion=index != self.patternRotation % 3)
+        elif self.phase == 2:
+            self.ruleTruth = self.patternRotation % 3 != 2
+            self.ruleText = "MOVE" if self.ruleTruth else "REMAIN"
+            self._fan_from(sink, center, target, 5, 1.25, .82, 270, "spoken_rule",
+                           illusion=not self.ruleTruth, path="sine")
+            if not self.ruleTruth:
+                self._radial(sink, center, 6, .5, 245, "true_sigil")
+        elif self.phase == 3:
+            for index in range(3):
+                shot = self._shot_from(sink, center, atan2(player_y-center[1], player_x-center[0])
+                                       + (index-1)*.42, .72, 260, "lineage")
+                shot.splitCount = 3
+                shot.splitAt = vH.tileSizeGlobal * (3.2 + index)
+                shot.splitGeneration = 1
+        elif self.phase == 4:
+            self._fan_from(sink, center, target, 3, .42, .92, 275, "chosen")
+            self._radial(sink, center, 8, .38, 230, "spared", illusion=True)
+        else:
+            self._radial(sink, center, 10, .42, 275, "offering",
+                         illusion=self.patternRotation % 2 == 0)
+            self._fan_from(sink, center, target, 5, .8, .8, 285, "debt")
+        self.patternRotation += 1
+        self._mark_attack(.52)
 
 
-class Malady(Hypno):
+class Malady(PhantasiaBoss):
     bossName = "MALADY"
     subtitle = "THE DREAM MADE ILL"
     finalBoss = True
     ownerPrefix = "malady_phantasia"
+    phaseLabels = ("THRONE", "GRAVEN HALL", "THE NAME", "SABBATH", "THE HOUSE",
+                   "THE UNSTRUCK", "THE VOW", "MINE AND YOURS", "THE WITNESS", "ENOUGH")
+    phaseFlavors = (
+        "Kneel to the source.", "An image need not be real to wound.",
+        "Do not spend what you cannot name.", "On the seventh beat, be still.",
+        "Every child carries the first design.", "Power is proven by what it spares.",
+        "A chosen path remembers betrayal.", "Possession is merely a change of color.",
+        "Only one witness keeps its line.", "Was what you carried ever not enough?",
+    )
+    phaseColors = tuple(pygame.Color(*color) for color in (
+        (233, 192, 78), (193, 84, 215), (111, 174, 228), (235, 228, 185),
+        (107, 191, 145), (218, 102, 118), (225, 128, 190), (98, 189, 206),
+        (244, 244, 232), (220, 71, 133)))
+    phaseSigils = tuple(range(10))
+    ACT_METADATA = {4: "ACT II // THE COVENANT", 7: "ACT III // THE TESTIMONY"}
     finalBodyColor = pygame.Color(99, 48, 126)
     finalAccentColor = pygame.Color(225, 95, 178)
-    finalBodyScale = 2.2
-    finalCooldownSeconds = 1.55
-    finalShotSpeed = 1.08
-    finalShotScale = .25
+    finalBodyScale = 2.35
+    finalCooldownSeconds = 1.25
+    movementSpeed = .25
+    shotRangeTiles = 38
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        self.actTitle = "ACT I // THE DOCTRINE"
+        self.actTransitionTimer = self.actTransitionDuration
+        self.phaseProtectionTimer = self.actTransitionDuration
+
+    def _fire_pattern(self, player_x, player_y, sink):
+        center, target = self._center(), (player_x, player_y)
+        aimed = atan2(player_y - center[1], player_x - center[0])
+        if self.phase == 1:  # Authority
+            throne = self.patternRotation % 4
+            for index in range(4):
+                origin = (center[0] + cos(index*pi/2)*vH.tileSizeGlobal*3.6,
+                          center[1] + sin(index*pi/2)*vH.tileSizeGlobal*3.6)
+                self._fan_from(sink, origin, target, 4, .62, .92, 330, "authority",
+                               illusion=index != throne)
+        elif self.phase == 2:  # Image
+            for index in range(4):
+                origin = (center[0] + cos(index*pi/2+pi/4)*vH.tileSizeGlobal*3,
+                          center[1] + sin(index*pi/2+pi/4)*vH.tileSizeGlobal*3)
+                self._radial(sink, origin, 6, .7, 320, "image", illusion=index != self.patternRotation % 4)
+        elif self.phase == 3:  # Reverence
+            self.ruleTruth = self.patternRotation % 3 != 1
+            self.ruleText = ("PRESERVE THE NAME" if self.ruleTruth else "BREAK THE NAME")
+            self._laser_from(sink, center, aimed, 350, "name", illusion=not self.ruleTruth)
+            self._fan_from(sink, center, target, 7, 1.4, .72, 325, "reverence")
+        elif self.phase == 4:  # Rest
+            self._radial(sink, center, 12, .58, 320, "six_beats")
+        elif self.phase == 5:  # Lineage
+            for index in range(5):
+                shot = self._shot_from(sink, center, aimed+(index-2)*.3, .8, 330, "lineage")
+                shot.splitCount = 3
+                shot.splitAt = vH.tileSizeGlobal * (2.8 + index*.55)
+                shot.splitGeneration = 2
+        elif self.phase == 6:  # Mercy
+            self._fan_from(sink, center, target, 3, .3, 1.0, 350, "mercy")
+            for index in range(12):
+                self._shot_from(sink, center, index*2*pi/12, .42, 0, "procession", illusion=True)
+        elif self.phase == 7:  # Fidelity
+            chosen = self.patternRotation % 4
+            for index in range(4):
+                self._laser_from(sink, center, index*pi/2, 355, "vow", illusion=index == chosen)
+            self._fan_from(sink, center, target, 5, .72, .9, 340, "betrayal")
+        elif self.phase == 8:  # Ownership
+            build = __import__("characterStats").player_build_snapshot()
+            count = max(4, min(10, round(build["stats"]["projectile_count"])+2))
+            self._radial(sink, center, count, .82, 345, "stolen")
+            self._radial(sink, center, count, .45, 0, "unowned", illusion=True)
+        elif self.phase == 9:  # Truth
+            true_index = self.patternRotation % 5
+            self.truthIndex = true_index
+            for index in range(5):
+                self._laser_from(sink, center, aimed + (index-2)*.34, 370,
+                                 "witness", illusion=index != true_index)
+        else:  # Contentment
+            intensity = len(self.acceptedOfferings)
+            self._radial(sink, center, 10 + intensity*2, .62 + intensity*.08,
+                         350, "enough")
+            self._fan_from(sink, center, target, 5 + intensity, 1.25, 1.0,
+                           365, "covetous", path="sine")
+        self.patternRotation += 1
+        self._mark_attack(.62)
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,8 @@
 import os
 import random
 import unittest
+from types import MappingProxyType
+from math import pi
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -111,7 +113,256 @@ class GamePathTests(unittest.TestCase):
             boss = BOSS_CATALOG.spawn(key, random.Random(2))
             self.assertIsInstance(boss, boss_type)
             self.assertEqual(boss.contentKey, key)
-            self.assertEqual(len(boss.phaseLabels), 3)
+            expected_phases = ({"kage": 4, "rot": 7, "hypno": 5, "malady": 10}
+                               .get(key, 3))
+            self.assertEqual(len(boss.phaseLabels), expected_phases)
+
+    def test_phantasia_bosses_cover_five_pairs_and_ten_commandments(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        hypno = Hypno(rect.x, rect.y, random.Random(8))
+        malady = Malady(rect.x, rect.y, random.Random(8))
+        self.assertEqual(len(hypno.phaseLabels), 5)
+        self.assertEqual(len(malady.phaseLabels), 10)
+        self.assertEqual(malady.phaseLabels[0], "THRONE")
+        self.assertEqual(malady.phaseLabels[-1], "ENOUGH")
+        for boss in (hypno, malady):
+            for phase in range(1, len(boss.phaseLabels) + 1):
+                boss.debug_set_phase(phase)
+                boss.actTransitionTimer = 0
+                shots = []
+                boss._fire_pattern(*boss._center(), shots)
+                self.assertTrue(shots, f"{boss.bossName} phase {phase} fired nothing")
+
+    def test_malady_uses_three_acts_and_health_gates_every_commandment(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        self.assertEqual(boss.actTitle, "ACT I // THE DOCTRINE")
+        boss.actTransitionTimer = 0
+        boss.phaseProtectionTimer = 0
+        boss.take_damage(boss.maxHp * 2)
+        self.assertEqual(boss.hp, boss.maxHp * .9)
+        boss.updateEnemy(*boss._center(), [])
+        self.assertEqual(boss.phase, 2)
+        boss.debug_set_phase(4)
+        self.assertEqual(boss.actTitle, "ACT II // THE COVENANT")
+        boss.debug_set_phase(7)
+        self.assertEqual(boss.actTitle, "ACT III // THE TESTIMONY")
+
+    def test_phantasia_illusions_are_harmless_and_truth_is_marked(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        boss.debug_set_phase(2)
+        shots = []
+        boss._fire_pattern(*boss._center(), shots)
+        self.assertTrue(any(shot.illusory for shot in shots))
+        self.assertTrue(any(shot.truthMarked for shot in shots))
+        player = pygame.Rect(shots[0].worldX, shots[0].worldY, 20, 20)
+        illusion = next(shot for shot in shots if shot.illusory)
+        player.topleft = (illusion.worldX, illusion.worldY)
+        self.assertFalse(illusion.collides(player))
+
+    def test_belief_clarity_and_contentment_offerings_are_tracked(self):
+        cS.reset_dream_state()
+        cS.alter_belief(4, false_rule=True)
+        cS.alter_belief(-1, truth=True)
+        self.assertEqual(cS.dreamState["belief"], 3)
+        self.assertEqual(cS.dreamState["false_rules"], 1)
+        self.assertEqual(cS.dreamState["truths_read"], 1)
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        boss.debug_set_phase(10)
+        offering = boss.offeringPositions[0]
+        boss._update_special_rules(offering["x"], offering["y"], .1)
+        self.assertEqual(len(boss.acceptedOfferings), 1)
+        self.assertTrue(boss.challenge_results()["measured_desire"])
+
+    def test_commandment_sigils_render_all_ten_distinct_words(self):
+        surface = pygame.Surface((900, 700), pygame.SRCALPHA)
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        names = []
+        for phase in range(1, 11):
+            names.append(boss._draw_commandment_sigil(
+                surface, (450, 350), 82, 1.0, phase=phase))
+        self.assertEqual(len(set(names)), 10)
+        self.assertGreater(pygame.mask.from_surface(surface).count(), 100)
+
+    def test_chemesthesis_bosses_cover_composite_and_seven_sin_phases(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        kage = Kage(rect.x, rect.y, random.Random(8))
+        rot = Rot(rect.x, rect.y, random.Random(8))
+        self.assertEqual(kage.phaseLabels,
+                         ("FEAST", "PROVOCATION", "STAGNANT MIRROR", "LURE"))
+        self.assertEqual(rot.phaseLabels,
+                         ("CROWN", "HOARD", "PULL", "BORROWED SHAPE",
+                          "CONSUMPTION", "RETORT", "THE ROT"))
+        for boss in (kage, rot):
+            for phase in range(1, len(boss.phaseLabels) + 1):
+                boss.debug_set_phase(phase)
+                shots = []
+                boss._fire_pattern(*boss._center(), shots)
+                self.assertTrue(shots, f"{boss.bossName} phase {phase} fired nothing")
+                self.assertTrue(all(boss.ownerPrefix in str(shot.owner) for shot in shots))
+
+    def test_chemesthesis_sin_phases_use_persistent_and_telegraphed_hazards(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(3))
+        rot.debug_set_phase(1)
+        crown = []
+        rot._fire_pattern(*rot._center(), crown)
+        self.assertTrue(all(shot.path == "laser" for shot in crown))
+        rot.debug_set_phase(7)
+        finale = []
+        rot._fire_pattern(*rot._center(), finale)
+        self.assertTrue(any(shot.path == "mine" and shot.lifetime == 18
+                            for shot in finale))
+
+    def test_rot_is_static_and_uses_three_cinematic_acts(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(3))
+        self.assertEqual(rot.speed, 0)
+        self.assertEqual(rot.actTitle, "ACT I // APPETITE")
+        self.assertGreater(rot.actTransitionTimer, 0)
+        rot.actTransitionTimer = 0
+        rot.phaseProtectionTimer = 0
+        rot.debug_set_phase(3)
+        self.assertEqual(rot.actTitle, "ACT II // TEMPTATION")
+        self.assertTrue(rot.take_damage(10).blocked)
+        rot.actTransitionTimer = 0
+        rot.phaseProtectionTimer = 0
+        rot.debug_set_phase(5)
+        self.assertEqual(rot.actTitle, "ACT III // SATURATION")
+
+    def test_rot_health_gates_require_every_sin_in_order(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(3))
+        rot.actTransitionTimer = 0
+        rot.phaseProtectionTimer = 0
+        rot.take_damage(rot.maxHp * 2)
+        self.assertEqual(rot.hp, rot.maxHp * 6 / 7)
+        self.assertFalse(rot.is_dead())
+        rot.updateEnemy(*rot._center(), [])
+        self.assertEqual(rot.phase, 2)
+
+    def test_player_build_snapshot_is_immutable_and_drives_envy_identity(self):
+        cS.reset_upgrade_tracking()
+        cS.record_upgrade("Crit Chance", "Rare", "additive")
+        cS.record_upgrade("Crit Damage", "Rare", "additive")
+        snapshot = cS.player_build_snapshot()
+        self.assertIsInstance(snapshot, MappingProxyType)
+        self.assertEqual(snapshot["dominant_offense"], "critical")
+        with self.assertRaises(TypeError):
+            snapshot["dominant_offense"] = "volley"
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(3))
+        rot.debug_set_phase(4)
+        shots = []
+        rot._fire_pattern(*rot._center(), shots)
+        self.assertTrue(any("envy_critical" in shot.owner for shot in shots))
+
+    def test_boss_afflictions_stack_exposure_but_never_immobilize_player(self):
+        cS.reset_boss_afflictions()
+        cS.apply_boss_affliction("slow", 2.0, .3, 4.0)
+        self.assertEqual(cS.bossAfflictions["exposure"], 4.0)
+        self.assertGreaterEqual(cS.boss_movement_multiplier(), .58)
+        cS.apply_boss_affliction("pull", 1.0, .4, 8.0, (100, 100))
+        self.assertEqual(cS.bossAfflictions["exposure"], 10.0)
+        self.assertEqual(cS.bossAfflictions["pull_source"], (100, 100))
+        cS.update_boss_afflictions(3.0)
+        self.assertIsNone(cS.bossAfflictions["pull_source"])
+
+    def test_every_chemesthesis_phase_renders_its_visual_diagram(self):
+        surface = pygame.Surface((1280, 720), pygame.SRCALPHA)
+        world_x, world_y = bG.screen_to_world(640, 360)
+        for boss_type in (Kage, Rot):
+            boss = boss_type(world_x - vH.tileSizeGlobal,
+                             world_y - vH.tileSizeGlobal, random.Random(4))
+            boss.actTransitionTimer = 0
+            for phase in range(1, len(boss.phaseLabels) + 1):
+                boss.debug_set_phase(phase)
+                boss.actTransitionTimer = 0
+                boss.drawEnemy(surface)
+        self.assertGreater(pygame.mask.from_surface(surface).count(), 0)
+
+    def test_rot_vents_cleanse_exposure_and_crystallize_a_route(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(4))
+        vent = rot.cleansingVents[0]
+        cS.reset_boss_afflictions()
+        cS.apply_boss_affliction("slow", 3, .2, 6)
+        rot._update_terrain(vent["x"], vent["y"], .1)
+        self.assertEqual(cS.bossAfflictions["exposure"], 0)
+        self.assertEqual(rot.ventsUsed, 1)
+        self.assertTrue(rot.movement_obstacles())
+        self.assertGreater(vent["cooldown"], 0)
+
+    def test_rot_lanes_follow_camera_orientation_and_report_mastery(self):
+        original = bG.cameraAngleDegrees
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        try:
+            rot = Rot(rect.x, rect.y, random.Random(4))
+            bG.set_camera_angle(0)
+            first = rot._camera_cardinal_angle()
+            bG.set_camera_angle(90)
+            second = rot._camera_cardinal_angle()
+            self.assertNotAlmostEqual(first, second)
+            self.assertTrue(rot.challenge_results()["clean_traversal"])
+            rot.peakExposure = 4
+            self.assertFalse(rot.challenge_results()["clean_traversal"])
+        finally:
+            bG.set_camera_angle(original)
+
+    def test_brittle_crystals_break_but_reinforced_crystals_expire(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(4))
+        rot.actTransitionTimer = 0
+        rot.phaseProtectionTimer = 0
+        rot._grow_crystal_wall(0, kind="brittle")
+        rot._grow_crystal_wall(pi, kind="reinforced")
+        self.assertEqual(len(rot.get_screen_hitboxes()), 2)
+        result = rot.take_damage(500, "crystal:0")
+        self.assertTrue(result.applied)
+        self.assertEqual(len(rot.crystalWalls), 1)
+        self.assertEqual(rot.crystalWalls[0]["kind"], "reinforced")
+
+    def test_gluttony_consumes_crystal_to_relieve_stagger(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(4))
+        rot.debug_set_phase(5)
+        rot.actTransitionTimer = 0
+        rot.phaseProtectionTimer = 0
+        rot._grow_crystal_wall(0, kind="reinforced")
+        rot.stagger = 80
+        shots = []
+        rot._fire_pattern(*rot._center(), shots)
+        self.assertFalse(rot.crystalWalls)
+        self.assertEqual(rot.stagger, 55)
+        self.assertGreater(rot.consumedCrystalPulse, 0)
+
+    def test_sloth_compression_warns_before_becoming_solid(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
+        rot = Rot(rect.x, rect.y, random.Random(4))
+        rot.debug_set_phase(7)
+        rot.actTransitionTimer = 0
+        rot.compressionCooldown = 0
+        rot._update_terrain(*rot._center(), .1)
+        self.assertEqual(len(rot.crystalWalls), 2)
+        self.assertFalse(rot.movement_obstacles())
+        rot._update_terrain(*rot._center(), 2.6)
+        self.assertEqual(len(rot.movement_obstacles()), 2)
+
+    def test_sin_sigils_are_distinct_and_animate_across_every_phase(self):
+        surface = pygame.Surface((900, 700), pygame.SRCALPHA)
+        world_x, world_y = bG.screen_to_world(450, 350)
+        for boss_type, expected_count in ((Kage, 4), (Rot, 7)):
+            boss = boss_type(world_x, world_y, random.Random(5))
+            names = [name for name, _ in boss.SIN_SIGILS]
+            self.assertEqual(len(names), expected_count)
+            self.assertEqual(len(set(names)), expected_count)
+            for phase in range(1, expected_count + 1):
+                boss.debug_set_phase(phase)
+                boss._draw_sigil(surface, (450, 350), 90, .5, .2, phase=phase)
+        self.assertGreater(pygame.mask.from_surface(surface).count(), 100)
 
     def test_shared_progression_routes_levels_ten_and_twenty_to_active_roster(self):
         for path_key in ("touch", "sight", "chemesthesis", "phantasia"):
