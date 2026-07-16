@@ -3,7 +3,6 @@ import background as bG
 import characterStats as cS
 import pygame as pg
 from bullet import Bullet
-from enemyTypes import ENEMY_CATALOG
 from bossTypes import BOSS_CATALOG
 from damageText import DamageText
 from experienceBubble import ExperienceBubble
@@ -17,6 +16,7 @@ from random import randint
 import upgrades
 import uiTheme as ui
 import gameProfile
+import gamePaths
 from spatialHash import SpatialHash
 from progression import (FINAL_BOSS_LEVEL, MAX_LEVEL, MID_BOSS_LEVEL,
                          MINIBOSS_GATES, encounter_caps, encounter_pacing)
@@ -390,9 +390,9 @@ def handlingEnemyCreation():
         natural_encounter = not cS.bossDebugRequested
         if natural_beaudis_requested and natural_encounter:
             cS.beaudisEncounterStarted = True
-            boss_key = "beaudis"
+            boss_key = gamePaths.boss_key(midpoint=True)
         else:
-            boss_key = "dissonance"
+            boss_key = gamePaths.boss_key(midpoint=False)
             if natural_dissonance_requested and natural_encounter:
                 cS.dissonanceEncounterStarted = True
         cS.enemyHolster.clear()
@@ -439,7 +439,7 @@ def handlingEnemyCreation():
                 and key not in cS.guaranteedMiniBossesSpawned
                 and len(cS.enemyHolster) < cS.enemyCap):
             outside_awareness_tiles = ceil((vH.sH * .625) / vH.tileSizeGlobal) + 2
-            cS.enemyHolster.append(ENEMY_CATALOG.spawn(
+            cS.enemyHolster.append(gamePaths.ENCOUNTERS.spawn(
                 cS.currentLevel, key=key,
                 min_distance_tiles=outside_awareness_tiles,
             ))
@@ -462,10 +462,10 @@ def handlingEnemyCreation():
         encounter = None
         if (cS.currentLevel >= 5 and cS.encounterSpawnCooldown <= 0
                 and randint(1, 100) <= pacing["curated_chance"] * 100):
-            encounter = ENEMY_CATALOG.spawn_encounter(
+            encounter = gamePaths.ENCOUNTERS.spawn_encounter(
                 cS.currentLevel, remaining_threat, cS.enemyHolster)
         if encounter is None:
-            encounter = ENEMY_CATALOG.spawn_patrol(
+            encounter = gamePaths.ENCOUNTERS.spawn_patrol(
                 cS.currentLevel, remaining_threat, cS.enemyHolster)
         if encounter:
             package, group = encounter
@@ -538,11 +538,13 @@ def handlingEnemyUpdatesAndDrawing():
 
     spawned_groups = []
     for enemy in cS.enemyHolster:
+        projectile_start = len(cS.enemyProjectileHolster)
         enemy.updateEnemy(
             bG.playerPosX + cS.playerSize/2,
             bG.playerPosY + cS.playerSize/2,
             cS.enemyProjectileHolster,
         )
+        gamePaths.tune_new_projectiles(cS.enemyProjectileHolster, projectile_start)
         enemy.drawEnemy(vH.screen)
         if getattr(enemy, "transitionCleanupRequested", False):
             cleanup_owner = getattr(enemy, "transitionCleanupOwner", None)
@@ -569,6 +571,7 @@ def handlingEnemyUpdatesAndDrawing():
             rejected_atomic_owners.add(owner)
             continue
         for enemy in group:
+            gamePaths.apply_enemy_identity(enemy)
             current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
             if len(cS.enemyHolster) >= cS.enemyCap:
                 break
@@ -605,6 +608,7 @@ def handlingEnemyProjectileUpdating():
     cS.enemyProjectileHolster[:] = [
         projectile for projectile in cS.enemyProjectileHolster if not projectile.remFlag
     ]
+    gamePaths.tune_new_projectiles(spawned_projectiles, 0)
     cS.enemyProjectileHolster.extend(spawned_projectiles)
     if boss is not None and len(cS.enemyProjectileHolster) > 150:
         overflow = len(cS.enemyProjectileHolster) - 150
@@ -705,9 +709,10 @@ def handlingDamagingEnemies():
                 if evictable:
                     cS.lootCrateList.remove(evictable)
         if enemy is cS.activeBoss:
-            if getattr(enemy, "bossName", "") == "BEAUDIS":
+            content_key = getattr(enemy, "contentKey", "")
+            if content_key == gamePaths.active().mid_boss:
                 cS.beaudisDefeated = True
-            elif getattr(enemy, "bossName", "") == "DISSONANCE":
+            elif content_key == gamePaths.active().final_boss:
                 cS.gameCompleted = True
                 cS.runOutcome = "RUN COMPLETE"
                 gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled, completed=True)
@@ -715,10 +720,9 @@ def handlingDamagingEnemies():
             cS.enemySpawningEnabled = not cS.gameCompleted
             vH.screenShakeX = 0
             vH.screenShakeY = 0
-            cS.enemyProjectileHolster[:] = [
-                projectile for projectile in cS.enemyProjectileHolster
-                if not str(projectile.owner or "").startswith(("beaudis", "dissonance"))
-            ]
+            # Boss encounters begin from a cleared arena, so no ordinary hostile
+            # projectile needs to survive the boss's defeat.
+            cS.enemyProjectileHolster.clear()
     if dead_enemies:
         cS.enemyHolster[:] = [enemy for enemy in cS.enemyHolster if enemy not in dead_enemies]
         cS.currEnemyCount = len(cS.enemyHolster)
@@ -1066,7 +1070,8 @@ def drawRunCompleteBanner():
     width = min(arena_width * .58, 680 * scale)
     rect = pg.Rect((arena_width - width) / 2, 22 * scale, width, 76 * scale)
     ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=7)
-    ui.draw_text(vH.screen, "DISSONANCE ENDED", 24 * scale, ui.CREAM,
+    ending = f"{gamePaths.active().final_boss.upper()} ENDED"
+    ui.draw_text(vH.screen, ending, 24 * scale, ui.CREAM,
                  (rect.centerx, rect.y + 10 * scale), "midtop")
     ui.draw_text(vH.screen, "LEVEL 20 // RUN COMPLETE", 11 * scale, ui.PURPLE,
                  (rect.centerx, rect.bottom - 12 * scale), "midbottom")
@@ -1148,12 +1153,42 @@ def runTheTitleScreen():
     left = int((vH.sW - content_width) / 2)
     ui.draw_text(vH.screen, "ROTBOI", scale * .095, ui.TEXT, (vH.sW / 2, vH.sH * .12), "midtop")
     ui.draw_text(vH.screen, "R E M A S T E R E D", scale * .026, ui.CREAM, (vH.sW / 2, vH.sH * .245), "midtop")
-    ui.draw_text(vH.screen, "BUILD THE VOLLEY. BREAK THE ROOM. DO IT AGAIN.", scale * .019, ui.MUTED, (vH.sW / 2, vH.sH * .305), "midtop")
+    ui.draw_text(vH.screen, "CHOOSE WHAT THE ROT REMEMBERS.", scale * .019, ui.MUTED, (vH.sW / 2, vH.sH * .305), "midtop")
 
-    play_rect = pg.Rect(left + content_width * .22, vH.sH * .39, content_width * .56, max(62 * ui_scale, scale * .078))
-    hovered = ui.draw_button(vH.screen, play_rect, "START RUN", (vH.mouseX, vH.mouseY), vH.mouseDown, True, ui.CREAM, "SPACE", int(scale * .025))
+    selector_y = vH.sH * .365
+    gap = 14 * ui_scale
+    selector_width = (content_width - gap) / 2
+    path_hovers = {}
+    for index, path in enumerate(gamePaths.PATHS.values()):
+        rect = pg.Rect(left + index * (selector_width + gap), selector_y,
+                       selector_width, max(54 * ui_scale, scale * .064))
+        is_selected = path.key == gamePaths.selected_key
+        path_hovers[path.key] = ui.draw_button(
+            vH.screen, rect, path.title, (vH.mouseX, vH.mouseY), vH.mouseDown,
+            True, path.accent if is_selected else ui.BORDER,
+            "SELECTED" if is_selected else None, int(scale * .019),
+        )
 
-    controls_rect = pg.Rect(left, vH.sH * .55, content_width, max(132 * ui_scale, vH.sH * .18))
+    if pg.K_LEFT in vH.keyPressed or pg.K_a in vH.keyPressed:
+        gamePaths.cycle(-1)
+    elif pg.K_RIGHT in vH.keyPressed or pg.K_d in vH.keyPressed:
+        gamePaths.cycle(1)
+    elif vH.mousePressed:
+        for key, hovered_path in path_hovers.items():
+            if hovered_path:
+                gamePaths.select(key)
+                break
+
+    path = gamePaths.selected()
+    ui.draw_text(vH.screen, f"{path.subtitle}  //  {path.description}", scale * .013,
+                 path.accent, (vH.sW / 2, vH.sH * .455), "midtop")
+    play_rect = pg.Rect(left + content_width * .27, vH.sH * .495, content_width * .46,
+                        max(54 * ui_scale, scale * .064))
+    hovered = ui.draw_button(vH.screen, play_rect, f"ENTER {path.title}",
+                             (vH.mouseX, vH.mouseY), vH.mouseDown, True,
+                             path.accent, "SPACE", int(scale * .019))
+
+    controls_rect = pg.Rect(left, vH.sH * .615, content_width, max(116 * ui_scale, vH.sH * .15))
     ui.draw_panel(vH.screen, controls_rect, ui.PANEL, ui.BORDER, shadow=6)
     ui.draw_text(vH.screen, "FIELD MANUAL", scale * .018, ui.TEXT, (controls_rect.x + 18 * ui_scale, controls_rect.y + 14 * ui_scale))
     controls = (("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"),
@@ -1170,10 +1205,12 @@ def runTheTitleScreen():
 
     best_level = max(cS.highestLevel, int(gameProfile.profile["best_level"]))
     record_label = "NO RUNS LOGGED" if best_level <= 0 else f"BEST RUN  //  LEVEL {best_level:02}  //  {int(gameProfile.profile['best_kills'])} KILLS"
-    ui.draw_tag(vH.screen, record_label, (left, int(vH.sH * .80)), ui.GOLD if best_level else ui.BORDER, int(scale * .012))
-    ui.draw_text(vH.screen, "ESC  QUIT", scale * .012, ui.MUTED, (left + content_width, vH.sH * .805), "topright")
+    ui.draw_tag(vH.screen, record_label, (left, int(vH.sH * .81)), ui.GOLD if best_level else ui.BORDER, int(scale * .012))
+    ui.draw_text(vH.screen, "A / D  SELECT PATH    ESC  QUIT", scale * .012, ui.MUTED, (left + content_width, vH.sH * .815), "topright")
 
     if pg.K_SPACE in vH.keyPressed or (hovered and vH.mousePressed):
+        gamePaths.activate_selected()
+        resetAllStats()
         vH.state = vH.States.GAMERUN
     elif pg.K_ESCAPE in vH.keyPressed:
         vH.done = True

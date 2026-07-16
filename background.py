@@ -28,7 +28,7 @@ def gameplay_viewport_rect():
 # The arena stays deliberately restrained: each ward is mostly charcoal and slate,
 # with one low-saturation identity color.  These are renderer palettes rather than
 # gameplay tile types, so biome flavor never changes collision rules.
-BIOME_PALETTES = (
+SOUND_PALETTES = (
     {
         "ground": pg.Color(35, 38, 48), "ground_alt": pg.Color(39, 42, 53),
         "road": pg.Color(48, 48, 57), "interior": pg.Color(31, 34, 45),
@@ -48,6 +48,92 @@ BIOME_PALETTES = (
         "accent": pg.Color(62, 78, 108), "detail": pg.Color(91, 99, 126),
     },
 )
+
+TOUCH_PALETTES = (
+    {
+        "ground": pg.Color(20, 31, 25), "ground_alt": pg.Color(24, 37, 28),
+        "road": pg.Color(37, 48, 34), "interior": pg.Color(17, 27, 21),
+        "wall_top": pg.Color(48, 67, 48), "wall_face": pg.Color(28, 43, 31),
+        "accent": pg.Color(83, 104, 54), "detail": pg.Color(119, 104, 61),
+    },
+    {
+        "ground": pg.Color(31, 32, 22), "ground_alt": pg.Color(37, 38, 24),
+        "road": pg.Color(49, 48, 29), "interior": pg.Color(27, 27, 18),
+        "wall_top": pg.Color(68, 65, 39), "wall_face": pg.Color(45, 43, 25),
+        "accent": pg.Color(104, 91, 48), "detail": pg.Color(130, 113, 63),
+    },
+    {
+        "ground": pg.Color(18, 29, 27), "ground_alt": pg.Color(21, 35, 31),
+        "road": pg.Color(31, 45, 38), "interior": pg.Color(15, 25, 23),
+        "wall_top": pg.Color(42, 64, 55), "wall_face": pg.Color(25, 41, 35),
+        "accent": pg.Color(55, 100, 69), "detail": pg.Color(87, 117, 76),
+    },
+)
+
+SIGHT_PALETTES = (
+    {
+        "ground": pg.Color(49, 75, 91), "ground_alt": pg.Color(56, 84, 101),
+        "road": pg.Color(75, 109, 125), "interior": pg.Color(43, 67, 82),
+        "wall_top": pg.Color(104, 174, 204), "wall_face": pg.Color(60, 111, 137),
+        "accent": pg.Color(234, 145, 61), "detail": pg.Color(247, 188, 96),
+    },
+    {
+        "ground": pg.Color(58, 80, 94), "ground_alt": pg.Color(64, 89, 104),
+        "road": pg.Color(84, 116, 132), "interior": pg.Color(48, 70, 85),
+        "wall_top": pg.Color(126, 193, 218), "wall_face": pg.Color(69, 123, 147),
+        "accent": pg.Color(211, 111, 48), "detail": pg.Color(241, 164, 78),
+    },
+    {
+        "ground": pg.Color(43, 70, 87), "ground_alt": pg.Color(48, 78, 96),
+        "road": pg.Color(69, 103, 121), "interior": pg.Color(37, 61, 76),
+        "wall_top": pg.Color(94, 164, 196), "wall_face": pg.Color(53, 105, 132),
+        "accent": pg.Color(242, 157, 67), "detail": pg.Color(252, 203, 116),
+    },
+)
+
+CHEMESTHESIS_PALETTES = (
+    {
+        "ground": pg.Color(54, 31, 24), "ground_alt": pg.Color(64, 36, 26),
+        "road": pg.Color(85, 48, 29), "interior": pg.Color(45, 25, 21),
+        "wall_top": pg.Color(126, 54, 33), "wall_face": pg.Color(77, 35, 27),
+        "accent": pg.Color(202, 77, 35), "detail": pg.Color(116, 132, 50),
+    },
+    {
+        "ground": pg.Color(50, 38, 22), "ground_alt": pg.Color(61, 45, 24),
+        "road": pg.Color(82, 57, 29), "interior": pg.Color(42, 31, 18),
+        "wall_top": pg.Color(126, 79, 34), "wall_face": pg.Color(76, 49, 24),
+        "accent": pg.Color(160, 48, 34), "detail": pg.Color(104, 132, 52),
+    },
+    {
+        "ground": pg.Color(34, 44, 25), "ground_alt": pg.Color(40, 52, 28),
+        "road": pg.Color(59, 67, 31), "interior": pg.Color(28, 37, 21),
+        "wall_top": pg.Color(79, 100, 43), "wall_face": pg.Color(49, 62, 29),
+        "accent": pg.Color(194, 66, 37), "detail": pg.Color(137, 142, 55),
+    },
+)
+
+PHANTASIA_PALETTES = (
+    {
+        "ground": pg.Color(43, 24, 52), "ground_alt": pg.Color(51, 28, 62),
+        "road": pg.Color(68, 37, 78), "interior": pg.Color(36, 19, 45),
+        "wall_top": pg.Color(113, 55, 126), "wall_face": pg.Color(68, 34, 80),
+        "accent": pg.Color(198, 77, 170), "detail": pg.Color(226, 125, 199),
+    },
+    {
+        "ground": pg.Color(51, 23, 48), "ground_alt": pg.Color(61, 27, 57),
+        "road": pg.Color(79, 35, 72), "interior": pg.Color(43, 18, 40),
+        "wall_top": pg.Color(129, 51, 112), "wall_face": pg.Color(79, 31, 70),
+        "accent": pg.Color(218, 82, 158), "detail": pg.Color(239, 137, 195),
+    },
+    {
+        "ground": pg.Color(36, 25, 55), "ground_alt": pg.Color(43, 29, 66),
+        "road": pg.Color(58, 39, 83), "interior": pg.Color(30, 20, 47),
+        "wall_top": pg.Color(94, 61, 133), "wall_face": pg.Color(57, 38, 84),
+        "accent": pg.Color(177, 75, 184), "detail": pg.Color(214, 122, 218),
+    },
+)
+
+BIOME_PALETTES = SOUND_PALETTES
 
 WALL_HEIGHT = 14
 CAMERA_BACKGROUND_TARGET_WIDTH = 640
@@ -707,6 +793,146 @@ def generate_battleground(size=97):
         for y, row in enumerate(grid)
     ]
 
+
+def generate_touch_battleground(size=87):
+    """Create the cramped sewer-prison used by the Path of Touch."""
+    size = max(65, size | 1)
+    center = size // 2
+    grid = [[0 for _ in range(size)] for _ in range(size)]
+
+    # A square containment shell makes this dungeon feel built to hold something.
+    for y in range(size):
+        for x in range(size):
+            edge = min(x, y, size - 1 - x, size - 1 - y)
+            if edge < 2:
+                grid[y][x] = 5
+            elif edge < 4:
+                grid[y][x] = 1
+
+    # Dense cell blocks leave narrow north/south and east/west drainage lanes.
+    blocks = (
+        (-27, -25, 13, 13, False, "vault"), (-9, -25, 11, 13, False, "archive"),
+        (10, -25, 13, 13, False, "bastion"), (28, -25, 11, 13, False, "vault"),
+        (-27, -7, 13, 11, True, "archive"), (27, -7, 13, 11, True, "forge"),
+        (-27, 11, 13, 11, True, "bastion"), (27, 11, 13, 11, True, "vault"),
+        (-27, 28, 13, 11, False, "forge"), (-9, 28, 11, 11, False, "vault"),
+        (10, 28, 13, 11, False, "archive"), (28, 28, 11, 11, False, "bastion"),
+    )
+    for ox, oy, width, height, vertical, style in blocks:
+        _paint_building(grid, center + ox, center + oy, width, height, vertical, style)
+
+    # Main sewer channels and a small safe cistern at the spawn.
+    _paint_road(grid, (center, 4), (center, size - 5), 1)
+    _paint_road(grid, (4, center), (size - 5, center), 1)
+    for y in range(center - 5, center + 6):
+        for x in range(center - 5, center + 6):
+            if hypot(x - center, y - center) <= 5:
+                grid[y][x] = 2
+
+    return [
+        [[tile, pg.Rect(x * vH.tileSizeGlobal, y * vH.tileSizeGlobal,
+                        vH.tileSizeGlobal, vH.tileSizeGlobal)]
+         for x, tile in enumerate(row)]
+        for y, row in enumerate(grid)
+    ]
+
+
+def _rect_grid(grid):
+    return [
+        [[tile, pg.Rect(x * vH.tileSizeGlobal, y * vH.tileSizeGlobal,
+                        vH.tileSizeGlobal, vH.tileSizeGlobal)]
+         for x, tile in enumerate(row)]
+        for y, row in enumerate(grid)
+    ]
+
+
+def _circular_shell(grid, thickness=2):
+    size = len(grid)
+    center = size // 2
+    radius = center - 2
+    for y in range(size):
+        for x in range(size):
+            distance = hypot(x - center, y - center)
+            if distance >= radius:
+                grid[y][x] = 5
+            elif distance >= radius - thickness:
+                grid[y][x] = 1
+
+
+def generate_sight_battleground(size=91):
+    """An exposed, building-free field with clear long sight lines."""
+    size = max(65, size | 1)
+    center = size // 2
+    grid = [[0 for _ in range(size)] for _ in range(size)]
+    _circular_shell(grid, 1)
+    for angle_index in range(8):
+        angle = angle_index * 6.283185307 / 8
+        end = (center + round(cos(angle) * (center - 6)),
+               center + round(sin(angle) * (center - 6)))
+        _paint_road(grid, (center, center), end, 1)
+    for y in range(center - 7, center + 8):
+        for x in range(center - 7, center + 8):
+            if hypot(x - center, y - center) <= 7:
+                grid[y][x] = 2
+    return _rect_grid(grid)
+
+
+def generate_chemesthesis_battleground(size=93):
+    """Open contaminated ground scattered with deterministic ruin fragments."""
+    size = max(67, size | 1)
+    center = size // 2
+    grid = [[0 for _ in range(size)] for _ in range(size)]
+    _circular_shell(grid, 1)
+    # Broken corners and wall runs imply structures without creating real rooms.
+    for y in range(7, size - 7):
+        for x in range(7, size - 7):
+            far_from_spawn = hypot(x - center, y - center) > 9
+            marker = (x * 47 + y * 83 + x * y * 7) % 317
+            if far_from_spawn and marker in (2, 3, 5, 71, 72):
+                grid[y][x] = 4
+                if marker in (2, 71) and x + 1 < size - 5:
+                    grid[y][x + 1] = 4
+                if marker in (3, 72) and y + 1 < size - 5:
+                    grid[y + 1][x] = 4
+    _paint_road(grid, (5, center), (size - 6, center), 1)
+    _paint_road(grid, (center, 5), (center, size - 6), 1)
+    return _rect_grid(grid)
+
+
+def generate_phantasia_battleground(size=101):
+    """Large dream courts with only three elaborate architectural anchors."""
+    size = max(75, size | 1)
+    center = size // 2
+    grid = [[0 for _ in range(size)] for _ in range(size)]
+    _circular_shell(grid, 2)
+    buildings = (
+        (center - 28, center - 21, 17, 15, False, "archive"),
+        (center + 29, center - 8, 15, 19, True, "shrine"),
+        (center - 6, center + 30, 21, 13, False, "bastion"),
+    )
+    for x, y, width, height, vertical, style in buildings:
+        _paint_road(grid, (center, center), (x, y), 2)
+        _paint_building(grid, x, y, width, height, vertical, style)
+        # Ornamental crowns, paired pillars, and approach gates add feature
+        # density without filling the otherwise broad arena.
+        for ox, oy in ((-width // 2 - 2, -height // 2),
+                       (width // 2 + 2, -height // 2),
+                       (-width // 2 - 2, height // 2),
+                       (width // 2 + 2, height // 2)):
+            grid[y + oy][x + ox] = 4
+        for offset in (-3, 0, 3):
+            if vertical:
+                grid[y + offset][x - width // 2 - 3] = 4
+                grid[y + offset][x + width // 2 + 3] = 4
+            else:
+                grid[y - height // 2 - 3][x + offset] = 4
+                grid[y + height // 2 + 3][x + offset] = 4
+    for y in range(center - 9, center + 10):
+        for x in range(center - 9, center + 10):
+            if hypot(x - center, y - center) <= 9:
+                grid[y][x] = 2
+    return _rect_grid(grid)
+
 basicRoomFile = 'data/backgrounds/basicRoom.csv'
 basicRoomRects = generate_battleground()
 currRoomRects = basicRoomRects
@@ -726,3 +952,35 @@ currNumOfXTiles = len(currRoomRects[0])
 currNumOfYTiles = len(currRoomRects)
 
 repasteableRoomSurface = drawRepasteableBackground(currRoomRects)
+
+
+def configure_battleground(path_key):
+    """Swap path-owned map/render data while preserving camera and game systems."""
+    global BIOME_PALETTES, WALL_HEIGHT, currRoomRects, repasteableRoomSurface
+    global spawnX, spawnY, playerPosX, playerPosY, currNumOfXTiles, currNumOfYTiles
+    palettes = {
+        "sound": SOUND_PALETTES, "touch": TOUCH_PALETTES,
+        "sight": SIGHT_PALETTES, "chemesthesis": CHEMESTHESIS_PALETTES,
+        "phantasia": PHANTASIA_PALETTES,
+    }
+    generators = {
+        "sound": lambda: basicRoomRects,
+        "touch": generate_touch_battleground,
+        "sight": generate_sight_battleground,
+        "chemesthesis": generate_chemesthesis_battleground,
+        "phantasia": generate_phantasia_battleground,
+    }
+    if path_key not in generators:
+        raise KeyError(f"Unknown battleground path: {path_key}")
+    BIOME_PALETTES = palettes[path_key]
+    WALL_HEIGHT = {"touch": 22, "phantasia": 20}.get(path_key, 14)
+    currRoomRects = generators[path_key]()
+    currNumOfXTiles = len(currRoomRects[0])
+    currNumOfYTiles = len(currRoomRects)
+    spawnX = currNumOfXTiles // 2 * vH.tileSizeGlobal - vH.tileSizeGlobal / 2
+    spawnY = currNumOfYTiles // 2 * vH.tileSizeGlobal - vH.tileSizeGlobal / 2
+    playerPosX, playerPosY = spawnX, spawnY
+    _open_tile_cache.clear()
+    _camera_background_cache.clear()
+    _raised_scenery_cache.clear()
+    repasteableRoomSurface = drawRepasteableBackground(currRoomRects)

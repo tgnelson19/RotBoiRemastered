@@ -2116,6 +2116,259 @@ class Dissonance(Enemy):
         pygame.draw.polygon(screen, self.phaseAccent, pointer)
 
 
+class PathChaseBoss(Enemy):
+    """Configurable three-phase placeholder for rapidly prototyping path bosses."""
+
+    bossName = "PATH BOSS"
+    subtitle = "CONTENT PLACEHOLDER"
+    phaseLabels = ("HUNT", "PRESS", "OVERWHELM")
+    finalBoss = False
+    pattern = "fan"
+    ownerPrefix = "path"
+    bodyColor = pygame.Color(91, 103, 53)
+    finalBodyColor = pygame.Color(48, 82, 48)
+    accentColor = pygame.Color(132, 119, 63)
+    finalAccentColor = pygame.Color(74, 125, 67)
+    movementSpeed = .21
+    bodyScale = 1.9
+    finalBodyScale = 2.35
+    cooldownSeconds = 2.85
+    finalCooldownSeconds = 2.35
+    shotSpeed = .68
+    finalShotSpeed = .82
+    shotDamage = 275
+    finalShotDamage = 360
+    shotScale = .30
+    finalShotScale = .34
+    shotRangeTiles = 18
+
+    def __init__(self, world_x, world_y, rng=None):
+        final = self.finalBoss
+        size = vH.tileSizeGlobal * (self.finalBodyScale if final else self.bodyScale)
+        super().__init__(world_x, world_y,
+                         self.movementSpeed * (1.16 if final else 1), size,
+                         self.finalBodyColor if final else self.bodyColor,
+                         360 if final else 270, 48000 if final else 29000,
+                         520 if final else 280, 4.0 if final else 3.3,
+                         f"{self.ownerPrefix}_boss", "hard")
+        self.rng = rng or random
+        self.phase = 1
+        self.phaseLabel = self.phaseLabels[0]
+        self.phaseFlavor = self.subtitle.title()
+        self.phaseAccent = self.finalAccentColor if final else self.accentColor
+        self.attackCooldown = vH.frameRate * 1.1
+        self.attackCooldownMax = vH.frameRate * (
+            self.finalCooldownSeconds if final else self.cooldownSeconds)
+        self.entranceRemaining = .9
+        self.stagger = 0.0
+        self.maxStagger = 100.0
+        self.minimumStaggerPerHit = 4.0
+        self.staggerDuration = 2.5
+        self.staggerRemaining = 0.0
+        self.isStaggered = False
+        self.perfectStagger = False
+        self.staggerRecoveryRemaining = 0.0
+        self.runeSilenceRemaining = 0.0
+        self.survivalActive = False
+        self.survivalRemaining = 0.0
+        self.transitionCleanupRequested = False
+        self.debugPhaseLocked = False
+        self.awarenessRange = float("inf")
+        self.disengageRange = float("inf")
+        self.awarenessState = "alerted"
+
+    def _center(self):
+        return self.worldX + self.size / 2, self.worldY + self.size / 2
+
+    def _update_phase(self):
+        if self.debugPhaseLocked:
+            return
+        ratio = max(0, self.hp / self.maxHp)
+        new_phase = 3 if ratio <= .34 else 2 if ratio <= .67 else 1
+        if new_phase != self.phase:
+            self.phase = new_phase
+            self.phaseLabel = self.phaseLabels[new_phase - 1]
+            self.attackCooldown = min(self.attackCooldown, vH.frameRate * .7)
+
+    def debug_set_phase(self, phase):
+        self.phase = max(1, min(3, int(phase)))
+        self.phaseLabel = self.phaseLabels[self.phase - 1]
+        self.debugPhaseLocked = True
+        self.attackCooldown = 0
+
+    def _fire_pattern(self, player_x, player_y, projectile_sink):
+        center_x, center_y = self._center()
+        direction = atan2(player_y - center_y, player_x - center_x)
+        if self.pattern == "minefield":
+            count = (2, 3, 5)[self.phase - 1] if self.finalBoss else (1, 2, 3)[self.phase - 1]
+        elif self.pattern == "mirage":
+            count = (3, 5, 7)[self.phase - 1] if self.finalBoss else (2, 3, 5)[self.phase - 1]
+        else:
+            count = (1, 2, 3)[self.phase - 1] if self.finalBoss else (1, 1, 2)[self.phase - 1]
+        spread = {"rush": .22, "minefield": 2.5, "mirage": 1.15}.get(self.pattern, .34)
+        for index in range(count):
+            offset = 0 if count == 1 else -spread / 2 + spread * index / (count - 1)
+            shot_size = self.size * (self.finalShotScale if self.finalBoss else self.shotScale)
+            shot = EnemyProjectile(
+                center_x - shot_size / 2, center_y - shot_size / 2,
+                direction + offset,
+                self.finalShotSpeed if self.finalBoss else self.shotSpeed,
+                self.finalShotDamage if self.finalBoss else self.shotDamage,
+                shot_size, travel_range=vH.tileSizeGlobal * self.shotRangeTiles,
+                color=self.phaseAccent,
+                shape="mine" if self.pattern == "minefield" else "diamond"
+                if self.pattern in ("rush", "mirage") else "square",
+                path="sine" if self.pattern == "mirage" else "linear",
+                amplitude=vH.tileSizeGlobal * .65 if self.pattern == "mirage" else 0,
+                owner=f"{self.ownerPrefix}_{'final' if self.finalBoss else 'mid'}",
+                ignore_walls=self.pattern == "minefield",
+            )
+            if self.pattern == "minefield":
+                shot.lifetime = 20.0
+                shot.speedDecay = .08
+            projectile_sink.append(shot)
+        # Touch's final boss retains the initial slow radial cage placeholder.
+        if self.pattern == "boulder" and self.finalBoss and self.phase == 3:
+            for index in range(8):
+                projectile_sink.append(EnemyProjectile(
+                    center_x, center_y, index * pi / 4, .48, 300,
+                    self.size * .23, travel_range=vH.tileSizeGlobal * 11,
+                    color=self.phaseAccent, shape="diamond",
+                    owner=f"{self.ownerPrefix}_ring",
+                ))
+        self._mark_attack(.42)
+
+    # Kept as a compatibility alias for early Touch prototype tests/tools.
+    def _fire_boulders(self, player_x, player_y, projectile_sink):
+        self._fire_pattern(player_x, player_y, projectile_sink)
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        projectile_sink = projectile_sink if projectile_sink is not None else []
+        self.entranceRemaining = max(0, self.entranceRemaining - self._seconds())
+        self._update_phase()
+        super().updateEnemy(player_world_x, player_world_y, projectile_sink)
+        self.attackCooldown -= vH.get_timer_step()
+        if self.entranceRemaining <= 0 and self.attackCooldown <= 0:
+            self._fire_pattern(player_world_x, player_world_y, projectile_sink)
+            rate = 1.0 - .11 * (self.phase - 1)
+            self.attackCooldown = self.attackCooldownMax * rate * self.rng.uniform(.9, 1.12)
+
+    def _seconds(self):
+        return vH.get_timer_step() / max(1, vH.frameRate)
+
+    def drawEnemy(self, screen):
+        super().drawEnemy(screen)
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        inset = rect.inflate(-self.size * .34, -self.size * .34)
+        pygame.draw.ellipse(screen, ui.INK, inset)
+        pygame.draw.ellipse(screen, self.phaseAccent, inset, max(3, int(self.size * .06)))
+        for offset in (-.22, .22):
+            x = rect.centerx + rect.width * offset
+            pygame.draw.line(screen, ui.lighten(self.phaseAccent, 42),
+                             (x, rect.y + rect.height * .22),
+                             (x, rect.bottom - rect.height * .18), 3)
+
+
+class Bair(PathChaseBoss):
+    bossName = "BAIR"
+    subtitle = "THE FIRST LOCK"
+    pattern = "boulder"
+    ownerPrefix = "bair_touch"
+
+class Sting(Bair):
+    bossName = "STING"
+    subtitle = "THE THING THE PRISON KEPT"
+    finalBoss = True
+    ownerPrefix = "sting_touch"
+
+
+class Ishe(PathChaseBoss):
+    bossName = "ISHE"
+    subtitle = "THE NEAR HORIZON"
+    phaseLabels = ("GLIMPSE", "BLINK", "FLASH")
+    pattern = "rush"
+    ownerPrefix = "ishe_sight"
+    bodyColor = pygame.Color(107, 190, 221)
+    accentColor = pygame.Color(235, 142, 59)
+    movementSpeed = .43
+    bodyScale = 1.42
+    cooldownSeconds = 1.18
+    shotSpeed = 1.9
+    shotScale = .20
+    shotRangeTiles = 8
+
+
+class Chronos(Ishe):
+    bossName = "CHRONOS"
+    subtitle = "THE LAST SECOND"
+    finalBoss = True
+    ownerPrefix = "chronos_sight"
+    finalBodyColor = pygame.Color(81, 164, 204)
+    finalAccentColor = pygame.Color(244, 166, 73)
+    finalBodyScale = 1.7
+    finalCooldownSeconds = .92
+    finalShotSpeed = 2.15
+    finalShotScale = .22
+
+
+class Kage(PathChaseBoss):
+    bossName = "KAGE"
+    subtitle = "THE FIRST REACTION"
+    phaseLabels = ("SEED", "FUME", "SATURATE")
+    pattern = "minefield"
+    ownerPrefix = "kage_chemesthesis"
+    bodyColor = pygame.Color(169, 65, 36)
+    accentColor = pygame.Color(106, 132, 52)
+    movementSpeed = .18
+    bodyScale = 2.05
+    cooldownSeconds = 1.8
+    shotSpeed = .30
+    shotScale = .26
+    shotRangeTiles = 34
+
+
+class Rot(Kage):
+    bossName = "ROT"
+    subtitle = "THE FIELD THAT REMAINS"
+    finalBoss = True
+    ownerPrefix = "rot_chemesthesis"
+    finalBodyColor = pygame.Color(122, 47, 36)
+    finalAccentColor = pygame.Color(210, 85, 36)
+    finalBodyScale = 2.5
+    finalCooldownSeconds = 1.35
+    finalShotSpeed = .38
+    finalShotScale = .29
+
+
+class Hypno(PathChaseBoss):
+    bossName = "HYPNO"
+    subtitle = "THE ORNATE SUGGESTION"
+    phaseLabels = ("INVITE", "REFRACT", "ENTHRALL")
+    pattern = "mirage"
+    ownerPrefix = "hypno_phantasia"
+    bodyColor = pygame.Color(151, 56, 144)
+    accentColor = pygame.Color(211, 91, 183)
+    movementSpeed = .27
+    bodyScale = 1.8
+    cooldownSeconds = 2.05
+    shotSpeed = .92
+    shotScale = .22
+    shotRangeTiles = 22
+
+
+class Malady(Hypno):
+    bossName = "MALADY"
+    subtitle = "THE DREAM MADE ILL"
+    finalBoss = True
+    ownerPrefix = "malady_phantasia"
+    finalBodyColor = pygame.Color(99, 48, 126)
+    finalAccentColor = pygame.Color(225, 95, 178)
+    finalBodyScale = 2.2
+    finalCooldownSeconds = 1.55
+    finalShotSpeed = 1.08
+    finalShotScale = .25
+
+
 @dataclass(frozen=True)
 class BossDefinition:
     key: str
@@ -2134,9 +2387,19 @@ class BossCatalog:
         definition = self.definitions[key]
         size = vH.tileSizeGlobal * 1.9
         spawn_rect = bG.find_spawn_rect(size)
-        return definition.boss_class(spawn_rect.x, spawn_rect.y, rng=rng)
+        boss = definition.boss_class(spawn_rect.x, spawn_rect.y, rng=rng)
+        boss.contentKey = key
+        return boss
 
 
 BOSS_CATALOG = BossCatalog()
 BOSS_CATALOG.register(BossDefinition("beaudis", "Beaudis", Beaudis))
 BOSS_CATALOG.register(BossDefinition("dissonance", "Dissonance", Dissonance))
+BOSS_CATALOG.register(BossDefinition("bair", "Bair", Bair))
+BOSS_CATALOG.register(BossDefinition("sting", "Sting", Sting))
+BOSS_CATALOG.register(BossDefinition("ishe", "Ishe", Ishe))
+BOSS_CATALOG.register(BossDefinition("chronos", "Chronos", Chronos))
+BOSS_CATALOG.register(BossDefinition("kage", "Kage", Kage))
+BOSS_CATALOG.register(BossDefinition("rot", "Rot", Rot))
+BOSS_CATALOG.register(BossDefinition("hypno", "Hypno", Hypno))
+BOSS_CATALOG.register(BossDefinition("malady", "Malady", Malady))
