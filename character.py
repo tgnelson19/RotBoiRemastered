@@ -308,7 +308,10 @@ def movePlayer():
     else:
         cS.dY = 0
 
-    if boss is not None and hasattr(boss, "arenaRadius"):
+    if boss is not None and hasattr(boss, "constrain_player_position"):
+        bG.playerPosX, bG.playerPosY = boss.constrain_player_position(
+            bG.playerPosX, bG.playerPosY, cS.playerSize)
+    elif boss is not None and hasattr(boss, "arenaRadius"):
         arena_x, arena_y = boss._arena_center()
         player_x = bG.playerPosX + cS.playerSize / 2
         player_y = bG.playerPosY + cS.playerSize / 2

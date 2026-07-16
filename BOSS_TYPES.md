@@ -206,3 +206,63 @@ counter-rotating manuscript rings, floating diamonds, an ivory ceremonial mask, 
 orbiting halo seals, Belief-driven false masks, illuminated rule banners, and ornate
 phase cards. This is intentionally the game's most visually chaotic boss, but its
 collision truth remains consistent.
+
+## Shared path-arena overhaul
+
+All catalog-spawned bosses now enter at the nearest open position to the exact room
+center. Every non-Sound path boss owns a ticking arena boundary and exposes the same
+containment contract to player movement:
+
+- Touch uses a rigid square prison with heavy corner seams.
+- Sight uses a large triangle that emphasizes fast intercept routes.
+- Chemesthesis uses a continuously changing twenty-eight-point boundary with seeded
+  irregularity and moving sharp edges.
+- Phantasia uses a fluid sixty-four-point loop surrounded by three counter-rotating
+  atomic ellipses.
+
+The illuminated portion of each boundary counts down against the current phase timer.
+Each path also rotates between chase, static, and scripted-path locomotion. Touch moves
+slowly along the square, Sight changes direction quickly, Chemesthesis uses irregular
+offset paths, and Phantasia traces smooth ellipses and figure-eights.
+
+## Bair and Sting — Path of Touch
+
+Bair previews the ten plagues as five paired phases: **River**, **Swarm**, **Blight**,
+**Ruin**, and **Silence**. Sting separates them into ten health-gated phases:
+
+1. **Blood — Corruption:** slow radial contamination.
+2. **Frogs — Overrun:** clustered heavy landing bombs.
+3. **Gnats — Infestation:** a dense but slow radial swarm.
+4. **Flies — Invasion:** broad heavy fans and square-gate crossfire.
+5. **Pestilence:** a deliberate expanding ring.
+6. **Boils — Affliction:** large targeted blast zones.
+7. **Hail — Impact:** descending heavy lanes and gate volleys.
+8. **Locusts — Devour:** a wide consuming projectile wall.
+9. **Darkness:** narrow, slow pressure with moving gates.
+10. **Firstborn — Severance:** radial closure plus a high-damage central judgment.
+
+Each plague has a geometric sigil derived from its defining word. Touch portals are
+square iron gates rather than Dissonance's fluid mouths. They march around the square
+arena boundary, require eight separate hits to disable, and fire paired slow heavy
+shots. Portal phases currently include Frogs, Flies, Hail, Darkness, and Firstborn.
+
+Sight now has meaningful **Glimpse**, **Blink**, and **Flash** symbols: an eye, a
+closing mirrored aperture, and a lightning stroke. These are a visual placeholder for
+a later full Sight phase expansion.
+
+### Recommended polish order
+
+1. Playtest arena dimensions and moving-boundary containment before tuning damage.
+2. Give Sight a full phase structure next; its current symbols and triangular arena
+   establish the language, but Chronos remains mechanically shallower than the others.
+3. Add themed portal subclasses for Chemesthesis and Phantasia. Chemical vents should
+   move unpredictably along the jagged edge; dream apertures should follow atomic
+   ellipses and mix real and illusory volleys.
+4. Add shared act-transition cleanup and phase-timer rules to the common arena contract,
+   then remove remaining duplicated transition code.
+5. Profile projectile counts and alpha surfaces during Malady. Preserve its visual
+   maximalism, but cap expensive translucent layers independently from gameplay shots.
+6. Add portal-interception tests per path before allowing every themed portal to reroute
+   player bullets.
+7. Tune movement modes only after every boss can be practiced phase-by-phase; scripted
+   paths should remain deterministic enough to learn even when their visuals are wild.

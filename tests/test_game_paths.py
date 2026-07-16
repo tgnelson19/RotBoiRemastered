@@ -113,7 +113,8 @@ class GamePathTests(unittest.TestCase):
             boss = BOSS_CATALOG.spawn(key, random.Random(2))
             self.assertIsInstance(boss, boss_type)
             self.assertEqual(boss.contentKey, key)
-            expected_phases = ({"kage": 4, "rot": 7, "hypno": 5, "malady": 10}
+            expected_phases = ({"bair": 5, "sting": 10, "kage": 4, "rot": 7,
+                                "hypno": 5, "malady": 10}
                                .get(key, 3))
             self.assertEqual(len(boss.phaseLabels), expected_phases)
 
@@ -217,10 +218,11 @@ class GamePathTests(unittest.TestCase):
         self.assertTrue(any(shot.path == "mine" and shot.lifetime == 18
                             for shot in finale))
 
-    def test_rot_is_static_and_uses_three_cinematic_acts(self):
+    def test_rot_opens_static_and_uses_three_cinematic_acts(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.5)
         rot = Rot(rect.x, rect.y, random.Random(3))
-        self.assertEqual(rot.speed, 0)
+        self.assertEqual(rot.movementModes[0], "static")
+        self.assertLess(rot.speed, .1)
         self.assertEqual(rot.actTitle, "ACT I // APPETITE")
         self.assertGreater(rot.actTransitionTimer, 0)
         rot.actTransitionTimer = 0
@@ -394,6 +396,67 @@ class GamePathTests(unittest.TestCase):
         self.assertGreaterEqual(len(projectiles), 11)
         self.assertTrue(all(shot.speed < 1 for shot in projectiles))
         self.assertTrue(all(shot.damage >= 300 for shot in projectiles))
+
+    def test_touch_bosses_cover_five_pairs_and_all_ten_plagues(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.7)
+        bair = Bair(rect.x, rect.y, random.Random(4))
+        sting = Sting(rect.x, rect.y, random.Random(4))
+        self.assertEqual(len(bair.phaseLabels), 5)
+        self.assertEqual(sting.phaseLabels, ("BLOOD", "FROGS", "GNATS", "FLIES",
+                                             "PESTILENCE", "BOILS", "HAIL",
+                                             "LOCUSTS", "DARKNESS", "FIRSTBORN"))
+        for phase in range(1, 11):
+            sting.debug_set_phase(phase)
+            shots = []
+            sting._fire_pattern(*sting._center(), shots)
+            self.assertTrue(shots, f"plague phase {phase} fired nothing")
+
+    def test_path_boss_arenas_have_distinct_shapes_and_center_spawns(self):
+        expected = {"sting": "square", "chronos": "triangle", "rot": "jagged",
+                    "malady": "atomic"}
+        center = (len(bG.currRoomRects[0])*vH.tileSizeGlobal/2,
+                  len(bG.currRoomRects)*vH.tileSizeGlobal/2)
+        for key, shape in expected.items():
+            boss = BOSS_CATALOG.spawn(key, random.Random(6))
+            self.assertEqual(boss.arenaShape, shape)
+            self.assertLessEqual(abs(boss._center()[0]-center[0]), vH.tileSizeGlobal*2)
+            self.assertLessEqual(abs(boss._center()[1]-center[1]), vH.tileSizeGlobal*2)
+            outside = (center[0]+boss.arenaRadius*2, center[1]+boss.arenaRadius*2)
+            constrained = boss.constrain_player_position(*outside, cS.playerSize)
+            constrained_center = (constrained[0]+cS.playerSize/2,
+                                  constrained[1]+cS.playerSize/2)
+            self.assertTrue(boss._point_in_polygon(constrained_center,
+                                                   boss._arena_vertices()))
+
+    def test_every_path_boss_exposes_chase_static_and_path_movement(self):
+        expected = (Sting, Chronos, Rot, Malady)
+        for boss_type in expected:
+            modes = set(boss_type.movementModes)
+            self.assertTrue({"chase", "static", "path"}.issubset(modes), boss_type.__name__)
+
+    def test_touch_gate_portals_use_square_paths_and_heavy_volleys(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.7)
+        sting = Sting(rect.x, rect.y, random.Random(4))
+        sting.debug_set_phase(4)
+        self.assertEqual(len(sting.projectilePortals), 4)
+        self.assertTrue(all(portal.movementPath == "square"
+                            for portal in sting.projectilePortals))
+        shots = []
+        sting.portalCooldown = 0
+        sting._update_touch_portals(*sting._center(), shots, .1)
+        self.assertTrue(shots)
+        self.assertTrue(all(shot.speed < .5 and shot.damage >= 300 for shot in shots))
+
+    def test_sight_bosses_expose_meaningful_symbols(self):
+        self.assertEqual([name for name, _ in Ishe.SIGHT_SYMBOLS],
+                         ["GLIMPSE", "BLINK", "FLASH"])
+        surface = pygame.Surface((900, 700), pygame.SRCALPHA)
+        world_x, world_y = bG.screen_to_world(450, 350)
+        boss = Chronos(world_x, world_y, random.Random(4))
+        for phase in range(1, 4):
+            boss.phase = phase
+            boss.drawEnemy(surface)
+        self.assertGreater(pygame.mask.from_surface(surface).count(), 100)
 
     def test_exclusive_encounter_factories_are_scoped_to_one_path(self):
         calls = []

@@ -2141,6 +2141,9 @@ class PathChaseBoss(Enemy):
     shotScale = .30
     finalShotScale = .34
     shotRangeTiles = 18
+    arenaShape = "circle"
+    arenaScale = 10.4
+    movementModes = ("chase", "static", "path")
 
     def __init__(self, world_x, world_y, rng=None):
         final = self.finalBoss
@@ -2176,9 +2179,100 @@ class PathChaseBoss(Enemy):
         self.awarenessRange = float("inf")
         self.disengageRange = float("inf")
         self.awarenessState = "alerted"
+        self.arenaRadius = vH.tileSizeGlobal * self.arenaScale
+        self.phaseElapsed = 0.0
+        self.phaseTimeLimit = 28.0 if final else 24.0
+        self.arenaSeed = [self.rng.uniform(-.15, .15) for _ in range(28)]
 
     def _center(self):
         return self.worldX + self.size / 2, self.worldY + self.size / 2
+
+    def _arena_center(self):
+        return (len(bG.currRoomRects[0]) * vH.tileSizeGlobal / 2,
+                len(bG.currRoomRects) * vH.tileSizeGlobal / 2)
+
+    def _arena_vertices(self):
+        center_x, center_y = self._arena_center()
+        radius = self.arenaRadius
+        if self.arenaShape == "square":
+            return [(center_x-radius, center_y-radius), (center_x+radius, center_y-radius),
+                    (center_x+radius, center_y+radius), (center_x-radius, center_y+radius)]
+        if self.arenaShape == "triangle":
+            return [(center_x + cos(-pi/2+i*2*pi/3)*radius,
+                     center_y + sin(-pi/2+i*2*pi/3)*radius) for i in range(3)]
+        count = 28 if self.arenaShape == "jagged" else 64
+        points = []
+        for index in range(count):
+            angle = index * 2 * pi / count
+            if self.arenaShape == "jagged":
+                noise = self.arenaSeed[index] + sin(self.age*.013+index*1.71)*.13
+                local_radius = radius * (1 + noise)
+            elif self.arenaShape == "atomic":
+                local_radius = radius * (.88 + .1*sin(angle*3+self.age*.008)
+                                         + .045*sin(angle*7-self.age*.011))
+            else:
+                local_radius = radius
+            points.append((center_x+cos(angle)*local_radius,
+                           center_y+sin(angle)*local_radius))
+        return points
+
+    @staticmethod
+    def _point_in_polygon(point, vertices):
+        x, y = point
+        inside = False
+        previous = vertices[-1]
+        for current in vertices:
+            if ((current[1] > y) != (previous[1] > y)
+                    and x < (previous[0]-current[0])*(y-current[1])
+                    / max(1e-9, previous[1]-current[1]) + current[0]):
+                inside = not inside
+            previous = current
+        return inside
+
+    def constrain_player_position(self, player_x, player_y, player_size):
+        center = self._arena_center()
+        player_center = (player_x + player_size/2, player_y + player_size/2)
+        vertices = self._arena_vertices()
+        if self._point_in_polygon(player_center, vertices):
+            return player_x, player_y
+        # Binary search along the center-to-player ray keeps every convex or mildly
+        # concave animated boundary using the same deterministic containment rule.
+        low, high = 0.0, 1.0
+        for _ in range(16):
+            mid = (low + high) / 2
+            point = (center[0] + (player_center[0]-center[0])*mid,
+                     center[1] + (player_center[1]-center[1])*mid)
+            if self._point_in_polygon(point, vertices):
+                low = mid
+            else:
+                high = mid
+        inset = max(0.0, low - player_size / max(1, self.arenaRadius))
+        point = (center[0] + (player_center[0]-center[0])*inset,
+                 center[1] + (player_center[1]-center[1])*inset)
+        return point[0]-player_size/2, point[1]-player_size/2
+
+    def _draw_path_arena(self, screen):
+        vertices = [bG.world_to_screen(*point) for point in self._arena_vertices()]
+        if len(vertices) < 3:
+            return
+        pygame.draw.lines(screen, ui.SHADOW, True, vertices, 14)
+        pygame.draw.lines(screen, ui.INK, True, vertices, 8)
+        pygame.draw.lines(screen, self.phaseAccent, True, vertices, 3)
+        progress = 1 - (self.phaseElapsed % self.phaseTimeLimit) / self.phaseTimeLimit
+        lit = max(2, int(len(vertices) * progress))
+        pygame.draw.lines(screen, ui.CREAM, False, vertices[:lit], 2)
+        if self.arenaShape == "atomic":
+            center = bG.world_to_screen(*self._arena_center())
+            for index in range(3):
+                extent = int(self.arenaRadius*2.2)
+                orbit = pygame.Surface((extent, extent), pygame.SRCALPHA)
+                rect = pygame.Rect(0, 0, self.arenaRadius*1.8, self.arenaRadius*.62)
+                rect.center = (extent/2, extent/2)
+                pygame.draw.ellipse(orbit, (*self.phaseAccent[:3], 70), rect, 3)
+                orbit = pygame.transform.rotate(orbit, index*60 + self.age*.012)
+                screen.blit(orbit, orbit.get_rect(center=center))
+        marker_index = min(len(vertices)-1, int((1-progress)*(len(vertices)-1)))
+        pygame.draw.circle(screen, ui.CREAM, vertices[marker_index], 5)
 
     def _update_phase(self):
         if self.debugPhaseLocked:
@@ -2245,8 +2339,18 @@ class PathChaseBoss(Enemy):
     def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
         projectile_sink = projectile_sink if projectile_sink is not None else []
         self.entranceRemaining = max(0, self.entranceRemaining - self._seconds())
+        self.phaseElapsed += self._seconds()
         self._update_phase()
+        mode = self.movementModes[(self.phase-1) % len(self.movementModes)]
+        original_speed = self.speed
+        if mode == "static":
+            self.speed = 0
+        elif mode == "path":
+            center = self._arena_center()
+            player_world_x = center[0] + cos(self.phaseElapsed*.8)*self.arenaRadius*.55
+            player_world_y = center[1] + sin(self.phaseElapsed*.8)*self.arenaRadius*.55
         super().updateEnemy(player_world_x, player_world_y, projectile_sink)
+        self.speed = original_speed
         self.attackCooldown -= vH.get_timer_step()
         if self.entranceRemaining <= 0 and self.attackCooldown <= 0:
             self._fire_pattern(player_world_x, player_world_y, projectile_sink)
@@ -2257,6 +2361,7 @@ class PathChaseBoss(Enemy):
         return vH.get_timer_step() / max(1, vH.frameRate)
 
     def drawEnemy(self, screen):
+        self._draw_path_arena(screen)
         super().drawEnemy(screen)
         rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
         inset = rect.inflate(-self.size * .34, -self.size * .34)
@@ -2269,17 +2374,311 @@ class PathChaseBoss(Enemy):
                              (x, rect.bottom - rect.height * .18), 3)
 
 
-class Bair(PathChaseBoss):
+PLAGUE_SIGILS = (
+    ("CORRUPTION", (((-.68, -.48), (0, -.72), (.68, -.48), (0, .72), (-.68, -.48)),
+                    ((-.5, .05), (.5, .05)))),
+    ("OVERRUN", (((-.7, .45), (-.35, -.35), (0, .15), (.35, -.35), (.7, .45)),
+                 ((-.48, .45), (0, .68), (.48, .45)))),
+    ("INFESTATION", (((0, -.72), (0, .72)), ((-.65, -.35), (.65, .35)),
+                     (((-.65, .35), (.65, -.35))))),
+    ("INVASION", (((-.72, .55), (-.35, -.55), (0, .05), (.35, -.55), (.72, .55)),
+                  ((-.72, .1), (.72, .1)))),
+    ("PESTILENCE", (((-.7, -.5), (.7, .5)), ((.7, -.5), (-.7, .5)),
+                    ((0, -.76), (0, .76)))),
+    ("AFFLICTION", (((-.65, 0), (-.3, -.5), (0, 0), (.3, -.5), (.65, 0),
+                     (.3, .5), (0, 0), (-.3, .5), (-.65, 0)),)),
+    ("IMPACT", (((0, -.78), (-.55, .1), (-.12, .1), (-.48, .72)),
+                ((.18, -.35), (.65, .05), (.28, .05), (.55, .68)))),
+    ("DEVOUR", (((-.72, -.42), (0, 0), (-.72, .42)),
+                ((.72, -.42), (0, 0), (.72, .42)), ((0, -.72), (0, .72)))),
+    ("DARKNESS", (((-.72, 0), (-.35, -.48), (.35, -.48), (.72, 0),
+                   (.35, .48), (-.35, .48), (-.72, 0)), ((-.28, 0), (.28, 0)))),
+    ("SEVERANCE", (((-.72, -.58), (.72, .58)), ((.72, -.58), (-.72, .58)),
+                   ((-.72, 0), (-.18, 0)), ((.18, 0), (.72, 0)))),
+)
+
+
+class TouchPortal(ProjectilePortal):
+    """A heavy square gate that marches along Touch's arena walls."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("movement_path", "square")
+        super().__init__(*args, **kwargs)
+        self.size = vH.tileSizeGlobal * 1.12
+        self.hitsToDisable = 8
+        self._place()
+
+    def draw(self, screen):
+        if self.remFlag:
+            return
+        super().draw(screen)
+        point = bG.world_to_screen(self.worldX, self.worldY)
+        rect = pygame.Rect(point[0], point[1], self.size, self.size)
+        pygame.draw.rect(screen, ui.INK, rect.inflate(10, 10), 5)
+        pygame.draw.rect(screen, self.color, rect.inflate(4, 4), 3)
+        for index in range(3):
+            y = rect.y + rect.height * (.25 + index*.25)
+            pygame.draw.line(screen, ui.CREAM, (rect.x+8, y), (rect.right-8, y), 2)
+
+
+class PlagueTouchBoss(PathChaseBoss):
+    arenaShape = "square"
+    arenaScale = 9.4
+    phaseFlavors = ()
+    phaseColors = ()
+    phaseSigils = ()
+    movementModes = ()
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        self.phase = 1
+        self.phaseLabel = self.phaseLabels[0]
+        self.phaseFlavor = self.phaseFlavors[0]
+        self.phaseAccent = self.phaseColors[0]
+        self.projectilePortals = []
+        self.portalCooldown = .4
+        self.portalIndex = 0
+        self.patternRotation = 0
+        self.phaseAnnouncementTimer = 3.0
+        self.pathAngle = 0.0
+
+    def _update_phase(self):
+        if self.debugPhaseLocked:
+            return
+        count = len(self.phaseLabels)
+        ratio = max(0.0, min(1.0, self.hp/self.maxHp))
+        phase = min(count, int((1-ratio)*count+1e-9)+1)
+        if phase != self.phase:
+            self._set_plague_phase(phase)
+
+    def _set_plague_phase(self, phase):
+        self.phase = max(1, min(len(self.phaseLabels), int(phase)))
+        self.phaseLabel = self.phaseLabels[self.phase-1]
+        self.phaseFlavor = self.phaseFlavors[self.phase-1]
+        self.phaseAccent = self.phaseColors[self.phase-1]
+        self.phaseElapsed = 0.0
+        self.phaseAnnouncementTimer = 3.0
+        self.transitionCleanupRequested = True
+        self._clear_touch_portals()
+        if self.phase in ((2, 4) if not self.finalBoss else (2, 4, 7, 9, 10)):
+            self._deploy_touch_portals(2 if not self.finalBoss else 4)
+
+    def debug_set_phase(self, phase):
+        self._set_plague_phase(phase)
+        self.debugPhaseLocked = True
+        self.attackCooldown = 0
+
+    def take_damage(self, amount, part_id="body"):
+        if str(part_id).startswith("portal:"):
+            index = int(str(part_id).split(":", 1)[1])
+            if 0 <= index < len(self.projectilePortals):
+                broken = self.projectilePortals[index].take_damage(amount)
+                return HitResult(True, False, amount, blocked=not broken and False)
+        previous = self.hp
+        result = super().take_damage(amount, part_id)
+        if not self.debugPhaseLocked and self.phase < len(self.phaseLabels):
+            gate = self.maxHp*(len(self.phaseLabels)-self.phase)/len(self.phaseLabels)
+            self.hp = max(self.hp, gate)
+        return HitResult(result.applied, self.hp <= 0, previous-self.hp, result.blocked)
+
+    def get_screen_hitboxes(self):
+        hitboxes = super().get_screen_hitboxes()
+        for index, portal in enumerate(self.projectilePortals):
+            if portal.blocks_shots:
+                x, y = bG.world_to_screen(portal.worldX, portal.worldY)
+                hitboxes.append((f"portal:{index}", pygame.Rect(x, y, portal.size, portal.size)))
+        return hitboxes
+
+    def _clear_touch_portals(self):
+        for portal in self.projectilePortals:
+            portal.remFlag = True
+        self.projectilePortals.clear()
+
+    def _deploy_touch_portals(self, count):
+        center = self._arena_center()
+        for index in range(count):
+            portal = TouchPortal(center, self.arenaRadius*.78, index*2*pi/count,
+                                 angular_speed=.09 if index%2==0 else -.09,
+                                 fire_interval=999, pellet_count=2, spread=.2,
+                                 owner=f"{self.ownerPrefix}_plague_gate",
+                                 color=self.phaseAccent)
+            portal.reset_for_phase(PLAGUE_SIGILS[self.phaseSigils[self.phase-1]][1])
+            self.projectilePortals.append(portal)
+
+    def _projectile(self, sink, direction, speed, damage, suffix, size_scale=.25,
+                    path="linear", target=None):
+        center = self._center()
+        size = self.size*size_scale
+        shot = EnemyProjectile(center[0]-size/2, center[1]-size/2, direction,
+                               speed, damage, size, travel_range=vH.tileSizeGlobal*35,
+                               color=self.phaseAccent,
+                               shape="bomb" if path=="bomb" else "diamond",
+                               path=path, target=target,
+                               owner=f"{self.ownerPrefix}_{suffix}", ignore_walls=True)
+        if path == "bomb":
+            shot.fuseDuration = 2.8
+            shot.blastRadius = vH.tileSizeGlobal*1.7
+            shot.burstCount = 8
+        sink.append(shot)
+        return shot
+
+    def _radial(self, sink, count, speed, damage, suffix):
+        for index in range(count):
+            self._projectile(sink, index*2*pi/count+self.patternRotation*.11,
+                             speed, damage, suffix)
+
+    def _fan(self, sink, player_x, player_y, count, spread, speed, damage, suffix):
+        center = self._center()
+        aimed = atan2(player_y-center[1], player_x-center[0])
+        for index in range(count):
+            offset = 0 if count==1 else -spread/2+spread*index/(count-1)
+            self._projectile(sink, aimed+offset, speed, damage, suffix)
+
+    def _movement_step(self, player_x, player_y):
+        mode = self.movementModes[self.phase-1]
+        if mode == "static":
+            return
+        if mode == "path":
+            self.pathAngle += .005*vH.get_frame_scale()
+            center = self._arena_center()
+            target = (center[0]+cos(self.pathAngle)*self.arenaRadius*.48,
+                      center[1]+sin(self.pathAngle)*self.arenaRadius*.48)
+        else:
+            target = (player_x, player_y)
+        center = self._center()
+        distance = max(1, hypot(target[0]-center[0], target[1]-center[1]))
+        step = self.speed*vH.get_frame_scale()
+        self._try_axis_move((target[0]-center[0])/distance*step, "x")
+        self._try_axis_move((target[1]-center[1])/distance*step, "y")
+        self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+
+    def _update_touch_portals(self, player_x, player_y, sink, dt):
+        for portal in self.projectilePortals:
+            portal.angle += portal.angularSpeed*dt
+            portal._place()
+            portal.update_bursts(sink, dt)
+        self.portalCooldown -= dt
+        if self.portalCooldown <= 0 and self.projectilePortals:
+            portal = self.projectilePortals[self.portalIndex%len(self.projectilePortals)]
+            portal.fire_toward(sink, (player_x, player_y), pellet_count=2,
+                               spread=.12, speed=.42, damage=300 if self.finalBoss else 240,
+                               color=self.phaseAccent, owner_suffix="heavy")
+            self.portalIndex += 1
+            self.portalCooldown = 1.15
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        projectile_sink = projectile_sink if projectile_sink is not None else []
+        dt = self._seconds()
+        self.entranceRemaining = max(0, self.entranceRemaining-dt)
+        self.phaseElapsed += dt
+        self.phaseAnnouncementTimer = max(0, self.phaseAnnouncementTimer-dt)
+        self._update_phase()
+        self.age += vH.get_timer_step()
+        self._movement_step(player_world_x, player_world_y)
+        self._update_touch_portals(player_world_x, player_world_y, projectile_sink, dt)
+        self.attackCooldown -= vH.get_timer_step()
+        if self.entranceRemaining <= 0 and self.attackCooldown <= 0:
+            self._fire_pattern(player_world_x, player_world_y, projectile_sink)
+            self.attackCooldown = self.attackCooldownMax*max(.4, 1-.055*(self.phase-1))
+
+    def _draw_plague_sigil(self, screen, center, radius):
+        name, strokes = PLAGUE_SIGILS[self.phaseSigils[self.phase-1]]
+        for stroke in strokes:
+            points = [(center[0]+x*radius, center[1]+y*radius) for x, y in stroke]
+            if len(points)>1:
+                pygame.draw.lines(screen, ui.INK, False, points, max(5, int(radius*.14)))
+                pygame.draw.lines(screen, self.phaseAccent, False, points, max(2, int(radius*.07)))
+                pygame.draw.lines(screen, ui.CREAM, False, points, max(1, int(radius*.025)))
+        return name
+
+    def drawEnemy(self, screen):
+        for portal in self.projectilePortals:
+            portal.draw(screen)
+        super().drawEnemy(screen)
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        # Layered stone plates make Touch feel massive rather than fluid.
+        for inset in (0, self.size*.14, self.size*.28):
+            plate = rect.inflate(-inset, -inset)
+            pygame.draw.rect(screen, ui.INK, plate, max(3, int(self.size*.055)))
+        sigil = self._draw_plague_sigil(screen, rect.center, self.size*.32)
+        if self.phaseAnnouncementTimer > 0:
+            ui.draw_text(screen, f"{sigil} // {self.phaseLabel}",
+                         11*ui.display_scale(screen), self.phaseAccent,
+                         (rect.centerx, rect.y-18), "midbottom")
+
+
+class Bair(PlagueTouchBoss):
     bossName = "BAIR"
     subtitle = "THE FIRST LOCK"
-    pattern = "boulder"
     ownerPrefix = "bair_touch"
+    phaseLabels = ("RIVER", "SWARM", "BLIGHT", "RUIN", "SILENCE")
+    phaseFlavors = ("The current carries judgment.", "The small become countless.",
+                    "The body and field fail together.", "Stone descends; hunger follows.",
+                    "What remains cannot answer.")
+    phaseColors = tuple(pygame.Color(*c) for c in
+                        ((137,48,45),(76,135,80),(126,104,61),(151,123,94),(54,57,71)))
+    phaseSigils = (0, 2, 4, 6, 8)
+    movementModes = ("chase", "path", "static", "path", "static")
+    movementSpeed = .10
+    cooldownSeconds = 2.2
 
-class Sting(Bair):
+    def _fire_pattern(self, player_x, player_y, sink):
+        if self.phase == 1:
+            self._fan(sink, player_x, player_y, 3, .55, .45, 255, "river")
+        elif self.phase == 2:
+            self._radial(sink, 7, .34, 245, "swarm")
+        elif self.phase == 3:
+            self._projectile(sink, 0, 0, 275, "blight", .34, "bomb", (player_x, player_y))
+        elif self.phase == 4:
+            self._radial(sink, 8, .48, 270, "ruin")
+        else:
+            self._fan(sink, player_x, player_y, 5, 1.1, .38, 285, "silence")
+        self.patternRotation += 1
+
+
+class Sting(PlagueTouchBoss):
     bossName = "STING"
     subtitle = "THE THING THE PRISON KEPT"
     finalBoss = True
     ownerPrefix = "sting_touch"
+    phaseLabels = ("BLOOD", "FROGS", "GNATS", "FLIES", "PESTILENCE",
+                   "BOILS", "HAIL", "LOCUSTS", "DARKNESS", "FIRSTBORN")
+    phaseFlavors = tuple(name.title() for name, _ in PLAGUE_SIGILS)
+    phaseColors = tuple(pygame.Color(*c) for c in ((142,38,43),(69,139,75),(112,91,57),
+        (91,76,53),(93,122,67),(166,71,61),(137,169,194),(117,139,58),(45,46,61),(189,163,119)))
+    phaseSigils = tuple(range(10))
+    movementModes = ("chase","path","static","path","static",
+                     "chase","static","path","static","chase")
+    movementSpeed = .075
+    finalCooldownSeconds = 1.7
+    finalBodyScale = 2.65
+
+    def _fire_pattern(self, player_x, player_y, sink):
+        if self.phase == 1:
+            self._radial(sink, 10, .3, 330, "blood")
+        elif self.phase == 2:
+            for offset in (-1,0,1):
+                self._projectile(sink, 0, 0, 340, "frogs", .31, "bomb",
+                                 (player_x+offset*vH.tileSizeGlobal*1.4, player_y))
+        elif self.phase == 3:
+            self._radial(sink, 16, .52, 305, "gnats")
+        elif self.phase == 4:
+            self._fan(sink, player_x, player_y, 7, 1.6, .5, 325, "flies")
+        elif self.phase == 5:
+            self._radial(sink, 12, .36, 350, "pestilence")
+        elif self.phase == 6:
+            self._projectile(sink, 0, 0, 380, "boils", .4, "bomb", (player_x,player_y))
+        elif self.phase == 7:
+            for offset in range(-2,3):
+                self._projectile(sink, pi/2+offset*.13, .58, 365, "hail", .28)
+        elif self.phase == 8:
+            self._fan(sink, player_x, player_y, 11, 2.1, .48, 340, "locusts")
+        elif self.phase == 9:
+            self._fan(sink, player_x, player_y, 5, .72, .28, 390, "darkness")
+        else:
+            self._radial(sink, 10, .48, 380, "severance")
+            self._fan(sink, player_x, player_y, 3, .26, .72, 400, "firstborn")
+        self.patternRotation += 1
 
 
 class Ishe(PathChaseBoss):
@@ -2296,6 +2695,30 @@ class Ishe(PathChaseBoss):
     shotSpeed = 1.9
     shotScale = .20
     shotRangeTiles = 8
+    arenaShape = "triangle"
+    arenaScale = 11.2
+    SIGHT_SYMBOLS = (
+        ("GLIMPSE", (((-.7, 0), (0, -.45), (.7, 0), (0, .45), (-.7, 0)),
+                    ((0, -.18), (0, .18)))),
+        ("BLINK", (((-.72, -.3), (0, 0), (.72, -.3)),
+                   ((-.72, .3), (0, 0), (.72, .3)))),
+        ("FLASH", (((0, -.76), (-.18, -.14), (.3, -.14), (-.22, .76),
+                   (0, .12), (-.34, .12), (0, -.76)),)),
+    )
+
+    def drawEnemy(self, screen):
+        super().drawEnemy(screen)
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        name, strokes = self.SIGHT_SYMBOLS[(self.phase-1) % len(self.SIGHT_SYMBOLS)]
+        radius = self.size*.34
+        for stroke in strokes:
+            points = [(rect.centerx+x*radius, rect.centery+y*radius) for x, y in stroke]
+            pygame.draw.lines(screen, ui.INK, False, points, max(4, int(radius*.13)))
+            pygame.draw.lines(screen, self.phaseAccent, False, points, max(2, int(radius*.06)))
+            pygame.draw.lines(screen, ui.CREAM, False, points, 1)
+        if self.entranceRemaining > 0:
+            ui.draw_text(screen, name, 9*ui.display_scale(screen), self.phaseAccent,
+                         (rect.centerx, rect.y-12), "midbottom")
 
 
 class Chronos(Ishe):
@@ -2318,6 +2741,9 @@ class SinChemesthesisBoss(PathChaseBoss):
     phaseColors = ()
     ACT_METADATA = {}
     SIN_SIGILS = ()
+    arenaShape = "jagged"
+    arenaScale = 10.1
+    movementModes = ("chase", "static", "path")
 
     def __init__(self, world_x, world_y, rng=None):
         super().__init__(world_x, world_y, rng)
@@ -2474,6 +2900,7 @@ class SinChemesthesisBoss(PathChaseBoss):
         self.entranceRemaining = max(0.0, self.entranceRemaining - dt)
         self.actTransitionTimer = max(0.0, self.actTransitionTimer - dt)
         self.phaseProtectionTimer = max(0.0, self.phaseProtectionTimer - dt)
+        self.phaseElapsed += dt
         self.sigilTransitionTimer = max(0.0, self.sigilTransitionTimer - dt)
         self._update_terrain(player_world_x, player_world_y, dt)
         self._update_phase()
@@ -2489,7 +2916,17 @@ class SinChemesthesisBoss(PathChaseBoss):
             self.age += vH.get_timer_step()
             self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
             return
+        mode = self.movementModes[(self.phase-1) % len(self.movementModes)]
+        original_speed = self.speed
+        if mode == "static":
+            self.speed = 0
+        elif mode == "path":
+            center = self._arena_center()
+            jitter = self.arenaSeed[(self.phase+self.patternRotation) % len(self.arenaSeed)]
+            player_world_x = center[0] + cos(self.phaseElapsed*(.45+jitter))*self.arenaRadius*.5
+            player_world_y = center[1] + sin(self.phaseElapsed*(.7-jitter))*self.arenaRadius*.42
         Enemy.updateEnemy(self, player_world_x, player_world_y, projectile_sink)
+        self.speed = original_speed
         self.attackCooldown -= vH.get_timer_step()
         if self.attackCooldown <= 0:
             self._fire_pattern(player_world_x, player_world_y, projectile_sink)
@@ -2777,7 +3214,8 @@ class Rot(Kage):
     finalCooldownSeconds = 1.35
     finalShotSpeed = .38
     finalShotScale = .29
-    movementSpeed = 0.0
+    movementSpeed = .07
+    movementModes = ("static", "path", "chase", "static", "path", "chase", "static")
     ACT_METADATA = {
         3: "ACT II // TEMPTATION",
         5: "ACT III // SATURATION",
@@ -3129,6 +3567,9 @@ class PhantasiaBoss(PathChaseBoss):
     phaseColors = ()
     phaseSigils = ()
     ACT_METADATA = {}
+    arenaShape = "atomic"
+    arenaScale = 10.8
+    movementModes = ("chase", "path", "static")
 
     def __init__(self, world_x, world_y, rng=None):
         super().__init__(world_x, world_y, rng)
@@ -3291,7 +3732,16 @@ class PhantasiaBoss(PathChaseBoss):
             self.age += vH.get_timer_step()
             self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
             return
+        mode = self.movementModes[(self.phase-1) % len(self.movementModes)]
+        original_speed = self.speed
+        if mode == "static":
+            self.speed = 0
+        elif mode == "path":
+            center = self._arena_center()
+            player_world_x = center[0] + sin(self.phaseElapsed*.62)*self.arenaRadius*.58
+            player_world_y = center[1] + sin(self.phaseElapsed*1.24)*self.arenaRadius*.32
         Enemy.updateEnemy(self, player_world_x, player_world_y, projectile_sink)
+        self.speed = original_speed
         self.attackCooldown -= vH.get_timer_step()
         if self.restActive:
             return
@@ -3543,6 +3993,8 @@ class Malady(PhantasiaBoss):
     finalBodyScale = 2.35
     finalCooldownSeconds = 1.25
     movementSpeed = .25
+    movementModes = ("static", "path", "chase", "static", "path",
+                     "chase", "path", "static", "chase", "path")
     shotRangeTiles = 38
 
     def __init__(self, world_x, world_y, rng=None):
@@ -3626,7 +4078,10 @@ class BossCatalog:
     def spawn(self, key, rng=None):
         definition = self.definitions[key]
         size = vH.tileSizeGlobal * 1.9
-        spawn_rect = bG.find_spawn_rect(size)
+        center_x = len(bG.currRoomRects[0]) * vH.tileSizeGlobal / 2
+        center_y = len(bG.currRoomRects) * vH.tileSizeGlobal / 2
+        requested = pygame.Rect(center_x-size/2, center_y-size/2, size, size)
+        spawn_rect = bG.find_nearest_open_rect(requested, size)
         boss = definition.boss_class(spawn_rect.x, spawn_rect.y, rng=rng)
         boss.contentKey = key
         return boss
