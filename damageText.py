@@ -1,13 +1,15 @@
 import pygame
 import variableHolster as vH
 import uiTheme as ui
+import background as bG
 
 #Simple text that floats above the target with a certain value
 class DamageText:
 
     def __init__(self, entX, entY, color, value, objSize, framerate):
-        self.posX = entX
-        self.posY = entY
+        self.worldX = entX
+        self.worldY = entY
+        self.posX, self.posY = bG.world_to_screen(entX, entY)
         self.color = color
         self.value = value
         self.lifetimeMax = framerate
@@ -19,9 +21,7 @@ class DamageText:
 
     def drawAndUpdateDamageText(self, pDX, pDY):
         speedMod = 1
-
-        self.posX += pDX
-        self.posY += pDY
+        self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
 
         if self.lifetime > 0:
             self.lifetime -= vH.get_frame_scale() * 2

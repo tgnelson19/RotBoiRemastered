@@ -30,6 +30,8 @@ three seconds. It has no finale-collapse animation; the italic line
 is released.
 
 Base balance: 260 HP, 2 contact damage, 0.38 movement speed, 90 stagger, and 240 XP.
+Its rendering is intentionally rigid and blocky: no idle bob, no arena spectacle,
+and only coarse phase pips distinguish its state.
 
 ## Dissonance — level 20
 
@@ -37,6 +39,11 @@ Dissonance is the true name and final form of the original nine-phase encounter.
 It keeps the dedicated circular arena, portal interception/routing, rune disruption,
 stagger and fracture systems, three survival phases, act transitions, Jera finale,
 and ten-second death spectacle.
+
+Dissonance alone retains the fluid visual language. In addition to the rotating
+perspective cube, rune interpolation, orbiting shards, arena waves, particles, and
+cinematic transitions, it now leaves smoothly fading phase-colored motion echoes.
+This effect is not shared with mini-bosses or Beaudis.
 
 The final fight expects twenty drafted upgrades and is tuned to 1,350 HP, 5.2
 contact damage, 0.72 movement speed, 360 stagger, a 1.3x final-boss projectile

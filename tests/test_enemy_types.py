@@ -13,7 +13,8 @@ from enemyTypes import (BASE_ENEMY_SPEED_SCALE, ENEMY_CATALOG, ParentEnemy, Pill
 from enemyTypes import VolleyEnemy
 from enemyTypes import LaserEnemy
 from enemyTypes import BombEnemy
-from enemyTypes import ArsenalMiniBoss
+from enemyTypes import (ArsenalMiniBoss, BannerCaptain, BannerMinion,
+                        CollectorEnemy, RammerEnemy, SplitterEnemy, WarderEnemy)
 import variableHolster as vH
 
 
@@ -46,6 +47,18 @@ class EnemyTypeTests(unittest.TestCase):
         self.assertEqual(len(projectiles), 1)
         self.assertEqual(projectiles[0].speed, 1.4)
         self.assertGreaterEqual(projectiles[0].size, 12)
+        self.assertGreater(enemy.visualAttackTimer, 0)
+
+    def test_harder_ranged_variants_add_projectile_lanes(self):
+        counts = []
+        for key in ("ranged_wanderer", "ranged_wanderer_medium",
+                    "ranged_wanderer_hard"):
+            enemy = ENEMY_CATALOG.create(key, self.spawn_x, self.spawn_y, 10,
+                                         random.Random(2))
+            projectiles = []
+            enemy._fire(self.spawn_x + 150, self.spawn_y, projectiles)
+            counts.append(len(projectiles))
+        self.assertEqual(counts, [1, 2, 3])
 
     def test_shotgunner_fires_variable_pellet_volley(self):
         enemy = ENEMY_CATALOG.create("shotgunner", self.spawn_x, self.spawn_y, 2, random.Random(4))
@@ -172,6 +185,62 @@ class EnemyTypeTests(unittest.TestCase):
         choices = {ENEMY_CATALOG.choose(10, rng).key for _ in range(500)}
         self.assertNotIn("miniboss_arsenal", choices)
         self.assertNotIn("miniboss_siege", choices)
+
+    def test_banner_captain_builds_a_complete_tier_scaled_horde(self):
+        captain = ENEMY_CATALOG.create("banner_hard", self.spawn_x, self.spawn_y,
+                                       15, random.Random(4))
+        self.assertIsInstance(captain, BannerCaptain)
+        self.assertTrue(captain.atomicSpawnGroup)
+        self.assertEqual(len(captain.spawnedEnemies), 9)
+        self.assertTrue(all(isinstance(enemy, BannerMinion)
+                            and enemy.leader is captain for enemy in captain.spawnedEnemies))
+
+    def test_rammer_commits_to_a_charge_and_stuns_on_collision(self):
+        rammer = ENEMY_CATALOG.create("rammer", self.spawn_x, self.spawn_y,
+                                      4, random.Random(3))
+        self.assertIsInstance(rammer, RammerEnemy)
+        rammer.awarenessState = "alerted"
+        rammer.ramState = "windup"
+        rammer.ramTimer = 0
+        rammer.updateEnemy(self.spawn_x + 200, self.spawn_y, [])
+        self.assertEqual(rammer.ramState, "charging")
+
+    def test_warder_shield_is_a_separate_destructible_hitbox(self):
+        warder = ENEMY_CATALOG.create("warder", self.spawn_x, self.spawn_y,
+                                      5, random.Random(3))
+        self.assertIsInstance(warder, WarderEnemy)
+        self.assertEqual(warder.get_world_hitboxes()[0][0], "shield")
+        body_hp = warder.hp
+        warder.take_damage(warder.shieldHp + 1, "shield")
+        self.assertEqual(warder.hp, body_hp)
+        self.assertNotIn("shield", [part for part, _ in warder.get_world_hitboxes()])
+
+    def test_splitter_tiers_increase_children_and_hard_splits_twice(self):
+        easy = ENEMY_CATALOG.create("splitter", self.spawn_x, self.spawn_y,
+                                    4, random.Random(2))
+        hard = ENEMY_CATALOG.create("splitter_hard", self.spawn_x, self.spawn_y,
+                                    12, random.Random(2))
+        self.assertIsInstance(easy, SplitterEnemy)
+        shots = []
+        easy._fire(self.spawn_x + 100, self.spawn_y, shots)
+        hard._fire(self.spawn_x + 100, self.spawn_y, shots)
+        self.assertEqual(shots[0].splitCount, 2)
+        self.assertEqual(shots[1].splitCount, 4)
+        self.assertEqual(shots[1].splitGeneration, 1)
+        shots[0].travelled = shots[0].splitAt
+        shots[0].updateAndDraw(pygame.Surface((300, 300)))
+        self.assertEqual(len(shots[0].spawnedProjectiles), 2)
+        self.assertTrue(shots[0].remFlag)
+
+    def test_collector_returns_stolen_experience_with_bonus(self):
+        collector = ENEMY_CATALOG.create("collector", self.spawn_x, self.spawn_y,
+                                         4, random.Random(2))
+        self.assertIsInstance(collector, CollectorEnemy)
+        base_reward = collector.expValue
+        collector.storedExperience = 10
+        collector.hp = 0
+        self.assertTrue(collector.is_dead())
+        self.assertAlmostEqual(collector.expValue, base_reward + 11.5)
 
 
 if __name__ == "__main__":

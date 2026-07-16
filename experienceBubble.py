@@ -12,9 +12,10 @@ class ExperienceBubble:
         self.size = 20 * diffDead
         self.color = pygame.Color(0,200,0)
         self.oX = oX
-        self.posX = oX
+        self.worldX = oX
         self.oY = oY
-        self.posY = oY
+        self.worldY = oY
+        self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
         self.value = value
         self.direction = randint(0,360) * 0.0174533
         self.speedSpan = 40
@@ -34,11 +35,10 @@ class ExperienceBubble:
                 })
 
     def _world_rect(self):
-        world_x = self.posX + bG.playerPosX - bG.lockX
-        world_y = self.posY + bG.playerPosY - bG.lockY
-        return pygame.Rect(world_x, world_y, self.size, self.size)
+        return pygame.Rect(self.worldX, self.worldY, self.size, self.size)
 
     def updateBubble(self, pAuraSpeed, pDX, pDY):
+        self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
         dt = vH.get_timer_step() / max(1, vH.frameRate)
         for particle in self.celebrationParticles:
             particle["x"] += particle["vx"] * vH.get_frame_scale()
@@ -66,7 +66,7 @@ class ExperienceBubble:
             next_world = current_world.copy()
             next_world.x -= dX
             if not bG.rect_hits_wall(next_world):
-                self.posX -= dX
+                self.worldX -= dX
                 current_world = next_world
             else:
                 dX = 0
@@ -74,16 +74,15 @@ class ExperienceBubble:
             next_world = current_world.copy()
             next_world.y -= dY
             if not bG.rect_hits_wall(next_world):
-                self.posY -= dY
+                self.worldY -= dY
             else:
                 dY = 0
         else:
             move_scale = vH.get_frame_scale()
-            self.posX -= pAuraSpeed * cos(self.direction) * move_scale
-            self.posY -= pAuraSpeed * sin(self.direction) * move_scale
+            self.worldX -= pAuraSpeed * cos(self.direction) * move_scale
+            self.worldY -= pAuraSpeed * sin(self.direction) * move_scale
 
-        self.posX += pDX
-        self.posY += pDY
+        self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
         rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
         center = rect.center
         points = ((center[0], rect.top), (rect.right, center[1]), (center[0], rect.bottom), (rect.left, center[1]))

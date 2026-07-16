@@ -281,15 +281,18 @@ class Beaudis(Enemy):
         sprite = pygame.Surface((extent, extent), pygame.SRCALPHA)
         rect = pygame.Rect(0, 0, self.size, self.size)
         rect.center = (extent // 2, extent // 2)
-        bob = int(sin(self.age * .035) * 3)
-        rect.move_ip(0, bob)
         color = ui.CREAM if self.isStaggered else self.phaseAccent
         pygame.draw.rect(sprite, ui.SHADOW, rect.move(5, 6))
         pygame.draw.rect(sprite, color, rect)
         pygame.draw.rect(sprite, ui.INK, rect, max(3, int(self.size * .06)))
-        inner = rect.inflate(-self.size * .46, -self.size * .46)
+        inner = rect.inflate(-self.size * .42, -self.size * .42)
         pygame.draw.rect(sprite, ui.VOID, inner)
-        pygame.draw.rect(sprite, ui.CREAM, inner, max(2, int(self.size * .025)))
+        pygame.draw.rect(sprite, color, inner, max(4, int(self.size * .045)))
+        pip_size = max(4, int(self.size * .07))
+        for index in range(min(self.phase, 4)):
+            pygame.draw.rect(sprite, ui.CREAM,
+                             (rect.x + 8 + index * (pip_size + 3), rect.bottom - pip_size - 8,
+                              pip_size, pip_size))
         sprite.set_alpha(max(0, min(255, int(255 * fade))))
         screen.blit(sprite, (self.posX + self.size / 2 - extent / 2,
                              self.posY + self.size / 2 - extent / 2))
@@ -409,6 +412,8 @@ class Dissonance(Enemy):
         self.staggerEverDecayed = False
         self.runeWasInterrupted = False
         self.visualParticles = []
+        self.motionTrail = []
+        self.motionTrailCooldown = 0.0
         self.actTransitionTimer = 2.2
         self.actTitle = "ACT I // THE CYCLE"
         self.hitFlash = 0.0
@@ -467,6 +472,7 @@ class Dissonance(Enemy):
         self.perfectBreakFlash = max(0.0, self.perfectBreakFlash - dt)
         self.actTransitionTimer = max(0.0, self.actTransitionTimer - dt)
         self.ambientParticleCooldown -= dt
+        self.motionTrailCooldown -= dt
         self.shakeStrength = max(0.0, self.shakeStrength - 16 * dt)
         vH.screenShakeX = int(sin(self.age * .73) * self.shakeStrength)
         vH.screenShakeY = int(cos(self.age * .61) * self.shakeStrength * .65)
@@ -481,6 +487,13 @@ class Dissonance(Enemy):
                 "color": pygame.Color(self.phaseAccent),
             })
             self.ambientParticleCooldown = .08
+        if self.motionTrailCooldown <= 0:
+            center_x, center_y = self._center()
+            self.motionTrail.append({
+                "x": center_x, "y": center_y, "life": .52,
+                "phase": self.phase, "accent": pygame.Color(self.phaseAccent),
+            })
+            self.motionTrailCooldown = .045
         for particle in self.visualParticles:
             particle["x"] += particle["vx"] * vH.get_frame_scale()
             particle["y"] += particle["vy"] * vH.get_frame_scale()
@@ -488,6 +501,9 @@ class Dissonance(Enemy):
             particle["life"] -= dt
         self.visualParticles[:] = [particle for particle in self.visualParticles
                                    if particle["life"] > 0]
+        for ghost in self.motionTrail:
+            ghost["life"] -= dt
+        self.motionTrail[:] = [ghost for ghost in self.motionTrail if ghost["life"] > 0]
 
     def take_damage(self, amount, part_id="body"):
         if self.dying:
@@ -1719,6 +1735,24 @@ class Dissonance(Enemy):
             pygame.draw.circle(screen, ui.CREAM, center, recovery_radius,
                                max(2, int(self.size * .035)))
 
+    def _draw_motion_trail(self, screen):
+        """Layer translucent interpolated echoes behind Dissonance's live cube."""
+        for index, ghost in enumerate(self.motionTrail):
+            alpha = int(72 * (ghost["life"] / .52) ** 2)
+            if alpha <= 2:
+                continue
+            x, y = bG.world_to_screen(ghost["x"], ghost["y"])
+            radius = self.size * (.19 + .035 * index / max(1, len(self.motionTrail)))
+            echo = pygame.Surface((int(radius * 2 + 8), int(radius * 2 + 8)), pygame.SRCALPHA)
+            echo_rect = echo.get_rect()
+            color = ghost["accent"]
+            pygame.draw.circle(echo, (color.r, color.g, color.b, alpha),
+                               echo_rect.center, int(radius), max(2, int(radius * .18)))
+            pygame.draw.circle(echo, (ui.CREAM.r, ui.CREAM.g, ui.CREAM.b, alpha // 2),
+                               echo_rect.center, max(2, int(radius * .38)), 2)
+            screen.blit(echo, (x + self.size / 2 - echo_rect.centerx,
+                               y + self.size / 2 - echo_rect.centery))
+
     def _draw_arena_inscription(self, screen):
         rune_phase = 9 if (self.dying or self.phase == 9 and self.survivalActive) else self.phase
         _, strokes = self.PHASE_RUNES[rune_phase]
@@ -1871,6 +1905,7 @@ class Dissonance(Enemy):
         self._draw_arena_mask(screen)
         self._draw_arena_boundary(screen)
         self._draw_arena_inscription(screen)
+        self._draw_motion_trail(screen)
         for particle in self.visualParticles:
             x, y = bG.world_to_screen(particle["x"], particle["y"])
             size = max(2, int(particle["size"] * min(1, particle["life"] * 2)))

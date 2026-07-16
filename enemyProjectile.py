@@ -54,6 +54,9 @@ class EnemyProjectile:
         self.burstCount = 8
         self.burstDamage = self.damage
         self.spawnedProjectiles = []
+        self.splitCount = 0
+        self.splitAt = None
+        self.splitGeneration = 0
         self.persistentHazard = path == "laser"
         self.exploded = False
         self.age = 0.0
@@ -153,6 +156,27 @@ class EnemyProjectile:
                 self.worldY += sin(self.direction) * distance
             if self.speedDecay:
                 self.speed = max(0, self.speed - self.speedDecay * seconds)
+            if (self.splitCount > 1 and self.splitAt is not None
+                    and self.travelled >= self.splitAt and not self.exploded):
+                self.exploded = True
+                spread = .8 + .12 * self.splitGeneration
+                for index in range(self.splitCount):
+                    fraction = .5 if self.splitCount == 1 else index / (self.splitCount - 1)
+                    child = EnemyProjectile(
+                        self.worldX, self.worldY,
+                        self.direction - spread / 2 + spread * fraction,
+                        self.speed * 1.08, self.damage * .58, self.size * .72,
+                        travel_range=max(vH.tileSizeGlobal * 5, self.remainingRange),
+                        color=self.color, shape="diamond", owner=self.owner,
+                        ignore_walls=self.ignoreWalls,
+                    )
+                    if self.splitGeneration > 0:
+                        child.splitCount = self.splitCount
+                        child.splitAt = max(vH.tileSizeGlobal * 2.5,
+                                            self.remainingRange * .42)
+                        child.splitGeneration = self.splitGeneration - 1
+                    self.spawnedProjectiles.append(child)
+                self.remFlag = True
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
         self.trail.append((self.posX + self.size / 2, self.posY + self.size / 2))
         self.trail = self.trail[-5:]

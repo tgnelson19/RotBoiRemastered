@@ -1,11 +1,42 @@
 import pygame as pg
 import variableHolster as vH
 import csv
-from math import hypot
+from math import ceil, cos, floor, hypot, radians, sin
 from random import randint
 import uiTheme as ui
 
 _open_tile_cache = {}
+
+# The arena stays deliberately restrained: each ward is mostly charcoal and slate,
+# with one low-saturation identity color.  These are renderer palettes rather than
+# gameplay tile types, so biome flavor never changes collision rules.
+BIOME_PALETTES = (
+    {
+        "ground": pg.Color(35, 38, 48), "ground_alt": pg.Color(39, 42, 53),
+        "road": pg.Color(48, 48, 57), "interior": pg.Color(31, 34, 45),
+        "wall_top": pg.Color(67, 67, 82), "wall_face": pg.Color(43, 43, 56),
+        "accent": pg.Color(91, 78, 119), "detail": pg.Color(120, 111, 137),
+    },
+    {
+        "ground": pg.Color(43, 39, 42), "ground_alt": pg.Color(48, 42, 45),
+        "road": pg.Color(54, 47, 48), "interior": pg.Color(38, 32, 37),
+        "wall_top": pg.Color(77, 65, 68), "wall_face": pg.Color(49, 39, 43),
+        "accent": pg.Color(124, 62, 67), "detail": pg.Color(139, 91, 91),
+    },
+    {
+        "ground": pg.Color(34, 41, 48), "ground_alt": pg.Color(37, 45, 54),
+        "road": pg.Color(43, 50, 58), "interior": pg.Color(29, 37, 47),
+        "wall_top": pg.Color(58, 70, 84), "wall_face": pg.Color(36, 47, 59),
+        "accent": pg.Color(62, 78, 108), "detail": pg.Color(91, 99, 126),
+    },
+)
+
+WALL_HEIGHT = 14
+CAMERA_BACKGROUND_TARGET_WIDTH = 640
+cameraAngleDegrees = 0.0
+_camera_background_cache = {}
+_camera_render_surfaces = {}
+_raised_scenery_cache = {}
 
 def loadCSVToBG(filename):
     """Loads data from a CSV file into a list of lists (array)."""
@@ -31,33 +62,165 @@ def loadBackgroundRects(roomFile):
             ])
     return newRects
 
+def _biome_for_tile(tile_x, tile_y, width, height):
+    """Split the circular map into three broad, intentionally soft-edged wards."""
+    dx = tile_x - width / 2
+    dy = tile_y - height / 2
+    if dy < -abs(dx) * .28:
+        return 0  # the violet archive
+    if dx < 0:
+        return 1  # the ember ward
+    return 2      # the drowned circuit
+
+
+def _draw_floor_detail(surface, rect, tile, tile_x, tile_y, palette, biome):
+    noise = (tile_x * 37 + tile_y * 71 + tile_x * tile_y * 3) % 113
+    if tile == 2:
+        # Broken road edging and occasional colored routing packets make the paths
+        # read like ancient circuitry without becoming neon.
+        pg.draw.line(surface, pg.Color(28, 30, 37), rect.topleft, rect.topright, 2)
+        pg.draw.line(surface, pg.Color(67, 65, 72), rect.bottomleft, rect.bottomright, 1)
+        if noise % 4 == 0:
+            dash = pg.Rect(rect.centerx - 6, rect.centery - 2, 12, 4)
+            pg.draw.rect(surface, palette["accent"], dash)
+    elif tile == 3:
+        inset = rect.inflate(-12, -12)
+        pg.draw.rect(surface, pg.Color(24, 27, 35), inset, 2)
+        if noise % 3 == 0:
+            pg.draw.rect(surface, palette["detail"],
+                         (rect.x + 7, rect.y + 7, 5, 5))
+    elif tile == 0:
+        if noise < 9:
+            pg.draw.line(surface, pg.Color(26, 29, 36),
+                         (rect.x + 9, rect.y + 14),
+                         (rect.x + 20 + noise, rect.y + 18 + noise // 2), 2)
+            pg.draw.line(surface, pg.Color(26, 29, 36),
+                         (rect.x + 20 + noise, rect.y + 18 + noise // 2),
+                         (rect.x + 24 + noise, rect.y + 29), 1)
+        elif noise in (31, 63, 91):
+            pg.draw.rect(surface, palette["accent"],
+                         (rect.centerx - 2, rect.centery - 2, 4, 4))
+
+
+def _draw_raised_decoration(surface, rect, palette, biome):
+    """Draw one tiny 2.5D landmark with a top, face, and grounded shadow."""
+    cx, floor_y = rect.centerx, rect.bottom - 8
+    pg.draw.ellipse(surface, pg.Color(20, 22, 29),
+                    (cx - 13, floor_y - 3, 30, 13))
+    if biome == 1:
+        # Ember ward brazier.
+        pg.draw.rect(surface, ui.INK, (cx - 8, floor_y - 16, 16, 18))
+        pg.draw.rect(surface, palette["wall_face"],
+                     (cx - 6, floor_y - 15, 12, 15))
+        pg.draw.polygon(surface, palette["wall_top"],
+                        ((cx - 7, floor_y - 16), (cx, floor_y - 21),
+                         (cx + 7, floor_y - 16), (cx, floor_y - 12)))
+        pg.draw.rect(surface, palette["accent"],
+                     (cx - 3, floor_y - 26, 6, 9))
+    else:
+        # Archive plinth / drowned circuit relay.
+        height = 24 if biome == 0 else 20
+        pg.draw.polygon(surface, ui.INK,
+                        ((cx - 9, floor_y - height), (cx + 4, floor_y - height - 5),
+                         (cx + 10, floor_y - height + 1), (cx + 10, floor_y),
+                         (cx - 9, floor_y)))
+        pg.draw.polygon(surface, palette["wall_face"],
+                        ((cx - 6, floor_y - height + 1), (cx + 6, floor_y - height + 1),
+                         (cx + 6, floor_y - 3), (cx - 6, floor_y - 1)))
+        pg.draw.polygon(surface, palette["wall_top"],
+                        ((cx - 7, floor_y - height), (cx, floor_y - height - 5),
+                         (cx + 7, floor_y - height), (cx, floor_y - height + 4)))
+        pg.draw.rect(surface, palette["accent"],
+                     (cx - 2, floor_y - height + 7, 4, 7))
+
+
+def _is_raised(room_rects, tile_x, tile_y):
+    return (0 <= tile_y < len(room_rects)
+            and 0 <= tile_x < len(room_rects[0])
+            and room_rects[tile_y][tile_x][0] in RAISED_TILES)
+
+
 def drawRepasteableBackground(roomRects):
-    newSurface = pg.surface.Surface((len(roomRects[0]) * vH.tileSizeGlobal, len(roomRects) * vH.tileSizeGlobal))
-    for rowIndex in range(len(roomRects)):
-        for colIndex in range(len(roomRects[0])):
-            currRectData = roomRects[rowIndex][colIndex]
-            currRectData[1].left = (vH.tileSizeGlobal * colIndex)
-            currRectData[1].top = (vH.tileSizeGlobal * rowIndex)
-            pg.draw.rect(newSurface, tileTypes[currRectData[0]][1], currRectData[1])
-            if currRectData[0] in SOLID_TILES:
-                pg.draw.line(newSurface, pg.Color(78, 83, 91), currRectData[1].topleft, currRectData[1].topright, 3)
-                pg.draw.line(newSurface, ui.INK, currRectData[1].bottomleft, currRectData[1].bottomright, 3)
-                if currRectData[0] == 4:
-                    mid_y = currRectData[1].centery
-                    pg.draw.line(newSurface, pg.Color(42, 50, 62), (currRectData[1].left, mid_y), (currRectData[1].right, mid_y), 2)
+    """Bake only the rotating ground plane; raised scenery is drawn afterward."""
+    width, height = len(roomRects[0]), len(roomRects)
+    tile_size = vH.tileSizeGlobal
+    newSurface = pg.surface.Surface((width * tile_size, height * tile_size))
+
+    # Ground pass. Drawing every footprint first lets raised walls overlap the tile
+    # north of them without being painted over later.
+    for rowIndex, row in enumerate(roomRects):
+        for colIndex, currRectData in enumerate(row):
+            tile, rect = currRectData
+            rect.update(colIndex * tile_size, rowIndex * tile_size, tile_size, tile_size)
+            biome = _biome_for_tile(colIndex, rowIndex, width, height)
+            palette = BIOME_PALETTES[biome]
+            if tile == 5:
+                color = pg.Color(15, 18, 25)
+            elif tile in SOLID_TILES:
+                color = palette["ground"]
+            elif tile == 2:
+                color = palette["road"]
+            elif tile == 3:
+                color = palette["interior"]
             else:
-                pg.draw.rect(newSurface, pg.Color(48, 53, 58), currRectData[1], 1)
+                color = palette["ground_alt"] if (colIndex + rowIndex) % 7 == 0 else palette["ground"]
+            pg.draw.rect(newSurface, color, rect)
+            if tile not in SOLID_TILES:
+                pg.draw.rect(newSurface, pg.Color(48, 51, 60), rect, 1)
+                _draw_floor_detail(newSurface, rect, tile, colIndex, rowIndex,
+                                   palette, biome)
+
     return newSurface
 
 def screen_to_world(screen_x, screen_y):
     """Convert a screen coordinate into a world coordinate."""
-    return (screen_x - lockX + playerPosX - vH.screenShakeX,
-            screen_y - lockY + playerPosY - vH.screenShakeY)
+    screen_dx = screen_x - lockX - vH.screenShakeX
+    screen_dy = screen_y - lockY - vH.screenShakeY
+    world_dx, world_dy = screen_vector_to_world(screen_dx, screen_dy)
+    return playerPosX + world_dx, playerPosY + world_dy
 
 def world_to_screen(world_x, world_y):
     """Convert a world coordinate into a screen coordinate."""
-    return (world_x - playerPosX + lockX + vH.screenShakeX,
-            world_y - playerPosY + lockY + vH.screenShakeY)
+    screen_dx, screen_dy = world_vector_to_screen(
+        world_x - playerPosX, world_y - playerPosY,
+    )
+    return (screen_dx + lockX + vH.screenShakeX,
+            screen_dy + lockY + vH.screenShakeY)
+
+
+def _camera_components():
+    angle = radians(cameraAngleDegrees)
+    return cos(angle), sin(angle)
+
+
+def world_vector_to_screen(delta_x, delta_y):
+    """Rotate a world-space vector into the current camera orientation."""
+    cosine, sine = _camera_components()
+    return (delta_x * cosine + delta_y * sine,
+            -delta_x * sine + delta_y * cosine)
+
+
+def screen_vector_to_world(delta_x, delta_y):
+    """Rotate a screen-space vector back onto the world's ground plane."""
+    cosine, sine = _camera_components()
+    return (delta_x * cosine - delta_y * sine,
+            delta_x * sine + delta_y * cosine)
+
+
+def set_camera_angle(degrees):
+    """Set continuous camera yaw in degrees, normalized to one revolution."""
+    global cameraAngleDegrees
+    cameraAngleDegrees = float(degrees) % 360.0
+
+
+def set_camera_quarter_turns(turns):
+    """Compatibility helper for callers that want an exact cardinal view."""
+    set_camera_angle(turns * 90.0)
+
+
+def rotate_camera(degrees):
+    """Rotate the world counter-clockwise for positive degree values."""
+    set_camera_angle(cameraAngleDegrees + degrees)
 
 def rect_hits_wall(world_rect):
     """Return True if any tile overlapped by the world rect is a wall."""
@@ -207,8 +370,205 @@ def find_path_around_walls(world_rect, desired_dx, desired_dy, size):
 
 
 def moveAndDisplayBackground(surface):
-    vH.screen.blit(surface, (-playerPosX + lockX + vH.screenShakeX,
-                             -playerPosY + lockY + vH.screenShakeY))
+    """Rotate only a low-resolution camera window, never the full arena texture."""
+    global _camera_background_cache, _camera_render_surfaces
+    gameplay_clip = pg.Rect(0, 0, int(vH.sW * .75), int(vH.sH))
+    old_clip = vH.screen.get_clip()
+    vH.screen.set_clip(gameplay_clip)
+
+    if abs(cameraAngleDegrees) < .0001:
+        origin_x, origin_y = world_to_screen(0, 0)
+        vH.screen.blit(surface, (origin_x, origin_y))
+    else:
+        # Scaling the static arena once bounds continuous rotation work regardless
+        # of desktop resolution. At 1080p this uses a 640px-wide camera buffer.
+        render_scale = min(1.0, CAMERA_BACKGROUND_TARGET_WIDTH
+                           / max(1, gameplay_clip.width))
+        scaled_size = (max(1, round(surface.get_width() * render_scale)),
+                       max(1, round(surface.get_height() * render_scale)))
+        cache_key = (id(surface), scaled_size)
+        scaled_background = _camera_background_cache.get(cache_key)
+        if scaled_background is None:
+            scaled_background = pg.transform.scale(surface, scaled_size)
+            _camera_background_cache.clear()
+            _camera_background_cache[cache_key] = scaled_background
+
+        view_width = max(1, round(gameplay_clip.width * render_scale))
+        view_height = max(1, round(gameplay_clip.height * render_scale))
+        angle = radians(cameraAngleDegrees)
+        source_width = ceil(abs(view_width * cos(angle))
+                            + abs(view_height * sin(angle))) + 4
+        source_height = ceil(abs(view_width * sin(angle))
+                             + abs(view_height * cos(angle))) + 4
+        source_rect = pg.Rect(
+            floor(playerPosX * render_scale - source_width / 2),
+            floor(playerPosY * render_scale - source_height / 2),
+            source_width, source_height,
+        )
+        staging = pg.Surface(source_rect.size)
+        staging.fill(pg.Color(15, 18, 25))
+        clipped_source = source_rect.clip(scaled_background.get_rect())
+        if clipped_source.width and clipped_source.height:
+            staging.blit(
+                scaled_background,
+                (clipped_source.x - source_rect.x,
+                 clipped_source.y - source_rect.y),
+                clipped_source,
+            )
+
+        rotated = pg.transform.rotate(staging, cameraAngleDegrees)
+        view_key = ("view", view_width, view_height)
+        low_res_view = _camera_render_surfaces.get(view_key)
+        if low_res_view is None:
+            low_res_view = pg.Surface((view_width, view_height))
+            _camera_render_surfaces[view_key] = low_res_view
+        low_res_view.fill(pg.Color(15, 18, 25))
+        low_res_view.blit(
+            rotated,
+            (view_width / 2 - rotated.get_width() / 2,
+             view_height / 2 - rotated.get_height() / 2),
+        )
+        output_size = (gameplay_clip.width, gameplay_clip.height)
+        output_key = ("output", *output_size)
+        camera_surface = _camera_render_surfaces.get(output_key)
+        if camera_surface is None:
+            camera_surface = pg.Surface(output_size)
+            _camera_render_surfaces[output_key] = camera_surface
+        pg.transform.scale(low_res_view, output_size, camera_surface)
+        vH.screen.blit(camera_surface,
+                       (round(vH.screenShakeX), round(vH.screenShakeY)))
+    vH.screen.set_clip(old_clip)
+
+
+def _raised_scenery(room_rects):
+    """Cache the small subset of tiles that need full-resolution raised drawing."""
+    cache_key = id(room_rects)
+    cached = _raised_scenery_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    width, height = len(room_rects[0]), len(room_rects)
+    center_x, center_y = width // 2, height // 2
+    walls = []
+    decorations = []
+    for tile_y, row in enumerate(room_rects):
+        for tile_x, (tile, _) in enumerate(row):
+            biome = _biome_for_tile(tile_x, tile_y, width, height)
+            if tile in RAISED_TILES:
+                walls.append((tile_x, tile_y, tile, biome))
+            elif tile == 0:
+                marker = (tile_x * 43 + tile_y * 89 + tile_x * tile_y) % 211
+                far_from_spawn = hypot(tile_x - center_x, tile_y - center_y) > 11
+                if marker in (7, 8) and far_from_spawn:
+                    decorations.append((tile_x, tile_y, biome))
+    cached = walls, decorations
+    _raised_scenery_cache.clear()
+    _raised_scenery_cache[cache_key] = cached
+    return cached
+
+
+def _wall_screen_geometry(tile_x, tile_y, height):
+    """Return ground and cap polygons; cap height is always vertical on screen."""
+    size = vH.tileSizeGlobal
+    ground = tuple(world_to_screen(world_x, world_y) for world_x, world_y in (
+        (tile_x * size, tile_y * size),
+        ((tile_x + 1) * size, tile_y * size),
+        ((tile_x + 1) * size, (tile_y + 1) * size),
+        (tile_x * size, (tile_y + 1) * size),
+    ))
+    cap = tuple((x, y - height) for x, y in ground)
+    return ground, cap
+
+
+def _decoration_screen_rect(tile_x, tile_y):
+    """Return an axis-aligned billboard rect anchored to a rotating ground tile."""
+    size = vH.tileSizeGlobal
+    center = world_to_screen((tile_x + .5) * size, (tile_y + .5) * size)
+    rect = pg.Rect(0, 0, size, size)
+    rect.center = center
+    return rect
+
+
+def _draw_camera_facing_wall(surface, room_rects, tile_x, tile_y, tile, palette):
+    height = WALL_HEIGHT + (2 if tile == 1 else 0)
+    ground, cap = _wall_screen_geometry(tile_x, tile_y, height)
+
+    shadow = tuple((x + 6, y + 7) for x, y in ground)
+    pg.draw.polygon(surface, pg.Color(18, 20, 27), shadow)
+
+    # Each exposed ground edge owns an outward world normal. Only normals that
+    # project toward screen-bottom reveal a vertical face to the camera.
+    edges = (
+        ((0, 1), (0, -1), (tile_x, tile_y - 1)),
+        ((1, 2), (1, 0), (tile_x + 1, tile_y)),
+        ((2, 3), (0, 1), (tile_x, tile_y + 1)),
+        ((3, 0), (-1, 0), (tile_x - 1, tile_y)),
+    )
+    visible_faces = []
+    for (start, end), normal, neighbor in edges:
+        if _is_raised(room_rects, *neighbor):
+            continue
+        _, normal_y = world_vector_to_screen(*normal)
+        if normal_y <= .001:
+            continue
+        face = (cap[start], cap[end], ground[end], ground[start])
+        visible_faces.append((normal_y, face))
+
+    for _, face in sorted(visible_faces):
+        pg.draw.polygon(surface, palette["wall_face"], face)
+        pg.draw.polygon(surface, ui.INK, face, 2)
+        lower_left, lower_right = face[3], face[2]
+        accent_left = (lower_left[0] * .82 + lower_right[0] * .18,
+                       lower_left[1] * .82 + lower_right[1] * .18 - 5)
+        accent_right = (lower_left[0] * .18 + lower_right[0] * .82,
+                        lower_left[1] * .18 + lower_right[1] * .82 - 5)
+        pg.draw.line(surface, palette["accent"], accent_left, accent_right, 2)
+
+    pg.draw.polygon(surface, palette["wall_top"], cap)
+    pg.draw.polygon(surface, ui.INK, cap, 2)
+    top_edge = min(((cap[index], cap[(index + 1) % 4]) for index in range(4)),
+                   key=lambda edge: (edge[0][1] + edge[1][1]) / 2)
+    pg.draw.line(surface, palette["detail"], *top_edge, 2)
+
+    center_x = sum(point[0] for point in cap) / 4
+    center_y = sum(point[1] for point in cap) / 4
+    if tile == 1:
+        pg.draw.rect(surface, palette["accent"],
+                     (center_x - 3, center_y - 3, 6, 6))
+    elif (tile_x + tile_y) % 2 == 0:
+        pg.draw.line(surface, palette["accent"],
+                     (center_x - 9, center_y), (center_x + 9, center_y), 2)
+
+
+def drawRaisedScenery(room_rects):
+    """Draw walls and props after yaw so all vertical height points screen-up."""
+    gameplay_clip = pg.Rect(0, 0, int(vH.sW * .75), int(vH.sH))
+    visibility = gameplay_clip.inflate(vH.tileSizeGlobal * 3,
+                                       vH.tileSizeGlobal * 3)
+    walls, decorations = _raised_scenery(room_rects)
+    visible_items = []
+    size = vH.tileSizeGlobal
+
+    for tile_x, tile_y, tile, biome in walls:
+        center = world_to_screen((tile_x + .5) * size, (tile_y + .5) * size)
+        if visibility.collidepoint(center):
+            visible_items.append((center[1], 0, tile_x, tile_y, tile, biome))
+    for tile_x, tile_y, biome in decorations:
+        center = world_to_screen((tile_x + .5) * size, (tile_y + .5) * size)
+        if visibility.collidepoint(center):
+            visible_items.append((center[1], 1, tile_x, tile_y, 0, biome))
+
+    old_clip = vH.screen.get_clip()
+    vH.screen.set_clip(gameplay_clip)
+    for _, kind, tile_x, tile_y, tile, biome in sorted(visible_items):
+        palette = BIOME_PALETTES[biome]
+        if kind == 0:
+            _draw_camera_facing_wall(vH.screen, room_rects, tile_x, tile_y,
+                                     tile, palette)
+        else:
+            rect = _decoration_screen_rect(tile_x, tile_y)
+            _draw_raised_decoration(vH.screen, rect, palette, biome)
+    vH.screen.set_clip(old_clip)
 
 # Example usage:
 
@@ -218,9 +578,11 @@ tileTypes = {
             2 : ["road", pg.Color(67,61,52)],
             3 : ["building floor", pg.Color(34,40,49)],
             4 : ["building wall", pg.Color(52,61,75)],
+            5 : ["outer void", pg.Color(15,18,25)],
             }
 
-SOLID_TILES = {1, 4}
+RAISED_TILES = {1, 4}
+SOLID_TILES = RAISED_TILES | {5}
 
 
 def _paint_road(grid, start, end, width=1):
@@ -232,11 +594,13 @@ def _paint_road(grid, start, end, width=1):
         y = round(y1 + (y2 - y1) * step / steps)
         for oy in range(-width, width + 1):
             for ox in range(-width, width + 1):
-                if 0 <= y + oy < len(grid) and 0 <= x + ox < len(grid[0]) and grid[y + oy][x + ox] != 1:
+                if (0 <= y + oy < len(grid) and 0 <= x + ox < len(grid[0])
+                        and grid[y + oy][x + ox] not in (1, 5)):
                     grid[y + oy][x + ox] = 2
 
 
-def _paint_building(grid, center_x, center_y, width=11, height=9, vertical_doors=False):
+def _paint_building(grid, center_x, center_y, width=11, height=9,
+                    vertical_doors=False, style="plain"):
     left = center_x - width // 2
     top = center_y - height // 2
     right = left + width - 1
@@ -255,6 +619,29 @@ def _paint_building(grid, center_x, center_y, width=11, height=9, vertical_doors
             grid[y][left] = 2
             grid[y][right] = 2
 
+    # Small silhouette changes make each ruin recognizable at a glance while every
+    # room keeps its two safe, opposite exits.
+    if style == "bastion":
+        for x, y in ((left + 2, top + 2), (right - 2, top + 2),
+                     (left + 2, bottom - 2), (right - 2, bottom - 2)):
+            grid[y][x] = 4
+    elif style == "archive":
+        for y in range(top + 2, bottom - 1, 3):
+            grid[y][left + 2] = 4
+            grid[y][right - 2] = 4
+    elif style == "forge":
+        for x, y in ((left + 2, top + 2), (right - 2, top + 2)):
+            grid[y][x] = 4
+        grid[bottom - 2][center_x] = 4
+    elif style == "shrine":
+        for x, y in ((center_x, center_y - 1), (center_x - 1, center_y),
+                     (center_x + 1, center_y), (center_x, center_y + 1)):
+            grid[y][x] = 4
+    elif style == "vault":
+        for x in range(left + 2, right - 1):
+            if x not in (center_x - 1, center_x):
+                grid[top + 2][x] = 4
+
 
 def generate_battleground(size=97):
     """Create a circular arena with roads, a central plaza, and six buildings."""
@@ -266,19 +653,26 @@ def generate_battleground(size=97):
     for y in range(size):
         for x in range(size):
             distance = hypot(x - center, y - center)
-            if distance >= radius - 1:
+            if distance >= radius:
+                grid[y][x] = 5
+            elif distance >= radius - 1:
                 grid[y][x] = 1
 
     layout_scale = size / 97
     buildings = tuple(
-        (center + round(offset_x * layout_scale), center + round(offset_y * layout_scale), vertical)
-        for offset_x, offset_y, vertical in (
-            (-23, -22, False), (23, -22, False),
-            (-28, 2, True), (28, 2, True),
-            (-18, 26, False), (18, 26, False),
+        (center + round(offset_x * layout_scale),
+         center + round(offset_y * layout_scale), vertical,
+         width, height, style)
+        for offset_x, offset_y, vertical, width, height, style in (
+            (-23, -22, False, 13, 9, "bastion"),
+            (23, -22, False, 9, 13, "archive"),
+            (-28, 2, True, 11, 11, "forge"),
+            (28, 2, True, 15, 9, "plain"),
+            (-18, 26, False, 9, 11, "shrine"),
+            (18, 26, False, 13, 11, "vault"),
         )
     )
-    for building_x, building_y, _ in buildings:
+    for building_x, building_y, *_ in buildings:
         _paint_road(grid, (center, center), (building_x, building_y), 1)
 
     for y in range(center - 7, center + 8):
@@ -286,8 +680,9 @@ def generate_battleground(size=97):
             if hypot(x - center, y - center) <= 7:
                 grid[y][x] = 2
 
-    for building_x, building_y, vertical_doors in buildings:
-        _paint_building(grid, building_x, building_y, vertical_doors=vertical_doors)
+    for building_x, building_y, vertical_doors, width, height, style in buildings:
+        _paint_building(grid, building_x, building_y, width, height,
+                        vertical_doors, style)
 
     return [
         [[tile, pg.Rect(x * vH.tileSizeGlobal, y * vH.tileSizeGlobal, vH.tileSizeGlobal, vH.tileSizeGlobal)] for x, tile in enumerate(row)]

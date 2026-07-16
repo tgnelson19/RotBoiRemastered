@@ -41,3 +41,18 @@ def encounter_caps(level):
         "threat_cap": 36.0 + late_levels * 1.2,
         "population_threat_cap": 60.0 + late_levels * 1.8,
     }
+
+
+def encounter_pacing(level):
+    """Shape discrete fights rather than continuously accumulating loose enemies."""
+    level = max(0, min(MAX_LEVEL, level))
+    return {
+        # Patrols begin as real encounters rather than pairs, then gain one body
+        # every four levels until the final approach to Dissonance.
+        "patrol_size": min(9, 5 + max(0, level - 1) // 4),
+        # Larger patrols need fewer simultaneous map slots to preserve recovery
+        # space and keep the physical cap meaningful.
+        "max_world_encounters": min(5, 3 + level // 8),
+        "spawn_interval_seconds": max(4.4, 7.0 - level * .13),
+        "curated_chance": 0 if level < 5 else min(.48, .28 + (level - 5) * .012),
+    }

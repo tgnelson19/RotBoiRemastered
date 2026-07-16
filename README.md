@@ -2,18 +2,19 @@
 
 A real-time strategy deckbuilding rogue-lite prototype built with Python and
 Pygame. Move through the arena, aim with the mouse, collect experience, and draft
-upgrade cards that shape each run into a focused build.
+upgrade cards that shape each run into a focused build. The red edge-of-screen
+bounty arrow points toward the highest-value living patrol or elite target.
 
 ## Controls
 
 - `WASD`: move
 - Mouse / left click: aim and fire
 - `Space`: dash (briefly avoids contact damage)
+- Hold `Q` / `E`: smoothly rotate the arena clockwise / counter-clockwise
 - `I`: toggle autofire
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
 - `B`: hidden debug shortcut that clears the arena and summons Dissonance
-- `I`: toggle autofire during a run
 - `Y`: toggle player invincibility during boss practice
 - `Escape`: quit
 

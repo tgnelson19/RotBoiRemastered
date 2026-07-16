@@ -7,6 +7,7 @@ from enemyTypes import ENEMY_CATALOG
 from bossTypes import BOSS_CATALOG
 from damageText import DamageText
 from experienceBubble import ExperienceBubble
+from enemyProjectile import EnemyProjectile
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 from math import atan, atan2, ceil, floor, pi, trunc, hypot
@@ -15,7 +16,7 @@ import upgrades
 import uiTheme as ui
 from spatialHash import SpatialHash
 from progression import (FINAL_BOSS_LEVEL, MAX_LEVEL, MID_BOSS_LEVEL,
-                         MINIBOSS_GATES, encounter_caps)
+                         MINIBOSS_GATES, encounter_caps, encounter_pacing)
 
 # helper functions for repeated game calculations
 
@@ -56,6 +57,7 @@ def resetAllStats():
     
     bG.playerPosX = bG.spawnX
     bG.playerPosY = bG.spawnY
+    bG.set_camera_angle(0)
     vH.screenShakeX = 0
     vH.screenShakeY = 0
     
@@ -110,6 +112,7 @@ def resetAllStats():
 
     cS.enemyOneInFramesChance = 220
     cS.enemySpawnTimer = vH.frameRate * 1.0
+    cS.encounterSpawnCooldown = 0
 
     cS.numOfEnemiesKilled = 0
     cS.currentStage = 1
@@ -215,6 +218,9 @@ def movePlayer():
     direction_scale = 0.70710678 if input_x and input_y else 1.0
     input_x *= direction_scale
     input_y *= direction_scale
+    # WASD remains relative to the monitor after a camera turn.  The converted
+    # values below are still the historical camera deltas used by this function.
+    input_x, input_y = bG.screen_vector_to_world(input_x, input_y)
 
     if pg.K_SPACE in vH.keyPressed and cS.currDashCooldown <= 0 and (input_x or input_y):
         cS.dashing = True
@@ -280,6 +286,7 @@ def drawPlayer():
 
 def drawBackground():
     bG.moveAndDisplayBackground(bG.repasteableRoomSurface)
+    bG.drawRaisedScenery(bG.currRoomRects)
 
 def handlingBulletCreation():
 
@@ -302,8 +309,15 @@ def handlingBulletCreation():
 
         for bNum in range(0,int(currProjectileCount)):
             
-            originX, originY = bG.lockX + (cS.playerSize / 2), bG.lockY + (cS.playerSize / 2)
-            direction = _direction_to_target(originX, originY, vH.mouseX, vH.mouseY)
+            originX = bG.playerPosX + cS.playerSize / 2
+            originY = bG.playerPosY + cS.playerSize / 2
+            screenOriginX = bG.lockX + cS.playerSize / 2
+            screenOriginY = bG.lockY + cS.playerSize / 2
+            targetDX, targetDY = bG.screen_vector_to_world(
+                vH.mouseX - screenOriginX, vH.mouseY - screenOriginY,
+            )
+            targetX, targetY = originX + targetDX, originY + targetDY
+            direction = _direction_to_target(originX, originY, targetX, targetY)
 
             if(currProjectileCount != 1):
                 dirDelta = -(cS.azimuthalProjectileAngle / 2)
@@ -400,29 +414,36 @@ def handlingEnemyCreation():
     cS.currEnemyCount = len(cS.enemyHolster)
 
     cS.enemySpawnTimer -= vH.get_timer_step()
+    cS.encounterSpawnCooldown = max(0, cS.encounterSpawnCooldown - vH.get_timer_step())
     current_threat = sum(getattr(enemy, "threatCost", 1.0) for enemy in cS.enemyHolster)
-    if (cS.currEnemyCount < cS.enemyCap and current_threat < cS.enemyPopulationThreatCap
+    pacing = encounter_pacing(cS.currentLevel)
+    world_encounters = {enemy.encounter.id for enemy in cS.enemyHolster
+                        if getattr(enemy, "encounter", None) is not None}
+    if (len(world_encounters) < pacing["max_world_encounters"]
+            and cS.currEnemyCount < cS.enemyCap
+            and current_threat < cS.enemyPopulationThreatCap
             and cS.enemySpawnTimer <= 0):
-        cS.enemySpawnTimer = max(1, cS.enemyOneInFramesChance * randint(65, 135) / 100)
-        batch_size = 1
-        if randint(1, 100) <= 55:
-            batch_size += 1
-        if cS.currentLevel >= 6 and randint(1, 100) <= 35:
-            batch_size += 1
-        if cS.currentLevel >= 12 and randint(1, 100) <= 40:
-            batch_size += 1
-        if cS.currentLevel >= 17 and randint(1, 100) <= 30:
-            batch_size += 1
-
-        for _ in range(min(batch_size, cS.enemyCap - len(cS.enemyHolster))):
-            remaining_threat = cS.enemyPopulationThreatCap - sum(
-                getattr(enemy, "threatCost", 1.0) for enemy in cS.enemyHolster
-            )
-            enemy = ENEMY_CATALOG.spawn(cS.currentLevel, max_threat=remaining_threat,
-                                        existing=cS.enemyHolster)
-            if enemy is None:
-                break
-            cS.enemyHolster.append(enemy)
+        cS.enemySpawnTimer = (vH.frameRate * pacing["spawn_interval_seconds"]
+                              * randint(85, 115) / 100)
+        remaining_threat = cS.enemyPopulationThreatCap - current_threat
+        encounter = None
+        if (cS.currentLevel >= 5 and cS.encounterSpawnCooldown <= 0
+                and randint(1, 100) <= pacing["curated_chance"] * 100):
+            encounter = ENEMY_CATALOG.spawn_encounter(
+                cS.currentLevel, remaining_threat, cS.enemyHolster)
+        if encounter is None:
+            encounter = ENEMY_CATALOG.spawn_patrol(
+                cS.currentLevel, remaining_threat, cS.enemyHolster)
+        if encounter:
+            package, group = encounter
+            group_threat = sum(getattr(enemy, "threatCost", 1.0) for enemy in group)
+            if (len(cS.enemyHolster) + len(group) <= cS.enemyCap
+                    and current_threat + group_threat <= cS.enemyPopulationThreatCap):
+                cS.enemyHolster.extend(group)
+                if not package.key.startswith("patrol_"):
+                    cS.encounterSpawnCooldown = vH.frameRate * 18
+                cS.currEnemyCount = len(cS.enemyHolster)
+                return
         cS.currEnemyCount = len(cS.enemyHolster)
 
 def handlingBossDebugControls():
@@ -451,22 +472,38 @@ def handlingEnemyUpdatesAndDrawing():
     player_center = (bG.playerPosX + cS.playerSize / 2,
                      bG.playerPosY + cS.playerSize / 2)
     pressure_used = 0.0
-    prioritized = sorted(
-        cS.enemyHolster,
-        key=lambda enemy: (
-            getattr(enemy, "awarenessState", "alerted") == "wandering",
-            hypot((enemy.worldX + enemy.size / 2) - player_center[0],
-                  (enemy.worldY + enemy.size / 2) - player_center[1]),
-        ),
-    )
-    for enemy in prioritized:
+    encounters = []
+    seen_encounters = set()
+    ungrouped = []
+    for enemy in cS.enemyHolster:
+        encounter = getattr(enemy, "encounter", None)
+        if encounter is None:
+            ungrouped.append(enemy)
+        elif encounter.id not in seen_encounters:
+            seen_encounters.add(encounter.id)
+            encounters.append(encounter)
+
+    encounters.sort(key=lambda item: (
+        item.state != "engaged", item.distance_to(*player_center)))
+    for encounter in encounters:
+        wants_pressure = (encounter.state == "engaged"
+                          or encounter.distance_to(*player_center) <= encounter.activationRange)
+        allowed = not wants_pressure or pressure_used + encounter.threat_cost <= cS.enemyThreatCap
+        encounter.update(*player_center, allowed)
+        encounter.draw(vH.screen)
+        if encounter.engagementAllowed:
+            pressure_used += encounter.threat_cost
+
+    for enemy in sorted(ungrouped, key=lambda item: hypot(
+            item.worldX + item.size / 2 - player_center[0],
+            item.worldY + item.size / 2 - player_center[1])):
         cost = getattr(enemy, "threatCost", 1.0)
         is_boss = enemy is cS.activeBoss
         enemy.engagementAllowed = is_boss or pressure_used + cost <= cS.enemyThreatCap
         if enemy.engagementAllowed:
             pressure_used += cost
 
-    spawned_enemies = []
+    spawned_groups = []
     for enemy in cS.enemyHolster:
         enemy.updateEnemy(
             bG.playerPosX + cS.playerSize/2,
@@ -484,17 +521,35 @@ def handlingEnemyUpdatesAndDrawing():
             else:
                 cS.enemyProjectileHolster.clear()
             enemy.transitionCleanupRequested = False
-        spawned_enemies.extend(getattr(enemy, "spawnedEnemies", ()))
+        pending = list(getattr(enemy, "spawnedEnemies", ()))
+        if pending:
+            spawned_groups.append((enemy, pending, getattr(enemy, "atomicSpawnGroup", False)))
         if hasattr(enemy, "spawnedEnemies"):
             enemy.spawnedEnemies.clear()
 
-    for enemy in spawned_enemies:
+    rejected_atomic_owners = set()
+    for owner, group, atomic in spawned_groups:
         current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
-        if len(cS.enemyHolster) >= cS.enemyCap:
-            break
-        if current_threat + getattr(enemy, "threatCost", 1.0) > cS.enemyPopulationThreatCap:
+        group_threat = sum(getattr(item, "threatCost", 1.0) for item in group)
+        if atomic and (len(cS.enemyHolster) + len(group) > cS.enemyCap
+                       or current_threat + group_threat > cS.enemyPopulationThreatCap):
+            rejected_atomic_owners.add(owner)
             continue
-        cS.enemyHolster.append(enemy)
+        for enemy in group:
+            current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
+            if len(cS.enemyHolster) >= cS.enemyCap:
+                break
+            if current_threat + getattr(enemy, "threatCost", 1.0) > cS.enemyPopulationThreatCap:
+                break
+            if owner.encounter is not None and enemy.encounter is None:
+                enemy.encounter = owner.encounter
+                enemy.encounterSlot = len(owner.encounter.members)
+                enemy.combatSide = -1 if enemy.encounterSlot % 2 else 1
+                owner.encounter.members.append(enemy)
+            cS.enemyHolster.append(enemy)
+    if rejected_atomic_owners:
+        cS.enemyHolster[:] = [enemy for enemy in cS.enemyHolster
+                              if enemy not in rejected_atomic_owners]
     cS.currEnemyCount = len(cS.enemyHolster)
 
 
@@ -532,7 +587,11 @@ def handlingDamagingEnemies():
     dead_enemies = set()
     for bullet in cS.bulletHolster:
         bullet_rect = pg.Rect(bullet.posX, bullet.posY, bullet.size, bullet.size)
-        for eman in enemy_grid.query(bullet_rect):
+        candidates = list(enemy_grid.query(bullet_rect))
+        candidates.sort(key=lambda enemy: 0 if any(
+            part_id == "shield" and bullet_rect.colliderect(hitbox)
+            for part_id, hitbox in enemy.get_screen_hitboxes()) else 1)
+        for eman in candidates:
             if eman in dead_enemies:
                 continue
             collided_part = next(
@@ -572,7 +631,11 @@ def handlingDamagingEnemies():
                         else "BLOCK" if portal_hit
                         else "STAGGER" if hasattr(eman, "stagger") else "BLOCK"
                     )
-                    cS.damageTextList.append(DamageText(hitbox.x, hitbox.y, currColor, display_value, hitbox.width, vH.frameRate))
+                    text_world_x, text_world_y = bG.screen_to_world(hitbox.x, hitbox.y)
+                    cS.damageTextList.append(DamageText(
+                        text_world_x, text_world_y, currColor, display_value,
+                        hitbox.width, vH.frameRate,
+                    ))
                     if result.killed:
                         dead_enemies.add(eman)
 
@@ -583,10 +646,21 @@ def handlingDamagingEnemies():
     for enemy in dead_enemies:
         cS.numOfEnemiesKilled += 1
         cS.experienceList.append(ExperienceBubble(
-            enemy.posX, enemy.posY,
+            enemy.worldX, enemy.worldY,
             cS.xpMult * (enemy.expValue * (cS.currentStage * cS.experienceStageMod)),
             enemy.difficulty, vH.frameRate, celebration=enemy is cS.activeBoss,
         ))
+        volatile_count = getattr(enemy, "volatileBurst", 0)
+        if volatile_count:
+            center_x = enemy.worldX + enemy.size / 2
+            center_y = enemy.worldY + enemy.size / 2
+            for index in range(volatile_count):
+                cS.enemyProjectileHolster.append(EnemyProjectile(
+                    center_x, center_y, index * 2 * pi / volatile_count,
+                    .72, enemy.damage * .22, enemy.size * .18,
+                    travel_range=vH.tileSizeGlobal * 4.5,
+                    color=ui.RED, shape="diamond", owner="volatile_enemy",
+                ))
         if enemy is cS.activeBoss:
             if getattr(enemy, "bossName", "") == "BEAUDIS":
                 cS.beaudisDefeated = True
@@ -616,10 +690,17 @@ def updateExperience():
         bubble.updateBubble(cS.auraSpeed, cS.dX, cS.dY)
             
 def expForPlayer():
-    player_rect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
+    player_rect = pg.Rect(bG.playerPosX, bG.playerPosY,
+                          cS.playerSize, cS.playerSize)
 
     for bubble in cS.experienceList[:]:
-        bubble_rect = pg.Rect(bubble.posX, bubble.posY, bubble.size, bubble.size)
+        if hasattr(bubble, "_world_rect"):
+            bubble_rect = bubble._world_rect()
+        else:
+            # Keep simple test/debug bubble doubles compatible with the older
+            # screen-space contract.
+            bubble_x, bubble_y = bG.screen_to_world(bubble.posX, bubble.posY)
+            bubble_rect = pg.Rect(bubble_x, bubble_y, bubble.size, bubble.size)
 
         if player_rect.colliderect(bubble_rect):
             cS.expCount += bubble.value
@@ -643,10 +724,10 @@ def expForPlayer():
         aura_rect = player_rect.inflate(2 * (cS.aura + bubble.size), 2 * (cS.aura + bubble.size))
         if aura_rect.colliderect(bubble_rect):
             bubble.naturalSpawn = False
-            originX = bG.lockX + cS.playerSize / 2
-            originY = bG.lockY + cS.playerSize / 2
-            deltaX = bubble.posX - originX
-            deltaY = bubble.posY - originY
+            originX = bG.playerPosX + cS.playerSize / 2
+            originY = bG.playerPosY + cS.playerSize / 2
+            deltaX = getattr(bubble, "worldX", bubble_rect.x) - originX
+            deltaY = getattr(bubble, "worldY", bubble_rect.y) - originY
 
             if deltaX == 0:
                 bubble.direction = pi/2 if deltaY > 0 else -pi/2
@@ -674,7 +755,8 @@ def hurtPlayer():
                 projectile.remFlag = True
             trueDMG = max(projectile.damage - cS.defense, 0)
             cS.damageTextList.append(DamageText(
-                bG.lockX, bG.lockY, ui.RED, trueDMG, vH.tileSizeGlobal, vH.frameRate,
+                bG.playerPosX, bG.playerPosY, ui.RED, trueDMG,
+                vH.tileSizeGlobal, vH.frameRate,
             ))
             cS.healthPoints -= trueDMG
             cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
@@ -690,7 +772,10 @@ def hurtPlayer():
         )
         if collided_hitbox:
             trueDMG = max(eman.damage - cS.defense, 0)
-            cS.damageTextList.append(DamageText(bG.lockX, bG.lockY, ui.RED, trueDMG, vH.tileSizeGlobal, vH.frameRate))
+            cS.damageTextList.append(DamageText(
+                bG.playerPosX, bG.playerPosY, ui.RED, trueDMG,
+                vH.tileSizeGlobal, vH.frameRate,
+            ))
             cS.healthPoints -= trueDMG
             cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
 
@@ -699,14 +784,130 @@ def hurtPlayer():
             delta_x = collided_hitbox.centerx - player_rect.centerx
             delta_y = collided_hitbox.centery - player_rect.centery
             distance = max(1, hypot(delta_x, delta_y))
-            eman.apply_knockback(
+            knockback_x, knockback_y = bG.screen_vector_to_world(
                 delta_x / distance * vH.tileSizeGlobal * 0.8,
                 delta_y / distance * vH.tileSizeGlobal * 0.8,
+            )
+            eman.apply_knockback(
+                knockback_x, knockback_y,
             )
             if cS.healthPoints <= 0:
                 vH.state = vH.States.TITLESCREEN
                 cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
             break
+
+
+def selectBountyTarget():
+    """Return the highest-value live target or patrol as a world-space bounty."""
+    if cS.activeBoss is not None and not cS.activeBoss.is_dead():
+        boss = cS.activeBoss
+        return {
+            "world": (boss.worldX + boss.size / 2, boss.worldY + boss.size / 2),
+            "score": float("inf"),
+            "label": getattr(boss, "bossName", "BOSS"),
+            "target": boss,
+        }
+
+    candidates = []
+    seen_encounters = set()
+    for enemy in cS.enemyHolster:
+        if enemy.is_dead():
+            continue
+        encounter = getattr(enemy, "encounter", None)
+        if encounter is not None:
+            if encounter.id in seen_encounters:
+                continue
+            seen_encounters.add(encounter.id)
+            living = [member for member in encounter.members if not member.is_dead()]
+            if not living:
+                continue
+            center_x = sum(member.worldX + member.size / 2 for member in living) / len(living)
+            center_y = sum(member.worldY + member.size / 2 for member in living) / len(living)
+            reward = sum(member.expValue + getattr(member, "storedExperience", 0)
+                         for member in living)
+            threat = sum(getattr(member, "threatCost", 1.0) for member in living)
+            candidates.append({
+                "world": (center_x, center_y),
+                "score": reward + threat * 4,
+                "label": encounter.key.replace("_", " ").upper(),
+                "target": encounter,
+            })
+        else:
+            reward = enemy.expValue + getattr(enemy, "storedExperience", 0)
+            elite_bonus = 500 if getattr(enemy, "combatRole", "") == "elite" else 0
+            candidates.append({
+                "world": (enemy.worldX + enemy.size / 2,
+                          enemy.worldY + enemy.size / 2),
+                "score": reward + getattr(enemy, "threatCost", 1.0) * 4 + elite_bonus,
+                "label": getattr(enemy, "bossName", enemy.family).replace("_", " ").upper(),
+                "target": enemy,
+            })
+    return max(candidates, key=lambda item: item["score"], default=None)
+
+
+def _bounty_arrow_geometry(target_screen, viewport):
+    """Return a short, fat arrow polygon on the viewport edge."""
+    origin_x, origin_y = bG.lockX, bG.lockY
+    delta_x = target_screen[0] - origin_x
+    delta_y = target_screen[1] - origin_y
+    distance = hypot(delta_x, delta_y)
+    if distance < 1:
+        return None
+    direction_x, direction_y = delta_x / distance, delta_y / distance
+    intersections = []
+    if direction_x > 0:
+        intersections.append((viewport.right - origin_x) / direction_x)
+    elif direction_x < 0:
+        intersections.append((viewport.left - origin_x) / direction_x)
+    if direction_y > 0:
+        intersections.append((viewport.bottom - origin_y) / direction_y)
+    elif direction_y < 0:
+        intersections.append((viewport.top - origin_y) / direction_y)
+    positive = [value for value in intersections if value > 0]
+    if not positive:
+        return None
+    edge_distance = min(positive)
+    tip_x = origin_x + direction_x * edge_distance
+    tip_y = origin_y + direction_y * edge_distance
+    perpendicular_x, perpendicular_y = -direction_y, direction_x
+    length, head_length = 38, 17
+    shaft_half, head_half = 6, 13
+    tail_x, tail_y = tip_x - direction_x * length, tip_y - direction_y * length
+    neck_x, neck_y = tip_x - direction_x * head_length, tip_y - direction_y * head_length
+    points = (
+        (tail_x + perpendicular_x * shaft_half, tail_y + perpendicular_y * shaft_half),
+        (neck_x + perpendicular_x * shaft_half, neck_y + perpendicular_y * shaft_half),
+        (neck_x + perpendicular_x * head_half, neck_y + perpendicular_y * head_half),
+        (tip_x, tip_y),
+        (neck_x - perpendicular_x * head_half, neck_y - perpendicular_y * head_half),
+        (neck_x - perpendicular_x * shaft_half, neck_y - perpendicular_y * shaft_half),
+        (tail_x - perpendicular_x * shaft_half, tail_y - perpendicular_y * shaft_half),
+    )
+    return points, (tip_x, tip_y), (direction_x, direction_y)
+
+
+def drawBountyIndicator():
+    bounty = selectBountyTarget()
+    if bounty is None:
+        return
+    target_screen = bG.world_to_screen(*bounty["world"])
+    arena_width = int(vH.sW * .75)
+    top_margin = 112 if cS.activeBoss is not None else 44
+    viewport = pg.Rect(34, top_margin, max(1, arena_width - 68),
+                       max(1, int(vH.sH) - top_margin - 42))
+    geometry = _bounty_arrow_geometry(target_screen, viewport)
+    if geometry is None:
+        return
+    points, tip, direction = geometry
+    shadow = [(x + 4, y + 5) for x, y in points]
+    pg.draw.polygon(vH.screen, ui.SHADOW, shadow)
+    pg.draw.polygon(vH.screen, ui.RED, points)
+    pg.draw.polygon(vH.screen, ui.INK, points, 4)
+    # A compact inward label gives the marker meaning without covering the biome.
+    label_position = (tip[0] - direction[0] * 52,
+                      tip[1] - direction[1] * 52)
+    ui.draw_text(vH.screen, "BOUNTY", 9 * ui.display_scale(vH.screen), ui.RED,
+                 label_position, "center")
     
 def drawInformationSheet():
     if vH.mouseX < vH.sW * 0.75:
@@ -797,8 +998,9 @@ def runTheTitleScreen():
     controls_rect = pg.Rect(left, vH.sH * .55, content_width, max(132 * ui_scale, vH.sH * .18))
     ui.draw_panel(vH.screen, controls_rect, ui.PANEL, ui.BORDER, shadow=6)
     ui.draw_text(vH.screen, "FIELD MANUAL", scale * .018, ui.TEXT, (controls_rect.x + 18 * ui_scale, controls_rect.y + 14 * ui_scale))
-    controls = (("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"), ("SPACE", "DASH"), ("I", "AUTOFIRE"))
-    cell_width = (controls_rect.width - 36 * ui_scale) / 4
+    controls = (("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"),
+                ("SPACE", "DASH"), ("Q / E", "ROTATE"), ("I", "AUTOFIRE"))
+    cell_width = (controls_rect.width - 36 * ui_scale) / len(controls)
     for index, (key, action) in enumerate(controls):
         center_x = controls_rect.x + 18 * ui_scale + cell_width * (index + .5)
         key_rect = pg.Rect(0, 0, min(82 * ui_scale, cell_width - 12 * ui_scale), 34 * ui_scale)

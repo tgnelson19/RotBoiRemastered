@@ -2,6 +2,9 @@ import variableHolster as vH
 import character as cH
 import pygame as pg
 import characterStats as cS
+import background as bG
+
+CAMERA_ROTATION_DEGREES_PER_SECOND = 180.0
 
 #Main State Machine Function
 def main():
@@ -30,8 +33,6 @@ def runGame():
     
     #Player Handling
     cH.movePlayer()
-    cH.drawPlayer()
-    
     #Bullet Handling
     cH.handlingBulletCreation()
     cH.handlingBulletUpdating()
@@ -40,6 +41,9 @@ def runGame():
     cH.handlingEnemyCreation()
     cH.handlingBossDebugControls()
     cH.handlingEnemyUpdatesAndDrawing()
+    # Keep the player readable above enemy bodies while hostile projectiles and
+    # telegraphs remain above the player as actionable threats.
+    cH.drawPlayer()
     cH.handlingEnemyProjectileUpdating()
     cH.handlingDamagingEnemies()
     
@@ -47,7 +51,8 @@ def runGame():
     cH.updateExperience()
     cH.expForPlayer()
     cH.hurtPlayer()
-    
+
+    cH.drawBountyIndicator()
     cH.drawInformationSheet()
 
     #Paints and clears screen for next frame
@@ -82,6 +87,7 @@ def baseInputCollection():
 
     handle_input_events()
     update_input_toggles()
+    update_camera_controls()
 
     if vH.keys[pg.K_ESCAPE]:
         vH.done = True
@@ -98,6 +104,18 @@ def update_input_toggles():
         cS.autoFire = not cS.autoFire
     if pg.K_y in vH.keyPressed:
         cS.bossDebugInvincible = not cS.bossDebugInvincible
+
+
+def update_camera_controls():
+    """Apply held Q/E camera input at a frame-rate-independent angular speed."""
+    if vH.state != vH.States.GAMERUN:
+        return
+    direction = int(bool(vH.keys[pg.K_e])) - int(bool(vH.keys[pg.K_q]))
+    if direction:
+        elapsed_seconds = min(max(vH.deltaMilliseconds, 0), 50) / 1000.0
+        bG.rotate_camera(
+            direction * CAMERA_ROTATION_DEGREES_PER_SECOND * elapsed_seconds,
+        )
 
 
 def handle_input_events():

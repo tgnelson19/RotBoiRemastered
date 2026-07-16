@@ -73,6 +73,7 @@ defense = 0
 
 enemyOneInFramesChance = 220
 enemySpawnTimer = 0
+encounterSpawnCooldown = 0
 
 numOfEnemiesKilled = 0
 currentStage = 1
