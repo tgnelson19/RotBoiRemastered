@@ -952,6 +952,10 @@ def drawBountyIndicator():
         return
     target_screen = bG.world_to_screen(*bounty["world"])
     arena_width = cS.informationSheet.arena_width
+    # The marker is navigation for off-screen targets only.  Once the target's
+    # center enters the playable view, the enemy itself is the clearer cue.
+    if pg.Rect(0, 0, arena_width, vH.screen.get_height()).collidepoint(target_screen):
+        return
     top_margin = 112 if cS.activeBoss is not None else 44
     viewport = pg.Rect(34, top_margin, max(1, arena_width - 68),
                        max(1, int(vH.sH) - top_margin - 42))
@@ -1093,7 +1097,7 @@ def runTheTitleScreen():
         pg.draw.line(vH.screen, pg.Color(23, 27, 35), (0, y), (vH.sW, y))
 
     scale = min(vH.sW, vH.sH)
-    ui_scale = max(.7, min(3.2, min(vH.sW / 1024, vH.sH / 768)))
+    ui_scale = ui.display_scale(vH.screen)
     content_width = min(int(vH.sW * .68), int(980 * ui_scale))
     left = int((vH.sW - content_width) / 2)
     ui.draw_text(vH.screen, "ROTBOI", scale * .095, ui.TEXT, (vH.sW / 2, vH.sH * .12), "midtop")

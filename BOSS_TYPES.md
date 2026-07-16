@@ -22,9 +22,10 @@ Its first four phases are damage phases with slow, sparse patterns:
 3. A six-shot radial pulse.
 4. A four-shot aimed fan.
 
-The fifth and only survival phase lasts 14 seconds. Four slow portals appear for
-this phase only and take turns firing two-projectile volleys. Beaudis is invulnerable
-during survival. When the timer expires, the portals disappear and Beaudis fades for
+The fifth survival pattern occurs at two-thirds, one-third, and zero health and lasts
+14 seconds each time. Four slow portals appear for these intervals and take turns
+firing two-projectile volleys. Beaudis is invulnerable during survival. The first two
+completions return to a rotating damage-phase pool; after the final timer, Beaudis fades for
 three seconds. It has no finale-collapse animation; the italic line
 *“You can't escape me...”* remains visible until the fade completes and the XP drop
 is released.

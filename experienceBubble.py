@@ -1,10 +1,24 @@
 from random import randint, uniform
-from math import cos, sin, floor, ceil
+from math import cos, sin, floor, ceil, pi
 import pygame
 import background as bG
 import variableHolster as vH
 import characterStats as cS
 import uiTheme as ui
+
+
+_GLOW_CACHE = {}
+
+
+def _experience_glow(radius):
+    if radius not in _GLOW_CACHE:
+        glow = pygame.Surface((radius * 4, radius * 4), pygame.SRCALPHA)
+        center = (radius * 2, radius * 2)
+        pygame.draw.circle(glow, (*ui.GREEN[:3], 35), center, radius * 2)
+        pygame.draw.circle(glow, (*ui.CREAM[:3], 65), center, int(radius * 1.35), 2)
+        _GLOW_CACHE[radius] = glow
+    return _GLOW_CACHE[radius]
+
 
 #Lil' bubble that chases player when in aura and helps level up
 class ExperienceBubble:    
@@ -22,6 +36,8 @@ class ExperienceBubble:
         self.speed = 1
         self.naturalSpawn = True
         self.frameRate = frameRate
+        self.visualAge = 0.0
+        self.pickupKind = "experience"
         self.celebrationParticles = []
         if celebration:
             for index in range(56):
@@ -40,6 +56,7 @@ class ExperienceBubble:
     def updateBubble(self, pAuraSpeed, pDX, pDY):
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
         dt = vH.get_timer_step() / max(1, vH.frameRate)
+        self.visualAge += dt
         for particle in self.celebrationParticles:
             particle["x"] += particle["vx"] * vH.get_frame_scale()
             particle["y"] += particle["vy"] * vH.get_frame_scale()
@@ -85,8 +102,22 @@ class ExperienceBubble:
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
         rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
         center = rect.center
-        points = ((center[0], rect.top), (rect.right, center[1]), (center[0], rect.bottom), (rect.left, center[1]))
-        shadow_points = tuple((x + 3, y + 3) for x, y in points)
-        pygame.draw.polygon(vH.screen, ui.SHADOW, shadow_points)
-        pygame.draw.polygon(vH.screen, ui.GREEN, points)
-        pygame.draw.polygon(vH.screen, ui.INK, points, 2)
+        pulse = .88 + .12 * sin(self.visualAge * 7.0)
+        radius = max(5, int(self.size * .62 * pulse))
+        glow = _experience_glow(radius)
+        vH.screen.blit(glow, (center[0] - radius * 2, center[1] - radius * 2))
+
+        angle = self.visualAge * 2.4
+        diamond = tuple((center[0] + cos(angle + index * pi / 2) * radius,
+                         center[1] + sin(angle + index * pi / 2) * radius)
+                        for index in range(4))
+        pygame.draw.polygon(vH.screen, ui.SHADOW,
+                            tuple((x + 3, y + 3) for x, y in diamond))
+        pygame.draw.polygon(vH.screen, ui.GREEN, diamond)
+        pygame.draw.polygon(vH.screen, ui.CREAM, diamond, max(2, int(radius * .18)))
+        pygame.draw.circle(vH.screen, ui.TEXT, center, max(2, int(radius * .28)))
+        for index in range(4):
+            orbit_angle = -angle * 1.35 + index * pi / 2
+            pip = (center[0] + cos(orbit_angle) * radius * 1.55,
+                   center[1] + sin(orbit_angle) * radius * 1.55)
+            pygame.draw.circle(vH.screen, ui.GOLD, pip, max(2, int(radius * .13)))

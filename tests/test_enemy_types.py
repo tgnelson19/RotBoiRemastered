@@ -89,6 +89,19 @@ class EnemyTypeTests(unittest.TestCase):
         self.assertTrue(killed.applied)
         self.assertTrue(killed.killed)
 
+    def test_snake_loses_nearly_all_speed_with_its_last_sections(self):
+        enemy = ENEMY_CATALOG.create("snake", self.spawn_x, self.spawn_y, 2, random.Random(7))
+        full_speed = enemy.movement_speed_multiplier()
+        while len(enemy.segments) > 1:
+            enemy.take_damage(999, enemy.segments[0]["id"])
+        last_section_speed = enemy.movement_speed_multiplier()
+        enemy.take_damage(999, enemy.segments[0]["id"])
+        exposed_speed = enemy.movement_speed_multiplier()
+
+        self.assertEqual(full_speed, 1.0)
+        self.assertLess(last_section_speed, .15)
+        self.assertLessEqual(exposed_speed, .05)
+
     def test_catalog_uses_reduced_global_enemy_speed(self):
         self.assertLessEqual(BASE_ENEMY_SPEED_SCALE, .66)
 

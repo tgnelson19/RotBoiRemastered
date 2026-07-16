@@ -22,6 +22,7 @@ class Beaudis(Enemy):
     subtitle = "THE ECHO THAT FOLLOWS"
     DAMAGE_PHASES = (1, 2, 3, 4)
     SURVIVAL_PHASES = (5,)
+    SURVIVAL_THRESHOLDS = (2 / 3, 1 / 3, 0)
     PHASE_COUNT = 5
     FINAL_FLAVOR = "You can't escape me..."
 
@@ -39,6 +40,8 @@ class Beaudis(Enemy):
                          200, 26000, 240, 3.2, "beaudis")
         self.rng = rng or random
         self.phase = 1
+        self.damagePhaseHistory = [1]
+        self.nextSurvivalIndex = 0
         self.phaseLabel, self.phaseFlavor, self.phaseAccent = self.PHASE_METADATA[1]
         self.phaseElapsed = 0.0
         self.phaseTimeLimit = 28.0
@@ -65,6 +68,7 @@ class Beaudis(Enemy):
         self.deathRemaining = 0.0
         self.finalFlavorItalic = True
         self.debugPhaseLocked = False
+        self.phaseForcedByTimer = False
 
         # The midpoint break is intentionally forgiving and never gates damage.
         self.stagger = 0.0
@@ -88,6 +92,9 @@ class Beaudis(Enemy):
         if phase == self.phase:
             return
         self.phase = phase
+        if phase in self.DAMAGE_PHASES:
+            self.damagePhaseHistory.append(phase)
+            self.damagePhaseHistory = self.damagePhaseHistory[-2:]
         self.phaseElapsed = 0.0
         self.phaseLabel, self.phaseFlavor, self.phaseAccent = self.PHASE_METADATA[phase]
         self.phaseAnnouncementTimer = 2.4
@@ -97,6 +104,7 @@ class Beaudis(Enemy):
         self.stagger = 0.0
         self.isStaggered = False
         self.staggerRemaining = 0.0
+        self.phaseForcedByTimer = False
         self.survivalActive = phase == 5
         if self.survivalActive:
             self.hp = max(1, self.hp)
@@ -108,21 +116,22 @@ class Beaudis(Enemy):
 
     def debug_set_phase(self, phase):
         phase = max(1, min(self.PHASE_COUNT, int(phase)))
+        if phase == 5:
+            # Phase-five practice remains the final survival and fade sequence.
+            self.nextSurvivalIndex = len(self.SURVIVAL_THRESHOLDS) - 1
         if phase == self.phase:
             self.phase = 0
         self._set_phase(phase)
 
-    def _phase_for_health(self):
-        ratio = self.hp / self.maxHp
-        if ratio <= 0:
-            return 5
-        if ratio <= .25:
-            return 4
-        if ratio <= .50:
-            return 3
-        if ratio <= .75:
-            return 2
-        return 1
+    def _survival_health(self):
+        ratio = self.SURVIVAL_THRESHOLDS[self.nextSurvivalIndex]
+        return self.maxHp * ratio
+
+    def _choose_damage_phase(self):
+        pools = ((1, 2), (2, 3), (3, 4))
+        pool = pools[min(self.nextSurvivalIndex, len(pools) - 1)]
+        choices = [phase for phase in pool if phase != self.phase]
+        return self.rng.choice(choices or list(pool))
 
     def take_damage(self, amount, part_id="body"):
         if self.dying or self.survivalActive or self.phaseProtectionTimer > 0:
@@ -136,10 +145,13 @@ class Beaudis(Enemy):
             self.isStaggered = True
             self.staggerRemaining = self.staggerDuration
             self.transitionCleanupRequested = True
-        next_phase = self._phase_for_health()
-        if next_phase != self.phase and not self.debugPhaseLocked:
-            self._set_phase(next_phase)
-        self.hp = max(1 if self.phase == 5 else 0, self.hp)
+        threshold_hp = self._survival_health()
+        if self.hp <= threshold_hp and not self.debugPhaseLocked:
+            # Pin health to the gate so one large hit cannot skip a survival.
+            self.hp = max(1, threshold_hp)
+            self._set_phase(5)
+        else:
+            self.hp = max(0, self.hp)
         return HitResult(True, False, applied)
 
     def _clear_portals(self):
@@ -231,7 +243,11 @@ class Beaudis(Enemy):
             self.portalIndex += 1
             self.survivalCooldown = .85
         if self.survivalRemaining <= 0:
-            self._begin_fade()
+            if self.nextSurvivalIndex >= len(self.SURVIVAL_THRESHOLDS) - 1:
+                self._begin_fade()
+            else:
+                self.nextSurvivalIndex += 1
+                self._set_phase(self._choose_damage_phase())
 
     def _begin_fade(self):
         if self.dying:
@@ -271,6 +287,10 @@ class Beaudis(Enemy):
         if self.survivalActive:
             self._update_survival(player_world_x, player_world_y, projectile_sink, dt)
         else:
+            if (not self.debugPhaseLocked and self.phaseElapsed >= self.phaseTimeLimit
+                    and self.phase in self.DAMAGE_PHASES):
+                self._set_phase(self._choose_damage_phase())
+                self.phaseForcedByTimer = True
             self._update_damage_phase(player_world_x, player_world_y, projectile_sink, dt)
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
 
@@ -720,13 +740,18 @@ class Dissonance(Enemy):
             portal.hitsToDisable = 15
 
     def _choose_damage_phase(self):
-        """Choose from the six attacks without repeating the last three used."""
+        """Cycle attacks within the current act until its HP gate is reached."""
+        act_phases = {
+            3: (1, 2),
+            6: (4, 5),
+            9: (7, 8),
+        }.get(self.nextSurvivalPhase, self.DAMAGE_PHASES)
         recent = set(self.damagePhaseHistory[-3:])
-        choices = [phase for phase in self.DAMAGE_PHASES if phase not in recent]
-        # Six candidates and a three-entry memory guarantee choices in normal play;
-        # this fallback keeps debug-manipulated state safe as well.
+        choices = [phase for phase in act_phases if phase not in recent]
         if not choices:
-            choices = [phase for phase in self.DAMAGE_PHASES if phase != self.phase]
+            choices = [phase for phase in act_phases if phase != self.phase]
+        if not choices:
+            choices = list(act_phases)
         return self.rng.choice(choices)
 
     def _health_unlocked_survival(self):
