@@ -2222,10 +2222,14 @@ class PathChaseBoss(Enemy):
         inside = False
         previous = vertices[-1]
         for current in vertices:
-            if ((current[1] > y) != (previous[1] > y)
-                    and x < (previous[0]-current[0])*(y-current[1])
-                    / max(1e-9, previous[1]-current[1]) + current[0]):
-                inside = not inside
+            if (current[1] > y) != (previous[1] > y):
+                # The crossing test must preserve the edge's sign. Replacing a
+                # negative denominator with epsilon classifies half of a clockwise
+                # polygon as exterior and repeatedly drags the player to its center.
+                crossing_x = ((previous[0]-current[0])*(y-current[1])
+                              / (previous[1]-current[1]) + current[0])
+                if x < crossing_x:
+                    inside = not inside
             previous = current
         return inside
 

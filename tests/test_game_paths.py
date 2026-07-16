@@ -2,7 +2,7 @@ import os
 import random
 import unittest
 from types import MappingProxyType
-from math import pi
+from math import cos, pi, sin
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -427,6 +427,22 @@ class GamePathTests(unittest.TestCase):
                                   constrained[1]+cS.playerSize/2)
             self.assertTrue(boss._point_in_polygon(constrained_center,
                                                    boss._arena_vertices()))
+
+    def test_arena_containment_never_moves_interior_player_positions(self):
+        center = (len(bG.currRoomRects[0])*vH.tileSizeGlobal/2,
+                  len(bG.currRoomRects)*vH.tileSizeGlobal/2)
+        for boss_type in (Sting, Chronos, Rot, Malady):
+            boss = boss_type(center[0], center[1], random.Random(11))
+            # One quarter-radius is safely inside even the triangular arena.
+            for angle in (0, pi/2, pi, 3*pi/2):
+                player_x = center[0]+cos(angle)*boss.arenaRadius*.25-cS.playerSize/2
+                player_y = center[1]+sin(angle)*boss.arenaRadius*.25-cS.playerSize/2
+                constrained = boss.constrain_player_position(
+                    player_x, player_y, cS.playerSize)
+                self.assertAlmostEqual(constrained[0], player_x, places=4,
+                                       msg=f"{boss_type.__name__} moved interior x")
+                self.assertAlmostEqual(constrained[1], player_y, places=4,
+                                       msg=f"{boss_type.__name__} moved interior y")
 
     def test_every_path_boss_exposes_chase_static_and_path_movement(self):
         expected = (Sting, Chronos, Rot, Malady)
