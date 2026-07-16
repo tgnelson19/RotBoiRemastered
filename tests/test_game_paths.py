@@ -2,7 +2,7 @@ import os
 import random
 import unittest
 from types import MappingProxyType
-from math import cos, pi, sin
+from math import cos, hypot, pi, sin
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
@@ -443,6 +443,52 @@ class GamePathTests(unittest.TestCase):
                                        msg=f"{boss_type.__name__} moved interior x")
                 self.assertAlmostEqual(constrained[1], player_y, places=4,
                                        msg=f"{boss_type.__name__} moved interior y")
+
+    def test_sight_triangle_upper_right_edge_contains_full_player_body(self):
+        center = (len(bG.currRoomRects[0])*vH.tileSizeGlobal/2,
+                  len(bG.currRoomRects)*vH.tileSizeGlobal/2)
+        boss = Chronos(center[0], center[1], random.Random(17))
+        vertices = boss._arena_vertices()
+        start, end = vertices[0], vertices[1]  # top-right sloping edge
+        midpoint = ((start[0]+end[0])/2, (start[1]+end[1])/2)
+        dx, dy = end[0]-start[0], end[1]-start[1]
+        length = hypot(dx, dy)
+        outward = (dy/length, -dx/length)
+        attempted_center = (midpoint[0]+outward[0]*cS.playerSize*1.5,
+                            midpoint[1]+outward[1]*cS.playerSize*1.5)
+        corrected = boss.constrain_player_position(
+            attempted_center[0]-cS.playerSize/2,
+            attempted_center[1]-cS.playerSize/2, cS.playerSize)
+        corrected_center = (corrected[0]+cS.playerSize/2,
+                            corrected[1]+cS.playerSize/2)
+        self.assertTrue(boss._point_in_polygon(corrected_center, vertices))
+        nearest, _, distance_sq = boss._closest_boundary_point(corrected_center, vertices)
+        self.assertGreaterEqual(distance_sq ** .5, cS.playerSize*.7)
+
+    def test_boundary_projection_preserves_tangential_sliding(self):
+        center = (len(bG.currRoomRects[0])*vH.tileSizeGlobal/2,
+                  len(bG.currRoomRects)*vH.tileSizeGlobal/2)
+        for boss_type in (Sting, Chronos, Rot, Malady):
+            boss = boss_type(center[0], center[1], random.Random(23))
+            vertices = boss._arena_vertices()
+            start, end = vertices[0], vertices[1]
+            dx, dy = end[0]-start[0], end[1]-start[1]
+            length = hypot(dx, dy)
+            outward = (dy/length, -dx/length)
+            corrected_points = []
+            for amount in (.3, .7):
+                boundary = (start[0]+dx*amount, start[1]+dy*amount)
+                attempted = (boundary[0]+outward[0]*cS.playerSize,
+                             boundary[1]+outward[1]*cS.playerSize)
+                corrected = boss.constrain_player_position(
+                    attempted[0]-cS.playerSize/2,
+                    attempted[1]-cS.playerSize/2, cS.playerSize)
+                corrected_points.append((corrected[0]+cS.playerSize/2,
+                                         corrected[1]+cS.playerSize/2))
+            travel = hypot(corrected_points[1][0]-corrected_points[0][0],
+                           corrected_points[1][1]-corrected_points[0][1])
+            self.assertGreater(travel, length*.25,
+                               f"{boss_type.__name__} collapsed sliding to center")
 
     def test_every_path_boss_exposes_chase_static_and_path_movement(self):
         expected = (Sting, Chronos, Rot, Malady)

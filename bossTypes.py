@@ -2233,27 +2233,61 @@ class PathChaseBoss(Enemy):
             previous = current
         return inside
 
+    @staticmethod
+    def _closest_boundary_point(point, vertices):
+        """Return the nearest point, segment, and squared distance on a polygon."""
+        best_point, best_segment, best_distance = vertices[0], 0, float("inf")
+        px, py = point
+        for index, start in enumerate(vertices):
+            end = vertices[(index + 1) % len(vertices)]
+            dx, dy = end[0] - start[0], end[1] - start[1]
+            length_sq = dx*dx + dy*dy
+            amount = 0.0 if length_sq <= 1e-9 else max(
+                0.0, min(1.0, ((px-start[0])*dx + (py-start[1])*dy) / length_sq))
+            candidate = (start[0] + dx*amount, start[1] + dy*amount)
+            distance = (px-candidate[0])**2 + (py-candidate[1])**2
+            if distance < best_distance:
+                best_point, best_segment, best_distance = candidate, index, distance
+        return best_point, best_segment, best_distance
+
     def constrain_player_position(self, player_x, player_y, player_size):
-        center = self._arena_center()
         player_center = (player_x + player_size/2, player_y + player_size/2)
         vertices = self._arena_vertices()
-        if self._point_in_polygon(player_center, vertices):
+        nearest, segment_index, distance_sq = self._closest_boundary_point(
+            player_center, vertices)
+        # A center-only test permits half the player body to leak through diagonal
+        # edges. Keep a circular body margin inside every segment instead.
+        margin = player_size * .72
+        inside = self._point_in_polygon(player_center, vertices)
+        if inside and distance_sq >= margin*margin:
             return player_x, player_y
-        # Binary search along the center-to-player ray keeps every convex or mildly
-        # concave animated boundary using the same deterministic containment rule.
-        low, high = 0.0, 1.0
-        for _ in range(16):
-            mid = (low + high) / 2
-            point = (center[0] + (player_center[0]-center[0])*mid,
-                     center[1] + (player_center[1]-center[1])*mid)
-            if self._point_in_polygon(point, vertices):
-                low = mid
-            else:
-                high = mid
-        inset = max(0.0, low - player_size / max(1, self.arenaRadius))
-        point = (center[0] + (player_center[0]-center[0])*inset,
-                 center[1] + (player_center[1]-center[1])*inset)
-        return point[0]-player_size/2, point[1]-player_size/2
+
+        start = vertices[segment_index]
+        end = vertices[(segment_index + 1) % len(vertices)]
+        dx, dy = end[0]-start[0], end[1]-start[1]
+        length = max(1e-9, hypot(dx, dy))
+        signed_area = sum(
+            vertices[index][0]*vertices[(index+1)%len(vertices)][1]
+            - vertices[(index+1)%len(vertices)][0]*vertices[index][1]
+            for index in range(len(vertices)))
+        # These world polygons currently wind with positive signed area. The left
+        # segment normal is therefore inward; retain support for reversed winding.
+        if signed_area >= 0:
+            normal = (-dy/length, dx/length)
+        else:
+            normal = (dy/length, -dx/length)
+        corrected = (nearest[0] + normal[0]*margin,
+                     nearest[1] + normal[1]*margin)
+
+        # Mildly concave animated boundaries can place a local normal outside an
+        # adjacent spike. Fall back to a short centerward inset only in that case.
+        if not self._point_in_polygon(corrected, vertices):
+            center = self._arena_center()
+            toward_x, toward_y = center[0]-nearest[0], center[1]-nearest[1]
+            toward_length = max(1e-9, hypot(toward_x, toward_y))
+            corrected = (nearest[0] + toward_x/toward_length*margin,
+                         nearest[1] + toward_y/toward_length*margin)
+        return corrected[0]-player_size/2, corrected[1]-player_size/2
 
     def _draw_path_arena(self, screen):
         vertices = [bG.world_to_screen(*point) for point in self._arena_vertices()]
