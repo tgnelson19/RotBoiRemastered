@@ -862,7 +862,7 @@ def hurtPlayer():
                 bG.playerPosX, bG.playerPosY, ui.RED, trueDMG,
                 vH.tileSizeGlobal, vH.frameRate,
             ))
-            cS.healthPoints -= trueDMG
+            cS.healthPoints = max(0, cS.healthPoints - trueDMG)
             cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
             if cS.healthPoints <= 0:
                 cS.runOutcome = "DEFEATED"
@@ -884,7 +884,7 @@ def hurtPlayer():
                 bG.playerPosX, bG.playerPosY, ui.RED, trueDMG,
                 vH.tileSizeGlobal, vH.frameRate,
             ))
-            cS.healthPoints -= trueDMG
+            cS.healthPoints = max(0, cS.healthPoints - trueDMG)
             cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
 
             # Separate the bodies immediately so the next readable threat comes from
@@ -1055,7 +1055,7 @@ def drawLowHealthWarning():
     if ratio > .3:
         return
     arena_width = cS.informationSheet.arena_width
-    alpha = int(35 + (1 - ratio / .3) * 65)
+    alpha = max(0, min(255, int(35 + (1 - ratio / .3) * 65)))
     overlay = pg.Surface((arena_width, int(vH.sH)), pg.SRCALPHA)
     border = max(8, int(22 * ui.display_scale(vH.screen)))
     pg.draw.rect(overlay, (*ui.RED[:3], alpha), overlay.get_rect(), border)
