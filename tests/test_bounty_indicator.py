@@ -1,6 +1,7 @@
 import os
 import random
 import unittest
+from unittest import mock
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -65,6 +66,17 @@ class BountyIndicatorTests(unittest.TestCase):
             bG.world_to_screen(*world_target), viewport)[2]
         self.assertGreater(direction_zero[0], .9)
         self.assertLess(direction_ninety[1], -.9)
+
+    def test_indicator_is_hidden_when_bounty_is_already_on_screen(self):
+        cS.currentBounty = {
+            "world": (bG.playerPosX, bG.playerPosY),
+            "score": 10,
+            "label": "VISIBLE",
+            "target": object(),
+        }
+        with mock.patch("character.pg.draw.polygon") as draw_polygon:
+            game.drawBountyIndicator()
+        draw_polygon.assert_not_called()
 
 
 if __name__ == "__main__":

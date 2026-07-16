@@ -848,6 +848,7 @@ class SnakeEnemy(Enemy):
         self.size = self.headSize
         self.segmentSpacing = self.segmentSize * 1.18
         self.segments = []
+        self.initialSegmentCount = max(1, int(segment_count))
         segment_hp = round(segment_hp or self.maxHp * .6)
         for index in range(segment_count):
             segment_x = self.worldX - (index + 1) * self.segmentSpacing
@@ -861,6 +862,11 @@ class SnakeEnemy(Enemy):
                 "max_hp": segment_hp,
             })
         self.attackCooldown = vH.frameRate * self.rng.uniform(1.2, 2.2)
+
+    def movement_speed_multiplier(self):
+        """Lose almost all chase speed as the snake loses its protective body."""
+        remaining = len(self.segments) / self.initialSegmentCount
+        return .05 + .95 * remaining * remaining
 
     def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
         projectile_sink = projectile_sink if projectile_sink is not None else []
@@ -876,7 +882,7 @@ class SnakeEnemy(Enemy):
         weave = sin(self.age * .075) * .32
         direction_x, direction_y = direction_x - direction_y * weave, direction_y + direction_x * weave
         direction_x, direction_y, _ = _normalise(direction_x, direction_y)
-        step = self.speed * vH.get_frame_scale()
+        step = self.speed * self.movement_speed_multiplier() * vH.get_frame_scale()
         self._try_axis_move(direction_x * step, "x")
         self._try_axis_move(direction_y * step, "y")
 

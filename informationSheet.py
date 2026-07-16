@@ -27,7 +27,7 @@ BUILD_NAMES = {
 
 class InformationSheet:
     def __init__(self):
-        self.uiScale = max(.7, min(3.2, min(vH.sW / 1024, vH.sH / 768)))
+        self.uiScale = ui.display_scale(vH.screen)
         self.mode = gameProfile.profile.get("hud_mode", "compact")
         self.tooltip = None
         self._build_layout()
@@ -36,11 +36,23 @@ class InformationSheet:
         return max(1, int(round(value * self.uiScale)))
 
     def _build_layout(self):
-        ratio = .15 if self.mode == "compact" else .25
-        self.totalLength = max(self._px(218), int(vH.sW * ratio))
-        self.totalHeight = int(vH.sH)
-        self.posX = int(vH.sW - self.totalLength)
+        screen_width, screen_height = vH.screen.get_size()
+        self._layoutSize = (screen_width, screen_height)
+        ratio = .15 if self.mode == "compact" else .24
+        minimum = self._px(220 if self.mode == "compact" else 300)
+        maximum = self._px(320 if self.mode == "compact" else 440)
+        self.totalLength = max(minimum, min(maximum, int(screen_width * ratio)))
+        # Never consume more than 42% of a narrow display.
+        self.totalLength = min(self.totalLength, int(screen_width * .42))
+        self.totalHeight = screen_height
+        self.posX = screen_width - self.totalLength
         self.padding = self._px(9)
+
+    def _sync_layout(self):
+        next_scale = ui.display_scale(vH.screen)
+        if next_scale != self.uiScale or self._layoutSize != vH.screen.get_size():
+            self.uiScale = next_scale
+            self._build_layout()
 
     @property
     def arena_width(self):
@@ -332,6 +344,7 @@ class InformationSheet:
         return None
 
     def drawSheet(self):
+        self._sync_layout()
         self.tooltip = None
         pg.draw.rect(vH.screen, ui.VOID, (self.posX, 0, self.totalLength, self.totalHeight))
         pg.draw.rect(vH.screen, ui.INK, (self.posX, 0, self._px(6), self.totalHeight))

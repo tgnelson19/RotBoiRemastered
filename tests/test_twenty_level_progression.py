@@ -37,7 +37,7 @@ class TwentyLevelProgressionTests(unittest.TestCase):
         self.assertEqual(Beaudis.bossName, "BEAUDIS")
         self.assertEqual(Dissonance.bossName, "DISSONANCE")
 
-    def test_beaudis_has_four_damage_phases_and_only_finale_survival(self):
+    def test_beaudis_has_four_damage_phases_and_one_reused_survival_pattern(self):
         boss = self._midpoint_boss()
         self.assertEqual(boss.PHASE_COUNT, 5)
         self.assertEqual(boss.DAMAGE_PHASES, (1, 2, 3, 4))
@@ -49,6 +49,34 @@ class TwentyLevelProgressionTests(unittest.TestCase):
         boss.debug_set_phase(5)
         self.assertTrue(boss.survivalActive)
         self.assertEqual(len(boss.projectilePortals), 4)
+
+    def test_beaudis_survival_is_forced_at_two_thirds_one_third_and_zero(self):
+        boss = self._midpoint_boss()
+        expected_health = (boss.maxHp * 2 / 3, boss.maxHp / 3, 1)
+        for gate_index, health in enumerate(expected_health):
+            boss.phaseProtectionTimer = 0
+            boss.take_damage(boss.maxHp)
+            self.assertEqual(boss.phase, 5)
+            self.assertTrue(boss.survivalActive)
+            self.assertAlmostEqual(boss.hp, health)
+            self.assertEqual(boss.nextSurvivalIndex, gate_index)
+            boss.survivalRemaining = 0
+            boss.updateEnemy(*boss._center(), [])
+            if gate_index < 2:
+                self.assertFalse(boss.survivalActive)
+                self.assertIn(boss.phase, boss.DAMAGE_PHASES)
+                self.assertFalse(boss.dying)
+            else:
+                self.assertTrue(boss.dying)
+
+    def test_beaudis_timer_only_rotates_damage_patterns_inside_current_act(self):
+        boss = self._midpoint_boss()
+        boss.phaseElapsed = boss.phaseTimeLimit
+        boss.updateEnemy(*boss._center(), [])
+        self.assertEqual(boss.phase, 2)
+        self.assertFalse(boss.survivalActive)
+        self.assertEqual(boss.hp, boss.maxHp)
+        self.assertTrue(boss.phaseForcedByTimer)
 
     def test_beaudis_is_weaker_slower_and_not_arena_bound(self):
         midpoint = self._midpoint_boss()

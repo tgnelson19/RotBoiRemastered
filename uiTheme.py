@@ -31,10 +31,19 @@ RARITY_COLORS = {
 
 _font_cache = {}
 
+REFERENCE_WIDTH = 1920
+REFERENCE_HEIGHT = 1080
+MIN_DISPLAY_SCALE = .6
+MAX_DISPLAY_SCALE = 2.4
+
 
 def display_scale(surface):
+    """Return a height-aware UI scale that remains stable across aspect ratios."""
     width, height = surface.get_size()
-    return max(.7, min(3.2, min(width / 1024, height / 768)))
+    return max(MIN_DISPLAY_SCALE, min(
+        MAX_DISPLAY_SCALE,
+        min(width / REFERENCE_WIDTH, height / REFERENCE_HEIGHT),
+    ))
 
 
 def font(size, italic=False, bold=False):

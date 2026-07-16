@@ -12,14 +12,13 @@ class LevelingHandler:
 
     def __init__(self):
         self.frameRate = vH.frameRate
-        self.sW = vH.sW
-        self.sH = vH.sH
+        self.sW, self.sH = vH.screen.get_size()
         self.cardColor = ui.PANEL
         self.cardHoverColor = ui.PANEL_HOVER
         self.baseColor = ui.TEXT
         self.rerolls = 2
         self.tileSize = min(self.sW, self.sH) / 20
-        self.uiScale = max(.7, min(3.2, min(self.sW / 1024, self.sH / 768)))
+        self.uiScale = ui.display_scale(vH.screen)
         font_path = "data/media/coolveticarg.otf"
         self.titleFont = pygame.font.Font(font_path, int(self.tileSize * 0.9))
         self.descFont = pygame.font.Font(font_path, int(self.tileSize * 0.45))

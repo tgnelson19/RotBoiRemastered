@@ -533,14 +533,16 @@ class DissonanceBossTests(unittest.TestCase):
         self.boss.updateEnemy(*self.boss._center(), [])
         self.assertIn(self.boss.phase, self.boss.DAMAGE_PHASES)
 
-    def test_damage_phase_pool_never_repeats_any_of_last_three_phases(self):
-        seen = [self.boss.phase]
-        for _ in range(24):
-            next_phase = self.boss._choose_damage_phase()
-            self.assertNotIn(next_phase, seen[-3:])
-            self.boss._set_phase(next_phase)
-            seen.append(next_phase)
-        self.assertTrue(set(seen).issubset(set(self.boss.DAMAGE_PHASES)))
+    def test_damage_phase_cycles_stay_inside_the_current_health_gated_act(self):
+        for next_survival, expected_pool in ((3, {1, 2}), (6, {4, 5}), (9, {7, 8})):
+            self.boss.nextSurvivalPhase = next_survival
+            seen = set()
+            for _ in range(12):
+                next_phase = self.boss._choose_damage_phase()
+                self.assertIn(next_phase, expected_pool)
+                self.boss._set_phase(next_phase)
+                seen.add(next_phase)
+            self.assertEqual(seen, expected_pool)
 
     def test_final_damage_phases_repeat_until_zero_health(self):
         self.boss.debug_set_phase(8)
