@@ -30,11 +30,11 @@ class EnemyTypeTests(unittest.TestCase):
         vH.frameRate = self.frame_rate
         vH.hasFrameDelta = self.has_delta
 
-    def test_every_enemy_type_is_available_from_level_zero(self):
+    def test_opening_pool_withholds_advanced_close_range_types(self):
         level_zero = {definition.key for definition in ENEMY_CATALOG.available(0)}
         self.assertIn("ranged_wanderer", level_zero)
-        self.assertIn("shotgunner", level_zero)
-        self.assertIn("snake", level_zero)
+        self.assertNotIn("shotgunner", level_zero)
+        self.assertNotIn("snake", level_zero)
         self.assertNotIn("parent", level_zero)
 
     def test_wandering_ranged_enemy_fires_single_aimed_projectile(self):
@@ -164,8 +164,8 @@ class EnemyTypeTests(unittest.TestCase):
         self.assertTrue(all(projectile.path == "laser" for projectile in projectiles))
 
     def test_minibosses_are_level_gated_guaranteed_spawns_not_random_choices(self):
-        self.assertEqual(ENEMY_CATALOG.definitions["miniboss_arsenal"].min_level, 4)
-        self.assertEqual(ENEMY_CATALOG.definitions["miniboss_siege"].min_level, 7)
+        self.assertEqual(ENEMY_CATALOG.definitions["miniboss_arsenal"].min_level, 5)
+        self.assertEqual(ENEMY_CATALOG.definitions["miniboss_siege"].min_level, 15)
         self.assertTrue(ENEMY_CATALOG.definitions["miniboss_arsenal"].guaranteed_only)
         self.assertTrue(ENEMY_CATALOG.definitions["miniboss_siege"].guaranteed_only)
         rng = random.Random(11)

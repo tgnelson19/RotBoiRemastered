@@ -11,6 +11,7 @@ import variableHolster as vH
 
 class EnemyProjectile:
     HOSTILE_SPEED_SCALE = .52
+    DISSONANCE_DAMAGE_SCALE = 1.3
     def __init__(self, world_x, world_y, direction, speed, damage, size,
                  travel_range=900, color=None, shape="square", path="linear",
                  amplitude=0, frequency=.035, lifetime=None, speed_decay=0,
@@ -22,7 +23,8 @@ class EnemyProjectile:
         self.originY = float(world_y)
         self.direction = direction
         self.speed = speed
-        self.damage = damage
+        self.damage = (damage * self.DISSONANCE_DAMAGE_SCALE
+                       if str(owner).startswith("dissonance") else damage)
         self.size = size
         self.remainingRange = travel_range
         self.color = color or ui.RED
@@ -37,9 +39,9 @@ class EnemyProjectile:
         self.orbitAngle = orbit_angle
         self.angularSpeed = angular_speed
         self.owner = owner
-        # Ordinary Beaudis bullets should paint complete lanes across his large arena.
+        # Dissonance bullets should paint complete lanes across the final arena.
         # Mines retain their deliberately local range and orbit fields retain lifetime rules.
-        if (str(owner).startswith("beaudis") and path not in ("mine", "orbit")
+        if (str(owner).startswith("dissonance") and path not in ("mine", "orbit")
                 and lifetime is None):
             self.remainingRange = max(self.remainingRange, vH.tileSizeGlobal * 72)
         if "survival" in str(owner) or "boundary_inward" in str(owner):
@@ -50,7 +52,7 @@ class EnemyProjectile:
         self.fuseDuration = 3.0
         self.blastRadius = vH.tileSizeGlobal * 1.5
         self.burstCount = 8
-        self.burstDamage = damage
+        self.burstDamage = self.damage
         self.spawnedProjectiles = []
         self.persistentHazard = path == "laser"
         self.exploded = False

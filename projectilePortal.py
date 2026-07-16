@@ -14,7 +14,7 @@ class ProjectilePortal:
     """An orbiting arena entity that fires a configurable inward shotgun."""
 
     def __init__(self, center, radius, angle, angular_speed=.35, fire_interval=1.7,
-                 pellet_count=5, spread=.72, owner="beaudis_portal", color=None,
+                 pellet_count=5, spread=.72, owner="dissonance_portal", color=None,
                  polarity=1, movement_path="orbit"):
         self.orbitCenter = center
         self.radius = radius
@@ -317,7 +317,7 @@ class ProjectilePortal:
         if self.phaseDisabled:
             pygame.draw.arc(screen, ui.MUTED, outer.inflate(9, 9), 0, 2 * pi, 3)
         # Aiming telegraphs intentionally stay hidden; portal-to-portal rune-cannon
-        # connections are drawn by Beaudis and remain as the formation's visual link.
+        # connections are drawn by Dissonance and remain as the formation's visual link.
 
     def orbitCenter_screen(self):
         return bG.world_to_screen(*self.orbitCenter)

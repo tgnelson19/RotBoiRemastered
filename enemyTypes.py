@@ -16,6 +16,7 @@ from enemy import Enemy, HitResult
 from enemyProjectile import EnemyProjectile
 import uiTheme as ui
 import variableHolster as vH
+from progression import enemy_stat_scales
 
 
 BASE_ENEMY_SPEED_SCALE = .66
@@ -787,7 +788,7 @@ class EnemyCatalog:
     def create(self, key, world_x, world_y, level, rng=None):
         rng = rng or random
         definition = self.definitions[key]
-        level_scale = 1.08 ** level
+        scales = enemy_stat_scales(level)
         variation = rng.uniform(.9, 1.12)
         difficulty = rng.uniform(.92, 1.25)
         size = vH.tileSizeGlobal * definition.size / variation
@@ -800,12 +801,12 @@ class EnemyCatalog:
             options["segment_count"] = min(8, 5 + level // 3)
         enemy = definition.enemy_class(
             world_x, world_y,
-            BASE_ENEMY_SPEED_SCALE * level_scale * definition.speed * variation,
+            BASE_ENEMY_SPEED_SCALE * scales["speed"] * definition.speed * variation,
             size,
             definition.color,
-            .9 * level_scale * definition.damage / variation,
-            2.2 * level_scale * definition.health / variation,
-            2.4 * level_scale * definition.experience * difficulty,
+            .9 * scales["damage"] * definition.damage / variation,
+            2.2 * scales["health"] * definition.health / variation,
+            2.4 * scales["experience"] * definition.experience * difficulty,
             difficulty,
             **options,
         )
@@ -835,47 +836,47 @@ def _register_defaults():
         EnemyDefinition("skirmisher", Enemy, 18, 0, 1.08, .82, .92, 1.18, 1.3, pygame.Color(68, 151, 142)),
         EnemyDefinition("bulwark", Enemy, 12, 0, .58, 1.18, 1.52, 2.65, 2.1, pygame.Color(200, 132, 56)),
         EnemyDefinition("ranged_wanderer", WanderingRangedEnemy, 10, 0, .62, .82, .85, 1.45, 1.7, pygame.Color(82, 126, 190)),
-        EnemyDefinition("shotgunner", ShotgunEnemy, 5, 0, .56, .96, 1.0, 2.0, 2.4, pygame.Color(188, 112, 61)),
-        EnemyDefinition("snake", SnakeEnemy, 3, 0, .92, .86, 1.15, 2.15, 5.2, pygame.Color(142, 83, 184)),
-        EnemyDefinition("parent", ParentEnemy, 4, 2, .54, 1.42, 1.15, 4.1, 5.8,
+        EnemyDefinition("shotgunner", ShotgunEnemy, 5, 3, .56, .96, 1.0, 2.0, 2.4, pygame.Color(188, 112, 61)),
+        EnemyDefinition("snake", SnakeEnemy, 3, 5, .92, .86, 1.15, 2.15, 5.2, pygame.Color(142, 83, 184)),
+        EnemyDefinition("parent", ParentEnemy, 4, 4, .54, 1.42, 1.15, 4.1, 5.8,
                         pygame.Color(126, 67, 146), threat_cost=3.0,
                         family="parent", max_active=2),
-        EnemyDefinition("pillar", PillarEnemy, 4, 2, 0, 1.12, 1.0, 3.2, 4.0,
+        EnemyDefinition("pillar", PillarEnemy, 4, 4, 0, 1.12, 1.0, 3.2, 4.0,
                         pygame.Color(89, 103, 126), threat_cost=4.0,
                         family="pillar", max_active=2),
         EnemyDefinition("volley_small", VolleyEnemy, 8, 0, .70, .74, .82, 1.2, 1.6,
                         pygame.Color(201, 139, 55), {"tier": "small"},
                         threat_cost=1.5, family="volley", max_active=5),
-        EnemyDefinition("volley_medium", VolleyEnemy, 5, 3, .55, .98, 1.05, 2.3, 3.0,
+        EnemyDefinition("volley_medium", VolleyEnemy, 5, 6, .55, .98, 1.05, 2.3, 3.0,
                         pygame.Color(191, 112, 47), {"tier": "medium"},
                         threat_cost=3.0, family="volley", max_active=5),
-        EnemyDefinition("volley_large", VolleyEnemy, 2, 6, .38, 1.32, 1.3, 4.3, 5.3,
+        EnemyDefinition("volley_large", VolleyEnemy, 2, 12, .38, 1.32, 1.3, 4.3, 5.3,
                         pygame.Color(164, 78, 47), {"tier": "large"},
                         threat_cost=5.0, family="volley", max_active=5),
-        EnemyDefinition("laser_small", LaserEnemy, 7, 1, .58, .72, .85, 1.25, 1.8,
+        EnemyDefinition("laser_small", LaserEnemy, 7, 2, .58, .72, .85, 1.25, 1.8,
                         pygame.Color(174, 63, 77), {"tier": "small"},
                         threat_cost=1.5, family="laser", max_active=2),
-        EnemyDefinition("laser_medium", LaserEnemy, 4, 4, .43, .98, 1.05, 2.4, 3.2,
+        EnemyDefinition("laser_medium", LaserEnemy, 4, 7, .43, .98, 1.05, 2.4, 3.2,
                         pygame.Color(153, 52, 84), {"tier": "medium"},
                         threat_cost=3.0, family="laser", max_active=2),
-        EnemyDefinition("laser_large", LaserEnemy, 2, 7, .28, 1.28, 1.25, 4.5, 5.4,
+        EnemyDefinition("laser_large", LaserEnemy, 2, 13, .28, 1.28, 1.25, 4.5, 5.4,
                         pygame.Color(126, 42, 84), {"tier": "large"},
                         threat_cost=5.0, family="laser", max_active=2),
-        EnemyDefinition("bomb_small", BombEnemy, 7, 1, .72, .7, .9, 1.3, 1.8,
+        EnemyDefinition("bomb_small", BombEnemy, 7, 2, .72, .7, .9, 1.3, 1.8,
                         pygame.Color(190, 147, 57), {"tier": "small"},
                         threat_cost=1.5, family="bomb", max_active=4),
-        EnemyDefinition("bomb_medium", BombEnemy, 4, 4, .54, .96, 1.08, 2.5, 3.2,
+        EnemyDefinition("bomb_medium", BombEnemy, 4, 8, .54, .96, 1.08, 2.5, 3.2,
                         pygame.Color(180, 112, 52), {"tier": "medium"},
                         threat_cost=3.0, family="bomb", max_active=4),
-        EnemyDefinition("bomb_large", BombEnemy, 2, 7, .34, 1.3, 1.3, 4.6, 5.5,
+        EnemyDefinition("bomb_large", BombEnemy, 2, 14, .34, 1.3, 1.3, 4.6, 5.5,
                         pygame.Color(156, 78, 49), {"tier": "large"},
                         threat_cost=5.0, family="bomb", max_active=4),
-        EnemyDefinition("miniboss_arsenal", ArsenalMiniBoss, .7, 4, .34, 1.75, 1.45, 10.0, 15.0,
+        EnemyDefinition("miniboss_arsenal", ArsenalMiniBoss, .7, 5, .34, 1.75, 1.45, 10.0, 15.0,
                         pygame.Color(84, 72, 118),
                         {"phase_order": ("volley", "laser", "bomb")},
                         threat_cost=12.0, family="miniboss", max_active=1,
                         guaranteed_only=True),
-        EnemyDefinition("miniboss_siege", ArsenalMiniBoss, .7, 7, .3, 1.85, 1.55, 11.0, 16.0,
+        EnemyDefinition("miniboss_siege", ArsenalMiniBoss, .7, 15, .3, 1.85, 1.55, 11.0, 16.0,
                         pygame.Color(78, 91, 112),
                         {"phase_order": ("bomb", "volley", "laser")},
                         threat_cost=13.0, family="miniboss", max_active=1,

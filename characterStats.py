@@ -58,14 +58,14 @@ critDamage = 2
 
 aura = 80
 auraSpeed = 2
-levelMod = 1.1
+levelMod = 1.04
 xpMult = 1
 currentLevel = 0
 pendingLevelUps = 0
 expCount = 0
-expNeededForNextLevel = 50
-baseExpNeededForNextLevel = 50
-levelScaleIncreaseFunction = 1.2
+expNeededForNextLevel = 40
+baseExpNeededForNextLevel = 40
+levelScaleIncreaseFunction = 1.15
 
 healthPoints = 10
 maxHealthPoints = 10
@@ -101,6 +101,9 @@ activeBoss = None
 bossDebugRequested = False
 bossDebugInvincible = False
 beaudisEncounterStarted = False
+beaudisDefeated = False
+dissonanceEncounterStarted = False
+gameCompleted = False
 guaranteedMiniBossesSpawned = set()
 enemySpawningEnabled = True
 

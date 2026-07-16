@@ -14,6 +14,8 @@ from random import randint
 import upgrades
 import uiTheme as ui
 from spatialHash import SpatialHash
+from progression import (FINAL_BOSS_LEVEL, MAX_LEVEL, MID_BOSS_LEVEL,
+                         MINIBOSS_GATES, encounter_caps)
 
 # helper functions for repeated game calculations
 
@@ -85,19 +87,23 @@ def resetAllStats():
 
     cS.aura = 50
     cS.auraSpeed = 2
-    cS.levelMod = 1.08
+    # Twenty applications reach approximately the old ten-level spawn cadence.
+    cS.levelMod = 1.04
     cS.xpMult = 1
     cS.currentLevel = 0
     cS.pendingLevelUps = 0
     cS.expCount = 0
     cS.expNeededForNextLevel = 40
     cS.baseExpNeededForNextLevel = 40
-    cS.levelScaleIncreaseFunction = 1.25
+    cS.levelScaleIncreaseFunction = 1.15
 
     cS.healthPoints = 10
     cS.maxHealthPoints = 10
     cS.defense = 0
     cS.currEnemyCount = 0
+    cS.enemyCap = 50
+    cS.enemyThreatCap = 36.0
+    cS.enemyPopulationThreatCap = 60.0
     cS.playerInvulnerabilityTimer = 0
     cS.playerInvulnerabilityMax = vH.frameRate * 0.55
     cS.gracePeriod = vH.frameRate * 1.25
@@ -129,6 +135,9 @@ def resetAllStats():
     cS.bossDebugRequested = False
     cS.bossDebugInvincible = False
     cS.beaudisEncounterStarted = False
+    cS.beaudisDefeated = False
+    cS.dissonanceEncounterStarted = False
+    cS.gameCompleted = False
     cS.guaranteedMiniBossesSpawned = set()
     cS.enemySpawningEnabled = True
 
@@ -322,27 +331,40 @@ def handlingBulletUpdating():
 
 def handlingEnemyCreation():
     natural_beaudis_requested = (
-        cS.currentLevel >= 10
+        cS.currentLevel >= MID_BOSS_LEVEL
         and not cS.beaudisEncounterStarted
         and cS.activeBoss is None
     )
-    if cS.bossDebugRequested or natural_beaudis_requested:
-        if natural_beaudis_requested and not cS.bossDebugRequested:
+    natural_dissonance_requested = (
+        cS.currentLevel >= FINAL_BOSS_LEVEL
+        and cS.beaudisDefeated
+        and not cS.dissonanceEncounterStarted
+        and cS.activeBoss is None
+    )
+    if cS.bossDebugRequested or natural_beaudis_requested or natural_dissonance_requested:
+        natural_encounter = not cS.bossDebugRequested
+        if natural_beaudis_requested and natural_encounter:
             cS.beaudisEncounterStarted = True
+            boss_key = "beaudis"
+        else:
+            boss_key = "dissonance"
+            if natural_dissonance_requested and natural_encounter:
+                cS.dissonanceEncounterStarted = True
         cS.enemyHolster.clear()
         cS.enemyProjectileHolster.clear()
         cS.damageTextList.clear()
         cS.experienceList.clear()
-        boss = BOSS_CATALOG.spawn("beaudis")
-        arena_x, arena_y = boss._arena_center()
-        boss.worldX, boss.worldY = arena_x - boss.size / 2, arena_y - boss.size / 2
-        boss.posX, boss.posY = bG.world_to_screen(boss.worldX, boss.worldY)
-        player_rect = bG.find_nearest_open_rect(
-            pg.Rect(arena_x - cS.playerSize / 2,
-                    arena_y + vH.tileSizeGlobal * 9.6 - cS.playerSize / 2,
-                    cS.playerSize, cS.playerSize), cS.playerSize,
-        )
-        bG.playerPosX, bG.playerPosY = player_rect.x, player_rect.y
+        boss = BOSS_CATALOG.spawn(boss_key)
+        if boss_key == "dissonance":
+            arena_x, arena_y = boss._arena_center()
+            boss.worldX, boss.worldY = arena_x - boss.size / 2, arena_y - boss.size / 2
+            boss.posX, boss.posY = bG.world_to_screen(boss.worldX, boss.worldY)
+            player_rect = bG.find_nearest_open_rect(
+                pg.Rect(arena_x - cS.playerSize / 2,
+                        arena_y + vH.tileSizeGlobal * 9.6 - cS.playerSize / 2,
+                        cS.playerSize, cS.playerSize), cS.playerSize,
+            )
+            bG.playerPosX, bG.playerPosY = player_rect.x, player_rect.y
         cS.enemyHolster.append(boss)
         cS.activeBoss = boss
         # Boss practice now respects the normal damage rules unless the player
@@ -357,14 +379,15 @@ def handlingEnemyCreation():
     if not cS.enemySpawningEnabled:
         return
 
+    caps = encounter_caps(cS.currentLevel)
+    cS.enemyCap = caps["enemy_cap"]
+    cS.enemyThreatCap = caps["threat_cap"]
+    cS.enemyPopulationThreatCap = caps["population_threat_cap"]
+
     # Mini-bosses enter the ordinary world once per run. They do not clear the
     # map, reposition the player, disable spawning, or create a boss arena, so a
     # player who never explores toward them can leave them behind.
-    guaranteed_minibosses = (
-        (4, "miniboss_arsenal"),
-        (7, "miniboss_siege"),
-    )
-    for unlock_level, key in guaranteed_minibosses:
+    for unlock_level, key in MINIBOSS_GATES:
         if (cS.currentLevel >= unlock_level
                 and key not in cS.guaranteedMiniBossesSpawned
                 and len(cS.enemyHolster) < cS.enemyCap):
@@ -384,7 +407,11 @@ def handlingEnemyCreation():
         batch_size = 1
         if randint(1, 100) <= 55:
             batch_size += 1
-        if cS.currentLevel >= 4 and randint(1, 100) <= 35:
+        if cS.currentLevel >= 6 and randint(1, 100) <= 35:
+            batch_size += 1
+        if cS.currentLevel >= 12 and randint(1, 100) <= 40:
+            batch_size += 1
+        if cS.currentLevel >= 17 and randint(1, 100) <= 30:
             batch_size += 1
 
         for _ in range(min(batch_size, cS.enemyCap - len(cS.enemyHolster))):
@@ -417,7 +444,7 @@ def handlingBossDebugControls():
     if pg.K_f in vH.keyPressed and not boss.isStaggered:
         boss.stagger = boss.maxStagger - boss.minimumStaggerPerHit
         boss.take_damage(1)
-    if pg.K_c in vH.keyPressed:
+    if pg.K_c in vH.keyPressed and hasattr(boss, "runeCannonCooldown"):
         boss.runeCannonCooldown = 0
 
 def handlingEnemyUpdatesAndDrawing():
@@ -561,13 +588,17 @@ def handlingDamagingEnemies():
             enemy.difficulty, vH.frameRate, celebration=enemy is cS.activeBoss,
         ))
         if enemy is cS.activeBoss:
+            if getattr(enemy, "bossName", "") == "BEAUDIS":
+                cS.beaudisDefeated = True
+            elif getattr(enemy, "bossName", "") == "DISSONANCE":
+                cS.gameCompleted = True
             cS.activeBoss = None
-            cS.enemySpawningEnabled = True
+            cS.enemySpawningEnabled = not cS.gameCompleted
             vH.screenShakeX = 0
             vH.screenShakeY = 0
             cS.enemyProjectileHolster[:] = [
                 projectile for projectile in cS.enemyProjectileHolster
-                if not str(projectile.owner or "").startswith("beaudis")
+                if not str(projectile.owner or "").startswith(("beaudis", "dissonance"))
             ]
     if dead_enemies:
         cS.enemyHolster[:] = [enemy for enemy in cS.enemyHolster if enemy not in dead_enemies]
@@ -593,7 +624,8 @@ def expForPlayer():
         if player_rect.colliderect(bubble_rect):
             cS.expCount += bubble.value
 
-            while cS.expCount >= cS.expNeededForNextLevel:
+            while (cS.currentLevel < MAX_LEVEL
+                   and cS.expCount >= cS.expNeededForNextLevel):
                 cS.currentLevel += 1
                 cS.pendingLevelUps += 1
                 cS.expCount -= cS.expNeededForNextLevel
@@ -602,6 +634,8 @@ def expForPlayer():
                 cS.healthPoints = cS.maxHealthPoints
                 cS.enemyOneInFramesChance /= cS.levelMod
                 vH.state = vH.States.LEVELING
+            if cS.currentLevel >= MAX_LEVEL:
+                cS.expCount = min(cS.expCount, cS.expNeededForNextLevel)
                 
             cS.experienceList.remove(bubble)
             continue
@@ -686,7 +720,22 @@ def drawInformationSheet():
         pg.draw.line(vH.screen, color, (center[0], center[1] - gap - length), (center[0], center[1] - gap), 2)
         pg.draw.line(vH.screen, color, (center[0], center[1] + gap), (center[0], center[1] + gap + length), 2)
     drawBossHealthBar()
+    drawRunCompleteBanner()
     cS.informationSheet.drawSheet()
+
+
+def drawRunCompleteBanner():
+    if not cS.gameCompleted:
+        return
+    scale = ui.display_scale(vH.screen)
+    arena_width = vH.sW * .75
+    width = min(arena_width * .58, 680 * scale)
+    rect = pg.Rect((arena_width - width) / 2, 22 * scale, width, 76 * scale)
+    ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=7)
+    ui.draw_text(vH.screen, "DISSONANCE ENDED", 24 * scale, ui.CREAM,
+                 (rect.centerx, rect.y + 10 * scale), "midtop")
+    ui.draw_text(vH.screen, "LEVEL 20 // RUN COMPLETE", 11 * scale, ui.PURPLE,
+                 (rect.centerx, rect.bottom - 12 * scale), "midbottom")
 
 
 def drawBossHealthBar():

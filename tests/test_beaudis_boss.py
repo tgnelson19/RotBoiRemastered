@@ -6,7 +6,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import background as bG
-from bossTypes import BOSS_CATALOG, Beaudis
+from bossTypes import BOSS_CATALOG, Beaudis, Dissonance
 import character as game
 import characterStats as cS
 from enemyTypes import ArsenalMiniBoss, ENEMY_CATALOG
@@ -16,7 +16,7 @@ import uiTheme as ui
 import variableHolster as vH
 
 
-class BeaudisBossTests(unittest.TestCase):
+class DissonanceBossTests(unittest.TestCase):
     def setUp(self):
         self.frame_rate = vH.frameRate
         self.has_delta = vH.hasFrameDelta
@@ -25,7 +25,7 @@ class BeaudisBossTests(unittest.TestCase):
         center_x = len(bG.currRoomRects[0]) * vH.tileSizeGlobal / 2
         center_y = len(bG.currRoomRects) * vH.tileSizeGlobal / 2
         size = vH.tileSizeGlobal * 1.9
-        self.boss = Beaudis(center_x - size / 2, center_y - size / 2, random.Random(5))
+        self.boss = Dissonance(center_x - size / 2, center_y - size / 2, random.Random(5))
         self.boss.entranceRemaining = 0
         self.boss.cinematicTransitionsEnabled = False
 
@@ -35,9 +35,9 @@ class BeaudisBossTests(unittest.TestCase):
         vH.screenShakeX = 0
         vH.screenShakeY = 0
 
-    def test_boss_health_and_stagger_match_level_ten_balance_target(self):
-        self.assertEqual(self.boss.maxHp, 480)
-        self.assertEqual(self.boss.maxStagger / self.boss.minimumStaggerPerHit, 40)
+    def test_boss_health_and_stagger_match_level_twenty_balance_target(self):
+        self.assertEqual(self.boss.maxHp, 1350)
+        self.assertEqual(self.boss.maxStagger / self.boss.minimumStaggerPerHit, 60)
 
     def test_initial_phase_uses_bolster_dialogue(self):
         self.assertEqual(self.boss.phaseLabel, "BOLSTER")
@@ -59,7 +59,7 @@ class BeaudisBossTests(unittest.TestCase):
             self.assertEqual(tuple(self.boss.PHASE_MOVEMENT[p] for p in phases),
                              expected[act])
 
-    def test_standard_beaudis_shots_cross_the_full_arena(self):
+    def test_standard_dissonance_shots_cross_the_full_arena(self):
         portal = self.boss.projectilePortals[0]
         portal.fireCooldown = 0
         shots = []
@@ -137,7 +137,7 @@ class BeaudisBossTests(unittest.TestCase):
 
     def test_each_act_ends_with_shorter_survival_and_finale_lasts_thirty_seconds(self):
         for phase in self.boss.SURVIVAL_PHASES:
-            boss = Beaudis(*self.boss._center(), random.Random(4))
+            boss = Dissonance(*self.boss._center(), random.Random(4))
             boss.entranceRemaining = 0
             boss.cinematicTransitionsEnabled = False
             boss.debug_set_phase(phase)
@@ -214,9 +214,9 @@ class BeaudisBossTests(unittest.TestCase):
         self.boss._update_special_attacks(*self.boss._center(), shots, .1)
         owners = {shot.owner for shot in shots}
         self.assertTrue(any("boundary_tangent" in owner for owner in owners))
-        self.assertIn("beaudis_rune_laser", owners)
-        self.assertIn("beaudis_rune_bomb", owners)
-        self.assertIn("beaudis_speed_burst", owners)
+        self.assertIn("dissonance_rune_laser", owners)
+        self.assertIn("dissonance_rune_bomb", owners)
+        self.assertIn("dissonance_speed_burst", owners)
 
     def test_phase_transition_resets_and_locks_stagger(self):
         self.boss.stagger = 75
@@ -249,7 +249,7 @@ class BeaudisBossTests(unittest.TestCase):
     def test_laser_telegraphs_then_becomes_persistent_hazard(self):
         laser = EnemyProjectile(100, 100, 0, 0, 2, 20, travel_range=300,
                                 path="laser", shape="laser", lifetime=4,
-                                owner="beaudis_rune_laser")
+                                owner="dissonance_rune_laser")
         player = __import__("pygame").Rect(180, 95, 20, 20)
         laser.age = .9
         self.assertFalse(laser.collides(player))
@@ -259,7 +259,7 @@ class BeaudisBossTests(unittest.TestCase):
 
     def test_bomb_waits_then_emits_octagonal_burst(self):
         bomb = EnemyProjectile(100, 100, 0, 0, 1, 30, path="bomb", shape="bomb",
-                               lifetime=3, target=(200, 200), owner="beaudis_rune_bomb")
+                               lifetime=3, target=(200, 200), owner="dissonance_rune_bomb")
         bomb.age = 3.0
         bomb.updateAndDraw(__import__("pygame").Surface((800, 600)))
         self.assertTrue(bomb.remFlag)
@@ -281,8 +281,8 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.stagger,
                          starting_stagger - self.boss.staggerDecayPerSecond * .25)
 
-    def test_base_player_hits_require_forty_hits_without_immediate_phase_swap(self):
-        for _ in range(39):
+    def test_base_player_hits_require_sixty_hits_without_immediate_phase_swap(self):
+        for _ in range(59):
             self.boss.take_damage(1)
         self.assertFalse(self.boss.isStaggered)
         self.boss.take_damage(1)
@@ -291,7 +291,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.staggerRemaining, 5)
 
     def test_full_stagger_opens_temporary_damage_window_and_stops_attacks(self):
-        for _ in range(40):
+        for _ in range(60):
             self.boss.take_damage(1)
         self.assertTrue(self.boss.isStaggered)
         self.assertTrue(self.boss.transitionCleanupRequested)
@@ -420,7 +420,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertTrue(mines)
         self.assertTrue(sine_fan)
         self.assertEqual(mines[0].speed, .9)
-        self.assertTrue(all(mine.owner == "beaudis_portal_mine" for mine in mines))
+        self.assertTrue(all(mine.owner == "dissonance_portal_mine" for mine in mines))
         self.assertEqual(len(sine_fan), 6)
         self.assertTrue(all(projectile.speed <= .45 for projectile in sine_fan))
         self.assertLessEqual(max(projectile.amplitude for projectile in sine_fan),
@@ -438,7 +438,7 @@ class BeaudisBossTests(unittest.TestCase):
         portal.update(projectiles, .1)
         self.assertNotEqual(portal.angle, old_angle)
         self.assertEqual(len(projectiles), 7)
-        self.assertTrue(all(shot.owner == "beaudis_portal_shot" for shot in projectiles))
+        self.assertTrue(all(shot.owner == "dissonance_portal_shot" for shot in projectiles))
 
     def test_phase_transition_sets_flavor_announcement_and_red_portal_hexagon(self):
         self.boss.debug_set_phase(4)
@@ -446,7 +446,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.phaseFlavor, "Your pulse betrays you.")
         self.assertGreater(self.boss.phaseAnnouncementTimer, 0)
         self.assertEqual(len(self.boss.projectilePortals), 4)
-        self.assertTrue(all(portal.owner == "beaudis_static"
+        self.assertTrue(all(portal.owner == "dissonance_static"
                             for portal in self.boss.projectilePortals))
 
     def test_red_static_transitions_at_two_thirds_and_emits_radial_pattern(self):
@@ -458,16 +458,16 @@ class BeaudisBossTests(unittest.TestCase):
         projectiles = []
         self.boss.updateEnemy(*self.boss._center(), projectiles)
         self.assertEqual(len([shot for shot in projectiles
-                              if shot.owner == "beaudis_static_chord"]), 10)
+                              if shot.owner == "dissonance_static_chord"]), 10)
         self.assertEqual(len([shot for shot in projectiles
-                              if shot.owner == "beaudis_static_sine"]), 6)
+                              if shot.owner == "dissonance_static_sine"]), 6)
 
     def test_phase_three_builds_rotating_diamond_field(self):
         self.boss.debug_set_phase(7)
         projectiles = []
         self.boss.updateEnemy(*self.boss._center(), projectiles)
         self.assertEqual(self.boss.phase, 7)
-        field = [projectile for projectile in projectiles if projectile.owner == "beaudis_field"]
+        field = [projectile for projectile in projectiles if projectile.owner == "dissonance_field"]
         self.assertGreaterEqual(len(field), 30)
         self.assertTrue(all(projectile.path == "orbit" for projectile in field))
         self.assertEqual(len({projectile.angularSpeed for projectile in field}), 4)
@@ -489,16 +489,16 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.phase, 6)
         self.boss.relayCooldown = 0
         self.boss._phase_portal_relay(*self.boss._center(), transfer, .1)
-        self.assertTrue(any(shot.owner == "beaudis_relay_transfer" for shot in transfer))
+        self.assertTrue(any(shot.owner == "dissonance_relay_transfer" for shot in transfer))
         redirected = []
         self.boss._phase_portal_relay(*self.boss._center(), redirected, .5)
         self.assertEqual(len([shot for shot in redirected
-                              if shot.owner == "beaudis_relay_redirect"]), 5)
+                              if shot.owner == "dissonance_relay_redirect"]), 5)
 
     def test_health_gates_unlock_only_each_acts_survival_phase(self):
         samples = ((1, 2 / 3, 3), (4, 1 / 3, 6), (7, 0, 9))
         for phase, ratio, expected in samples:
-            boss = Beaudis(*self.boss._center(), random.Random(5))
+            boss = Dissonance(*self.boss._center(), random.Random(5))
             boss.entranceRemaining = 0
             boss.debug_set_phase(phase)
             boss.transitionRemaining = 0
@@ -549,7 +549,7 @@ class BeaudisBossTests(unittest.TestCase):
         shots = []
         self.boss.updateEnemy(*self.boss._center(), shots)
         self.assertEqual(self.boss.phase, 2)
-        self.assertEqual(len([shot for shot in shots if shot.owner == "beaudis_portal_carousel"]), 6)
+        self.assertEqual(len([shot for shot in shots if shot.owner == "dissonance_portal_carousel"]), 6)
 
     def test_mirror_step_leaves_bursts_at_both_positions(self):
         self.boss.debug_set_phase(5)
@@ -561,9 +561,9 @@ class BeaudisBossTests(unittest.TestCase):
                                      self.boss.mirrorJumpDuration)
         self.assertEqual(self.boss.phase, 5)
         self.assertEqual(len([shot for shot in shots
-                              if shot.owner == "beaudis_mirror_portal_afterimage"]), 10)
+                              if shot.owner == "dissonance_mirror_portal_afterimage"]), 10)
         self.assertEqual(len([shot for shot in shots
-                              if shot.owner == "beaudis_mirror_portal_landing_echo"]), 10)
+                              if shot.owner == "dissonance_mirror_portal_landing_echo"]), 10)
 
     def test_event_horizon_fires_from_opposite_field_points(self):
         self.boss.debug_set_phase(8)
@@ -572,12 +572,12 @@ class BeaudisBossTests(unittest.TestCase):
         self.boss.updateEnemy(*self.boss._center(), shots)
         self.assertEqual(self.boss.phase, 8)
         self.assertEqual(len([shot for shot in shots
-                              if shot.owner == "beaudis_constellation_horizon"]), 10)
+                              if shot.owner == "dissonance_constellation_horizon"]), 10)
 
     def test_every_phase_uses_live_portals_as_projectile_sources(self):
         ratios = (.95, .83, .72, .61, .50, .38, .28, .17, .05)
         for ratio in ratios:
-            boss = Beaudis(*self.boss._center(), random.Random(5))
+            boss = Dissonance(*self.boss._center(), random.Random(5))
             boss.hp = boss.maxHp * ratio
             boss.updateEnemy(*boss._center(), [])
             self.assertGreaterEqual(len(boss.projectilePortals), 2,
@@ -611,6 +611,7 @@ class BeaudisBossTests(unittest.TestCase):
         __import__("main").update_input_toggles()
         self.assertTrue(cS.bossDebugRequested)
         self.assertFalse(cS.beaudisEncounterStarted)
+        self.assertFalse(cS.beaudisDefeated)
         vH.keyPressed = set()
 
     def test_last_word_cycles_callbacks_from_earlier_portal_phases(self):
@@ -622,16 +623,16 @@ class BeaudisBossTests(unittest.TestCase):
             shots = []
             self.boss._phase_last_word(*self.boss._center(), shots, .1)
             owners.update(shot.owner for shot in shots if "callback" in str(shot.owner))
-        self.assertIn("beaudis_last_word_callback_carousel", owners)
-        self.assertIn("beaudis_last_word_callback_chord", owners)
-        self.assertIn("beaudis_last_word_callback_relay", owners)
+        self.assertIn("dissonance_last_word_callback_carousel", owners)
+        self.assertIn("dissonance_last_word_callback_chord", owners)
+        self.assertIn("dissonance_last_word_callback_relay", owners)
 
     def test_debug_request_clears_arena_and_disables_regular_spawning(self):
         game.resetAllStats()
         cS.enemyHolster.append(ENEMY_CATALOG.spawn(0, key="runner"))
         cS.bossDebugRequested = True
         game.handlingEnemyCreation()
-        self.assertIsInstance(cS.activeBoss, Beaudis)
+        self.assertIsInstance(cS.activeBoss, Dissonance)
         self.assertEqual(cS.enemyHolster, [cS.activeBoss])
         self.assertFalse(cS.enemySpawningEnabled)
         self.assertFalse(cS.bossDebugInvincible)
@@ -654,7 +655,7 @@ class BeaudisBossTests(unittest.TestCase):
         game.handlingEnemyCreation()
         self.assertIsNone(cS.activeBoss)
 
-    def test_minibosses_spawn_once_in_the_world_at_levels_four_and_seven(self):
+    def test_minibosses_spawn_once_in_each_half_at_levels_five_and_fifteen(self):
         game.resetAllStats()
         cS.enemySpawnTimer = 999999
         starting_player_position = (bG.playerPosX, bG.playerPosY)
@@ -664,7 +665,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertFalse(any(isinstance(enemy, ArsenalMiniBoss)
                              for enemy in cS.enemyHolster))
 
-        cS.currentLevel = 4
+        cS.currentLevel = 5
         game.handlingEnemyCreation()
         minibosses = [enemy for enemy in cS.enemyHolster
                       if isinstance(enemy, ArsenalMiniBoss)]
@@ -680,13 +681,16 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(len([enemy for enemy in cS.enemyHolster
                               if isinstance(enemy, ArsenalMiniBoss)]), 1)
 
-        cS.currentLevel = 7
+        cS.beaudisEncounterStarted = True
+        cS.beaudisDefeated = True
+        cS.currentLevel = 15
         game.handlingEnemyCreation()
         self.assertEqual(len([enemy for enemy in cS.enemyHolster
                               if isinstance(enemy, ArsenalMiniBoss)]), 2)
         self.assertEqual(cS.guaranteedMiniBossesSpawned,
                          {"miniboss_arsenal", "miniboss_siege"})
-        self.assertFalse(cS.beaudisEncounterStarted)
+        self.assertTrue(cS.beaudisEncounterStarted)
+        self.assertTrue(cS.beaudisDefeated)
 
     def test_debug_invincibility_prevents_damage(self):
         game.resetAllStats()

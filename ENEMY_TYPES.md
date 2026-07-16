@@ -51,29 +51,29 @@ rendering, and player damage are handled centrally.
 
 - `WanderingRangedEnemy`: wanders outside awareness range, approaches cautiously,
   and fires aimed diamond projectiles once in attack range.
-- `ShotgunEnemy`: uses the same readable range states but fires four to seven pellets
+- `ShotgunEnemy` (level 3): uses the same readable range states but fires four to seven pellets
   with per-pellet spread, size, speed, damage, and travel variation.
-- `SnakeEnemy`: a weaving composite enemy with independently destructible segments.
+- `SnakeEnemy` (level 5): a weaving composite enemy with independently destructible segments.
   Remaining segments close their spacing automatically. Its shielded head rejects
   damage until every segment has been destroyed, then becomes the final target.
-- `ParentEnemy` (level 2, cost 3): fires three-shot slow heavy bursts. Crossing
+- `ParentEnemy` (level 4, cost 3): fires three-shot slow heavy bursts. Crossing
   70%, 40%, and 15% health queues two cost-.5 `ChildEnemy` chasers. The arena
   admits queued children only when both population limits have room.
-- `PillarEnemy` (level 2, cost 4, maximum 2): telegraphs a destination for .7
+- `PillarEnemy` (level 4, cost 4, maximum 2): telegraphs a destination for .7
   seconds, lands at least four tiles from the player, pauses for one second, then
   fires six four-way volleys alternating cardinal and diagonal directions.
-- `VolleyEnemy`: small/medium/large tiers unlock at levels 0/3/6 and cost 1.5/3/5.
+- `VolleyEnemy`: small/medium/large tiers unlock at levels 0/6/12 and cost 1.5/3/5.
   Higher tiers add pellets, spread, charge time, and recovery while lowering each
   pellet's fraction of base damage.
-- `LaserEnemy`: small/medium/large tiers unlock at levels 1/4/7 and cost 1.5/3/5.
+- `LaserEnemy`: small/medium/large tiers unlock at levels 2/7/13 and cost 1.5/3/5.
   Beams cannot damage during their telegraph. Medium beams sweep; large enemies
   cast two opposing sweeping rays. No more than two laser enemies spawn together.
-- `BombEnemy`: small/medium/large tiers unlock at levels 1/4/7 and cost 1.5/3/5.
+- `BombEnemy`: small/medium/large tiers unlock at levels 2/8/14 and cost 1.5/3/5.
   Bombs are harmless while travelling and arming, display their true damage
   radius, and briefly expose that radius on detonation. Large enemies deploy three
   separated zones, and all bomb enemies retreat after attacking.
 - `ArsenalMiniBoss`: two variants are placed into the ordinary world once per run
-  at levels 4 and 7, cost 12 and 13, and share volley/laser/bomb phases in different
+  at levels 5 and 15, cost 12 and 13, and share volley/laser/bomb phases in different
   orders. They are excluded from weighted random spawning. Neither creates an arena,
   moves the player, nor pauses normal spawning, so an unexplored mini-boss can be
   skipped. Their initial placement is beyond the normal disengagement radius.
@@ -84,9 +84,9 @@ rendering, and player damage are handled centrally.
 
 The arena uses three complementary controls:
 
-- 50 physical enemy bodies.
-- 60 total population-threat points, including dormant enemies.
-- 36 active-pressure points, assigned closest-first while retaining already
+- 50 physical enemy bodies, rising to 60 from levels 11–20.
+- 60 total population-threat points, rising to 78 in the second half.
+- 36 active-pressure points, rising to 48 and assigned closest-first while retaining already
   alerted enemies where practical.
 
 Every regular enemy uses a shared awareness radius equal to half the viewport

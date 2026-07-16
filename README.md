@@ -12,8 +12,9 @@ upgrade cards that shape each run into a focused build.
 - `I`: toggle autofire
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
-- `B`: hidden debug shortcut that clears the arena and summons Beaudis
-- `I`: toggle player damage during the Beaudis debug encounter
+- `B`: hidden debug shortcut that clears the arena and summons Dissonance
+- `I`: toggle autofire during a run
+- `Y`: toggle player invincibility during boss practice
 - `Escape`: quit
 
 ## Run locally
