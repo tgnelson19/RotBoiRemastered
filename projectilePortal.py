@@ -31,6 +31,10 @@ class ProjectilePortal:
         self.size = vH.tileSizeGlobal * .9
         self.maxHp = 6.0
         self.hp = self.maxHp
+        self.hitsTaken = 0
+        self.hitsToDisable = 3
+        self.phaseDisabled = False
+        self.runeStrokes = ()
         self.disabledRemaining = 0.0
         self.regenerationTime = 5.0
         self.trail = []
@@ -41,6 +45,7 @@ class ProjectilePortal:
         self.worldX = 0.0
         self.worldY = 0.0
         self.remFlag = False
+        self.burstQueue = []
         self._place()
 
     def _place(self):
@@ -76,13 +81,26 @@ class ProjectilePortal:
     def active(self):
         return not self.remFlag and self.disabledRemaining <= 0
 
+    @property
+    def blocks_shots(self):
+        return self.active and not self.phaseDisabled
+
+    def reset_for_phase(self, rune_strokes=()):
+        """Restore interception and full firepower for a newly started phase."""
+        self.hitsTaken = 0
+        self.phaseDisabled = False
+        self.disabledRemaining = 0.0
+        self.hp = self.maxHp
+        self.runeStrokes = rune_strokes
+        self.burstQueue.clear()
+
     def take_damage(self, amount):
-        if not self.active:
+        if not self.blocks_shots:
             return False
-        self.hp -= amount
-        if self.hp <= 0:
-            self.hp = 0
-            self.disabledRemaining = self.regenerationTime
+        self.hitsTaken += 1
+        self.hp = self.maxHp * max(0, self.hitsToDisable - self.hitsTaken) / self.hitsToDisable
+        if self.hitsTaken >= self.hitsToDisable:
+            self.phaseDisabled = True
             return True
         return False
 
@@ -101,6 +119,7 @@ class ProjectilePortal:
             return
         self.angle += self.angularSpeed * dt
         self._place()
+        self.update_bursts(projectile_sink, dt)
         self.fireCooldown -= dt
         if self.fireCooldown > 0:
             if self.fireCooldown <= .32:
@@ -109,18 +128,70 @@ class ProjectilePortal:
                 self.telegraphTarget = self.orbitCenter
             return
 
+        # The standard portal shotgun is a three-beat phrase.  Each wave changes
+        # density, speed, and silhouette, making the volley readable as one attack.
+        self.fire_pattern_burst(
+            projectile_sink, self.orbitCenter,
+            ((self.pelletCount, self.spread, .92, .4),
+             (max(3, self.pelletCount - 2), self.spread * .72, 1.18, .42),
+             (self.pelletCount + 2, self.spread * 1.12, 1.42, .28)),
+            wave_interval=.14, owner_suffix="shot",
+        )
+        self.fireCooldown += self.fireInterval
+
+    def update_bursts(self, projectile_sink, dt):
+        """Advance queued follow-up waves without coupling them to portal movement."""
+        if not self.active:
+            return
+        remaining = []
+        for burst in self.burstQueue:
+            burst[0] -= dt
+            if burst[0] <= 0:
+                self._fire_wave(projectile_sink, *burst[1:])
+            else:
+                remaining.append(burst)
+        self.burstQueue = remaining
+
+    def _fire_wave(self, projectile_sink, target, pellet_count, spread, speed,
+                   size_scale, damage, color, owner_suffix, direction_offset=0):
+        if not self.active:
+            return
         portal_x, portal_y = self.worldX + self.size / 2, self.worldY + self.size / 2
-        inward = atan2(self.orbitCenter[1] - portal_y, self.orbitCenter[0] - portal_x)
-        for index in range(self.pelletCount):
-            offset = (index - (self.pelletCount - 1) / 2) * self.spread / max(1, self.pelletCount - 1)
-            shot_size = vH.tileSizeGlobal * .4
+        direction = atan2(target[1] - portal_y, target[0] - portal_x) + direction_offset
+        distance = ((target[0] - portal_x) ** 2 + (target[1] - portal_y) ** 2) ** .5
+        pellet_count = max(1, (pellet_count + 1) // 2) if self.phaseDisabled else pellet_count
+        for index in range(pellet_count):
+            offset = (index - (pellet_count - 1) / 2) * spread / max(1, pellet_count - 1)
+            shot_size = vH.tileSizeGlobal * size_scale
             projectile_sink.append(EnemyProjectile(
                 portal_x - shot_size / 2, portal_y - shot_size / 2,
-                inward + offset, 1.15, .85, shot_size,
-                travel_range=vH.tileSizeGlobal * 72, color=self.color,
-                shape="diamond", owner=f"{self.owner}_shot", ignore_walls=True,
+                direction + offset, speed, damage, shot_size,
+                travel_range=max(vH.tileSizeGlobal * 72, distance), color=color or self.color,
+                shape="diamond", owner=f"{self.owner}_{owner_suffix}", ignore_walls=True,
             ))
-        self.fireCooldown += self.fireInterval
+
+    def fire_pattern_burst(self, projectile_sink, target, waves,
+                           wave_interval=.13, damage=.85, color=None,
+                           owner_suffix="pattern_burst", direction_offset=0):
+        """Fire the first wave now and queue coordinated variable follow-ups.
+
+        Wave entries are ``(pellets, spread, speed, size_scale)``.  Keeping this
+        vocabulary on the emitter lets every phase reuse it without duplicating
+        timing machinery.
+        """
+        if not self.active or not waves:
+            return
+        self.telegraphTimer = .32
+        self.telegraphKind = "fan"
+        self.telegraphTarget = target
+        first, *followups = waves
+        self._fire_wave(projectile_sink, target, *first, damage, color,
+                        owner_suffix, direction_offset)
+        for index, wave in enumerate(followups, 1):
+            self.burstQueue.append([
+                wave_interval * index, target, *wave, damage, color,
+                owner_suffix, direction_offset,
+            ])
 
     def fire_toward(self, projectile_sink, target, pellet_count=None, spread=None,
                     speed=1.15, damage=.85, color=None, owner_suffix="shot"):
@@ -128,6 +199,8 @@ class ProjectilePortal:
         if not self.active:
             return
         pellet_count = pellet_count if pellet_count is not None else self.pelletCount
+        if self.phaseDisabled:
+            pellet_count = max(1, (pellet_count + 1) // 2)
         spread = spread if spread is not None else self.spread
         portal_x, portal_y = self.worldX + self.size / 2, self.worldY + self.size / 2
         direction = atan2(target[1] - portal_y, target[0] - portal_x)
@@ -151,7 +224,8 @@ class ProjectilePortal:
         portal_x, portal_y = self.worldX + self.size / 2, self.worldY + self.size / 2
         direction = atan2(target[1] - portal_y, target[0] - portal_x)
         speeds = (1.35, 1.05, .78, .52, .36)
-        for index in range(max(2, min(count, len(speeds)))):
+        count = max(1, (count + 1) // 2) if self.phaseDisabled else count
+        for index in range(max(1, min(count, len(speeds)))):
             shot_size = vH.tileSizeGlobal * (.34 + index * .035)
             projectile_sink.append(EnemyProjectile(
                 portal_x - shot_size / 2, portal_y - shot_size / 2,
@@ -192,6 +266,14 @@ class ProjectilePortal:
                             start, start + pi * 1.25, 2)
         inner = outer.inflate(-self.size * .36, -self.size * .36)
         pygame.draw.ellipse(screen, ui.VOID, inner)
+        if self.runeStrokes:
+            rune_scale = inner.width * .34
+            for stroke in self.runeStrokes:
+                points = [(inner.centerx + x * rune_scale,
+                           inner.centery + y * rune_scale) for x, y in stroke]
+                if len(points) > 1:
+                    pygame.draw.lines(screen, ui.INK, False, points, 4)
+                    pygame.draw.lines(screen, ui.CREAM, False, points, 2)
         if self.telegraphTimer > 0:
             # A compact charge halo communicates imminent fire without painting
             # additional aiming lanes over an already dense bullet field.
@@ -232,6 +314,8 @@ class ProjectilePortal:
         hp_ratio = max(0.0, self.hp / self.maxHp)
         pygame.draw.arc(screen, ui.CREAM, outer.inflate(5, 5), -pi / 2,
                         -pi / 2 + 2 * pi * hp_ratio, 2)
+        if self.phaseDisabled:
+            pygame.draw.arc(screen, ui.MUTED, outer.inflate(9, 9), 0, 2 * pi, 3)
         # Aiming telegraphs intentionally stay hidden; portal-to-portal rune-cannon
         # connections are drawn by Beaudis and remain as the formation's visual link.
 

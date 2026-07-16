@@ -80,11 +80,12 @@ the sense that every formation is actively channeling power into the rune machin
 
 ### Portal counterplay and rune interrupts
 
-Portals are targetable through the boss's composite hitbox. Each has 6 HP; breaking
-one disables its movement and firing for 5 seconds, grants 12 boss stagger, and shows
-a visible repair ring before it reforms. Active portals show integrity rings, retain
-motion trails, and use charge rings or targeting lines to communicate incoming fans,
-shotguns, and directed attacks.
+Portals are targetable through the boss's composite hitbox. Three hits disable a
+portal for the rest of the current phase: player shots then pass through it, while its
+volleys contain roughly half as many projectiles. Portal hits do not add boss stagger.
+Every phase restores all portals to full interception and firepower. Each portal carries
+the current phase's line-drawn rune in its core, retains its motion trail, and uses
+charge rings or targeting lines to communicate incoming attacks.
 
 For 0.75 seconds after phases 2-9 begin, hits also disrupt the newly forming rune and
 grant 50% bonus stagger. Building 18 disruption during that window breaks the rune,
@@ -118,17 +119,19 @@ boss-loot screen.
 The fight has three acts, each divided into three equal health bands:
 
 Every phase also has an 18-second enrage limit. If the player has not dealt enough
-damage to cross the next health threshold before that limit, Beaudis advances to the
-next phase automatically. Timed advances are one-way; later health checks cannot
-return the encounter to an earlier phase.
+Each damage phase lasts up to 36 seconds. When its timer expires, Beaudis swaps to
+the other damage phase in the current act: 1/2, 4/5, or 7/8. Those pairs repeat until
+HP reaches 2/3, 1/3, and zero respectively. Only those health gates unlock survival
+phases 3, 6, and 9; timers can never enter or skip a survival phase.
 
 ## Stagger and damage windows
 
-Beaudis blocks direct HP damage outside of stagger. Each player hit adds at least 4
-stagger, or 5 stagger per point of incoming damage, to a 60-point meter. After 0.9
-seconds without a hit, the meter drains at 16 points per second. Filling it interrupts
-all boss and portal attacks for 5 seconds and opens Beaudis to normal HP damage. When
-the window ends, the stagger meter resets. The boss HUD displays stagger beneath HP.
+Each ordinary hit adds at least 6 stagger to a 120-point meter. After two seconds
+without damaging Beaudis, accumulated stagger drains gradually at 16 points per second.
+Filling the meter clears hostile projectiles, freezes all boss and portal attacks, and
+opens a five-second damage window without changing the current phase. When that window
+ends, Beaudis becomes invulnerable, clears projectiles again, moves to arena center, and
+presents the next phase for five seconds before combat resumes.
 
 ### Act I: Defend (100%-67%)
 
@@ -177,15 +180,19 @@ portals use nested counter-rotating rings, and hostile projectiles retain short 
 trails. Diamond and mine shadows match their silhouettes, while Beaudis renders one
 offset shadow polygon per projected cube face instead of a rectangular backdrop.
 
-Hostile linear movement runs at 70% of its authored speed. Stagger is tuned to 90
-points with a minimum gain of 6 per ordinary hit, producing approximately 15 hits to
-break Beaudis before portal-break bonuses.
+Hostile linear movement runs at 70% of its authored speed. Stagger is tuned to 120
+points with a minimum gain of 6 per ordinary hit, producing 20 baseline hits to break
+Beaudis before portal-break bonuses.
 
-Phases 3, 6, and 9 are 30-second survival finales. Boss-body hits do not build
-stagger or deal HP damage during survival; portal counterplay remains available and
-an additional alternating inward/tangent barrage reinforces each existing pattern.
-Surviving phases 3 and 6 advances to the next act. Surviving phase 9 opens an extended
-final vulnerability window.
+Phases 3, 6, and 9 are survival finales. Boss-body hits do not build stagger or deal
+HP damage during survival, and portal breaks no longer add boss stagger there.
+Surviving phases 3 and 6 advances to the next act. Reaching zero HP begins phase 9
+rather than killing Beaudis; surviving it starts the death collapse.
+
+After a stagger's five-second punish window, the encounter transitions to the other
+damage phase in that act, or to the unlocked survival phase at an HP gate. Phase
+announcements identify each pattern with its uppercase English rune name instead of a
+numeric phase prefix.
 
 Every phase change now requests a complete hostile-projectile cleanup, removes the
 old formation, smoothly draws Beaudis to arena center, hides the replacement formation, and

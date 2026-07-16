@@ -37,12 +37,13 @@ def display_scale(surface):
     return max(.7, min(3.2, min(width / 1024, height / 768)))
 
 
-def font(size, italic=False):
+def font(size, italic=False, bold=False):
     size = max(9, int(size))
-    key = (size, bool(italic))
+    key = (size, bool(italic), bool(bold))
     if key not in _font_cache:
         typeface = pg.font.Font(FONT_PATH, size)
         typeface.set_italic(italic)
+        typeface.set_bold(bold)
         _font_cache[key] = typeface
     return _font_cache[key]
 

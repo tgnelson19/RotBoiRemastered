@@ -12,6 +12,7 @@ import characterStats as cS
 from enemyTypes import ENEMY_CATALOG
 from bullet import Bullet
 from enemyProjectile import EnemyProjectile
+import uiTheme as ui
 import variableHolster as vH
 
 
@@ -86,7 +87,8 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertGreater(phase_particles, 0)
         self.assertGreater(self.boss.actTransitionTimer, 0)
         portal = self.boss.projectilePortals[0]
-        self.boss.take_damage(portal.maxHp, "portal:0")
+        for _ in range(3):
+            self.boss.take_damage(1, "portal:0")
         self.assertGreater(len(self.boss.visualParticles), phase_particles)
 
     def test_entrance_delays_attacks_inside_compact_arena(self):
@@ -98,14 +100,19 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertFalse(shots)
         self.assertGreater(self.boss.entranceRemaining, 0)
 
-    def test_lethal_damage_runs_collapse_before_boss_is_removed(self):
+    def test_lethal_damage_unlocks_final_survival_before_collapse(self):
         self.boss.entranceRemaining = 0
+        self.boss.debug_set_phase(8)
         self.boss.isStaggered = True
         self.boss.hp = 1
         result = self.boss.take_damage(10)
         self.assertFalse(result.killed)
-        self.assertTrue(self.boss.dying)
-        self.assertGreater(self.boss.deathRemaining, 0)
+        self.assertFalse(self.boss.dying)
+        self.boss.isStaggered = False
+        self.boss.updateEnemy(*self.boss._center(), [])
+        self.assertEqual(self.boss.phase, 9)
+        self.assertTrue(self.boss.survivalActive)
+        self.assertEqual(self.boss.deathRemaining, 0)
         self.boss.deathRemaining = 0
         self.boss.updateEnemy(*self.boss._center(), [])
         self.assertTrue(self.boss.is_dead())
@@ -220,6 +227,23 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.stagger, 0)
         self.assertEqual(self.boss.hp, hp)
 
+    def test_phase_announcement_window_blocks_damage_and_stagger(self):
+        self.boss.cinematicTransitionsEnabled = True
+        self.boss._set_phase(2)
+        self.boss.transitionRemaining = 0
+        self.assertGreater(self.boss.phaseProtectionTimer, 0)
+        hp, stagger = self.boss.hp, self.boss.stagger
+        result = self.boss.take_damage(20)
+        self.assertTrue(result.blocked)
+        self.assertEqual(self.boss.hp, hp)
+        self.assertEqual(self.boss.stagger, stagger)
+
+    def test_phase_announcements_use_supported_styled_rune_names(self):
+        self.assertEqual(self.boss.PHASE_RUNES[1][0].upper(), "OTHALA")
+        styled = ui.font(13, italic=True, bold=True)
+        self.assertTrue(styled.get_italic())
+        self.assertTrue(styled.get_bold())
+
     def test_laser_telegraphs_then_becomes_persistent_hazard(self):
         laser = EnemyProjectile(100, 100, 0, 0, 2, 20, travel_range=300,
                                 path="laser", shape="laser", lifetime=4,
@@ -245,21 +269,27 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertLess(self.boss.hp, self.boss.maxHp)
         self.assertEqual(self.boss.stagger, 6)
 
-    def test_stagger_decays_after_no_hit_delay(self):
+    def test_stagger_gradually_decays_after_two_seconds_without_damage(self):
         self.boss.take_damage(2)
+        starting_stagger = self.boss.stagger
+        self.boss._update_stagger(1.9)
+        self.assertEqual(self.boss.stagger, starting_stagger)
         self.boss.staggerDecayTimer = 0
         self.boss._update_stagger(.25)
-        self.assertEqual(self.boss.stagger, 2)
+        self.assertEqual(self.boss.stagger,
+                         starting_stagger - self.boss.staggerDecayPerSecond * .25)
 
-    def test_base_player_hits_require_thirty_hits_to_stagger(self):
-        for _ in range(29):
+    def test_base_player_hits_require_twenty_hits_without_immediate_phase_swap(self):
+        for _ in range(19):
             self.boss.take_damage(1)
         self.assertFalse(self.boss.isStaggered)
         self.boss.take_damage(1)
         self.assertTrue(self.boss.isStaggered)
+        self.assertEqual(self.boss.phase, 1)
+        self.assertEqual(self.boss.staggerRemaining, 5)
 
     def test_full_stagger_opens_temporary_damage_window_and_stops_attacks(self):
-        for _ in range(30):
+        for _ in range(20):
             self.boss.take_damage(1)
         self.assertTrue(self.boss.isStaggered)
         self.assertTrue(self.boss.transitionCleanupRequested)
@@ -271,24 +301,40 @@ class BeaudisBossTests(unittest.TestCase):
         self.boss.updateEnemy(*self.boss._center(), projectiles)
         self.assertFalse(projectiles)
 
-    def test_stagger_window_expires_and_resets_meter(self):
+    def test_stagger_window_expires_into_invulnerable_phase_transition(self):
+        self.boss.cinematicTransitionsEnabled = True
         self.boss.stagger = self.boss.maxStagger
         self.boss.isStaggered = True
         self.boss.staggerRemaining = .1
         self.boss._update_stagger(.2)
         self.assertFalse(self.boss.isStaggered)
         self.assertEqual(self.boss.stagger, 0)
+        self.assertEqual(self.boss.phase, 2)
+        self.assertEqual(self.boss.transitionRemaining, 5)
+        hp = self.boss.hp
+        self.assertTrue(self.boss.take_damage(10).blocked)
+        self.assertEqual(self.boss.hp, hp)
+        self.assertEqual(self.boss.stagger, 0)
 
-    def test_portal_can_be_broken_for_stagger_and_regenerates(self):
+    def test_three_portal_hits_disable_interception_and_halve_firepower_for_phase(self):
         portal = self.boss.projectilePortals[0]
         starting_stagger = self.boss.stagger
-        result = self.boss.take_damage(portal.maxHp, "portal:0")
-        self.assertTrue(result.applied)
-        self.assertFalse(portal.active)
-        self.assertEqual(self.boss.stagger, starting_stagger + self.boss.portalBreakStagger)
-        portal.update_status(portal.regenerationTime)
+        for _ in range(3):
+            result = self.boss.take_damage(1, "portal:0")
+            self.assertTrue(result.applied)
         self.assertTrue(portal.active)
-        self.assertEqual(portal.hp, portal.maxHp)
+        self.assertTrue(portal.phaseDisabled)
+        self.assertFalse(portal.blocks_shots)
+        self.assertEqual(self.boss.stagger, starting_stagger)
+        self.assertFalse(any(part == "portal:0" for part, _ in self.boss.get_world_hitboxes()))
+        target = self.boss._arena_center()
+        disabled_shots = []
+        portal.fire_toward(disabled_shots, target, pellet_count=7)
+        self.assertEqual(len(disabled_shots), 4)
+        self.boss._set_phase(2)
+        self.assertFalse(portal.phaseDisabled)
+        self.assertTrue(portal.blocks_shots)
+        self.assertTrue(portal.runeStrokes)
 
     def test_rune_transition_can_be_disrupted_for_temporary_silence(self):
         self.boss._set_phase(2)
@@ -310,24 +356,33 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertGreater(bullet.portalCooldown, 0)
         self.assertGreater(bullet.damage, 2)
 
-    def test_perfect_stagger_extends_window_and_fracture_scales_damage(self):
+    def test_perfect_stagger_keeps_five_second_window_and_fracture_scales_damage(self):
         self.boss._set_phase(2)
         self.boss.stagger = self.boss.maxStagger - 5
         self.boss.take_damage(1)
         self.assertTrue(self.boss.perfectStagger)
-        self.assertEqual(self.boss.staggerRemaining, self.boss.staggerDuration + 2)
+        self.assertEqual(self.boss.staggerRemaining, self.boss.staggerDuration)
         first = self.boss.take_damage(10).amount
         second = self.boss.take_damage(10).amount
         self.assertGreater(second, first)
 
-    def test_stagger_recovery_adds_attack_free_reconstruction_pause(self):
+    def test_stagger_expiry_starts_projectile_free_phase_transition(self):
+        self.boss.cinematicTransitionsEnabled = True
         self.boss.isStaggered = True
         self.boss.staggerRemaining = 0
         self.boss._update_stagger(.1)
-        self.assertGreater(self.boss.staggerRecoveryRemaining, 0)
+        self.assertEqual(self.boss.transitionRemaining, 5)
+        self.assertTrue(self.boss.transitionCleanupRequested)
         shots = []
         self.boss.updateEnemy(*self.boss._center(), shots)
         self.assertFalse(shots)
+
+    def test_arena_timer_ring_tracks_damage_and_survival_phase_time(self):
+        self.boss.phaseElapsed = self.boss.phaseTimeLimit / 2
+        self.assertAlmostEqual(self.boss._phase_timer_ratio(), .5)
+        self.boss.debug_set_phase(3)
+        self.boss.survivalRemaining = 5
+        self.assertAlmostEqual(self.boss._phase_timer_ratio(), .25)
 
     def test_rune_cannon_can_be_interrupted_by_breaking_receiver(self):
         self.boss._set_phase(7)
@@ -336,7 +391,8 @@ class BeaudisBossTests(unittest.TestCase):
         receiver_index = self.boss.runeCannonReceiver
         self.assertIsNotNone(receiver_index)
         receiver = self.boss.projectilePortals[receiver_index]
-        receiver.take_damage(receiver.maxHp)
+        for _ in range(3):
+            receiver.take_damage(1)
         previous_stagger = self.boss.stagger
         self.boss._update_rune_cannon(*self.boss._center(), [], .1)
         self.assertGreater(self.boss.stagger, previous_stagger)
@@ -346,7 +402,8 @@ class BeaudisBossTests(unittest.TestCase):
         initial = self.boss.challenge_results()
         self.assertTrue(initial["no_portals_broken"])
         self.assertTrue(initial["unbroken_pressure"])
-        self.boss.take_damage(self.boss.projectilePortals[0].maxHp, "portal:0")
+        for _ in range(3):
+            self.boss.take_damage(1, "portal:0")
         self.assertFalse(self.boss.challenge_results()["no_portals_broken"])
 
     def test_phase_one_emits_mines_and_sinusoidal_fan(self):
@@ -381,8 +438,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertTrue(all(shot.owner == "beaudis_portal_shot" for shot in projectiles))
 
     def test_phase_transition_sets_flavor_announcement_and_red_portal_hexagon(self):
-        self.boss.hp = self.boss.maxHp * 2 / 3
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(4)
         self.assertEqual(self.boss.phase, 4)
         self.assertEqual(self.boss.phaseFlavor, "Your pulse betrays you.")
         self.assertGreater(self.boss.phaseAnnouncementTimer, 0)
@@ -391,8 +447,7 @@ class BeaudisBossTests(unittest.TestCase):
                             for portal in self.boss.projectilePortals))
 
     def test_red_static_transitions_at_two_thirds_and_emits_radial_pattern(self):
-        self.boss.hp = self.boss.maxHp * 2 / 3
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(4)
         self.assertEqual(self.boss.phase, 4)
         self.boss.phaseElapsed = 2
         self.boss.radialCooldown = 0
@@ -405,7 +460,7 @@ class BeaudisBossTests(unittest.TestCase):
                               if shot.owner == "beaudis_static_sine"]), 6)
 
     def test_phase_three_builds_rotating_diamond_field(self):
-        self.boss.hp = self.boss.maxHp / 3
+        self.boss.debug_set_phase(7)
         projectiles = []
         self.boss.updateEnemy(*self.boss._center(), projectiles)
         self.assertEqual(self.boss.phase, 7)
@@ -415,7 +470,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(len({projectile.angularSpeed for projectile in field}), 4)
 
     def test_closing_spiral_shrinks_and_accelerates_portals(self):
-        self.boss.hp = self.boss.maxHp * .7
+        self.boss.debug_set_phase(3)
         old_radius = self.boss.projectilePortals[0].radius
         self.boss.updateEnemy(*self.boss._center(), [])
         self.assertEqual(self.boss.phase, 3)
@@ -425,7 +480,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.phaseLabel, "RETALIATE")
 
     def test_portal_relay_transfers_then_redirects_a_shotgun(self):
-        self.boss.hp = self.boss.maxHp * .36
+        self.boss.debug_set_phase(6)
         transfer = []
         self.boss.updateEnemy(*self.boss._center(), transfer)
         self.assertEqual(self.boss.phase, 6)
@@ -437,18 +492,20 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(len([shot for shot in redirected
                               if shot.owner == "beaudis_relay_redirect"]), 5)
 
-    def test_each_overall_third_contains_three_phases(self):
-        samples = ((.95, 1), (.83, 2), (.72, 3),
-                   (.61, 4), (.50, 5), (.38, 6),
-                   (.28, 7), (.17, 8), (.05, 9))
-        for ratio, expected in samples:
+    def test_health_gates_unlock_only_each_acts_survival_phase(self):
+        samples = ((1, 2 / 3, 3), (4, 1 / 3, 6), (7, 0, 9))
+        for phase, ratio, expected in samples:
             boss = Beaudis(*self.boss._center(), random.Random(5))
             boss.entranceRemaining = 0
+            boss.debug_set_phase(phase)
+            boss.transitionRemaining = 0
             boss.hp = boss.maxHp * ratio
             boss.updateEnemy(*boss._center(), [])
             self.assertEqual(boss.phase, expected)
+            self.assertTrue(boss.survivalActive)
 
-    def test_phase_advances_after_time_limit_without_health_progress(self):
+    def test_phase_alternates_after_doubled_time_limit_without_health_progress(self):
+        self.assertEqual(self.boss.phaseTimeLimit, 36)
         self.assertEqual(self.boss.phase, 1)
         self.boss.phaseElapsed = self.boss.phaseTimeLimit
         self.boss.updateEnemy(*self.boss._center(), [])
@@ -462,16 +519,16 @@ class BeaudisBossTests(unittest.TestCase):
         self.boss.updateEnemy(*self.boss._center(), [])
         self.assertEqual(self.boss.phase, 2)
 
-    def test_final_phase_does_not_advance_past_nine(self):
-        self.boss.hp = self.boss.maxHp * .05
-        self.boss.updateEnemy(*self.boss._center(), [])
+    def test_final_damage_phases_repeat_until_zero_health(self):
+        self.boss.debug_set_phase(8)
+        self.boss.hp = 1
         self.boss.phaseElapsed = self.boss.phaseTimeLimit
         self.boss.updateEnemy(*self.boss._center(), [])
-        self.assertEqual(self.boss.phase, 9)
+        self.assertEqual(self.boss.phase, 7)
+        self.assertFalse(self.boss.survivalActive)
 
     def test_crossfire_carousel_fires_tangential_volley(self):
-        self.boss.hp = self.boss.maxHp * .83
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(2)
         self.boss.carouselCooldown = 0
         shots = []
         self.boss.updateEnemy(*self.boss._center(), shots)
@@ -479,8 +536,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(len([shot for shot in shots if shot.owner == "beaudis_portal_carousel"]), 6)
 
     def test_mirror_step_leaves_bursts_at_both_positions(self):
-        self.boss.hp = self.boss.maxHp * .5
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(5)
         self.boss.mirrorCooldown = 0
         shots = []
         self.boss.updateEnemy(self.boss._center()[0] + 300, self.boss._center()[1], shots)
@@ -494,8 +550,7 @@ class BeaudisBossTests(unittest.TestCase):
                               if shot.owner == "beaudis_mirror_portal_landing_echo"]), 10)
 
     def test_event_horizon_fires_from_opposite_field_points(self):
-        self.boss.hp = self.boss.maxHp * .17
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(8)
         self.boss.horizonCooldown = 0
         shots = []
         self.boss.updateEnemy(*self.boss._center(), shots)
@@ -513,8 +568,7 @@ class BeaudisBossTests(unittest.TestCase):
                                     f"phase {boss.phase} has no portal formation")
 
     def test_final_jera_uses_reduced_portals_and_infinite_survival_lanes(self):
-        self.boss.hp = self.boss.maxHp * .05
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(9)
         self.boss.survivalCooldown = 0
         shots = []
         self.boss.updateEnemy(*self.boss._center(), shots)
@@ -536,8 +590,7 @@ class BeaudisBossTests(unittest.TestCase):
         cS.bossDebugInvincible = previous
 
     def test_last_word_cycles_callbacks_from_earlier_portal_phases(self):
-        self.boss.hp = self.boss.maxHp * .05
-        self.boss.updateEnemy(*self.boss._center(), [])
+        self.boss.debug_set_phase(9)
         owners = set()
         for callback_index in range(3):
             self.boss.callbackIndex = callback_index

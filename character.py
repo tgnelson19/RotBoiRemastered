@@ -453,12 +453,15 @@ def handlingDamagingEnemies():
                         cS.enemyProjectileHolster.clear()
                         eman.transitionCleanupRequested = False
                     currColor = ui.PURPLE if bullet.currCrit else ui.GOLD
+                    portal_hit = str(part_id).startswith("portal:")
+                    portal = (eman.projectilePortals[int(str(part_id).split(":")[1])]
+                              if portal_hit else None)
                     display_value = ("SURVIVE" if getattr(eman, "survivalActive", False)
-                                     and not str(part_id).startswith("portal:")
-                                     else "BREAK" if str(part_id).startswith("portal:")
-                                     and not eman.projectilePortals[int(str(part_id).split(":")[1])].active
+                                      and not str(part_id).startswith("portal:")
+                                     else "DISABLED" if portal_hit and portal.phaseDisabled
                                      else bullet.damage) if result.applied else (
                         "SURVIVE" if getattr(eman, "survivalActive", False)
+                        else "BLOCK" if portal_hit
                         else "STAGGER" if hasattr(eman, "stagger") else "BLOCK"
                     )
                     cS.damageTextList.append(DamageText(hitbox.x, hitbox.y, currColor, display_value, hitbox.width, vH.frameRate))

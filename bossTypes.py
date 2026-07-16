@@ -46,21 +46,24 @@ class Beaudis(Enemy):
         size = vH.tileSizeGlobal * 1.9
         # 240 HP keeps the encounter substantial while making each phase shorter
         # and less attritional for a level-zero player.
-        super().__init__(world_x, world_y, .82, size, ui.PURPLE, 3.2, 240, 120, 4, "beaudis")
+        super().__init__(world_x, world_y, .66, size, ui.PURPLE, 3.2, 240, 120, 4, "beaudis")
         self.rng = rng or random
         self.phase = 1
         self.phaseAccent = ui.PURPLE
         self.phaseLabel = "BOLSTER"
         self.phaseFlavor = "I did not expect a challenger..."
         self.phaseAnnouncementTimer = 3.2
+        self.phaseProtectionTimer = 0.0
         self.phaseElapsed = 0.0
-        self.phaseTimeLimit = 18.0
+        self.phaseTimeLimit = 36.0
         self.phaseForcedByTimer = False
         self.stagger = 0.0
-        self.maxStagger = 180.0
+        # Twenty baseline hits (6 stagger each) break Beaudis. Pressure is
+        # retained briefly, then drains gradually if the player disengages.
+        self.maxStagger = 120.0
         self.staggerPerDamage = 2.0
         self.minimumStaggerPerHit = 6.0
-        self.staggerDecayDelay = .9
+        self.staggerDecayDelay = 2.0
         self.staggerDecayTimer = 0.0
         self.staggerDecayPerSecond = 16.0
         self.staggerDuration = 5.0
@@ -133,6 +136,8 @@ class Beaudis(Enemy):
         self.transitionCleanupRequested = False
         self.cinematicTransitionsEnabled = True
         self.specialAttackCooldown = 2.4
+        self.bossBurstQueue = []
+        self.survivalFormationCycle = 0
         self._arenaMaskCache = None
         self._arenaMaskCacheKey = None
         self.mirrorJumpDuration = .48
@@ -141,6 +146,8 @@ class Beaudis(Enemy):
         self.mirrorJumpTarget = None
         self.mirrorJumpEchoOrigin = None
         self._deploy_phase_one_portals()
+        for portal in self.projectilePortals:
+            portal.reset_for_phase(self.PHASE_RUNES[self.phase][1])
 
     def _seconds(self):
         return vH.get_timer_step() / max(1, vH.frameRate)
@@ -186,7 +193,7 @@ class Beaudis(Enemy):
     def take_damage(self, amount, part_id="body"):
         if self.dying:
             return HitResult(False, False, 0, blocked=True)
-        if self.transitionRemaining > 0:
+        if self.transitionRemaining > 0 or self.phaseProtectionTimer > 0:
             return HitResult(False, False, 0, blocked=True)
         if str(part_id).startswith("portal:"):
             index = int(str(part_id).split(":", 1)[1])
@@ -194,15 +201,10 @@ class Beaudis(Enemy):
                 broken = self.projectilePortals[index].take_damage(amount)
                 if broken:
                     self.portalsBroken += 1
-                    self.stagger = min(self.maxStagger,
-                                       self.stagger + self.portalBreakStagger)
-                    self.staggerDecayTimer = self.staggerDecayDelay
                     portal = self.projectilePortals[index]
                     self._burst_particles(portal.worldX + portal.size / 2,
                                           portal.worldY + portal.size / 2,
                                           portal.color, 18, 2.4)
-                    if self.stagger >= self.maxStagger:
-                        self._trigger_stagger()
                 return HitResult(True, False, amount)
             return HitResult(False, False, 0, blocked=True)
         if self.survivalActive:
@@ -214,8 +216,7 @@ class Beaudis(Enemy):
             self.fracture = min(self.maxFracture, self.fracture + amount * .35)
             self.hitFlash = .12
             self._burst_particles(*self._center(), ui.CREAM, 4, 1.0)
-            if self.hp <= 0:
-                self._begin_death()
+            self.hp = max(0.0, self.hp)
             return HitResult(True, False, applied)
 
         # Normal pressure now chips Beaudis as well as building toward a break.
@@ -235,37 +236,45 @@ class Beaudis(Enemy):
         self.staggerDecayTimer = self.staggerDecayDelay
         if self.stagger >= self.maxStagger:
             self._trigger_stagger()
-        if self.hp <= 0:
-            self._begin_death()
+        self.hp = max(0.0, self.hp)
         return HitResult(True, False, applied)
 
     def _trigger_stagger(self):
-        if self.isStaggered:
+        if self.isStaggered or self.survivalActive:
             return
+        was_perfect = self.phase > 1 and self.phaseElapsed <= .75
         self.isStaggered = True
         self.transitionCleanupRequested = True
         self.runeCannonCharge = 0.0
         self.runeCannonReceiver = None
-        self.perfectStagger = self.phase > 1 and self.phaseElapsed <= .75
+        self.perfectStagger = was_perfect
         if self.perfectStagger:
             self.perfectStaggers += 1
             self.perfectBreakFlash = 1.0
             self.shakeStrength = max(self.shakeStrength, 9)
             self._burst_particles(*self._center(), ui.CREAM, 44, 3.8)
-        self.staggerRemaining = self.staggerDuration + (2.0 if self.perfectStagger else 0.0)
+        self.staggerRemaining = self.staggerDuration
         self.fracture = 0.0
         self._burst_particles(*self._center(), ui.CREAM, 34, 3.4)
 
     def _update_stagger(self, dt):
+        if self.survivalActive:
+            self.stagger = 0.0
+            self.staggerDecayTimer = 0.0
+            self.isStaggered = False
+            self.staggerRemaining = 0.0
+            return
         if self.isStaggered:
             self.staggerRemaining = max(0.0, self.staggerRemaining - dt)
             if self.staggerRemaining <= 0:
-                self.isStaggered = False
-                self.stagger = 0.0
-                self.staggerDecayTimer = 0.0
-                self.staggerRecoveryRemaining = 1.0
-                for portal in self.projectilePortals:
-                    portal.showTether = False
+                next_phase = (self._health_unlocked_survival()
+                              or self._paired_damage_phase(self.phase))
+                if next_phase is not None:
+                    self._set_phase(next_phase)
+                else:
+                    self.isStaggered = False
+                    self.stagger = 0.0
+                    self.staggerDecayTimer = 0.0
                 self.perfectStagger = False
                 self.fracture = 0.0
             return
@@ -298,10 +307,13 @@ class Beaudis(Enemy):
         self.mirrorJumpTarget = None
         self.mirrorJumpEchoOrigin = None
         self.phaseAnnouncementTimer = 5.0
+        self.phaseProtectionTimer = 5.0 if self.cinematicTransitionsEnabled else 0.0
         self.survivalActive = phase in self.SURVIVAL_PHASES
         self.survivalRemaining = ((30.0 if phase == 9 else 20.0)
                                   if self.survivalActive else 0.0)
         self.survivalCooldown = .2
+        self.bossBurstQueue.clear()
+        self.survivalFormationCycle = 0
         if self.cinematicTransitionsEnabled:
             self.transitionRemaining = self.transitionDuration
             self.transitionCleanupRequested = True
@@ -378,6 +390,23 @@ class Beaudis(Enemy):
             self.callbackIndex = 0
         if self.survivalActive:
             self._deploy_survival_portals()
+        rune_strokes = self.PHASE_RUNES[phase][1]
+        for portal in self.projectilePortals + self.survivalPortals:
+            portal.reset_for_phase(rune_strokes)
+
+    @staticmethod
+    def _paired_damage_phase(phase):
+        return {1: 2, 2: 1, 4: 5, 5: 4, 7: 8, 8: 7}.get(phase)
+
+    def _health_unlocked_survival(self):
+        """Return the survival rune unlocked by the current act's HP gate."""
+        if self.phase in (1, 2) and self.hp <= self.maxHp * (2 / 3):
+            return 3
+        if self.phase in (4, 5) and self.hp <= self.maxHp * (1 / 3):
+            return 6
+        if self.phase in (7, 8) and self.hp <= 0:
+            return 9
+        return None
 
     def debug_set_phase(self, phase):
         phase = max(1, min(9, int(phase)))
@@ -386,6 +415,7 @@ class Beaudis(Enemy):
         self._set_phase(phase)
         self.entranceRemaining = 0
         self.phaseElapsed = 0
+        self.phaseProtectionTimer = 0
 
     def _survival_barrage(self, player_x, player_y, sink, dt):
         self.survivalCooldown -= dt
@@ -396,16 +426,15 @@ class Beaudis(Enemy):
             source = active[self.carouselIndex % len(active)]
             portal_center = (source.worldX + source.size / 2,
                              source.worldY + source.size / 2)
-            if self.carouselIndex % 2:
-                target = self._arena_center()
-            else:
-                tangent = source.angle + pi / 2
-                target = (portal_center[0] + cos(tangent) * self.arenaRadius,
-                          portal_center[1] + sin(tangent) * self.arenaRadius)
-            final_multiplier = 1.75 if self.phase == 9 else 1.0
-            pellet_count = 5 if self.phase == 9 else 3
-            source.fire_toward(sink, target, pellet_count, .65 * final_multiplier, 1.15, .9,
-                               self.phaseAccent, "survival")
+            target = self._arena_center() if self.phase == 3 else (
+                portal_center[0] + cos(source.angle) * self.arenaRadius,
+                portal_center[1] + sin(source.angle) * self.arenaRadius)
+            waves = (((3, .42, .82, .28), (5, .68, 1.08, .38), (4, .5, 1.38, .32))
+                     if self.phase < 9 else
+                     ((5, .72, .78, .27), (7, 1.02, 1.08, .36),
+                      (3, .28, 1.48, .48), (8, 1.18, 1.24, .25)))
+            source.fire_pattern_burst(sink, target, waves, .12 if self.phase == 9 else .16,
+                                      .9, self.phaseAccent, "survival_burst")
             speed_burst_stride = 2 if self.phase == 9 else 4
             if self.carouselIndex % speed_burst_stride == 0:
                 source.fire_speed_burst(sink, (player_x, player_y),
@@ -413,19 +442,28 @@ class Beaudis(Enemy):
                                         self.phaseAccent,
                                         "survival_speed_burst")
             self.carouselIndex += 1
-        self.survivalCooldown = .38 if self.phase == 9 else .72
+        self.survivalCooldown = .5 if self.phase == 9 else .82
 
         if self.survivalPortals:
             stride = 2 if self.phase == 9 else 3
             offset = self.carouselIndex % stride
             for index in range(offset, len(self.survivalPortals), stride):
                 portal = self.survivalPortals[index]
-                wobble = sin(self.phaseElapsed * .8 + index) * vH.tileSizeGlobal * 2.2
-                target = (player_x + cos(portal.angle + pi / 2) * wobble,
-                          player_y + sin(portal.angle + pi / 2) * wobble)
+                portal_center = (portal.worldX + portal.size / 2,
+                                 portal.worldY + portal.size / 2)
+                if self.phase == 3:
+                    target = self._arena_center()
+                else:
+                    target = (portal_center[0] + cos(portal.angle) * self.arenaRadius,
+                              portal_center[1] + sin(portal.angle) * self.arenaRadius)
                 speed = (.65, .9, 1.15)[(index // stride + self.carouselIndex) % 3]
-                portal.fire_toward(sink, target, 1, 0, speed, .9,
-                                   self.phaseAccent, "boundary_inward")
+                portal.fire_pattern_burst(
+                    sink, target,
+                    ((1, 0, speed, .3), (1, 0, speed * 1.22, .4),
+                     (1, 0, speed * .78, .24)), .11, .9,
+                    self.phaseAccent, ("boundary_inward" if self.phase == 3
+                                       else "boundary_outward"),
+                )
                 if self.phase == 9:
                     portal_center = (portal.worldX + portal.size / 2,
                                      portal.worldY + portal.size / 2)
@@ -438,13 +476,41 @@ class Beaudis(Enemy):
         self._clear_survival_portals()
         center = self._arena_center()
         count = 6 if self.phase < 9 else 8
+        radius = (self.arenaRadius * .91 if self.phase == 3
+                  else vH.tileSizeGlobal * 3.4 * self.arenaFormationScale)
+        speed = {3: .2, 6: .34, 9: .48}[self.phase]
         for index in range(count):
             self.survivalPortals.append(ProjectilePortal(
-                center, self.arenaRadius * .965, index * 2 * pi / count,
-                angular_speed=(-.12 if index % 2 else .12), fire_interval=999,
+                center, radius, index * 2 * pi / count,
+                angular_speed=speed, fire_interval=999,
                 pellet_count=2, spread=.22, owner="beaudis_survival_boundary",
-                color=self.phaseAccent, movement_path="tornado",
+                color=self.phaseAccent, movement_path="orbit",
             ))
+
+    def _update_survival_formation(self, dt):
+        """Choreograph the three survival rings as distinct set pieces."""
+        center = self._arena_center()
+        inner = vH.tileSizeGlobal * 3.4 * self.arenaFormationScale
+        outer = self.arenaRadius * .91
+        cycle = int(self.phaseElapsed / 3.2)
+        for index, portal in enumerate(self.survivalPortals):
+            portal.orbitCenter = self._center() if self.phase == 6 else center
+            if self.phase == 3:
+                target_radius, speed, path = outer, .2, "orbit"
+            elif self.phase == 6:
+                target_radius, speed, path = inner, .34, "orbit"
+            else:
+                # Jera swaps concentric ranks every few seconds.  During every
+                # third exchange the ranks cross on interlocked infinity paths.
+                outside = (index + cycle) % 2 == 0
+                target_radius = outer if outside else inner
+                speed = (.22, .42, .68)[cycle % 3]
+                path = "figure8" if cycle % 3 == 2 else "orbit"
+            portal.radius += (target_radius - portal.radius) * min(1, dt * 2.4)
+            portal.angularSpeed = speed
+            portal.movementPath = path
+            portal.angle += portal.angularSpeed * dt
+            portal._place()
 
     def _clear_survival_portals(self):
         for portal in self.survivalPortals:
@@ -521,11 +587,11 @@ class Beaudis(Enemy):
         if bullet.portalCooldown > 0 or not self.projectilePortals:
             return False
         source = self.projectilePortals[portal_index]
-        if not source.active or source.polarity < 0:
+        if not source.blocks_shots or source.polarity < 0:
             return False
         destination_index = (portal_index + len(self.projectilePortals) // 2) % len(self.projectilePortals)
         destination = self.projectilePortals[destination_index]
-        if not destination.active or destination is source:
+        if not destination.blocks_shots or destination is source:
             return False
         exit_distance = destination.size * .8
         bullet.worldX = destination.worldX + destination.size / 2 + cos(bullet.direc) * exit_distance
@@ -624,6 +690,33 @@ class Beaudis(Enemy):
                 travel_range=float("inf"), color=self.phaseAccent, shape="diamond",
                 owner="beaudis_speed_burst", ignore_walls=True,
             )
+        # Two delayed echoes turn the speed stack into a true three-shot boss
+        # burst while retaining the fast-leader/slow-tail dodge timing.
+        self.bossBurstQueue.extend([
+            [.13, target_x, target_y, max(3, count - 1), .82],
+            [.28, target_x, target_y, min(5, count + 1), 1.12],
+        ])
+
+    def _update_boss_bursts(self, sink, dt):
+        remaining = []
+        for burst in self.bossBurstQueue:
+            burst[0] -= dt
+            if burst[0] > 0:
+                remaining.append(burst)
+                continue
+            _, target_x, target_y, count, speed_scale = burst
+            center_x, center_y = self._center()
+            direction = atan2(target_y - center_y, target_x - center_x)
+            for index in range(count):
+                speed = (1.45, 1.12, .82, .56, .38)[index] * speed_scale
+                self._projectile(
+                    sink, direction, speed, .9,
+                    vH.tileSizeGlobal * (.28 + index * .045),
+                    travel_range=float("inf"), color=self.phaseAccent,
+                    shape="diamond", owner="beaudis_speed_burst_echo",
+                    ignore_walls=True,
+                )
+        self.bossBurstQueue = remaining
 
     def _lob_bomb(self, sink, target_x, target_y, color=None):
         center_x, center_y = self._center()
@@ -1025,7 +1118,7 @@ class Beaudis(Enemy):
             receiver = (self.projectilePortals[self.runeCannonReceiver]
                         if self.runeCannonReceiver is not None
                         and self.runeCannonReceiver < len(self.projectilePortals) else None)
-            if receiver is None or not receiver.active:
+            if receiver is None or not receiver.blocks_shots:
                 self.stagger = min(self.maxStagger, self.stagger + 20)
                 self.runeSilenceRemaining = max(self.runeSilenceRemaining, 1.2)
                 self.runeCannonCharge = 0
@@ -1040,7 +1133,7 @@ class Beaudis(Enemy):
 
         self.runeCannonCooldown -= dt
         active = [(index, portal) for index, portal in enumerate(self.projectilePortals)
-                  if portal.active]
+                  if portal.blocks_shots]
         if self.runeCannonCooldown <= 0 and len(active) >= 2:
             self.runeCannonReceiver = active[self.carouselIndex % len(active)][0]
             receiver = self.projectilePortals[self.runeCannonReceiver]
@@ -1090,13 +1183,12 @@ class Beaudis(Enemy):
         dt = self._seconds()
         self._update_stagger(dt)
         self.runeSilenceRemaining = max(0.0, self.runeSilenceRemaining - dt)
+        self.phaseProtectionTimer = max(0.0, self.phaseProtectionTimer - dt)
         self.staggerRecoveryRemaining = max(0.0, self.staggerRecoveryRemaining - dt)
         for portal in self.projectilePortals:
             portal.update_status(dt)
         for portal in self.survivalPortals:
             portal.update_status(dt)
-            portal.angle += portal.angularSpeed * dt
-            portal._place()
         self.age += vH.get_timer_step()
         self._update_visuals(dt)
         if self.dying:
@@ -1142,14 +1234,15 @@ class Beaudis(Enemy):
         for portal in self.projectilePortals:
             portal.showTether = True
         self.phaseElapsed += dt
+        self._update_boss_bursts(projectile_sink, dt)
         self.phaseAnnouncementTimer = max(0.0, self.phaseAnnouncementTimer - dt)
-        health_ratio = self.hp / self.maxHp
-        health_phase = min(9, max(1, 10 - int(health_ratio * 9 + .999999)))
         if not self.debugPhaseLocked and not self.survivalActive:
-            if health_phase > self.phase:
-                self._set_phase(health_phase)
-            elif self.phaseElapsed >= self.phaseTimeLimit and self.phase < 9:
-                self._set_phase(self.phase + 1)
+            survival_phase = self._health_unlocked_survival()
+            paired_phase = self._paired_damage_phase(self.phase)
+            if survival_phase is not None:
+                self._set_phase(survival_phase)
+            elif self.phaseElapsed >= self.phaseTimeLimit and paired_phase is not None:
+                self._set_phase(paired_phase)
                 self.phaseForcedByTimer = True
 
         if self.transitionRemaining > 0:
@@ -1177,6 +1270,10 @@ class Beaudis(Enemy):
             for portal in self.projectilePortals:
                 portal.angle += portal.angularSpeed * dt
                 portal._place()
+                portal.update_bursts(projectile_sink, dt)
+            self._update_survival_formation(dt)
+            for portal in self.survivalPortals:
+                portal.update_bursts(projectile_sink, dt)
             self._survival_barrage(player_world_x, player_world_y, projectile_sink, dt)
             self._update_special_attacks(player_world_x, player_world_y, projectile_sink, dt)
             self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
@@ -1215,7 +1312,7 @@ class Beaudis(Enemy):
     def get_screen_hitboxes(self):
         hitboxes = super().get_screen_hitboxes()
         for index, portal in enumerate(self.projectilePortals):
-            if portal.active:
+            if portal.blocks_shots:
                 x, y = bG.world_to_screen(portal.worldX, portal.worldY)
                 hitboxes.append((f"portal:{index}", pygame.Rect(x, y, portal.size, portal.size)))
         return hitboxes
@@ -1223,7 +1320,7 @@ class Beaudis(Enemy):
     def get_world_hitboxes(self):
         hitboxes = super().get_world_hitboxes()
         for index, portal in enumerate(self.projectilePortals):
-            if portal.active:
+            if portal.blocks_shots:
                 hitboxes.append((f"portal:{index}", pygame.Rect(
                     portal.worldX, portal.worldY, portal.size, portal.size,
                 )))
@@ -1331,9 +1428,31 @@ class Beaudis(Enemy):
                 spark = pygame.Rect(int(spark_x) - 4, int(spark_y) - 4, 8, 8)
                 pygame.draw.rect(screen, ui.CREAM, spark)
 
+    def _phase_timer_ratio(self):
+        if self.transitionRemaining > 0:
+            return 0.0
+        if self.survivalActive:
+            duration = 30.0 if self.phase == 9 else 20.0
+            return max(0.0, min(1.0, self.survivalRemaining / duration))
+        return max(0.0, min(1.0, 1.0 - self.phaseElapsed / self.phaseTimeLimit))
+
     def _draw_arena_boundary(self, screen):
         center = bG.world_to_screen(*self._arena_center())
         radius = self.arenaRadius
+        timer_radius = radius + 22
+        timer_rect = pygame.Rect(0, 0, timer_radius * 2, timer_radius * 2)
+        timer_rect.center = center
+        pygame.draw.circle(screen, ui.SHADOW, center, timer_radius, 12)
+        pygame.draw.circle(screen, ui.INK, center, timer_radius, 7)
+        if self.transitionRemaining <= 0:
+            timer_ratio = self._phase_timer_ratio()
+            if timer_ratio > 0:
+                start = -pi / 2
+                end = start + 2 * pi * timer_ratio
+                pygame.draw.arc(screen, self.phaseAccent, timer_rect, start, end, 7)
+                tip = (center[0] + cos(end) * timer_radius,
+                       center[1] + sin(end) * timer_radius)
+                pygame.draw.circle(screen, ui.CREAM, tip, 5)
         pygame.draw.circle(screen, ui.SHADOW, center, radius + 14, 26)
         pygame.draw.circle(screen, ui.INK, center, radius + 5, 14)
         pygame.draw.circle(screen, self.phaseAccent, center, radius + 2, 6)
@@ -1570,8 +1689,17 @@ class Beaudis(Enemy):
 
     def _draw_phase_announcement(self, screen, boss_rect):
         scale = ui.display_scale(screen)
-        label = f"PHASE {self.phase}: {self.phaseLabel}"
-        label_surface = ui.font(13 * scale).render(label, True, ui.CREAM)
+        rune_name = self.PHASE_RUNES[self.phase][0].upper()
+        rune_surface = ui.font(13 * scale, italic=True, bold=True).render(
+            rune_name, True, ui.CREAM)
+        phase_surface = ui.font(13 * scale).render(f"  {self.phaseLabel}", True, ui.CREAM)
+        label_surface = pygame.Surface(
+            (rune_surface.get_width() + phase_surface.get_width(),
+             max(rune_surface.get_height(), phase_surface.get_height())),
+            pygame.SRCALPHA,
+        )
+        label_surface.blit(rune_surface, (0, 0))
+        label_surface.blit(phase_surface, (rune_surface.get_width(), 0))
         flavor_font = ui.font(16 * scale, italic=True)
         max_text_width = min(screen.get_width() * .68, 680 * scale)
         words = self.phaseFlavor.split()
