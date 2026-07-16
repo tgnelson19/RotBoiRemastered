@@ -58,6 +58,8 @@ def runGame():
     cH.updateDamageTexts()
     cH.updateExperience()
     cH.expForPlayer()
+    cH.updateLootCrates()
+    cH.crateInteractionForPlayer()
     cH.recoverPlayerHealth()
     cH.hurtPlayer()
 
@@ -116,11 +118,22 @@ def baseInputCollection():
         if vH.state == vH.States.GAMERUN:
             vH.pauseReturnState = vH.States.GAMERUN
             vH.state = vH.States.PAUSED
+            _cancel_drag()
         elif vH.state == vH.States.LEVELING:
             vH.pauseReturnState = vH.States.LEVELING
             vH.state = vH.States.PAUSED
+            _cancel_drag()
 
     vH.mouseX, vH.mouseY = pg.mouse.get_pos()  # Save mouse position for aim and clicks
+
+
+def _cancel_drag():
+    """Clear any in-progress equipment drag so pausing never leaves firing suspended."""
+    vH.dragInProgress = False
+    sheet = getattr(cS, "informationSheet", None)
+    if sheet is not None:
+        sheet.dragging_item = None
+        sheet.dragging_source = None
 
 
 def update_input_toggles():

@@ -20,6 +20,11 @@ def _gameplay_clip_width():
         return int(sheet.arena_width)
     return int(vH.sW * .75)
 
+
+def gameplay_viewport_rect():
+    """Public rect version of the playable viewport, for clipping world-space draws."""
+    return pg.Rect(0, 0, _gameplay_clip_width(), int(vH.sH))
+
 # The arena stays deliberately restrained: each ward is mostly charcoal and slate,
 # with one low-saturation identity color.  These are renderer palettes rather than
 # gameplay tile types, so biome flavor never changes collision rules.

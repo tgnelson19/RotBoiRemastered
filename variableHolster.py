@@ -44,6 +44,7 @@ clock = pg.time.Clock()  # Main time keeper
 done = False
 mouseDown = False
 mousePressed = False
+dragInProgress = False
 controllerMoveX = 0.0
 controllerMoveY = 0.0
 controllerAimX = 0.0

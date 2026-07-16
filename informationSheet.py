@@ -7,12 +7,22 @@ import pygame as pg
 import background as bG
 import characterStats as cS
 import gameProfile
+from lootCrate import LootCrate
 from progression import FINAL_BOSS_LEVEL, MID_BOSS_LEVEL, MINIBOSS_GATES
+import itemCards
 import statCards
 import upgrades
 import uiTheme as ui
 import variableHolster as vH
 
+
+EQUIPMENT_SLOT_TYPES = {
+    "weapon": "weapon",
+    "armor": "armor",
+    "ring": "ring",
+    "accessory_1": "accessory",
+    "accessory_2": "accessory",
+}
 
 BUILD_NAMES = {
     "volley": ("BULLET STORM", "More shots fill more of the arena."),
@@ -30,6 +40,11 @@ class InformationSheet:
         self.uiScale = ui.display_scale(vH.screen)
         self.mode = gameProfile.profile.get("hud_mode", "compact")
         self.tooltip = None
+        self.nearby_crate = None
+        self.dragging_item = None
+        self.dragging_source = None
+        self._equipment_slot_rects = {}
+        self._loot_panel_slot_rects = []
         self._build_layout()
 
     def _px(self, value):
@@ -217,22 +232,143 @@ class InformationSheet:
         slot_size = self._px(38)
 
         slots = (
-            ("WEAPON", 90),
-            ("RING", 18),
-            ("ACC 2", -54),
-            ("ACC 1", -126),
-            ("ARMOR", 162),
+            ("WEAPON", "weapon", 90),
+            ("RING", "ring", 18),
+            ("ACC 2", "accessory_2", -54),
+            ("ACC 1", "accessory_1", -126),
+            ("ARMOR", "armor", 162),
         )
-        for label, angle_degrees in slots:
+        self._equipment_slot_rects = {}
+        for label, key, angle_degrees in slots:
             angle = radians(angle_degrees)
             center = (hub_x + cos(angle) * radius_x, hub_y - sin(angle) * radius_y)
             slot_rect = pg.Rect(0, 0, slot_size, slot_size)
             slot_rect.center = center
-            pg.draw.rect(vH.screen, ui.INK, slot_rect)
-            pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
+            self._equipment_slot_rects[key] = slot_rect
+            item = cS.equipment[key]
+            dragging_this = (self.dragging_source is not None
+                             and self.dragging_source[0] == "equipment"
+                             and self.dragging_source[1] == key)
+            if item is not None and not dragging_this:
+                itemCards.draw_item_card(vH.screen, slot_rect, item.slot_type, item.rarity,
+                                         hovered=slot_rect.collidepoint(vH.mouseX, vH.mouseY))
+            else:
+                pg.draw.rect(vH.screen, ui.INK, slot_rect)
+                pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
             ui.draw_text(vH.screen, label, self._px(7), ui.MUTED,
                          (center[0], slot_rect.bottom + self._px(3)), "midtop")
         return rect.bottom + self.padding
+
+    CRATE_SLOT_COUNT = 4
+
+    def _draw_loot_panel(self, y):
+        crate = self.nearby_crate
+        if crate is None or not crate.items:
+            return y
+        header_h = self._px(24)
+        slot_size = self._px(38)
+        height = header_h + slot_size + self._px(20)
+        rect = self._panel(y, height, ui.CREAM)
+        ui.draw_text(vH.screen, "NEARBY LOOT", self._px(9), ui.CREAM,
+                     (rect.x + self._px(10), rect.y + self._px(8)))
+
+        gap = self._px(10)
+        total_width = self.CRATE_SLOT_COUNT * slot_size + (self.CRATE_SLOT_COUNT - 1) * gap
+        start_x = rect.centerx - total_width / 2
+        slot_y = rect.y + header_h + self._px(4)
+        self._loot_panel_slot_rects = []
+        for index in range(self.CRATE_SLOT_COUNT):
+            slot_rect = pg.Rect(start_x + index * (slot_size + gap), slot_y, slot_size, slot_size)
+            self._loot_panel_slot_rects.append(slot_rect)
+            if index >= len(crate.items):
+                pg.draw.rect(vH.screen, ui.INK, slot_rect)
+                pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
+                continue
+            item = crate.items[index]
+            dragging_this = (self.dragging_source is not None
+                             and self.dragging_source[0] == "crate"
+                             and self.dragging_source[1] is crate
+                             and self.dragging_source[2] == index)
+            if not dragging_this:
+                itemCards.draw_item_card(vH.screen, slot_rect, item.slot_type, item.rarity,
+                                         hovered=slot_rect.collidepoint(vH.mouseX, vH.mouseY))
+            else:
+                pg.draw.rect(vH.screen, ui.INK, slot_rect)
+                pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
+        return rect.bottom + self.padding
+
+    def _handle_equipment_drag(self):
+        if self.dragging_item is None:
+            if vH.mousePressed:
+                for key, rect in self._equipment_slot_rects.items():
+                    if rect.collidepoint(vH.mouseX, vH.mouseY) and cS.equipment[key] is not None:
+                        self.dragging_item = cS.equipment[key]
+                        self.dragging_source = ("equipment", key)
+                        vH.dragInProgress = True
+                        return
+                for index, rect in enumerate(self._loot_panel_slot_rects):
+                    if rect.collidepoint(vH.mouseX, vH.mouseY) and self.nearby_crate is not None \
+                            and index < len(self.nearby_crate.items):
+                        self.dragging_item = self.nearby_crate.items[index]
+                        self.dragging_source = ("crate", self.nearby_crate, index)
+                        vH.dragInProgress = True
+                        return
+            return
+
+        slot_size = self._px(38)
+        icon_rect = pg.Rect(0, 0, slot_size, slot_size)
+        icon_rect.center = (vH.mouseX, vH.mouseY)
+        itemCards.draw_item_card(vH.screen, icon_rect, self.dragging_item.slot_type,
+                                 self.dragging_item.rarity, hovered=True)
+
+        if not vH.mouseDown:
+            self._resolve_drop((vH.mouseX, vH.mouseY))
+            self.dragging_item = None
+            self.dragging_source = None
+            vH.dragInProgress = False
+
+    def _resolve_drop(self, mouse_pos):
+        item = self.dragging_item
+        source_kind = self.dragging_source[0]
+
+        target_key = None
+        for key, rect in self._equipment_slot_rects.items():
+            if rect.collidepoint(mouse_pos) and EQUIPMENT_SLOT_TYPES[key] == item.slot_type:
+                target_key = key
+                break
+
+        if target_key is not None:
+            if source_kind == "equipment":
+                _, source_key = self.dragging_source
+                if source_key == target_key:
+                    return  # released back over its own slot -- treat as a cancelled drag
+                # Swap: works whether the target slot is occupied or empty.
+                cS.equipment[source_key], cS.equipment[target_key] = (
+                    cS.equipment[target_key], cS.equipment[source_key])
+            else:
+                _, crate, index = self.dragging_source
+                displaced = cS.equipment[target_key]
+                cS.equipment[target_key] = item
+                if displaced is not None:
+                    crate.items[index] = displaced
+                else:
+                    del crate.items[index]
+                    if not crate.items:
+                        if crate in cS.lootCrateList:
+                            cS.lootCrateList.remove(crate)
+                        if self.nearby_crate is crate:
+                            self.nearby_crate = None
+            return
+
+        if source_kind == "equipment":
+            _, source_key = self.dragging_source
+            cS.equipment[source_key] = None
+            crate = self.nearby_crate
+            if crate is not None and len(crate.items) < self.CRATE_SLOT_COUNT:
+                crate.items.append(item)
+            else:
+                cS.lootCrateList.append(LootCrate(bG.playerPosX, bG.playerPosY, [item]))
+        # source_kind == "crate" and invalid drop target: no-op, item stays put.
 
     def _draw_build(self, y):
         height = self._px(106 if self.mode == "compact" else 134)
@@ -385,9 +521,13 @@ class InformationSheet:
         y = self._draw_header()
         y = self._draw_status(y)
         y = self._draw_inventory(y)
+        if self.nearby_crate is not None and y + self._px(70) < self.totalHeight - self._px(82):
+            y = self._draw_loot_panel(y)
         y = self._draw_build(y)
         y = self._draw_stats(y)
         if self.mode == "compact" and y + self._px(90) < self.totalHeight - self._px(82):
             y = self._draw_objective(y)
         self._draw_recent_table(y)
-        self._draw_tooltip()
+        self._handle_equipment_drag()
+        if not vH.dragInProgress:
+            self._draw_tooltip()

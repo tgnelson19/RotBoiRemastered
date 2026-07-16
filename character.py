@@ -8,6 +8,8 @@ from bossTypes import BOSS_CATALOG
 from damageText import DamageText
 from experienceBubble import ExperienceBubble
 from enemyProjectile import EnemyProjectile
+from lootCrate import LootCrate
+import items
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 from math import atan, atan2, ceil, floor, pi, trunc, hypot
@@ -53,6 +55,9 @@ def _direction_to_target(origin_x, origin_y, target_x, target_y):
 
 titleFont = pg.font.Font("data/media/coolveticarg.otf", int(vH.tileSizeGlobal*(2/3)))
 textColor = (245,245,220)
+
+MAX_LOOT_CRATES = 40
+CRATE_INTERACT_RADIUS = 24
 
 def resetAllStats():
     
@@ -137,6 +142,9 @@ def resetAllStats():
     cS.damageTextList = []
     cS.experienceList = []
     cS.enemyProjectileHolster = []
+    cS.lootCrateList = []
+    cS.equipment = {"weapon": None, "armor": None, "ring": None, "accessory_1": None, "accessory_2": None}
+    vH.dragInProgress = False
     cS.activeBoss = None
     cS.bossDebugRequested = False
     cS.bossDebugInvincible = False
@@ -307,7 +315,8 @@ def drawBackground():
 def handlingBulletCreation():
 
     controller_firing = hypot(vH.controllerAimX, vH.controllerAimY) > .3
-    if (cS.attackCooldownTimer <= 0 and (cS.autoFire or vH.mouseDown or controller_firing)):
+    if (cS.attackCooldownTimer <= 0 and not vH.dragInProgress
+            and (cS.autoFire or vH.mouseDown or controller_firing)):
         cS.attackCooldownTimer = cS.attackCooldownStat
         currCrit = False
         currCritChance = floor(cS.critChance)
@@ -390,6 +399,8 @@ def handlingEnemyCreation():
         cS.enemyProjectileHolster.clear()
         cS.damageTextList.clear()
         cS.experienceList.clear()
+        cS.lootCrateList.clear()
+        cS.informationSheet.nearby_crate = None
         boss = BOSS_CATALOG.spawn(boss_key)
         if boss_key == "dissonance":
             arena_x, arena_y = boss._arena_center()
@@ -683,6 +694,16 @@ def handlingDamagingEnemies():
                     travel_range=vH.tileSizeGlobal * 4.5,
                     color=ui.RED, shape="diamond", owner="volatile_enemy",
                 ))
+        drop_count = items.roll_drop_count()
+        if drop_count:
+            cS.lootCrateList.append(LootCrate(
+                enemy.worldX, enemy.worldY, items.generate_drops(drop_count),
+            ))
+            if len(cS.lootCrateList) > MAX_LOOT_CRATES:
+                evictable = next((crate for crate in cS.lootCrateList
+                                  if crate is not cS.informationSheet.nearby_crate), None)
+                if evictable:
+                    cS.lootCrateList.remove(evictable)
         if enemy is cS.activeBoss:
             if getattr(enemy, "bossName", "") == "BEAUDIS":
                 cS.beaudisDefeated = True
@@ -762,7 +783,31 @@ def expForPlayer():
                 bubble.direction = atan(deltaY / deltaX) if deltaX > 0 else -atan(deltaY / abs(deltaX)) + pi
         else:
             bubble.naturalSpawn = True
-            
+
+def updateLootCrates():
+    old_clip = vH.screen.get_clip()
+    vH.screen.set_clip(bG.gameplay_viewport_rect())
+    for crate in cS.lootCrateList:
+        crate.draw()
+    vH.screen.set_clip(old_clip)
+
+def crateInteractionForPlayer():
+    dragging_source = cS.informationSheet.dragging_source
+    if dragging_source is not None and dragging_source[0] == "crate":
+        return
+    player_rect = pg.Rect(bG.playerPosX, bG.playerPosY, cS.playerSize, cS.playerSize)
+    nearest, nearest_distance = None, None
+    for crate in cS.lootCrateList:
+        if not crate.items:
+            continue
+        aura_rect = player_rect.inflate(2 * (CRATE_INTERACT_RADIUS + crate.size),
+                                        2 * (CRATE_INTERACT_RADIUS + crate.size))
+        if aura_rect.colliderect(crate._world_rect()):
+            distance = hypot(crate.worldX - bG.playerPosX, crate.worldY - bG.playerPosY)
+            if nearest_distance is None or distance < nearest_distance:
+                nearest, nearest_distance = crate, distance
+    cS.informationSheet.nearby_crate = nearest
+
 HOSTILE_MIN_DAMAGE = 25
 HOSTILE_DAMAGE_FLOOR_RATIO = .1
 
@@ -976,7 +1021,7 @@ def drawBountyIndicator():
     
 def drawInformationSheet():
     cS.currentBounty = selectBountyTarget()
-    if vH.mouseX < cS.informationSheet.arena_width:
+    if vH.mouseX < cS.informationSheet.arena_width and not vH.dragInProgress:
         center = (int(vH.mouseX), int(vH.mouseY))
         color = ui.CREAM if (cS.autoFire or vH.mouseDown) else ui.TEXT
         pg.draw.rect(vH.screen, ui.INK, (center[0] - 3, center[1] - 3, 6, 6))
