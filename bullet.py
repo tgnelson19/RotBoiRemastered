@@ -1,59 +1,59 @@
-import pygame
-import background as bG
-import variableHolster as vH
-from math import sin, cos, sqrt, degrees
+"""World-space projectile entity."""
 
-#Handles basic bullet statistics used during game calculation
+from math import cos, sin
+
+import pygame
+
+import background as bG
+import uiTheme as ui
+import variableHolster as vH
+
+
 class Bullet:
+    """A projectile whose path is independent of player and camera movement."""
 
     def __init__(
-            self, 
-            pX, pY,
-            iDX, iDY, 
-            speed, 
-            direc, 
-            bRange, 
-            size, 
-            color, 
-            pierce, 
-            damage, 
-            currCrit, 
-            sW, sH, 
-            frameRate
+            self,
+            world_x, world_y,
+            speed,
+            direction,
+            bullet_range,
+            size,
+            color,
+            pierce,
+            damage,
+            is_critical,
             ):
-        
-        self.posX = pX
-        self.posY = pY
-        self.iPosX = pX
-        self.iPosY = pY
-        self.iDX = iDX
-        self.iDY = iDY
-        self.sW = sW
-        self.sH = sH
+        self.worldX = world_x
+        self.worldY = world_y
+        self.posX, self.posY = bG.world_to_screen(world_x, world_y)
         self.speed = speed
-        self.direc = direc
+        self.direc = direction
         self.size = size
         self.color = color
-        self.bRange = bRange
+        self.bRange = bullet_range
         self.bPierce = pierce
         self.remFlag = False
-        self.frameRate = frameRate
         self.damage = damage
-        self.currCrit = currCrit
+        self.currCrit = is_critical
+        self.portalCooldown = 0.0
 
-    def updateAndDrawBullet(self, screen, dX, dY, playerX, playerY):
-        step_scale = vH.get_frame_scale()
-        self.posX += ((self.speed * cos(self.direc) - self.iDX) * step_scale + dX)
-        self.posY -= ((self.speed * sin(self.direc) + self.iDY) * step_scale - dY)
+    def updateAndDrawBullet(self, screen):
+        # Advance in world space using only the projectile's own velocity. Camera and
+        # player movement affect the final screen projection, never the bullet path.
+        distance = self.speed * vH.get_frame_scale()
+        seconds = vH.get_timer_step() / max(1, vH.frameRate)
+        self.portalCooldown = max(0.0, self.portalCooldown - seconds)
+        self.worldX += cos(self.direc) * distance
+        self.worldY -= sin(self.direc) * distance
+        self.bRange -= distance
 
-        bWRTBGX = playerX + (self.posX - self.iPosX)
-        bWRTBGY = playerY + (self.posY - self.iPosY)
-        world_rect = pygame.Rect(bWRTBGX, bWRTBGY, self.size, self.size)
-        pygame.draw.rect(screen, self.color, pygame.Rect(self.posX, self.posY, self.size, self.size))
+        self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+        world_rect = pygame.Rect(self.worldX, self.worldY, self.size, self.size)
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        pygame.draw.rect(screen, ui.INK, rect.inflate(4, 4))
+        pygame.draw.rect(screen, ui.PURPLE if self.currCrit else ui.CREAM, rect)
+        pygame.draw.rect(screen, ui.TEXT, rect.inflate(-int(self.size * .5), -int(self.size * .5)))
 
-        if bG.rect_hits_wall(world_rect):
-            self.remFlag = True
-
-        self.bRange -= 400 * vH.get_frame_scale() / 360
-        if self.bRange <= 0:
+        if bG.rect_hits_wall(world_rect) or self.bRange <= 0:
             self.remFlag = True

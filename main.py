@@ -18,11 +18,13 @@ def main():
                 runLeveling()
         
 def runGame():
+    pg.mouse.set_visible(False)
     
     if vH.hasBeenReset:
         vH.hasBeenReset = False
     
     baseInputCollection() #Collects the inputs from the player
+    pg.mouse.set_visible(vH.mouseX >= vH.sW * .75)
     
     cH.drawBackground() #Draws the base level background
     
@@ -36,7 +38,9 @@ def runGame():
     
     #Enemy Handling
     cH.handlingEnemyCreation()
+    cH.handlingBossDebugControls()
     cH.handlingEnemyUpdatesAndDrawing()
+    cH.handlingEnemyProjectileUpdating()
     cH.handlingDamagingEnemies()
     
     cH.updateDamageTexts()
@@ -50,6 +54,7 @@ def runGame():
     paintAndClearScreen(vH.backgroundColor)
     
 def runLeveling():
+    pg.mouse.set_visible(True)
     baseInputCollection()
     
     cH.handleLevelingProcess()
@@ -57,6 +62,7 @@ def runLeveling():
     paintAndClearScreen(vH.backgroundColor)
     
 def runTitle():
+    pg.mouse.set_visible(True)
     baseInputCollection()
     
     if not vH.hasBeenReset:
@@ -69,11 +75,13 @@ def runTitle():
     
 def baseInputCollection():
     """Collect input state, handle toggles, mouse events, and quit requests."""
-    vH.clock.tick(vH.frameRate)
+    vH.set_delta_time(vH.clock.tick(vH.frameRate))
     vH.keys = pg.key.get_pressed()
+    vH.keyPressed.clear()
+    vH.mousePressed = False
 
-    update_input_toggles()
     handle_input_events()
+    update_input_toggles()
 
     if vH.keys[pg.K_ESCAPE]:
         vH.done = True
@@ -82,26 +90,11 @@ def baseInputCollection():
 
 
 def update_input_toggles():
-    """Toggle autofire and light mode once per key press."""
-    if vH.keys[pg.K_i]:
-        if not cS.autoFire and not cS.autoFlop:
-            cS.autoFire = True
-            cS.autoFlop = True
-        elif not cS.autoFlop:
-            cS.autoFire = False
-            cS.autoFlop = True
-    else:
-        cS.autoFlop = False
-
-    if vH.keys[pg.K_o]:
-        if not cS.lightSwitch and not cS.lightFlop:
-            cS.lightSwitch = True
-            cS.lightFlop = True
-        elif not cS.lightFlop:
-            cS.lightSwitch = False
-            cS.lightFlop = True
-    else:
-        cS.lightFlop = False
+    """Toggle persistent gameplay assists once per key press."""
+    if pg.K_i in vH.keyPressed:
+        cS.autoFire = not cS.autoFire
+    if pg.K_y in vH.keyPressed:
+        cS.bossDebugInvincible = not cS.bossDebugInvincible
 
 
 def handle_input_events():
@@ -109,10 +102,15 @@ def handle_input_events():
     for event in pg.event.get():
         if event.type == pg.QUIT:
             vH.done = True
+        elif event.type == pg.KEYDOWN:
+            vH.keyPressed.add(event.key)
         elif event.type == pg.MOUSEBUTTONDOWN:
-            vH.mouseDown = True
+            if event.button == 1:
+                vH.mouseDown = True
+                vH.mousePressed = True
         elif event.type == pg.MOUSEBUTTONUP:
-            vH.mouseDown = False
+            if event.button == 1:
+                vH.mouseDown = False
 
 
 def paintAndClearScreen(color):

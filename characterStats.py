@@ -23,13 +23,13 @@ def record_upgrade(upgrade_type, rarity):
     upgradeCollection["rarities"][rarity] += 1
 
 
-enemyCap = 50
+enemyCap = 100
 currEnemyCount = 0
 
 highestLevel = 0
 
-playerSpeed = 2.5
-playerSize = vH.tileSizeGlobal
+playerSpeed = 2.1
+playerSize = vH.tileSizeGlobal * .75
 playerColor = pg.Color(0,0,120)
 
 dX, dY = 0, 0
@@ -59,6 +59,7 @@ auraSpeed = 2
 levelMod = 1.1
 xpMult = 1
 currentLevel = 0
+pendingLevelUps = 0
 expCount = 0
 expNeededForNextLevel = 50
 baseExpNeededForNextLevel = 50
@@ -68,7 +69,8 @@ healthPoints = 10
 maxHealthPoints = 10
 defense = 0
 
-enemyOneInFramesChance = 360
+enemyOneInFramesChance = 220
+enemySpawnTimer = 0
 
 numOfEnemiesKilled = 0
 currentStage = 1
@@ -86,15 +88,17 @@ currDashCooldown = 0
 autoFire = False
 autoFlop = False
 
-lightSwitch = True
-lightFlop = False
-
 fdX, fdY = 0, 0
 
 bulletHolster = []
 enemyHolster = []
 damageTextList = []
 experienceList = []
+enemyProjectileHolster = []
+activeBoss = None
+bossDebugRequested = False
+bossDebugInvincible = False
+enemySpawningEnabled = True
 
 informationSheet = InformationSheet()
 
@@ -118,3 +122,5 @@ collectiveMultStats = {"Defense" : [1], "Bullet Pierce" : [1], "Bullet Count" : 
                             "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
 
 gracePeriod = 10
+playerInvulnerabilityTimer = 0
+playerInvulnerabilityMax = vH.frameRate * 0.55

@@ -8,12 +8,18 @@ import background as bG
 
 class BackgroundSpawnTests(unittest.TestCase):
     def setUp(self):
+        self.original_room = bG.currRoomRects
+        self.original_tile_size = bG.vH.tileSizeGlobal
         bG.currRoomRects = [
             [[1, None], [1, None], [1, None]],
             [[1, None], [0, None], [1, None]],
             [[1, None], [1, None], [1, None]],
         ]
         bG.vH.tileSizeGlobal = 10
+
+    def tearDown(self):
+        bG.currRoomRects = self.original_room
+        bG.vH.tileSizeGlobal = self.original_tile_size
 
     def test_find_spawn_position_avoids_walls(self):
         spawn_rect = bG.find_spawn_rect(size=8)

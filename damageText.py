@@ -1,5 +1,6 @@
 import pygame
 import variableHolster as vH
+import uiTheme as ui
 
 #Simple text that floats above the target with a certain value
 class DamageText:
@@ -28,6 +29,9 @@ class DamageText:
         if self.lifetime <= 0:
             self.deleteMe = True
 
-        textRender = vH.damageTextFont.render("- " + str(format(self.value, '.3g')), True, self.color)
+        label = str(format(self.value, '.3g')) if isinstance(self.value, (int, float)) else str(self.value)
+        shadow_render = vH.damageTextFont.render(label, True, ui.INK)
+        textRender = vH.damageTextFont.render(label, True, self.color)
         textRect = textRender.get_rect(center=(self.posX + self.objSize / 2, self.posY - self.deltaVal))
+        vH.screen.blit(shadow_render, textRect.move(3, 3))
         vH.screen.blit(textRender, textRect)

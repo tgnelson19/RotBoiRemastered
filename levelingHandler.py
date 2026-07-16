@@ -1,220 +1,152 @@
+"""Upgrade-card presentation and input handling."""
+
 import pygame
-from math import pi
-from random import randint
+
+import upgrades
+import uiTheme as ui
 import variableHolster as vH
 
-#Whacko sicko mode hardcode that controls the leveling up schema
-class LevelingHandler:    
+
+class LevelingHandler:
+    CARD_KEYS = (pygame.K_1, pygame.K_2, pygame.K_3)
+
     def __init__(self):
-        
         self.frameRate = vH.frameRate
         self.sW = vH.sW
         self.sH = vH.sH
-        self.cardColor = pygame.Color(90,90,90)
-        self.baseColor = pygame.Color(0,0,0)
-        self.rerolls = 10
-
-        # Scale tileSize dynamically
-        self.tileSize = min(self.sW, self.sH) / 20  
-
-        # Scale fonts
-        self.titleFont = pygame.font.Font("data/media/coolveticarg.otf", int(self.tileSize * 1.3))
-        self.descFont = pygame.font.Font("data/media/coolveticarg.otf", int(self.tileSize *.7))
-
-        self.textColor = pygame.Color(0,0,0)
-
+        self.cardColor = ui.PANEL
+        self.cardHoverColor = ui.PANEL_HOVER
+        self.baseColor = ui.TEXT
+        self.rerolls = 2
+        self.tileSize = min(self.sW, self.sH) / 20
+        self.uiScale = max(.7, min(3.2, min(self.sW / 1024, self.sH / 768)))
+        font_path = "data/media/coolveticarg.otf"
+        self.titleFont = pygame.font.Font(font_path, int(self.tileSize * 0.9))
+        self.descFont = pygame.font.Font(font_path, int(self.tileSize * 0.45))
+        self.smallFont = pygame.font.Font(font_path, int(self.tileSize * 0.34))
         self.update_layout()
-
         self.firstClick = True
-
-        self.upgradeRarityColors = {"Common" : pygame.Color(0,0,0), "Rare" : pygame.Color(0,0,200), "Epic" : pygame.Color(128,0,128), "Legendary" : pygame.Color(255, 215, 0), "Mythical" : pygame.Color(255,255,255)}
-
-        #Chance of rarity being dropped (one in #)
-        self.upgradeRarityChancesOneIn = {"Common" : 1, "Rare" : 4, "Epic" : 10, "Legendary" : 25, "Mythical" : 100}
-        
-        #Rarity multiplier for the upgrade's value
-        self.upgradeRarity = {"Common" : 1, "Rare" : 1.6, "Epic" : 2.4, "Legendary" : 4, "Mythical" : 7}
-
-        self.upgradeRarityListReversed = ["Mythical", "Legendary", "Epic", "Rare", "Common"]
-        self.upgradeBasicsMaths = {"addative" : "Addatively", "multiplicative" : "Multiplicatively"}
-
-        self.upgradeTypesList = ["Defense", "Bullet Pierce", "Bullet Count", "Spread Angle", 
-                                  "Attack Speed", "Bullet Speed", "Bullet Range", "Bullet Damage", 
-                                  "Bullet Size", "Player Speed", "Crit Chance", "Crit Damage",
-                                   "Aura Size", "Aura Strength", "Exp Multiplier"]
-        
-        #Base values for upgrades at common
-
-        self.upgradeBasicTypesAdd = {"Defense" : 1, "Bullet Pierce" : 0.25, "Bullet Count" : 0.25, "Spread Angle" : pi/10, 
-                                  "Attack Speed" : -1, "Bullet Speed" : 3, "Bullet Range" : 75, "Bullet Damage" : 0.25, 
-                                  "Bullet Size" : 4, "Player Speed" : 0.2, "Crit Chance" : 0.08, "Crit Damage" : 0.4,
-                                    "Aura Size" : 8, "Aura Strength" : 0.8, "Exp Multiplier": .2}
-        
-        self.upgradeBasicTypesMult = {"Defense" : 0.12, "Bullet Pierce" : 0.12, "Bullet Count" : 0.12, "Spread Angle" : 0.12, 
-                                  "Attack Speed" : -0.04, "Bullet Speed" : 0.18, "Bullet Range" : 0.18, "Bullet Damage" : 0.16, 
-                                  "Bullet Size" : 0.12, "Player Speed" : 0.16, "Crit Chance" : 0.04, "Crit Damage" : 0.16,
-                                   "Aura Size" : 0.14, "Aura Strength" : 0.14, "Exp Multiplier": 0.16}
-        
-        self.upgradeBasicTypesMapper = {"Defense" : "defense", "Bullet Pierce" : "bulletPierce", "Bullet Count" : "projectileCount", "Spread Angle" : "azimuthalProjectileAngle", 
-                                  "Attack Speed" : "attackCooldownStat", "Bullet Speed" : "bulletSpeed", "Bullet Range" : "bulletRange", "Bullet Damage" : "damage", 
-                                  "Bullet Size" : "bulletSize", "Player Speed" : "playerSpeed", "Crit Chance" : "critChance", "Crit Damage" : "critDamage",
-                                  "Aura Size" : "aura", "Aura Size" : "auraSpeed", "Exp Multiplier":"xpMult"}
-        
-        self.upgradeUniqueTypes = ["healFull"]
-
-        self.leftCardUpgradeRarity = "Common"
-        self.leftCardUpgradeMath = "addative"
-        self.leftCardUpgradeType = "Bullet Damage"
-
-        self.midCardUpgradeRarity = "Epic"
-        self.midCardUpgradeMath = "addative"
-        self.midCardUpgradeType = "Bullet Damage"
-
-        self.rightCardUpgradeRarity = "Mythical"
-        self.rightCardUpgradeMath = "addative"
-        self.rightCardUpgradeType = "Player Speed"
-
+        self.upgradeRarityColors = ui.RARITY_COLORS
+        self.upgradeRarity = dict(upgrades.RARITY_MULTIPLIERS)
+        self.upgradeTypesList = list(upgrades.DEFINITIONS_BY_NAME)
+        self.upgradeBasicTypesAdd = {
+            item.name: item.additive for item in upgrades.DEFINITIONS
+        }
+        self.upgradeBasicTypesMult = {
+            item.name: item.multiplicative for item in upgrades.DEFINITIONS
+        }
+        self.cards = upgrades.generate_offer(count=3)
+        self.selected_card = None
         self.randomizing = False
+        self._sync_legacy_fields()
 
-        self.rarities = [self.leftCardUpgradeRarity, self.midCardUpgradeRarity, self.rightCardUpgradeRarity]
-        self.maths = [self.leftCardUpgradeMath, self.midCardUpgradeMath, self.rightCardUpgradeMath]
-        self.types = [self.leftCardUpgradeType, self.midCardUpgradeType, self.rightCardUpgradeType]
+    def _px(self, value):
+        return max(1, int(round(value * self.uiScale)))
 
     def update_layout(self):
-        """Recalculate card positions and sizes dynamically."""
-        cardWidth = (self.sW - self.tileSize * 5) / 3
-        cardHeight = self.sH * .6  # Cards take up 45% of screen height
+        card_width = (self.sW - self.tileSize * 5) / 3
+        card_height = self.sH * 0.62
+        card_y = (self.sH - card_height) / 2 - self.tileSize * 0.35
+        self.rerollButton = pygame.Rect(
+            self.sW // 2 - self.tileSize * 1.6,
+            self.sH * 0.87,
+            self.tileSize * 3.2,
+            self.tileSize,
+        )
+        self.leftCard = pygame.Rect(self.tileSize * 2, card_y, card_width, card_height)
+        self.midCard = pygame.Rect(self.tileSize * 3 + card_width, card_y, card_width, card_height)
+        self.rightCard = pygame.Rect(self.tileSize * 4 + 2 * card_width, card_y, card_width, card_height)
+        self.card_rects = (self.leftCard, self.midCard, self.rightCard)
 
-        cardY = (self.sH - cardHeight) / 2
+    def _sync_legacy_fields(self):
+        """Keep the original public fields available while old callers migrate."""
+        sides = ("left", "mid", "right")
+        for side, card in zip(sides, self.cards):
+            setattr(self, f"{side}CardUpgradeRarity", card.rarity)
+            setattr(self, f"{side}CardUpgradeMath", card.math_type)
+            setattr(self, f"{side}CardUpgradeType", card.name)
 
-        self.rerollButton = pygame.Rect(self.sW // 2 - self.tileSize * 2, self.sH * 0.85, self.tileSize * 4, self.tileSize * 1.5)
-        self.leftCard = pygame.Rect(self.tileSize * 2, cardY, cardWidth, cardHeight)
-        self.midCard = pygame.Rect(self.tileSize * 3 + cardWidth, cardY, cardWidth, cardHeight)
-        self.rightCard = pygame.Rect(self.tileSize * 4 + 2 * cardWidth, cardY, cardWidth, cardHeight)
-
+    def _draw_centered(self, font, text, color, x, y):
+        rendered = font.render(text, True, color)
+        vH.screen.blit(rendered, rendered.get_rect(center=(x, y)))
 
     def drawCards(self):
-        vH.screen.fill((0,0,0))
+        import characterStats as cS
 
-        """Draw the three cards, keeping the original structure intact but making it resolution-adaptive."""
-        for card, rarity, mathType, upgradeType in zip(
-            [self.leftCard, self.midCard, self.rightCard],
-            [self.leftCardUpgradeRarity, self.midCardUpgradeRarity, self.rightCardUpgradeRarity],
-            [self.leftCardUpgradeMath, self.midCardUpgradeMath, self.rightCardUpgradeMath],
-            [self.leftCardUpgradeType, self.midCardUpgradeType, self.rightCardUpgradeType]
-        ):
-            pygame.draw.rect(vH.screen, self.cardColor, card)
+        vH.screen.fill(ui.VOID)
+        grid_size = max(24, int(self.tileSize * 0.55))
+        for x in range(0, int(self.sW), grid_size):
+            pygame.draw.line(vH.screen, pygame.Color(23, 27, 35), (x, 0), (x, self.sH))
+        for y in range(0, int(self.sH), grid_size):
+            pygame.draw.line(vH.screen, pygame.Color(23, 27, 35), (0, y), (self.sW, y))
 
-            # Title (Rarity)
-            textRender = self.titleFont.render(rarity, True, self.upgradeRarityColors[rarity])
-            textRect = textRender.get_rect(center=(card.centerx, card.top + card.height * 0.1))  # 10% from top
-            vH.screen.blit(textRender, textRect)
+        ui.draw_text(vH.screen, "LEVEL SECURED", self.tileSize * 0.34, ui.GREEN, (self.sW / 2, self.tileSize * 0.3), "midtop")
+        ui.draw_text(vH.screen, "CHOOSE ONE // SHAPE THE RUN", self.tileSize * 0.72, ui.TEXT, (self.sW / 2, self.tileSize * 0.75), "midtop")
+        ui.draw_text(vH.screen, "Every card stays with you until the run ends.", self.tileSize * 0.3, ui.MUTED, (self.sW / 2, self.tileSize * 1.65), "midtop")
 
-            # Upgrade Type
-            textRender = self.titleFont.render(upgradeType, True, self.upgradeRarityColors[rarity])
-            textRect = textRender.get_rect(center=(card.centerx, card.top + card.height * 0.25))  # 25% from top
-            vH.screen.blit(textRender, textRect)
+        mouse_position = (vH.mouseX, vH.mouseY)
+        for index, (rect, card) in enumerate(zip(self.card_rects, self.cards)):
+            hovered = rect.collidepoint(mouse_position)
+            accent = self.upgradeRarityColors[card.rarity]
+            pressed = hovered and vH.mouseDown
+            visual_rect = rect.move(0, self._px(2) if pressed else (-self._px(7) if hovered else 0))
+            ui.draw_panel(vH.screen, visual_rect, self.cardColor, accent if hovered else ui.BORDER, shadow=3 if pressed else 7, hovered=hovered)
+            pygame.draw.rect(vH.screen, accent, (visual_rect.x, visual_rect.y, visual_rect.width, self._px(9)))
+            key_rect = pygame.Rect(visual_rect.x + self._px(18), visual_rect.y + self._px(24), self._px(38), self._px(38))
+            pygame.draw.rect(vH.screen, ui.INK, key_rect)
+            pygame.draw.rect(vH.screen, accent, key_rect, self._px(2))
+            ui.draw_text(vH.screen, str(index + 1), self.tileSize * 0.4, accent, key_rect.center, "center")
+            rarity_width = ui.font(int(self.tileSize * .23)).size(card.rarity.upper())[0]
+            ui.draw_tag(vH.screen, card.rarity, (visual_rect.right - self._px(22) - rarity_width, visual_rect.y + self._px(29)), accent, int(self.tileSize * .23))
+            ui.draw_text(vH.screen, card.definition.category.upper() + " CARD", self.tileSize * 0.24, ui.MUTED, (visual_rect.centerx, visual_rect.y + self.tileSize * 1.55), "center")
+            ui.draw_text(vH.screen, card.name, self.tileSize * 0.58, ui.TEXT, (visual_rect.centerx, visual_rect.y + self.tileSize * 2.15), "center")
+            pygame.draw.line(vH.screen, accent, (visual_rect.x + self._px(28), visual_rect.y + self.tileSize * 2.72), (visual_rect.right - self._px(28), visual_rect.y + self.tileSize * 2.72), self._px(2))
+            ui.draw_text(vH.screen, card.definition.description, self.tileSize * 0.3, self.baseColor, (visual_rect.centerx, visual_rect.centery - self.tileSize * 0.2), "center")
+            mode = "Flat bonus" if card.math_type == "additive" else "Scaling bonus"
+            mode_width = ui.font(int(self.tileSize * .2)).size(mode.upper())[0]
+            ui.draw_tag(vH.screen, mode, (visual_rect.centerx - mode_width / 2, visual_rect.centery + self.tileSize * 0.65), ui.BLUE, int(self.tileSize * .2))
+            ui.draw_text(vH.screen, upgrades.format_card_value(card), self.tileSize * 0.78, accent, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 1.25), "center")
+            owned = cS.upgradeCollection["types"].get(card.name, 0)
+            ui.draw_text(vH.screen, f"OWNED  {owned}", self.tileSize * 0.22, ui.MUTED, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 0.45), "center")
 
-            # Description (Properly placed near the bottom)
-            desc_y_start = card.bottom - card.height * 0.3  # 30% up from the bottom
-            textRender = self.descFont.render(self.upgradeBasicsMaths[mathType] + " increases", True, self.baseColor)
-            textRect = textRender.get_rect(center=(card.centerx, desc_y_start))
-            vH.screen.blit(textRender, textRect)
-
-            textRender = self.descFont.render(upgradeType, True, self.baseColor)
-            textRect = textRender.get_rect(center=(card.centerx, desc_y_start + self.tileSize * 0.7))  # Small offset
-            vH.screen.blit(textRender, textRect)
-
-            # Render Value
-            value_y = card.bottom - card.height * 0.05
-
-            if mathType == "addative":
-                textRender = self.descFont.render(f"By {self.upgradeBasicTypesAdd[upgradeType]}", True, self.baseColor)  # Placeholder value
-            else:
-                textRender = self.descFont.render(f"By {self.upgradeBasicTypesMult[upgradeType]}x", True, self.baseColor)  # Placeholder multiplier
-
-            textRect = textRender.get_rect(center=(card.centerx, value_y))
-            vH.screen.blit(textRender, textRect)
-
-        # Draw the re-roll button
-        pygame.draw.rect(vH.screen, pygame.Color(200, 0, 0), self.rerollButton, border_radius=10)  # Red button with rounded corners
-        textRender = self.titleFont.render("Re-roll", True, pygame.Color(255, 255, 255))
-        textRect = textRender.get_rect(center=self.rerollButton.center)
-        vH.screen.blit(textRender, textRect)
-        
-        # Display reroll count BELOW the button
-        reroll_text = self.descFont.render(f"Rerolls left: {self.rerolls}", True, pygame.Color(255, 255, 255))
-        reroll_text_rect = reroll_text.get_rect(center=(self.rerollButton.centerx, self.rerollButton.bottom + self.tileSize * 0.5))
-        vH.screen.blit(reroll_text, reroll_text_rect)
+        ui.draw_button(
+            vH.screen, self.rerollButton, f"REROLL  //  {self.rerolls} LEFT", mouse_position,
+            vH.mouseDown, self.rerolls > 0, ui.RED, "R", int(self.tileSize * 0.31),
+        )
 
     def PlayerClicked(self):
-        if (not vH.mouseDown):
+        if pygame.K_r in vH.keyPressed and self.rerolls > 0:
+            self.randomizeLevelUp()
+            self.rerolls -= 1
+            return "none"
+
+        for index, key in enumerate(self.CARD_KEYS):
+            if key in vH.keyPressed:
+                self.selected_card = self.cards[index]
+                return ("leftCard", "midCard", "rightCard")[index]
+
+        if not vH.mouseDown:
             self.firstClick = False
-
-        if (vH.mouseDown and not self.firstClick):
+        if vH.mouseDown and not self.firstClick:
             if self.rerollButton.collidepoint(vH.mouseX, vH.mouseY):
-                if (self.rerolls > 0):
-                    self.firstClick = True
+                self.firstClick = True
+                if self.rerolls > 0:
                     self.randomizeLevelUp()
-                    self.rerolls-=1
+                    self.rerolls -= 1
                 return "none"
-            
-            if(self.leftCard.collidepoint(vH.mouseX,vH.mouseY)):
-                self.firstClick = True
-                return "leftCard"
-            if(self.midCard.collidepoint(vH.mouseX,vH.mouseY)):
-                self.firstClick = True
-                return "midCard"
-            if(self.rightCard.collidepoint(vH.mouseX,vH.mouseY)):
-                self.firstClick = True
-                return "rightCard"
+            for index, rect in enumerate(self.card_rects):
+                clickable_rect = rect.inflate(0, self._px(14)).move(0, -self._px(7))
+                if clickable_rect.collidepoint(vH.mouseX, vH.mouseY):
+                    self.firstClick = True
+                    self.selected_card = self.cards[index]
+                    return ("leftCard", "midCard", "rightCard")[index]
         return "none"
-        
+
     def randomizeLevelUp(self):
-        
-        rarities = [self.leftCardUpgradeRarity, self.midCardUpgradeRarity, self.rightCardUpgradeRarity]
-        maths = [self.leftCardUpgradeMath, self.midCardUpgradeMath, self.rightCardUpgradeMath]
-        types = [self.leftCardUpgradeType, self.midCardUpgradeType, self.rightCardUpgradeType]
+        # Import locally to avoid a module cycle during characterStats initialization.
+        import characterStats as cS
 
-        for card in maths:
-            addOrMult = randint(1,2)
-            if(addOrMult == 1):
-                new = "addative"
-            else:
-                new = "multiplicative"
-            maths[maths.index(card)] = new
-
-        for i, card in enumerate(rarities):
-            for rarity in self.upgradeRarityListReversed:
-                if (self.upgradeRarityChancesOneIn[rarity] == 1):
-                    new = rarity
-                    rarities[i] = new
-                    break
-                else:
-                    rarityClick = randint(1, self.upgradeRarityChancesOneIn[rarity])
-                    if(rarityClick == 1):
-                        new = rarity
-                        rarities[i] = new
-                        break
-                
-        for card in types:
-            click = randint(0, len(self.upgradeTypesList) - 1)
-            new = self.upgradeTypesList[click]
-            types[types.index(card)] = new
-
-        self.leftCardUpgradeRarity = rarities[0]
-        self.leftCardUpgradeMath = maths[0]
-        self.leftCardUpgradeType = types[0]
-
-        self.midCardUpgradeRarity = rarities[1]
-        self.midCardUpgradeMath = maths[1]
-        self.midCardUpgradeType = types[1]
-
-        self.rightCardUpgradeRarity = rarities[2]
-        self.rightCardUpgradeMath = maths[2]
-        self.rightCardUpgradeType = types[2]
-
+        self.cards = upgrades.generate_offer(cS.upgradeCollection, count=3)
+        self.selected_card = None
+        self._sync_legacy_fields()
         self.randomizing = True
-
-        # self.drawCards(pygame.display.get_surface())  # Redraw the cards
-        # pygame.display.update()  # Update the display

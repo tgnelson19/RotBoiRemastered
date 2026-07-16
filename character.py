@@ -3,13 +3,17 @@ import background as bG
 import characterStats as cS
 import pygame as pg
 from bullet import Bullet
-from enemy import Enemy
+from enemyTypes import ENEMY_CATALOG
+from bossTypes import BOSS_CATALOG
 from damageText import DamageText
 from experienceBubble import ExperienceBubble
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
-from math import atan, atan2, ceil, floor, pi, trunc
+from math import atan, atan2, ceil, floor, pi, trunc, hypot
 from random import randint
+import upgrades
+import uiTheme as ui
+from spatialHash import SpatialHash
 
 # helper functions for repeated game calculations
 
@@ -48,11 +52,13 @@ textColor = (245,245,220)
 
 def resetAllStats():
     
-    bG.playerPosX = 200
-    bG.playerPosY = 200
+    bG.playerPosX = bG.spawnX
+    bG.playerPosY = bG.spawnY
+    vH.screenShakeX = 0
+    vH.screenShakeY = 0
     
-    cS.playerSpeed = 2.5
-    cS.playerSize = vH.tileSizeGlobal
+    cS.playerSpeed = 2.1
+    cS.playerSize = vH.tileSizeGlobal * .75
     cS.playerColor = pg.Color(0,0,120)
 
     cS.dX, cS.dY = 0, 0
@@ -82,6 +88,7 @@ def resetAllStats():
     cS.levelMod = 1.08
     cS.xpMult = 1
     cS.currentLevel = 0
+    cS.pendingLevelUps = 0
     cS.expCount = 0
     cS.expNeededForNextLevel = 40
     cS.baseExpNeededForNextLevel = 40
@@ -90,8 +97,13 @@ def resetAllStats():
     cS.healthPoints = 10
     cS.maxHealthPoints = 10
     cS.defense = 0
+    cS.currEnemyCount = 0
+    cS.playerInvulnerabilityTimer = 0
+    cS.playerInvulnerabilityMax = vH.frameRate * 0.55
+    cS.gracePeriod = vH.frameRate * 1.25
 
-    cS.enemyOneInFramesChance = 360
+    cS.enemyOneInFramesChance = 220
+    cS.enemySpawnTimer = vH.frameRate * 1.0
 
     cS.numOfEnemiesKilled = 0
     cS.currentStage = 1
@@ -112,6 +124,11 @@ def resetAllStats():
     cS.enemyHolster = []
     cS.damageTextList = []
     cS.experienceList = []
+    cS.enemyProjectileHolster = []
+    cS.activeBoss = None
+    cS.bossDebugRequested = False
+    cS.bossDebugInvincible = False
+    cS.enemySpawningEnabled = True
 
     cS.informationSheet = InformationSheet()
     
@@ -164,60 +181,48 @@ def handleLevelingProcess():
     
     pDecision = cS.levelingHandler.PlayerClicked()
 
-    if (pDecision == "leftCard"):
-        cS.record_upgrade(cS.levelingHandler.leftCardUpgradeType, cS.levelingHandler.leftCardUpgradeRarity)
-        if (cS.levelingHandler.leftCardUpgradeMath == "addative"):
-            cS.collectiveAddStats[cS.levelingHandler.leftCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.leftCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.leftCardUpgradeType])
-        if (cS.levelingHandler.leftCardUpgradeMath == "multiplicative"):
-            cS.collectiveMultStats[cS.levelingHandler.leftCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.leftCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.leftCardUpgradeType])
-
-    elif (pDecision == "midCard"):
-        cS.record_upgrade(cS.levelingHandler.midCardUpgradeType, cS.levelingHandler.midCardUpgradeRarity)
-        if (cS.levelingHandler.midCardUpgradeMath == "addative"):
-            cS.collectiveAddStats[cS.levelingHandler.midCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.midCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.midCardUpgradeType])
-        if (cS.levelingHandler.midCardUpgradeMath == "multiplicative"):
-            cS.collectiveMultStats[cS.levelingHandler.midCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.midCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.midCardUpgradeType])
-
-    elif (pDecision == "rightCard"):
-        cS.record_upgrade(cS.levelingHandler.rightCardUpgradeType, cS.levelingHandler.rightCardUpgradeRarity)
-        if (cS.levelingHandler.rightCardUpgradeMath == "addative"):
-            cS.collectiveAddStats[cS.levelingHandler.rightCardUpgradeType].append(cS.levelingHandler.upgradeRarity[cS.levelingHandler.rightCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesAdd[cS.levelingHandler.rightCardUpgradeType])
-        if (cS.levelingHandler.rightCardUpgradeMath == "multiplicative"):
-            cS.collectiveMultStats[cS.levelingHandler.rightCardUpgradeType].append(1 + cS.levelingHandler.upgradeRarity[cS.levelingHandler.rightCardUpgradeRarity] * cS.levelingHandler.upgradeBasicTypesMult[cS.levelingHandler.rightCardUpgradeType])
-
     if (pDecision != "none"):
+        card = cS.levelingHandler.selected_card
+        cS.record_upgrade(card.name, card.rarity)
+        modifier = upgrades.card_modifier(card)
+        if card.math_type == "additive":
+            cS.collectiveAddStats[card.name].append(modifier)
+        else:
+            cS.collectiveMultStats[card.name].append(modifier)
         combarinoPlayerStats()
         cS.newRandoUps = False
-        cS.gracePeriod = vH.frameRate * 2
-        vH.state = vH.States.GAMERUN
+        cS.pendingLevelUps = max(0, cS.pendingLevelUps - 1)
+        if cS.pendingLevelUps > 0:
+            vH.state = vH.States.LEVELING
+        else:
+            cS.gracePeriod = vH.frameRate * 2
+            vH.state = vH.States.GAMERUN
 
 def movePlayer():
-    if vH.keys[pg.K_SPACE] and cS.currDashCooldown == 0:
+    input_x = int(bool(vH.keys[pg.K_a])) - int(bool(vH.keys[pg.K_d]))
+    input_y = int(bool(vH.keys[pg.K_w])) - int(bool(vH.keys[pg.K_s]))
+    direction_scale = 0.70710678 if input_x and input_y else 1.0
+    input_x *= direction_scale
+    input_y *= direction_scale
+
+    if pg.K_SPACE in vH.keyPressed and cS.currDashCooldown <= 0 and (input_x or input_y):
         cS.dashing = True
         cS.currDashCooldown = cS.dashCooldownMax
-        cS.fdX = cS.dX
-        cS.fdY = cS.dY
+        cS.fdX = input_x
+        cS.fdY = input_y
+        cS.playerInvulnerabilityTimer = max(cS.playerInvulnerabilityTimer, cS.dashDuration)
     
     if cS.currDashCooldown > 0:
-        cS.currDashCooldown -= 1
+        cS.currDashCooldown = max(0, cS.currDashCooldown - vH.get_timer_step())
     
     if not cS.dashing:
-        cS.dX, cS.dY = 0, 0
-
-        if vH.keys[pg.K_w]: cS.dY += 1
-        if vH.keys[pg.K_a]: cS.dX += 1
-        if vH.keys[pg.K_s]: cS.dY -= 1
-        if vH.keys[pg.K_d]: cS.dX -= 1
-        
-        scalar = 0.707 if abs(cS.dX) + abs(cS.dY) == 2 else 1
         movement_scale = vH.get_frame_scale()
-        cS.dX *= scalar * cS.playerSpeed * movement_scale
-        cS.dY *= scalar * cS.playerSpeed * movement_scale
+        cS.dX = input_x * cS.playerSpeed * movement_scale
+        cS.dY = input_y * cS.playerSpeed * movement_scale
     else:
-        scalar = 0.707 if abs(cS.dX) + abs(cS.dY) == 2 else 1
         movement_scale = vH.get_frame_scale()
-        cS.dX = cS.fdX * scalar * cS.dashModifier * cS.playerSpeed * movement_scale * 0.4
-        cS.dY = cS.fdY * scalar * cS.dashModifier * cS.playerSpeed * movement_scale * 0.4
+        cS.dX = cS.fdX * cS.dashModifier * cS.playerSpeed * movement_scale
+        cS.dY = cS.fdY * cS.dashModifier * cS.playerSpeed * movement_scale
         
         if cS.currDashCooldown <= (cS.dashCooldownMax - cS.dashDuration):
             cS.dashing = False
@@ -238,10 +243,29 @@ def movePlayer():
     else:
         cS.dY = 0
 
+    boss = cS.activeBoss
+    if boss is not None and hasattr(boss, "arenaRadius"):
+        arena_x, arena_y = boss._arena_center()
+        player_x = bG.playerPosX + cS.playerSize / 2
+        player_y = bG.playerPosY + cS.playerSize / 2
+        delta_x, delta_y = player_x - arena_x, player_y - arena_y
+        distance = hypot(delta_x, delta_y)
+        limit = boss.arenaRadius - cS.playerSize * .7
+        if distance > limit:
+            bG.playerPosX = arena_x + delta_x / distance * limit - cS.playerSize / 2
+            bG.playerPosY = arena_y + delta_y / distance * limit - cS.playerSize / 2
+
     cS.playerRect.topleft = (bG.lockX, bG.lockY)
 
 def drawPlayer():
-    pg.draw.rect(vH.screen, cS.playerColor, cS.playerRect)
+    flash_on = cS.playerInvulnerabilityTimer > 0 and int(cS.playerInvulnerabilityTimer / 4) % 2 == 0
+    color = pg.Color(235, 245, 255) if flash_on else cS.playerColor
+    shadow = cS.playerRect.move(4, 4)
+    pg.draw.rect(vH.screen, ui.SHADOW, shadow)
+    pg.draw.rect(vH.screen, color, cS.playerRect)
+    pg.draw.rect(vH.screen, ui.CREAM if cS.dashing else ui.INK, cS.playerRect, 3)
+    inset = cS.playerRect.inflate(-int(cS.playerSize * .42), -int(cS.playerSize * .42))
+    pg.draw.rect(vH.screen, ui.lighten(color, 45), inset)
 
 def drawBackground():
     bG.moveAndDisplayBackground(bG.repasteableRoomSurface)
@@ -268,24 +292,14 @@ def handlingBulletCreation():
         for bNum in range(0,int(currProjectileCount)):
             
             originX, originY = bG.lockX + (cS.playerSize / 2), bG.lockY + (cS.playerSize / 2)
-            deltaX, deltaY = vH.mouseX - originX, vH.mouseY - originY
-            direction = 0
-
-            if (deltaX == 0):
-                if(deltaY > 0): direction = 0
-                else: direction = -pi
-            else:
-                if(deltaX > 0): direction = -atan(deltaY/deltaX)
-                else: deltaX = abs(vH.mouseX - originX); direction = atan(deltaY/deltaX) + pi
+            direction = _direction_to_target(originX, originY, vH.mouseX, vH.mouseY)
 
             if(currProjectileCount != 1):
                 dirDelta = -(cS.azimuthalProjectileAngle / 2)
                 direction += dirDelta + bNum*(cS.azimuthalProjectileAngle / (currProjectileCount-1))
 
-            cS.bulletHolster.append(Bullet(bG.lockX + (cS.playerSize / 2) - (cS.bulletSize / 2),
-                                            bG.lockY + (cS.playerSize / 2) - (cS.bulletSize / 2),
-                                            cS.dX,
-                                            cS.dY,
+            cS.bulletHolster.append(Bullet(bG.playerPosX + (cS.playerSize / 2) - (cS.bulletSize / 2),
+                                            bG.playerPosY + (cS.playerSize / 2) - (cS.bulletSize / 2),
                                             cS.bulletSpeed,
                                             direction,
                                             cS.bulletRange,
@@ -293,110 +307,188 @@ def handlingBulletCreation():
                                             cS.bulletColor,
                                             currPierce,
                                             currDamage,
-                                            currCrit,
-                                            vH.sW,
-                                            vH.sH,
-                                            vH.frameRate))
+                                            currCrit))
 
     elif(cS.attackCooldownTimer > 0):
-        cS.attackCooldownTimer -= 1
+        cS.attackCooldownTimer = max(0, cS.attackCooldownTimer - vH.get_timer_step())
 
 
 def handlingBulletUpdating():
-
-        for bullet in cS.bulletHolster:
-            bullet.updateAndDrawBullet(vH.screen, cS.dX, cS.dY, bG.playerPosX, bG.playerPosY)
-            if bullet.remFlag: cS.bulletHolster.remove(bullet)
+    for bullet in cS.bulletHolster:
+        bullet.updateAndDrawBullet(vH.screen)
+    cS.bulletHolster[:] = [bullet for bullet in cS.bulletHolster if not bullet.remFlag]
 
 def handlingEnemyCreation():
-    
-    if (cS.currEnemyCount <= cS.enemyCap):
-        if (randint(1, int(cS.enemyOneInFramesChance)) == 1):
+    if cS.bossDebugRequested:
+        cS.enemyHolster.clear()
+        cS.enemyProjectileHolster.clear()
+        cS.damageTextList.clear()
+        cS.experienceList.clear()
+        boss = BOSS_CATALOG.spawn("beaudis")
+        arena_x, arena_y = boss._arena_center()
+        boss.worldX, boss.worldY = arena_x - boss.size / 2, arena_y - boss.size / 2
+        boss.posX, boss.posY = bG.world_to_screen(boss.worldX, boss.worldY)
+        player_rect = bG.find_nearest_open_rect(
+            pg.Rect(arena_x - cS.playerSize / 2,
+                    arena_y + vH.tileSizeGlobal * 9.6 - cS.playerSize / 2,
+                    cS.playerSize, cS.playerSize), cS.playerSize,
+        )
+        bG.playerPosX, bG.playerPosY = player_rect.x, player_rect.y
+        cS.enemyHolster.append(boss)
+        cS.activeBoss = boss
+        # Boss practice now respects the normal damage rules unless the player
+        # explicitly toggles invincibility with Y.
+        cS.bossDebugInvincible = False
+        cS.currEnemyCount = 1
+        cS.enemySpawningEnabled = False
+        cS.bossDebugRequested = False
+        cS.gracePeriod = vH.frameRate * 2
+        return
 
-            cS.currEnemyCount += 1
+    if not cS.enemySpawningEnabled:
+        return
 
-            eDiff = randint(1, 100)
+    cS.enemySpawnTimer -= vH.get_timer_step()
+    if cS.currEnemyCount < cS.enemyCap and cS.enemySpawnTimer <= 0:
+        cS.enemySpawnTimer = max(1, cS.enemyOneInFramesChance * randint(65, 135) / 100)
+        batch_size = 1
+        if randint(1, 100) <= 55:
+            batch_size += 1
+        if cS.currentLevel >= 4 and randint(1, 100) <= 35:
+            batch_size += 1
 
-            if eDiff < 45:
-                eDiff = 1.0
-                eColor = pg.Color(255,0,0)
-            elif eDiff < 75:
-                eDiff = 1.25
-                eColor = pg.Color(139,0,0)
-            elif eDiff < 95:
-                eDiff = 1.5
-                eColor = pg.Color(1,50,32)
-            else:
-                eDiff = 1.75
-                eColor = pg.Color(255,223,0)
-                
+        for _ in range(min(batch_size, cS.enemyCap - len(cS.enemyHolster))):
+            cS.enemyHolster.append(ENEMY_CATALOG.spawn(cS.currentLevel))
+        cS.currEnemyCount = len(cS.enemyHolster)
 
-            eMod = randint(80, 140)
-            eMod = eMod / 100
-        
-            eSpeed = 0.8 * (cS.levelMod ** cS.currentLevel) * eDiff * eMod
-            eSize = vH.tileSizeGlobal * (eDiff * 0.7) / eMod
-            
-            eDamage = 0.9 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
-            eHP = 2.2 * (cS.levelMod ** cS.currentLevel) * eDiff / eMod
-            eEXP = 2.4 * (cS.levelMod ** cS.currentLevel) * (eDiff * 1.5)
-            
-            whichSideSpawned = randint(1,4)
-            if (whichSideSpawned <=2) : 
-                newXTile = randint(1, bG.currNumOfXTiles - 2)
-                if (whichSideSpawned == 1):
-                    newYTile = 1
-                else:
-                    newYTile = bG.currNumOfYTiles - 2
-            else:
-                newYTile = randint(1, bG.currNumOfYTiles - 2)
-                if (whichSideSpawned == 3):
-                    newXTile = 1
-                else:
-                    newXTile = bG.currNumOfXTiles - 2
-            
-            spawn_rect = bG.find_spawn_rect(eSize)
-            cS.enemyHolster.append(Enemy(
-                spawn_rect.x - bG.playerPosX + bG.lockX,
-                spawn_rect.y - bG.playerPosY + bG.lockY,
-                eSpeed,
-                eSize,
-                eColor,
-                eDamage,
-                eHP,
-                eEXP,
-                eDiff,
-                vH.frameRate
-            ))
+def handlingBossDebugControls():
+    boss = cS.activeBoss
+    if boss is None:
+        return
+    phase_keys = (pg.K_1, pg.K_2, pg.K_3, pg.K_4, pg.K_5,
+                  pg.K_6, pg.K_7, pg.K_8, pg.K_9)
+    for phase, key in enumerate(phase_keys, 1):
+        if key in vH.keyPressed:
+            boss.debug_set_phase(phase)
+            cS.enemyProjectileHolster.clear()
+            return
+    if pg.K_r in vH.keyPressed:
+        boss.debug_set_phase(boss.phase)
+        cS.enemyProjectileHolster.clear()
+    if pg.K_l in vH.keyPressed:
+        boss.debugPhaseLocked = not boss.debugPhaseLocked
+    if pg.K_f in vH.keyPressed and not boss.isStaggered:
+        boss.stagger = boss.maxStagger - boss.minimumStaggerPerHit
+        boss.take_damage(1)
+    if pg.K_c in vH.keyPressed:
+        boss.runeCannonCooldown = 0
 
 def handlingEnemyUpdatesAndDrawing():
 
     for enemy in cS.enemyHolster:
-        enemy.updateEnemy(bG.lockX + cS.playerSize/2, bG.lockY + cS.playerSize/2, cS.dX, cS.dY)
+        enemy.updateEnemy(
+            bG.playerPosX + cS.playerSize/2,
+            bG.playerPosY + cS.playerSize/2,
+            cS.enemyProjectileHolster,
+        )
         enemy.drawEnemy(vH.screen)
+        if getattr(enemy, "transitionCleanupRequested", False):
+            cS.enemyProjectileHolster.clear()
+            enemy.transitionCleanupRequested = False
+
+
+def handlingEnemyProjectileUpdating():
+    boss = cS.activeBoss
+    spawned_projectiles = []
+    for projectile in cS.enemyProjectileHolster:
+        if boss is not None and hasattr(boss, "arenaRadius"):
+            center_x, center_y = boss._arena_center()
+            projectile_x = projectile.worldX + projectile.size / 2
+            projectile_y = projectile.worldY + projectile.size / 2
+            if hypot(projectile_x - center_x, projectile_y - center_y) > boss.arenaRadius * 1.04:
+                projectile.remFlag = True
+            if getattr(boss, "dying", False):
+                projectile.remFlag = True
+        projectile.updateAndDraw(vH.screen)
+        spawned_projectiles.extend(getattr(projectile, "spawnedProjectiles", ()))
+        if hasattr(projectile, "spawnedProjectiles"):
+            projectile.spawnedProjectiles.clear()
+    cS.enemyProjectileHolster[:] = [
+        projectile for projectile in cS.enemyProjectileHolster if not projectile.remFlag
+    ]
+    cS.enemyProjectileHolster.extend(spawned_projectiles)
+    if boss is not None and len(cS.enemyProjectileHolster) > 150:
+        overflow = len(cS.enemyProjectileHolster) - 150
+        for projectile in cS.enemyProjectileHolster[:overflow]:
+            projectile.remFlag = True
         
 def handlingDamagingEnemies():
+    enemy_grid = SpatialHash(max(64, int(vH.tileSizeGlobal * 2)))
+    for enemy in cS.enemyHolster:
+        for _, hitbox in enemy.get_screen_hitboxes():
+            enemy_grid.insert(enemy, hitbox)
 
-    for bullet in cS.bulletHolster[:]:
+    dead_enemies = set()
+    for bullet in cS.bulletHolster:
         bullet_rect = pg.Rect(bullet.posX, bullet.posY, bullet.size, bullet.size)
-
-        for eman in cS.enemyHolster[:]:
-            eman_rect = pg.Rect(eman.posX, eman.posY, eman.size, eman.size)
-
-            if bullet_rect.colliderect(eman_rect):
+        for eman in enemy_grid.query(bullet_rect):
+            if eman in dead_enemies:
+                continue
+            collided_part = next(
+                ((part_id, hitbox) for part_id, hitbox in eman.get_screen_hitboxes() if bullet_rect.colliderect(hitbox)),
+                None,
+            )
+            if collided_part:
                 if bullet not in eman.cantTouchMeList:
+                    part_id, hitbox = collided_part
+                    if (str(part_id).startswith("portal:") and hasattr(eman, "route_player_bullet")
+                            and eman.route_player_bullet(bullet, int(str(part_id).split(":")[1]))):
+                        continue
                     eman.cantTouchMeList.append(bullet)
                     bullet.bPierce -= 1
                     if bullet.bPierce <= 0:
                         bullet.remFlag = True
-                    eman.hp -= bullet.damage
-                    currColor = pg.Color(128,0,128) if bullet.currCrit else pg.Color(200,120,0)
-                    cS.damageTextList.append(DamageText(eman.posX, eman.posY, currColor, bullet.damage, eman.size, vH.frameRate))
-                    if eman.hp <= 0:
-                        cS.currEnemyCount -= 1
-                        cS.enemyHolster.remove(eman)
-                        cS.numOfEnemiesKilled += 1
-                        cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue*(cS.currentStage*cS.experienceStageMod)), eman.difficulty, vH.frameRate))
+                    result = eman.take_damage(bullet.damage, part_id)
+                    if getattr(eman, "transitionCleanupRequested", False):
+                        cS.enemyProjectileHolster.clear()
+                        eman.transitionCleanupRequested = False
+                    currColor = ui.PURPLE if bullet.currCrit else ui.GOLD
+                    display_value = ("SURVIVE" if getattr(eman, "survivalActive", False)
+                                     and not str(part_id).startswith("portal:")
+                                     else "BREAK" if str(part_id).startswith("portal:")
+                                     and not eman.projectilePortals[int(str(part_id).split(":")[1])].active
+                                     else bullet.damage) if result.applied else (
+                        "SURVIVE" if getattr(eman, "survivalActive", False)
+                        else "STAGGER" if hasattr(eman, "stagger") else "BLOCK"
+                    )
+                    cS.damageTextList.append(DamageText(hitbox.x, hitbox.y, currColor, display_value, hitbox.width, vH.frameRate))
+                    if result.killed:
+                        dead_enemies.add(eman)
+
+    for enemy in cS.enemyHolster:
+        if enemy.is_dead():
+            dead_enemies.add(enemy)
+
+    for enemy in dead_enemies:
+        cS.numOfEnemiesKilled += 1
+        cS.experienceList.append(ExperienceBubble(
+            enemy.posX, enemy.posY,
+            cS.xpMult * (enemy.expValue * (cS.currentStage * cS.experienceStageMod)),
+            enemy.difficulty, vH.frameRate, celebration=enemy is cS.activeBoss,
+        ))
+        if enemy is cS.activeBoss:
+            cS.activeBoss = None
+            cS.enemySpawningEnabled = True
+            vH.screenShakeX = 0
+            vH.screenShakeY = 0
+            cS.enemyProjectileHolster[:] = [
+                projectile for projectile in cS.enemyProjectileHolster
+                if not str(projectile.owner or "").startswith("beaudis")
+            ]
+    if dead_enemies:
+        cS.enemyHolster[:] = [enemy for enemy in cS.enemyHolster if enemy not in dead_enemies]
+        cS.currEnemyCount = len(cS.enemyHolster)
+    cS.bulletHolster[:] = [bullet for bullet in cS.bulletHolster if not bullet.remFlag]
 
 def updateDamageTexts():
     for dText in cS.damageTextList[:]:
@@ -419,6 +511,7 @@ def expForPlayer():
 
             while cS.expCount >= cS.expNeededForNextLevel:
                 cS.currentLevel += 1
+                cS.pendingLevelUps += 1
                 cS.expCount -= cS.expNeededForNextLevel
                 cS.informationSheet.updateCurrLevel()
                 cS.expNeededForNextLevel *= cS.levelScaleIncreaseFunction
@@ -445,39 +538,146 @@ def expForPlayer():
             bubble.naturalSpawn = True
             
 def hurtPlayer():
+    timer_step = vH.get_timer_step()
+    cS.playerInvulnerabilityTimer = max(0, cS.playerInvulnerabilityTimer - timer_step)
+    cS.gracePeriod = max(0, cS.gracePeriod - timer_step)
+    if cS.bossDebugInvincible:
+        cS.healthPoints = cS.maxHealthPoints
+        return
+    if cS.playerInvulnerabilityTimer > 0 or cS.gracePeriod > 0:
+        return
+
     player_rect = pg.Rect(bG.lockX, bG.lockY, cS.playerSize, cS.playerSize)
-    for eman in cS.enemyHolster[:]:
-        enemy_rect = pg.Rect(eman.posX, eman.posY, eman.size, eman.size)
-        if player_rect.colliderect(enemy_rect):
-            cS.numOfEnemiesKilled += 1
-            cS.enemyHolster.remove(eman)
-            cS.experienceList.append(ExperienceBubble(eman.posX, eman.posY, cS.xpMult * (eman.expValue * (cS.currentStage * cS.experienceStageMod)), eman.difficulty, vH.frameRate))
-            trueDMG = max(eman.damage - cS.defense, 0)
-            cS.damageTextList.append(DamageText(bG.lockX, bG.lockY, pg.Color(200,100,0), trueDMG, vH.tileSizeGlobal, vH.frameRate))
+    player_world_rect = pg.Rect(bG.playerPosX, bG.playerPosY, cS.playerSize, cS.playerSize)
+
+    for projectile in cS.enemyProjectileHolster:
+        if projectile.collides(player_world_rect):
+            if not getattr(projectile, "persistentHazard", False):
+                projectile.remFlag = True
+            trueDMG = max(projectile.damage - cS.defense, 0)
+            cS.damageTextList.append(DamageText(
+                bG.lockX, bG.lockY, ui.RED, trueDMG, vH.tileSizeGlobal, vH.frameRate,
+            ))
             cS.healthPoints -= trueDMG
+            cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
             if cS.healthPoints <= 0:
                 vH.state = vH.States.TITLESCREEN
-                cS.highestLevel = cS.currentLevel
+                cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
+            return
+
+    for eman in cS.enemyHolster:
+        collided_hitbox = next(
+            (hitbox for _, hitbox in eman.get_screen_hitboxes() if player_rect.colliderect(hitbox)),
+            None,
+        )
+        if collided_hitbox:
+            trueDMG = max(eman.damage - cS.defense, 0)
+            cS.damageTextList.append(DamageText(bG.lockX, bG.lockY, ui.RED, trueDMG, vH.tileSizeGlobal, vH.frameRate))
+            cS.healthPoints -= trueDMG
+            cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
+
+            # Separate the bodies immediately so the next readable threat comes from
+            # a new approach, not an enemy hidden inside the player rectangle.
+            delta_x = collided_hitbox.centerx - player_rect.centerx
+            delta_y = collided_hitbox.centery - player_rect.centery
+            distance = max(1, hypot(delta_x, delta_y))
+            eman.apply_knockback(
+                delta_x / distance * vH.tileSizeGlobal * 0.8,
+                delta_y / distance * vH.tileSizeGlobal * 0.8,
+            )
+            if cS.healthPoints <= 0:
+                vH.state = vH.States.TITLESCREEN
+                cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
+            break
     
 def drawInformationSheet():
+    if vH.mouseX < vH.sW * 0.75:
+        center = (int(vH.mouseX), int(vH.mouseY))
+        color = ui.CREAM if (cS.autoFire or vH.mouseDown) else ui.TEXT
+        pg.draw.rect(vH.screen, ui.INK, (center[0] - 3, center[1] - 3, 6, 6))
+        pg.draw.rect(vH.screen, color, (center[0] - 3, center[1] - 3, 6, 6), 1)
+        gap, length = 7, 8
+        pg.draw.line(vH.screen, color, (center[0] - gap - length, center[1]), (center[0] - gap, center[1]), 2)
+        pg.draw.line(vH.screen, color, (center[0] + gap, center[1]), (center[0] + gap + length, center[1]), 2)
+        pg.draw.line(vH.screen, color, (center[0], center[1] - gap - length), (center[0], center[1] - gap), 2)
+        pg.draw.line(vH.screen, color, (center[0], center[1] + gap), (center[0], center[1] + gap + length), 2)
+    drawBossHealthBar()
     cS.informationSheet.drawSheet()
-    
+
+
+def drawBossHealthBar():
+    boss = cS.activeBoss
+    if boss is None or boss.hp <= 0:
+        return
+    if getattr(boss, "entranceRemaining", 0) > 1.0:
+        return
+    scale = ui.display_scale(vH.screen)
+    arena_width = vH.sW * .75
+    width = min(arena_width * .62, 720 * scale)
+    height = 88 * scale
+    rect = pg.Rect((arena_width - width) / 2, 16 * scale, width, height)
+    accent = boss.phaseAccent
+    ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, accent, shadow=6)
+    ui.draw_text(vH.screen, boss.bossName, 20 * scale, ui.TEXT, (rect.x + 14 * scale, rect.y + 8 * scale))
+    phase_text = (f"SURVIVE // {boss.survivalRemaining:04.1f}s"
+                  if getattr(boss, "survivalActive", False)
+                  else f"PHASE {boss.phase} // {boss.phaseLabel}")
+    ui.draw_text(vH.screen, phase_text, 10 * scale, accent,
+                 (rect.right - 14 * scale, rect.y + 13 * scale), "topright")
+    hp_rect = pg.Rect(rect.x + 14 * scale, rect.y + 39 * scale, rect.width - 28 * scale, 12 * scale)
+    ui.draw_progress(vH.screen, hp_rect, max(0.0, min(1.0, boss.hp / boss.maxHp)), accent, 18)
+    stagger_color = ui.CREAM if boss.isStaggered else ui.GOLD
+    stagger_rect = pg.Rect(rect.x + 14 * scale, rect.y + 64 * scale, rect.width - 28 * scale, 10 * scale)
+    stagger_ratio = (boss.staggerRemaining / boss.staggerDuration
+                     if boss.isStaggered else boss.stagger / boss.maxStagger)
+    ui.draw_progress(vH.screen, stagger_rect, max(0.0, min(1.0, stagger_ratio)), stagger_color, 12)
+    stagger_label = (f"PERFECT BREAK // {boss.staggerRemaining:.1f}s"
+                     if boss.isStaggered and boss.perfectStagger
+                     else f"STAGGERED // {boss.staggerRemaining:.1f}s" if boss.isStaggered
+                     else f"RECOVERING // {boss.staggerRecoveryRemaining:.1f}s"
+                     if boss.staggerRecoveryRemaining > 0
+                     else f"RUNE BROKEN // {boss.runeSilenceRemaining:.1f}s"
+                     if boss.runeSilenceRemaining > 0
+                     else f"STAGGER // TIER {min(3, int(boss.stagger / boss.maxStagger * 4))}")
+    ui.draw_text(vH.screen, stagger_label, 9 * scale, stagger_color,
+                 (stagger_rect.x, stagger_rect.y - 2 * scale), "bottomleft")
+
 def runTheTitleScreen():
-    
-    #Displays title texts on title screen
-    textRender = titleFont.render("RbR : Press Space To Play", True, textColor)
-    textRect = textRender.get_rect(center = (vH.sW/2, vH.sH/2))
-    vH.screen.blit(textRender, textRect)
+    vH.screen.fill(ui.VOID)
+    grid = max(28, int(min(vH.sW, vH.sH) / 28))
+    for x in range(0, int(vH.sW), grid):
+        pg.draw.line(vH.screen, pg.Color(23, 27, 35), (x, 0), (x, vH.sH))
+    for y in range(0, int(vH.sH), grid):
+        pg.draw.line(vH.screen, pg.Color(23, 27, 35), (0, y), (vH.sW, y))
 
-    textRender = titleFont.render("WASD to Move, Mouse to Shoot, I to Autofire, O for light/dark mode", True, textColor)
-    textRect = textRender.get_rect(center = (vH.sW/2, vH.sH*(2/3)))
-    vH.screen.blit(textRender, textRect)
+    scale = min(vH.sW, vH.sH)
+    ui_scale = max(.7, min(3.2, min(vH.sW / 1024, vH.sH / 768)))
+    content_width = min(int(vH.sW * .68), int(980 * ui_scale))
+    left = int((vH.sW - content_width) / 2)
+    ui.draw_text(vH.screen, "ROTBOI", scale * .095, ui.TEXT, (vH.sW / 2, vH.sH * .12), "midtop")
+    ui.draw_text(vH.screen, "R E M A S T E R E D", scale * .026, ui.CREAM, (vH.sW / 2, vH.sH * .245), "midtop")
+    ui.draw_text(vH.screen, "BUILD THE VOLLEY. BREAK THE ROOM. DO IT AGAIN.", scale * .019, ui.MUTED, (vH.sW / 2, vH.sH * .305), "midtop")
 
-    textRender = titleFont.render("Highest Level So Far: " + str(cS.highestLevel), True, textColor)
-    textRect = textRender.get_rect(center = (vH.sW/2, vH.sH*(4/5)))
-    vH.screen.blit(textRender, textRect)
+    play_rect = pg.Rect(left + content_width * .22, vH.sH * .39, content_width * .56, max(62 * ui_scale, scale * .078))
+    hovered = ui.draw_button(vH.screen, play_rect, "START RUN", (vH.mouseX, vH.mouseY), vH.mouseDown, True, ui.CREAM, "SPACE", int(scale * .025))
 
-    if (vH.keys[pg.K_SPACE]):
+    controls_rect = pg.Rect(left, vH.sH * .55, content_width, max(132 * ui_scale, vH.sH * .18))
+    ui.draw_panel(vH.screen, controls_rect, ui.PANEL, ui.BORDER, shadow=6)
+    ui.draw_text(vH.screen, "FIELD MANUAL", scale * .018, ui.TEXT, (controls_rect.x + 18 * ui_scale, controls_rect.y + 14 * ui_scale))
+    controls = (("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"), ("SPACE", "DASH"), ("I", "AUTOFIRE"))
+    cell_width = (controls_rect.width - 36 * ui_scale) / 4
+    for index, (key, action) in enumerate(controls):
+        center_x = controls_rect.x + 18 * ui_scale + cell_width * (index + .5)
+        key_rect = pg.Rect(0, 0, min(82 * ui_scale, cell_width - 12 * ui_scale), 34 * ui_scale)
+        key_rect.center = (center_x, controls_rect.centery - 3)
+        pg.draw.rect(vH.screen, ui.INK, key_rect)
+        pg.draw.rect(vH.screen, ui.BLUE, key_rect, 2)
+        ui.draw_text(vH.screen, key, scale * .014, ui.BLUE, key_rect.center, "center")
+        ui.draw_text(vH.screen, action, scale * .011, ui.MUTED, (center_x, key_rect.bottom + 11 * ui_scale), "midtop")
+
+    record_label = "NO RUNS LOGGED" if cS.highestLevel <= 0 else f"BEST RUN  //  LEVEL {cS.highestLevel:02}"
+    ui.draw_tag(vH.screen, record_label, (left, int(vH.sH * .80)), ui.GOLD if cS.highestLevel else ui.BORDER, int(scale * .012))
+    ui.draw_text(vH.screen, "ESC  QUIT", scale * .012, ui.MUTED, (left + content_width, vH.sH * .805), "topright")
+
+    if pg.K_SPACE in vH.keyPressed or (hovered and vH.mousePressed):
         vH.state = vH.States.GAMERUN
-        cS.highestLevel = 0
-        
