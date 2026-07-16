@@ -7,6 +7,19 @@ import uiTheme as ui
 
 _open_tile_cache = {}
 
+
+def _gameplay_clip_width():
+    """Width of the playable viewport, matching the HUD sidebar's actual size.
+
+    Falls back to a 75% guess before characterStats has built the sidebar
+    (e.g. during early import), since the real width depends on hud_mode.
+    """
+    import characterStats as cS
+    sheet = getattr(cS, "informationSheet", None)
+    if sheet is not None:
+        return int(sheet.arena_width)
+    return int(vH.sW * .75)
+
 # The arena stays deliberately restrained: each ward is mostly charcoal and slate,
 # with one low-saturation identity color.  These are renderer palettes rather than
 # gameplay tile types, so biome flavor never changes collision rules.
@@ -372,7 +385,7 @@ def find_path_around_walls(world_rect, desired_dx, desired_dy, size):
 def moveAndDisplayBackground(surface):
     """Rotate only a low-resolution camera window, never the full arena texture."""
     global _camera_background_cache, _camera_render_surfaces
-    gameplay_clip = pg.Rect(0, 0, int(vH.sW * .75), int(vH.sH))
+    gameplay_clip = pg.Rect(0, 0, _gameplay_clip_width(), int(vH.sH))
     old_clip = vH.screen.get_clip()
     vH.screen.set_clip(gameplay_clip)
 
@@ -542,7 +555,7 @@ def _draw_camera_facing_wall(surface, room_rects, tile_x, tile_y, tile, palette)
 
 def drawRaisedScenery(room_rects):
     """Draw walls and props after yaw so all vertical height points screen-up."""
-    gameplay_clip = pg.Rect(0, 0, int(vH.sW * .75), int(vH.sH))
+    gameplay_clip = pg.Rect(0, 0, _gameplay_clip_width(), int(vH.sH))
     visibility = gameplay_clip.inflate(vH.tileSizeGlobal * 3,
                                        vH.tileSizeGlobal * 3)
     walls, decorations = _raised_scenery(room_rects)

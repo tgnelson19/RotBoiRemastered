@@ -53,6 +53,7 @@ class InformationSheet:
         if next_scale != self.uiScale or self._layoutSize != vH.screen.get_size():
             self.uiScale = next_scale
             self._build_layout()
+            bG.lockX = self.arena_width / 2
 
     @property
     def arena_width(self):
@@ -63,6 +64,7 @@ class InformationSheet:
         gameProfile.profile["hud_mode"] = self.mode
         gameProfile.save_profile()
         self._build_layout()
+        bG.lockX = self.arena_width / 2
 
     def _panel(self, y, height, accent=ui.BORDER, fill=ui.PANEL_RAISED):
         rect = pg.Rect(self.posX + self.padding, y,
@@ -334,7 +336,7 @@ class InformationSheet:
         lines.append(line)
         rect = pg.Rect(vH.mouseX - width - self._px(10), vH.mouseY + self._px(10), width,
                        self._px(14 + len(lines) * 13))
-        rect.clamp_ip(vH.screen.get_rect())
+        rect.clamp_ip(pg.Rect(self.posX, 0, self.totalLength, self.totalHeight))
         ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=4)
         for index, text in enumerate(lines):
             ui.draw_text(vH.screen, text, self._px(8), ui.TEXT,

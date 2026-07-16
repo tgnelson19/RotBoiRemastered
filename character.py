@@ -154,7 +154,8 @@ def resetAllStats():
     cS.autoFire = bool(gameProfile.profile["autofire"])
 
     cS.informationSheet = InformationSheet()
-    
+    bG.lockX = cS.informationSheet.arena_width / 2
+
     cS.levelingHandler = LevelingHandler()
     cS.reset_upgrade_tracking()
     
