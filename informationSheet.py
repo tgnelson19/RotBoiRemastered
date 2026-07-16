@@ -265,7 +265,7 @@ class InformationSheet:
                 ("Bullet Range", "Range", f"{cS.bulletRange / vH.tileSizeGlobal:.1f} tiles",
                  self._rating(cS.bulletRange, 250), "Approximate projectile travel distance."),
             ]
-        height = self._px(153 if self.mode == "compact" else 246)
+        height = self._px(29 + len(rows) * 31)
         rect = self._panel(y, height, ui.BLUE)
         ui.draw_text(vH.screen, "YOUR WEAPON", self._px(9), ui.BLUE,
                      (rect.x + self._px(10), rect.y + self._px(8)))
