@@ -48,9 +48,9 @@ class LevelingHandler:
         card_height = self.sH * 0.62
         card_y = (self.sH - card_height) / 2 - self.tileSize * 0.35
         self.rerollButton = pygame.Rect(
-            self.sW // 2 - self.tileSize * 1.6,
+            self.sW // 2 - self.tileSize * 2.1,
             self.sH * 0.87,
-            self.tileSize * 3.2,
+            self.tileSize * 4.2,
             self.tileSize,
         )
         self.leftCard = pygame.Rect(self.tileSize * 2, card_y, card_width, card_height)
@@ -129,7 +129,7 @@ class LevelingHandler:
             ui.draw_text(vH.screen, card.definition.category.upper() + " CARD", self.tileSize * 0.24, ui.MUTED, (visual_rect.centerx, visual_rect.y + self.tileSize * 1.55), "center")
             ui.draw_text(vH.screen, card.name, self.tileSize * 0.58, ui.TEXT, (visual_rect.centerx, visual_rect.y + self.tileSize * 2.15), "center")
             pygame.draw.line(vH.screen, accent, (visual_rect.x + self._px(28), visual_rect.y + self.tileSize * 2.72), (visual_rect.right - self._px(28), visual_rect.y + self.tileSize * 2.72), self._px(2))
-            ui.draw_text(vH.screen, card.definition.description, self.tileSize * 0.3, self.baseColor, (visual_rect.centerx, visual_rect.centery - self.tileSize * 0.2), "center")
+            ui.draw_text(vH.screen, card.definition.description, self.tileSize * 0.38, self.baseColor, (visual_rect.centerx, visual_rect.centery - self.tileSize * 0.2), "center")
             mode = "Flat bonus" if card.math_type == "additive" else "Scaling bonus"
             mode_width = ui.font(int(self.tileSize * .2)).size(mode.upper())[0]
             ui.draw_tag(vH.screen, mode, (visual_rect.centerx - mode_width / 2, visual_rect.centery + self.tileSize * 0.65), ui.BLUE, int(self.tileSize * .2))

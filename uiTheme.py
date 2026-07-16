@@ -81,15 +81,23 @@ def draw_button(surface, rect, label, mouse_position, mouse_down=False, enabled=
     if not enabled:
         fill, accent = PANEL, BORDER
     draw_panel(surface, visual_rect, fill=fill, border=accent, shadow=2 if pressed else 5)
+    padding = max(6, round(8 * scale))
+    hint_rect = None
     if key_hint:
-        inset = max(6, round(8 * scale))
+        inset = padding
         hint_rect = pg.Rect(visual_rect.x + inset, visual_rect.y + inset, visual_rect.height - inset * 2, visual_rect.height - inset * 2)
         pg.draw.rect(surface, accent, hint_rect)
         draw_text(surface, key_hint, text_size * 0.72, INK, hint_rect.center, "center")
-    label_center = visual_rect.center
-    if key_hint:
+    if hint_rect:
         label_center = ((hint_rect.right + visual_rect.right) / 2, visual_rect.centery)
-    draw_text(surface, label, text_size, TEXT if enabled else MUTED, label_center, "center")
+        available_width = (visual_rect.right - padding) - (hint_rect.right + padding)
+    else:
+        label_center = visual_rect.center
+        available_width = visual_rect.width - padding * 2
+    fitted_size = text_size
+    while fitted_size > 9 and font(fitted_size).size(str(label))[0] > available_width:
+        fitted_size -= 1
+    draw_text(surface, label, fitted_size, TEXT if enabled else MUTED, label_center, "center")
     return hovered
 
 
