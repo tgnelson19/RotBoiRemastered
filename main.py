@@ -91,6 +91,9 @@ def baseInputCollection():
 
 def update_input_toggles():
     """Toggle persistent gameplay assists once per key press."""
+    if (pg.K_b in vH.keyPressed and cS.activeBoss is None
+            and not cS.bossDebugRequested):
+        cS.bossDebugRequested = True
     if pg.K_i in vH.keyPressed:
         cS.autoFire = not cS.autoFire
     if pg.K_y in vH.keyPressed:

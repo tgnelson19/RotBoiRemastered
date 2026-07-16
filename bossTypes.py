@@ -36,6 +36,7 @@ class Beaudis(Enemy):
                      ((.42, .48), (.04, .48), (-.24, .22)))),
     }
     SURVIVAL_PHASES = (3, 6, 9)
+    DAMAGE_PHASES = (1, 2, 4, 5, 7, 8)
     PHASE_MOVEMENT = {
         1: "hearth_tornado", 2: "road_anchor", 3: "torch_tornado",
         4: "hail_chase", 5: "yew_anchor", 6: "sun_revolution",
@@ -44,11 +45,13 @@ class Beaudis(Enemy):
 
     def __init__(self, world_x, world_y, rng=None):
         size = vH.tileSizeGlobal * 1.9
-        # 240 HP keeps the encounter substantial while making each phase shorter
-        # and less attritional for a level-zero player.
-        super().__init__(world_x, world_y, .66, size, ui.PURPLE, 3.2, 240, 120, 4, "beaudis")
+        # Beaudis arrives after ten levels of upgrades, so the encounter supports
+        # a longer damage race than the earlier debug-oriented balance target.
+        super().__init__(world_x, world_y, .66, size, ui.PURPLE, 3.2, 480, 120, 4, "beaudis")
         self.rng = rng or random
         self.phase = 1
+        self.damagePhaseHistory = [1]
+        self.nextSurvivalPhase = 3
         self.phaseAccent = ui.PURPLE
         self.phaseLabel = "BOLSTER"
         self.phaseFlavor = "I did not expect a challenger..."
@@ -58,9 +61,9 @@ class Beaudis(Enemy):
         self.phaseTimeLimit = 36.0
         self.phaseForcedByTimer = False
         self.stagger = 0.0
-        # Twenty baseline hits (6 stagger each) break Beaudis. Pressure is
+        # Forty baseline hits (6 stagger each) break Beaudis. Pressure is
         # retained briefly, then drains gradually if the player disengages.
-        self.maxStagger = 120.0
+        self.maxStagger = 240.0
         self.staggerPerDamage = 2.0
         self.minimumStaggerPerHit = 6.0
         self.staggerDecayDelay = 2.0
@@ -268,7 +271,7 @@ class Beaudis(Enemy):
             self.staggerRemaining = max(0.0, self.staggerRemaining - dt)
             if self.staggerRemaining <= 0:
                 next_phase = (self._health_unlocked_survival()
-                              or self._paired_damage_phase(self.phase))
+                              or self._choose_damage_phase())
                 if next_phase is not None:
                     self._set_phase(next_phase)
                 else:
@@ -292,6 +295,9 @@ class Beaudis(Enemy):
             return
         self._clear_survival_portals()
         self.phase = phase
+        if phase in self.DAMAGE_PHASES:
+            self.damagePhaseHistory.append(phase)
+            self.damagePhaseHistory = self.damagePhaseHistory[-3:]
         self.phaseElapsed = 0.0
         self.stagger = 0.0
         self.staggerDecayTimer = 0.0
@@ -338,7 +344,10 @@ class Beaudis(Enemy):
         if phase in (4, 7):
             self.actTransitionTimer = 2.2
             self.actTitle = "ACT II // THE FRACTURE" if phase == 4 else "ACT III // THE RETURN"
-        if phase == 2:
+        if phase == 1:
+            self._clear_portals()
+            self._deploy_phase_one_portals()
+        elif phase == 2:
             if not self.projectilePortals:
                 self._deploy_phase_one_portals()
             self.carouselCooldown = .35
@@ -394,17 +403,23 @@ class Beaudis(Enemy):
         for portal in self.projectilePortals + self.survivalPortals:
             portal.reset_for_phase(rune_strokes)
 
-    @staticmethod
-    def _paired_damage_phase(phase):
-        return {1: 2, 2: 1, 4: 5, 5: 4, 7: 8, 8: 7}.get(phase)
+    def _choose_damage_phase(self):
+        """Choose from the six attacks without repeating the last three used."""
+        recent = set(self.damagePhaseHistory[-3:])
+        choices = [phase for phase in self.DAMAGE_PHASES if phase not in recent]
+        # Six candidates and a three-entry memory guarantee choices in normal play;
+        # this fallback keeps debug-manipulated state safe as well.
+        if not choices:
+            choices = [phase for phase in self.DAMAGE_PHASES if phase != self.phase]
+        return self.rng.choice(choices)
 
     def _health_unlocked_survival(self):
-        """Return the survival rune unlocked by the current act's HP gate."""
-        if self.phase in (1, 2) and self.hp <= self.maxHp * (2 / 3):
+        """Return the next ordered survival rune once its HP gate is reached."""
+        if self.nextSurvivalPhase == 3 and self.hp <= self.maxHp * (2 / 3):
             return 3
-        if self.phase in (4, 5) and self.hp <= self.maxHp * (1 / 3):
+        if self.nextSurvivalPhase == 6 and self.hp <= self.maxHp * (1 / 3):
             return 6
-        if self.phase in (7, 8) and self.hp <= 0:
+        if self.nextSurvivalPhase == 9 and self.hp <= 0:
             return 9
         return None
 
@@ -1238,11 +1253,10 @@ class Beaudis(Enemy):
         self.phaseAnnouncementTimer = max(0.0, self.phaseAnnouncementTimer - dt)
         if not self.debugPhaseLocked and not self.survivalActive:
             survival_phase = self._health_unlocked_survival()
-            paired_phase = self._paired_damage_phase(self.phase)
             if survival_phase is not None:
                 self._set_phase(survival_phase)
-            elif self.phaseElapsed >= self.phaseTimeLimit and paired_phase is not None:
-                self._set_phase(paired_phase)
+            elif self.phaseElapsed >= self.phaseTimeLimit and self.phase in self.DAMAGE_PHASES:
+                self._set_phase(self._choose_damage_phase())
                 self.phaseForcedByTimer = True
 
         if self.transitionRemaining > 0:
@@ -1254,7 +1268,8 @@ class Beaudis(Enemy):
             if self.survivalRemaining <= 0:
                 self.survivalActive = False
                 if self.phase < 9:
-                    self._set_phase(self.phase + 1)
+                    self.nextSurvivalPhase = 6 if self.phase == 3 else 9
+                    self._set_phase(self._choose_damage_phase())
                     self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
                     return
                 self._begin_death()

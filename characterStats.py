@@ -23,7 +23,9 @@ def record_upgrade(upgrade_type, rarity):
     upgradeCollection["rarities"][rarity] += 1
 
 
-enemyCap = 100
+enemyCap = 50
+enemyThreatCap = 36.0
+enemyPopulationThreatCap = 60.0
 currEnemyCount = 0
 
 highestLevel = 0
@@ -98,6 +100,8 @@ enemyProjectileHolster = []
 activeBoss = None
 bossDebugRequested = False
 bossDebugInvincible = False
+beaudisEncounterStarted = False
+guaranteedMiniBossesSpawned = set()
 enemySpawningEnabled = True
 
 informationSheet = InformationSheet()

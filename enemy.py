@@ -1,7 +1,8 @@
 """Base world-space enemy entity and shared combat contract."""
 
 from dataclasses import dataclass
-from math import hypot, sin
+from math import cos, hypot, pi, sin
+import random
 
 import pygame
 
@@ -35,6 +36,14 @@ class Enemy:
         self.difficulty = difficulty
         self.archetype = archetype
         self.age = 0.0
+        self.awarenessState = "wandering"
+        self.awarenessRange = vH.sH * .5
+        self.disengageRange = self.awarenessRange * 1.25
+        self.wanderAngle = random.uniform(-pi, pi)
+        self.wanderTimer = random.randint(55, 135)
+        self.threatCost = 1.0
+        self.spawnedEnemies = []
+        self.engagementAllowed = True
 
     def drawEnemy(self, screen):
         rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
@@ -95,6 +104,11 @@ class Enemy:
         direction_x = delta_x / distance
         direction_y = delta_y / distance
 
+        if not self._update_awareness(distance):
+            self._wander()
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+
         # Skirmishers weave in open ground, producing a distinct approach without
         # changing collision behavior at walls.
         if self.archetype == "skirmisher":
@@ -119,6 +133,34 @@ class Enemy:
             self.worldX, self.worldY = safe_rect.x, safe_rect.y
 
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+
+    def _update_awareness(self, distance):
+        """Update the shared wander/alert/disengage state with hysteresis."""
+        if not self.engagementAllowed:
+            self.awarenessState = "wandering"
+            return False
+        if self.awarenessState == "wandering":
+            if distance <= self.awarenessRange:
+                self.awarenessState = "alerted"
+        elif distance > self.disengageRange:
+            self.awarenessState = "wandering"
+        elif distance > self.awarenessRange:
+            self.awarenessState = "disengaging"
+        else:
+            self.awarenessState = "alerted"
+        return self.awarenessState != "wandering"
+
+    def _wander(self, speed_multiplier=.2):
+        """Low-cost MMO-style roaming shared by otherwise simple enemies."""
+        self.wanderTimer -= vH.get_timer_step()
+        if self.wanderTimer <= 0:
+            self.wanderAngle += random.uniform(-1.35, 1.35)
+            self.wanderTimer = random.randint(55, 135)
+        step = self.speed * speed_multiplier * vH.get_frame_scale()
+        moved_x = self._try_axis_move(cos(self.wanderAngle) * step, "x")
+        moved_y = self._try_axis_move(sin(self.wanderAngle) * step, "y")
+        if not moved_x or not moved_y:
+            self.wanderAngle += random.uniform(.75, 2.2)
 
     def get_screen_hitboxes(self):
         return [("body", pygame.Rect(self.posX, self.posY, self.size, self.size))]

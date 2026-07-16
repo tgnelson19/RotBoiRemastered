@@ -9,7 +9,7 @@ import background as bG
 from bossTypes import BOSS_CATALOG, Beaudis
 import character as game
 import characterStats as cS
-from enemyTypes import ENEMY_CATALOG
+from enemyTypes import ArsenalMiniBoss, ENEMY_CATALOG
 from bullet import Bullet
 from enemyProjectile import EnemyProjectile
 import uiTheme as ui
@@ -35,8 +35,9 @@ class BeaudisBossTests(unittest.TestCase):
         vH.screenShakeX = 0
         vH.screenShakeY = 0
 
-    def test_boss_health_uses_reduced_balance_target(self):
-        self.assertEqual(self.boss.maxHp, 240)
+    def test_boss_health_and_stagger_match_level_ten_balance_target(self):
+        self.assertEqual(self.boss.maxHp, 480)
+        self.assertEqual(self.boss.maxStagger / self.boss.minimumStaggerPerHit, 40)
 
     def test_initial_phase_uses_bolster_dialogue(self):
         self.assertEqual(self.boss.phaseLabel, "BOLSTER")
@@ -103,6 +104,7 @@ class BeaudisBossTests(unittest.TestCase):
     def test_lethal_damage_unlocks_final_survival_before_collapse(self):
         self.boss.entranceRemaining = 0
         self.boss.debug_set_phase(8)
+        self.boss.nextSurvivalPhase = 9
         self.boss.isStaggered = True
         self.boss.hp = 1
         result = self.boss.take_damage(10)
@@ -279,8 +281,8 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.stagger,
                          starting_stagger - self.boss.staggerDecayPerSecond * .25)
 
-    def test_base_player_hits_require_twenty_hits_without_immediate_phase_swap(self):
-        for _ in range(19):
+    def test_base_player_hits_require_forty_hits_without_immediate_phase_swap(self):
+        for _ in range(39):
             self.boss.take_damage(1)
         self.assertFalse(self.boss.isStaggered)
         self.boss.take_damage(1)
@@ -289,7 +291,7 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(self.boss.staggerRemaining, 5)
 
     def test_full_stagger_opens_temporary_damage_window_and_stops_attacks(self):
-        for _ in range(20):
+        for _ in range(40):
             self.boss.take_damage(1)
         self.assertTrue(self.boss.isStaggered)
         self.assertTrue(self.boss.transitionCleanupRequested)
@@ -309,7 +311,8 @@ class BeaudisBossTests(unittest.TestCase):
         self.boss._update_stagger(.2)
         self.assertFalse(self.boss.isStaggered)
         self.assertEqual(self.boss.stagger, 0)
-        self.assertEqual(self.boss.phase, 2)
+        self.assertIn(self.boss.phase, self.boss.DAMAGE_PHASES)
+        self.assertNotEqual(self.boss.phase, 1)
         self.assertEqual(self.boss.transitionRemaining, 5)
         hp = self.boss.hp
         self.assertTrue(self.boss.take_damage(10).blocked)
@@ -499,17 +502,19 @@ class BeaudisBossTests(unittest.TestCase):
             boss.entranceRemaining = 0
             boss.debug_set_phase(phase)
             boss.transitionRemaining = 0
+            boss.nextSurvivalPhase = expected
             boss.hp = boss.maxHp * ratio
             boss.updateEnemy(*boss._center(), [])
             self.assertEqual(boss.phase, expected)
             self.assertTrue(boss.survivalActive)
 
-    def test_phase_alternates_after_doubled_time_limit_without_health_progress(self):
+    def test_phase_randomizes_after_doubled_time_limit_without_health_progress(self):
         self.assertEqual(self.boss.phaseTimeLimit, 36)
         self.assertEqual(self.boss.phase, 1)
         self.boss.phaseElapsed = self.boss.phaseTimeLimit
         self.boss.updateEnemy(*self.boss._center(), [])
-        self.assertEqual(self.boss.phase, 2)
+        self.assertIn(self.boss.phase, self.boss.DAMAGE_PHASES)
+        self.assertNotEqual(self.boss.phase, 1)
         self.assertTrue(self.boss.phaseForcedByTimer)
         self.assertEqual(self.boss.hp, self.boss.maxHp)
 
@@ -517,14 +522,25 @@ class BeaudisBossTests(unittest.TestCase):
         self.boss.phaseElapsed = self.boss.phaseTimeLimit
         self.boss.updateEnemy(*self.boss._center(), [])
         self.boss.updateEnemy(*self.boss._center(), [])
-        self.assertEqual(self.boss.phase, 2)
+        self.assertIn(self.boss.phase, self.boss.DAMAGE_PHASES)
+
+    def test_damage_phase_pool_never_repeats_any_of_last_three_phases(self):
+        seen = [self.boss.phase]
+        for _ in range(24):
+            next_phase = self.boss._choose_damage_phase()
+            self.assertNotIn(next_phase, seen[-3:])
+            self.boss._set_phase(next_phase)
+            seen.append(next_phase)
+        self.assertTrue(set(seen).issubset(set(self.boss.DAMAGE_PHASES)))
 
     def test_final_damage_phases_repeat_until_zero_health(self):
         self.boss.debug_set_phase(8)
+        self.boss.nextSurvivalPhase = 9
         self.boss.hp = 1
         self.boss.phaseElapsed = self.boss.phaseTimeLimit
         self.boss.updateEnemy(*self.boss._center(), [])
-        self.assertEqual(self.boss.phase, 7)
+        self.assertIn(self.boss.phase, self.boss.DAMAGE_PHASES)
+        self.assertNotEqual(self.boss.phase, 8)
         self.assertFalse(self.boss.survivalActive)
 
     def test_crossfire_carousel_fires_tangential_volley(self):
@@ -589,6 +605,14 @@ class BeaudisBossTests(unittest.TestCase):
         cS.activeBoss = previous_boss
         cS.bossDebugInvincible = previous
 
+    def test_b_remains_a_hidden_debug_summon_shortcut(self):
+        game.resetAllStats()
+        vH.keyPressed = {__import__("pygame").K_b}
+        __import__("main").update_input_toggles()
+        self.assertTrue(cS.bossDebugRequested)
+        self.assertFalse(cS.beaudisEncounterStarted)
+        vH.keyPressed = set()
+
     def test_last_word_cycles_callbacks_from_earlier_portal_phases(self):
         self.boss.debug_set_phase(9)
         owners = set()
@@ -611,6 +635,58 @@ class BeaudisBossTests(unittest.TestCase):
         self.assertEqual(cS.enemyHolster, [cS.activeBoss])
         self.assertFalse(cS.enemySpawningEnabled)
         self.assertFalse(cS.bossDebugInvincible)
+
+    def test_natural_beaudis_encounter_is_gated_to_level_ten_and_triggers_once(self):
+        game.resetAllStats()
+        cS.enemySpawningEnabled = False
+        cS.currentLevel = 9
+        game.handlingEnemyCreation()
+        self.assertIsNone(cS.activeBoss)
+        self.assertFalse(cS.beaudisEncounterStarted)
+
+        cS.currentLevel = 10
+        game.handlingEnemyCreation()
+        self.assertIsInstance(cS.activeBoss, Beaudis)
+        self.assertTrue(cS.beaudisEncounterStarted)
+
+        cS.activeBoss = None
+        cS.enemyHolster.clear()
+        game.handlingEnemyCreation()
+        self.assertIsNone(cS.activeBoss)
+
+    def test_minibosses_spawn_once_in_the_world_at_levels_four_and_seven(self):
+        game.resetAllStats()
+        cS.enemySpawnTimer = 999999
+        starting_player_position = (bG.playerPosX, bG.playerPosY)
+
+        cS.currentLevel = 3
+        game.handlingEnemyCreation()
+        self.assertFalse(any(isinstance(enemy, ArsenalMiniBoss)
+                             for enemy in cS.enemyHolster))
+
+        cS.currentLevel = 4
+        game.handlingEnemyCreation()
+        minibosses = [enemy for enemy in cS.enemyHolster
+                      if isinstance(enemy, ArsenalMiniBoss)]
+        self.assertEqual(len(minibosses), 1)
+        self.assertIsNone(cS.activeBoss)
+        self.assertTrue(cS.enemySpawningEnabled)
+        self.assertEqual((bG.playerPosX, bG.playerPosY), starting_player_position)
+        distance = ((minibosses[0].worldX + minibosses[0].size / 2 - bG.playerPosX) ** 2
+                    + (minibosses[0].worldY + minibosses[0].size / 2 - bG.playerPosY) ** 2) ** .5
+        self.assertGreater(distance, minibosses[0].awarenessRange)
+
+        game.handlingEnemyCreation()
+        self.assertEqual(len([enemy for enemy in cS.enemyHolster
+                              if isinstance(enemy, ArsenalMiniBoss)]), 1)
+
+        cS.currentLevel = 7
+        game.handlingEnemyCreation()
+        self.assertEqual(len([enemy for enemy in cS.enemyHolster
+                              if isinstance(enemy, ArsenalMiniBoss)]), 2)
+        self.assertEqual(cS.guaranteedMiniBossesSpawned,
+                         {"miniboss_arsenal", "miniboss_siege"})
+        self.assertFalse(cS.beaudisEncounterStarted)
 
     def test_debug_invincibility_prevents_damage(self):
         game.resetAllStats()

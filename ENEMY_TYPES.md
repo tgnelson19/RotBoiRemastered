@@ -23,9 +23,15 @@ EnemyDefinition(
 ```
 
 Weights are relative to every other type currently available. `min_level` can gate
-a future type when desired; the current catalog uses level zero so every enemy can
-appear from the beginning. Remaining values are base multipliers; the
+a future type when desired. Specialist tiers and mini-bosses now use level gates,
+so `available(level)` is the source of truth for the current spawn pool. Remaining values are base multipliers; the
 catalog applies run-level scaling and per-enemy variation consistently.
+
+Definitions can also set:
+
+- `threat_cost`: pressure/population budget consumed by the enemy.
+- `family`: shared key used for simultaneous-family limits.
+- `max_active`: maximum members of that family admitted by random spawning.
 
 ## Adding a behavioral enemy
 
@@ -50,6 +56,49 @@ rendering, and player damage are handled centrally.
 - `SnakeEnemy`: a weaving composite enemy with independently destructible segments.
   Remaining segments close their spacing automatically. Its shielded head rejects
   damage until every segment has been destroyed, then becomes the final target.
+- `ParentEnemy` (level 2, cost 3): fires three-shot slow heavy bursts. Crossing
+  70%, 40%, and 15% health queues two cost-.5 `ChildEnemy` chasers. The arena
+  admits queued children only when both population limits have room.
+- `PillarEnemy` (level 2, cost 4, maximum 2): telegraphs a destination for .7
+  seconds, lands at least four tiles from the player, pauses for one second, then
+  fires six four-way volleys alternating cardinal and diagonal directions.
+- `VolleyEnemy`: small/medium/large tiers unlock at levels 0/3/6 and cost 1.5/3/5.
+  Higher tiers add pellets, spread, charge time, and recovery while lowering each
+  pellet's fraction of base damage.
+- `LaserEnemy`: small/medium/large tiers unlock at levels 1/4/7 and cost 1.5/3/5.
+  Beams cannot damage during their telegraph. Medium beams sweep; large enemies
+  cast two opposing sweeping rays. No more than two laser enemies spawn together.
+- `BombEnemy`: small/medium/large tiers unlock at levels 1/4/7 and cost 1.5/3/5.
+  Bombs are harmless while travelling and arming, display their true damage
+  radius, and briefly expose that radius on detonation. Large enemies deploy three
+  separated zones, and all bomb enemies retreat after attacking.
+- `ArsenalMiniBoss`: two variants are placed into the ordinary world once per run
+  at levels 4 and 7, cost 12 and 13, and share volley/laser/bomb phases in different
+  orders. They are excluded from weighted random spawning. Neither creates an arena,
+  moves the player, nor pauses normal spawning, so an unexplored mini-boss can be
+  skipped. Their initial placement is beyond the normal disengagement radius.
+  Crossing two-thirds and one-third health starts a .8-second invulnerable
+  transition and removes only projectiles owned by that mini-boss.
+
+## Arena population and awareness
+
+The arena uses three complementary controls:
+
+- 50 physical enemy bodies.
+- 60 total population-threat points, including dormant enemies.
+- 36 active-pressure points, assigned closest-first while retaining already
+  alerted enemies where practical.
+
+Every regular enemy uses a shared awareness radius equal to half the viewport
+height: the player's screen-space distance to the top edge. Outside that radius it
+wanders at roughly 12-20% combat speed (the immobile pillar occasionally relocates
+instead). Enemies enter `alerted` inside the radius, use `disengaging` between 100%
+and 125% of it, and return to `wandering` beyond 125%. The arena scheduler can hold
+an enemy in wandering when waking it would exceed the active-pressure budget.
+
+Enemy-created enemies should be appended to `self.spawnedEnemies`. The gameplay
+loop owns admission and clears that queue after processing it; summoners therefore
+do not need to import character state or duplicate cap logic.
 
 Bosses use these same contracts plus the dedicated registry and HUD metadata
 documented in `BOSS_TYPES.md`.

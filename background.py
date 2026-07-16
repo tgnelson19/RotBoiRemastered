@@ -97,12 +97,11 @@ def count_overlapping_walls(world_rect):
     return count
 
 
-def find_spawn_rect(size):
+def find_spawn_rect(size, min_distance_tiles=4):
     """Return a world-space rect that fits completely inside a random open floor tile."""
     tile_size = vH.tileSizeGlobal
     room_height = len(currRoomRects)
     room_width = len(currRoomRects[0])
-    min_distance_tiles = 4
     player_tile_x = int(playerPosX // tile_size)
     player_tile_y = int(playerPosY // tile_size)
 

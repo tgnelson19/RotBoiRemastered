@@ -71,18 +71,6 @@ class InformationSheet:
         hovered = self.headerRect.collidepoint(vH.mouseX, vH.mouseY)
         ui.draw_panel(vH.screen, self.headerRect, ui.PANEL_RAISED, ui.CREAM if hovered else ui.BORDER, hovered=hovered)
         ui.draw_text(vH.screen, "ROT // RUN", self._px(21), ui.TEXT, (self.headerRect.x + self._px(14), self.headerRect.y + self._px(10)))
-        boss_button = pg.Rect(
-            self.headerRect.right - self._px(92), self.headerRect.y + self._px(8),
-            self._px(78), self._px(25),
-        )
-        boss_enabled = cS.activeBoss is None and not cS.bossDebugRequested
-        boss_hovered = ui.draw_button(
-            vH.screen, boss_button, "[B] BOSS" if boss_enabled else "ACTIVE",
-            (vH.mouseX, vH.mouseY), vH.mouseDown, boss_enabled,
-            ui.PURPLE, text_size=self._px(10),
-        )
-        if boss_enabled and (pg.K_b in vH.keyPressed or (boss_hovered and vH.mousePressed)):
-            cS.bossDebugRequested = True
         ui.draw_tag(vH.screen, f"LV {cS.currentLevel:02}", (self.headerRect.x + self._px(14), self.headerRect.bottom - self._px(31)), ui.GREEN, self._px(10))
         threat_color = ui.RED if cS.currEnemyCount > cS.enemyCap * 0.7 else ui.GOLD
         tag = f"THREAT {cS.currEnemyCount:02}"

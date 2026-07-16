@@ -18,6 +18,11 @@ Boss-specific additions are intentionally small:
 
 ## Beaudis
 
+Beaudis is the run's level-10 boss encounter. Reaching level 10 clears the current
+arena, disables regular spawning, and starts the fight once per run. The hidden
+`B` debug shortcut remains available at any level and does not consume the natural
+level-10 trigger.
+
 ### Rune choreography
 
 Every act uses a chase, anchor, and revolution movement phase. Othala opens the fight
@@ -58,8 +63,7 @@ is fast and whose increasingly large tail shots move progressively slower.
 While Beaudis lives, an opaque arena mask hides the surrounding map. The thicker seal
 uses orbiting particles, traveling packets, and three counter-moving sinusoidal rings.
 
-Beaudis has 240 base HP, keeping the fight substantial without making a level-zero
-run overly attritional.
+Beaudis has 480 base HP to account for the upgrades accumulated before level 10.
 
 ### Visual identity
 
@@ -119,14 +123,15 @@ boss-loot screen.
 The fight has three acts, each divided into three equal health bands:
 
 Every phase also has an 18-second enrage limit. If the player has not dealt enough
-Each damage phase lasts up to 36 seconds. When its timer expires, Beaudis swaps to
-the other damage phase in the current act: 1/2, 4/5, or 7/8. Those pairs repeat until
-HP reaches 2/3, 1/3, and zero respectively. Only those health gates unlock survival
-phases 3, 6, and 9; timers can never enter or skip a survival phase.
+Each damage phase lasts up to 36 seconds. Phases 1, 2, 4, 5, 7, and 8 form one
+pseudorandom attack pool. When a damage-phase timer or stagger window ends, Beaudis
+chooses from that pool while excluding the three most recently used damage phases.
+HP reaching 2/3, 1/3, and zero takes priority and unlocks survival phases 3, 6, and 9
+in order; random selection and timers can never enter, skip, or regress those gates.
 
 ## Stagger and damage windows
 
-Each ordinary hit adds at least 6 stagger to a 120-point meter. After two seconds
+Each ordinary hit adds at least 6 stagger to a 240-point meter. After two seconds
 without damaging Beaudis, accumulated stagger drains gradually at 16 points per second.
 Filling the meter clears hostile projectiles, freezes all boss and portal attacks, and
 opens a five-second damage window without changing the current phase. When that window
@@ -180,8 +185,8 @@ portals use nested counter-rotating rings, and hostile projectiles retain short 
 trails. Diamond and mine shadows match their silhouettes, while Beaudis renders one
 offset shadow polygon per projected cube face instead of a rectangular backdrop.
 
-Hostile linear movement runs at 70% of its authored speed. Stagger is tuned to 120
-points with a minimum gain of 6 per ordinary hit, producing 20 baseline hits to break
+Hostile linear movement runs at 70% of its authored speed. Stagger is tuned to 240
+points with a minimum gain of 6 per ordinary hit, producing 40 baseline hits to break
 Beaudis before portal-break bonuses.
 
 Phases 3, 6, and 9 are survival finales. Boss-body hits do not build stagger or deal
@@ -189,8 +194,8 @@ HP damage during survival, and portal breaks no longer add boss stagger there.
 Surviving phases 3 and 6 advances to the next act. Reaching zero HP begins phase 9
 rather than killing Beaudis; surviving it starts the death collapse.
 
-After a stagger's five-second punish window, the encounter transitions to the other
-damage phase in that act, or to the unlocked survival phase at an HP gate. Phase
+After a stagger's five-second punish window, the encounter selects an eligible random
+damage phase, or enters the unlocked survival phase at an HP gate. Phase
 announcements identify each pattern with its uppercase English rune name instead of a
 numeric phase prefix.
 

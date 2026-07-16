@@ -46,6 +46,11 @@ class EnemyProjectile:
             self.remainingRange = float("inf")
         self.ignoreWalls = ignore_walls
         self.target = target
+        self.telegraphDuration = 1.0
+        self.fuseDuration = 3.0
+        self.blastRadius = vH.tileSizeGlobal * 1.5
+        self.burstCount = 8
+        self.burstDamage = damage
         self.spawnedProjectiles = []
         self.persistentHazard = path == "laser"
         self.exploded = False
@@ -56,7 +61,7 @@ class EnemyProjectile:
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
 
     def world_rect(self):
-        if self.path == "laser" and self.age >= 1.0:
+        if self.path == "laser" and self.age >= self.telegraphDuration:
             end_x = self.worldX + cos(self.direction) * self.remainingRange
             end_y = self.worldY + sin(self.direction) * self.remainingRange
             return pygame.Rect(min(self.worldX, end_x), min(self.worldY, end_y),
@@ -66,12 +71,20 @@ class EnemyProjectile:
 
     def collides(self, rect):
         if self.path == "laser":
-            if self.age < 1.0:
+            if self.age < self.telegraphDuration:
                 return False
             start = (self.worldX, self.worldY)
             end = (self.worldX + cos(self.direction) * self.remainingRange,
                    self.worldY + sin(self.direction) * self.remainingRange)
             return bool(rect.inflate(self.size, self.size).clipline(start, end))
+        if self.path == "bomb":
+            if not self.exploded:
+                return False
+            center_x = self.worldX + self.size / 2
+            center_y = self.worldY + self.size / 2
+            nearest_x = max(rect.left, min(center_x, rect.right))
+            nearest_y = max(rect.top, min(center_y, rect.bottom))
+            return (nearest_x - center_x) ** 2 + (nearest_y - center_y) ** 2 <= self.blastRadius ** 2
         return rect.colliderect(self.world_rect())
 
     def updateAndDraw(self, screen):
@@ -79,12 +92,15 @@ class EnemyProjectile:
         self.age += seconds
 
         if self.path == "laser":
+            if self.age >= self.telegraphDuration and self.angularSpeed:
+                self.direction += self.angularSpeed * seconds
             start = bG.world_to_screen(self.worldX, self.worldY)
             end_world = (self.worldX + cos(self.direction) * self.remainingRange,
                          self.worldY + sin(self.direction) * self.remainingRange)
             end = bG.world_to_screen(*end_world)
-            if self.age < 1.0:
-                pulse = 2 + int((1 - self.age) * 3)
+            if self.age < self.telegraphDuration:
+                progress = self.age / max(.01, self.telegraphDuration)
+                pulse = 2 + int((1 - progress) * 3)
                 pygame.draw.line(screen, self.color, start, end, pulse)
                 for step in range(5):
                     marker = ((start[0] * (4-step) + end[0] * step) / 4,
@@ -105,15 +121,17 @@ class EnemyProjectile:
                 self.worldX = self.originX + (self.target[0] - self.originX) * progress
                 self.worldY = (self.originY + (self.target[1] - self.originY) * progress
                                - sin(progress * pi) * vH.tileSizeGlobal * 2.5)
-            elif self.age >= 3.0 and not self.exploded:
+            elif self.age >= self.fuseDuration and not self.exploded:
                 self.exploded = True
-                for index in range(8):
+                for index in range(self.burstCount):
                     self.spawnedProjectiles.append(EnemyProjectile(
-                        self.worldX, self.worldY, index * pi / 4, .9, 1.0,
+                        self.worldX, self.worldY, index * 2 * pi / max(1, self.burstCount), .9,
+                        self.burstDamage * .28,
                         vH.tileSizeGlobal * .38, travel_range=vH.tileSizeGlobal * 24,
-                        color=self.color, shape="diamond", owner="beaudis_bomb_burst",
+                        color=self.color, shape="diamond", owner=f"{self.owner}_burst",
                         ignore_walls=True,
                     ))
+            elif self.exploded and self.age >= self.fuseDuration + .18:
                 self.remFlag = True
         elif self.path == "orbit" and self.orbitCenter:
             self.orbitAngle += self.angularSpeed * seconds
@@ -159,12 +177,20 @@ class EnemyProjectile:
                 pulse = max(3, int(self.size * (.12 + .05 * (1 + sin(self.age * 5)))))
                 pygame.draw.rect(screen, ui.TEXT, (rect.centerx - pulse / 2, rect.centery - pulse / 2, pulse, pulse))
             elif self.shape == "bomb":
-                fuse = max(0, 3.0 - self.age)
+                fuse = max(0, self.fuseDuration - self.age)
                 pygame.draw.circle(screen, ui.CREAM, rect.center,
                                    max(3, int(self.size * (.1 + .04 * sin(self.age * 14)))))
                 if self.age >= 1.0:
-                    pygame.draw.arc(screen, ui.RED, rect.inflate(8, 8), -pi / 2,
-                                    -pi / 2 + 2 * pi * (1 - fuse / 2), 3)
+                    warning = pygame.Rect(0, 0, self.blastRadius * 2, self.blastRadius * 2)
+                    warning.center = rect.center
+                    urgency = 1 - fuse / max(.01, self.fuseDuration - 1.0)
+                    pygame.draw.ellipse(screen, ui.RED, warning, max(2, int(2 + urgency * 3)))
+                    pygame.draw.arc(screen, ui.CREAM, rect.inflate(8, 8), -pi / 2,
+                                    -pi / 2 + 2 * pi * max(0, urgency), 3)
+                if self.exploded:
+                    blast = pygame.Rect(0, 0, self.blastRadius * 2, self.blastRadius * 2)
+                    blast.center = rect.center
+                    pygame.draw.ellipse(screen, ui.GOLD, blast, max(5, int(self.size * .2)))
         else:
             pygame.draw.rect(screen, ui.SHADOW, rect.move(3, 3))
             pygame.draw.rect(screen, self.color, rect)

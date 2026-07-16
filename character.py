@@ -128,6 +128,8 @@ def resetAllStats():
     cS.activeBoss = None
     cS.bossDebugRequested = False
     cS.bossDebugInvincible = False
+    cS.beaudisEncounterStarted = False
+    cS.guaranteedMiniBossesSpawned = set()
     cS.enemySpawningEnabled = True
 
     cS.informationSheet = InformationSheet()
@@ -319,7 +321,14 @@ def handlingBulletUpdating():
     cS.bulletHolster[:] = [bullet for bullet in cS.bulletHolster if not bullet.remFlag]
 
 def handlingEnemyCreation():
-    if cS.bossDebugRequested:
+    natural_beaudis_requested = (
+        cS.currentLevel >= 10
+        and not cS.beaudisEncounterStarted
+        and cS.activeBoss is None
+    )
+    if cS.bossDebugRequested or natural_beaudis_requested:
+        if natural_beaudis_requested and not cS.bossDebugRequested:
+            cS.beaudisEncounterStarted = True
         cS.enemyHolster.clear()
         cS.enemyProjectileHolster.clear()
         cS.damageTextList.clear()
@@ -348,8 +357,29 @@ def handlingEnemyCreation():
     if not cS.enemySpawningEnabled:
         return
 
+    # Mini-bosses enter the ordinary world once per run. They do not clear the
+    # map, reposition the player, disable spawning, or create a boss arena, so a
+    # player who never explores toward them can leave them behind.
+    guaranteed_minibosses = (
+        (4, "miniboss_arsenal"),
+        (7, "miniboss_siege"),
+    )
+    for unlock_level, key in guaranteed_minibosses:
+        if (cS.currentLevel >= unlock_level
+                and key not in cS.guaranteedMiniBossesSpawned
+                and len(cS.enemyHolster) < cS.enemyCap):
+            outside_awareness_tiles = ceil((vH.sH * .625) / vH.tileSizeGlobal) + 2
+            cS.enemyHolster.append(ENEMY_CATALOG.spawn(
+                cS.currentLevel, key=key,
+                min_distance_tiles=outside_awareness_tiles,
+            ))
+            cS.guaranteedMiniBossesSpawned.add(key)
+    cS.currEnemyCount = len(cS.enemyHolster)
+
     cS.enemySpawnTimer -= vH.get_timer_step()
-    if cS.currEnemyCount < cS.enemyCap and cS.enemySpawnTimer <= 0:
+    current_threat = sum(getattr(enemy, "threatCost", 1.0) for enemy in cS.enemyHolster)
+    if (cS.currEnemyCount < cS.enemyCap and current_threat < cS.enemyPopulationThreatCap
+            and cS.enemySpawnTimer <= 0):
         cS.enemySpawnTimer = max(1, cS.enemyOneInFramesChance * randint(65, 135) / 100)
         batch_size = 1
         if randint(1, 100) <= 55:
@@ -358,7 +388,14 @@ def handlingEnemyCreation():
             batch_size += 1
 
         for _ in range(min(batch_size, cS.enemyCap - len(cS.enemyHolster))):
-            cS.enemyHolster.append(ENEMY_CATALOG.spawn(cS.currentLevel))
+            remaining_threat = cS.enemyPopulationThreatCap - sum(
+                getattr(enemy, "threatCost", 1.0) for enemy in cS.enemyHolster
+            )
+            enemy = ENEMY_CATALOG.spawn(cS.currentLevel, max_threat=remaining_threat,
+                                        existing=cS.enemyHolster)
+            if enemy is None:
+                break
+            cS.enemyHolster.append(enemy)
         cS.currEnemyCount = len(cS.enemyHolster)
 
 def handlingBossDebugControls():
@@ -384,7 +421,25 @@ def handlingBossDebugControls():
         boss.runeCannonCooldown = 0
 
 def handlingEnemyUpdatesAndDrawing():
+    player_center = (bG.playerPosX + cS.playerSize / 2,
+                     bG.playerPosY + cS.playerSize / 2)
+    pressure_used = 0.0
+    prioritized = sorted(
+        cS.enemyHolster,
+        key=lambda enemy: (
+            getattr(enemy, "awarenessState", "alerted") == "wandering",
+            hypot((enemy.worldX + enemy.size / 2) - player_center[0],
+                  (enemy.worldY + enemy.size / 2) - player_center[1]),
+        ),
+    )
+    for enemy in prioritized:
+        cost = getattr(enemy, "threatCost", 1.0)
+        is_boss = enemy is cS.activeBoss
+        enemy.engagementAllowed = is_boss or pressure_used + cost <= cS.enemyThreatCap
+        if enemy.engagementAllowed:
+            pressure_used += cost
 
+    spawned_enemies = []
     for enemy in cS.enemyHolster:
         enemy.updateEnemy(
             bG.playerPosX + cS.playerSize/2,
@@ -393,8 +448,27 @@ def handlingEnemyUpdatesAndDrawing():
         )
         enemy.drawEnemy(vH.screen)
         if getattr(enemy, "transitionCleanupRequested", False):
-            cS.enemyProjectileHolster.clear()
+            cleanup_owner = getattr(enemy, "transitionCleanupOwner", None)
+            if cleanup_owner:
+                cS.enemyProjectileHolster[:] = [
+                    projectile for projectile in cS.enemyProjectileHolster
+                    if projectile.owner != cleanup_owner
+                ]
+            else:
+                cS.enemyProjectileHolster.clear()
             enemy.transitionCleanupRequested = False
+        spawned_enemies.extend(getattr(enemy, "spawnedEnemies", ()))
+        if hasattr(enemy, "spawnedEnemies"):
+            enemy.spawnedEnemies.clear()
+
+    for enemy in spawned_enemies:
+        current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
+        if len(cS.enemyHolster) >= cS.enemyCap:
+            break
+        if current_threat + getattr(enemy, "threatCost", 1.0) > cS.enemyPopulationThreatCap:
+            continue
+        cS.enemyHolster.append(enemy)
+    cS.currEnemyCount = len(cS.enemyHolster)
 
 
 def handlingEnemyProjectileUpdating():
@@ -450,7 +524,14 @@ def handlingDamagingEnemies():
                         bullet.remFlag = True
                     result = eman.take_damage(bullet.damage, part_id)
                     if getattr(eman, "transitionCleanupRequested", False):
-                        cS.enemyProjectileHolster.clear()
+                        cleanup_owner = getattr(eman, "transitionCleanupOwner", None)
+                        if cleanup_owner:
+                            cS.enemyProjectileHolster[:] = [
+                                projectile for projectile in cS.enemyProjectileHolster
+                                if projectile.owner != cleanup_owner
+                            ]
+                        else:
+                            cS.enemyProjectileHolster.clear()
                         eman.transitionCleanupRequested = False
                     currColor = ui.PURPLE if bullet.currCrit else ui.GOLD
                     portal_hit = str(part_id).startswith("portal:")
