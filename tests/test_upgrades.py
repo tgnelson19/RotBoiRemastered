@@ -14,7 +14,7 @@ class UpgradeOfferTests(unittest.TestCase):
         definition = upgrades.DEFINITIONS_BY_NAME["Bullet Damage"]
         additive = upgrades.UpgradeCard(definition, "Rare", "additive")
         multiplicative = upgrades.UpgradeCard(definition, "Rare", "multiplicative")
-        self.assertAlmostEqual(upgrades.card_modifier(additive), 0.4)
+        self.assertAlmostEqual(upgrades.card_modifier(additive), 40)
         self.assertAlmostEqual(upgrades.card_modifier(multiplicative), 1.256)
 
     def test_seeded_offer_is_reproducible(self):

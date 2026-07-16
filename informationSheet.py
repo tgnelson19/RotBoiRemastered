@@ -1,130 +1,345 @@
-"""Compact in-run HUD using the shared tactile block UI."""
+"""Friendly, outcome-first run sidebar with collectible upgrade icon cards."""
+
+from math import floor, hypot
 
 import pygame as pg
 
+import background as bG
 import characterStats as cS
+import gameProfile
+from progression import FINAL_BOSS_LEVEL, MID_BOSS_LEVEL, MINIBOSS_GATES
+import statCards
 import upgrades
 import uiTheme as ui
 import variableHolster as vH
 
 
+BUILD_NAMES = {
+    "volley": ("BULLET STORM", "More shots fill more of the arena."),
+    "critical": ("CRITICAL STRIKER", "Critical hits create sudden bursts of power."),
+    "harvest": ("EXPERIENCE MAGNET", "Fast collection keeps the upgrades coming."),
+    "survival": ("ARMORED RUNNER", "Defense and movement keep danger manageable."),
+    "tempo": ("RAPID FIRE", "A steady stream of shots controls nearby space."),
+    "precision": ("LONGSHOT", "Fast, far-reaching shots reward clean aim."),
+    "power": ("HEAVY GUNNER", "Each projectile lands with extra weight."),
+}
+
+
 class InformationSheet:
     def __init__(self):
         self.uiScale = max(.7, min(3.2, min(vH.sW / 1024, vH.sH / 768)))
-        self.totalLength = int(vH.sW * 0.25)
-        self.totalHeight = int(vH.sH)
-        self.posX = int(vH.sW - self.totalLength)
-        self.posY = 0
-        self.cardRects = []
-        self.headerRect = pg.Rect(0, 0, 0, 0)
+        self.mode = gameProfile.profile.get("hud_mode", "compact")
+        self.tooltip = None
         self._build_layout()
 
     def _px(self, value):
         return max(1, int(round(value * self.uiScale)))
 
     def _build_layout(self):
-        padding = self._px(10)
-        width = self.totalLength - padding * 2
-        header_height = max(self._px(76), int(self.totalHeight * 0.105))
-        remaining = self.totalHeight - header_height - padding * 5
-        heights = (int(remaining * 0.29), int(remaining * 0.36), int(remaining * 0.35))
-        self.headerRect = pg.Rect(self.posX + padding, padding, width, header_height)
-        self.cardRects = []
-        y = self.headerRect.bottom + padding
-        for height in heights:
-            self.cardRects.append(pg.Rect(self.posX + padding, y, width, height))
-            y += height + padding
-        self.padding = padding
+        ratio = .15 if self.mode == "compact" else .25
+        self.totalLength = max(self._px(218), int(vH.sW * ratio))
+        self.totalHeight = int(vH.sH)
+        self.posX = int(vH.sW - self.totalLength)
+        self.padding = self._px(9)
 
-    def _draw_section(self, rect, number, title, accent, rows):
-        hovered = rect.collidepoint(vH.mouseX, vH.mouseY)
-        ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, accent if hovered else ui.BORDER, hovered=hovered)
-        pg.draw.rect(vH.screen, accent, (rect.x, rect.y, self._px(6), rect.height))
-        ui.draw_text(vH.screen, f"0{number}", self._px(11), accent, (rect.x + self._px(16), rect.y + self._px(12)))
-        ui.draw_text(vH.screen, title.upper(), self._px(17), ui.TEXT, (rect.x + self._px(46), rect.y + self._px(8)))
-        pg.draw.line(vH.screen, ui.BORDER, (rect.x + self._px(14), rect.y + self._px(34)), (rect.right - self._px(14), rect.y + self._px(34)), self._px(1))
+    @property
+    def arena_width(self):
+        return self.posX
 
-        row_y = rect.y + self._px(46)
-        row_height = self._px(22)
-        for label, value, value_color in rows:
-            ui.draw_text(vH.screen, label.upper(), self._px(11), ui.MUTED, (rect.x + self._px(16), row_y))
-            ui.draw_text(vH.screen, value, self._px(13), value_color, (rect.right - self._px(16), row_y - self._px(1)), "topright")
-            row_y += row_height
+    def toggle_mode(self):
+        self.mode = "expanded" if self.mode == "compact" else "compact"
+        gameProfile.profile["hud_mode"] = self.mode
+        gameProfile.save_profile()
+        self._build_layout()
 
-    def _draw_bar(self, rect, y, label, value, max_value, color):
-        ratio = value / max_value if max_value > 0 else 0
-        ui.draw_text(vH.screen, label.upper(), self._px(10), ui.MUTED, (rect.x + self._px(16), y))
-        ui.draw_text(vH.screen, f"{int(value)} / {int(max_value)}", self._px(10), ui.TEXT, (rect.right - self._px(16), y), "topright")
-        ui.draw_progress(vH.screen, (rect.x + self._px(16), y + self._px(16), rect.width - self._px(32), self._px(13)), ratio, color, 12)
+    def _panel(self, y, height, accent=ui.BORDER, fill=ui.PANEL_RAISED):
+        rect = pg.Rect(self.posX + self.padding, y,
+                       self.totalLength - self.padding * 2, height)
+        ui.draw_panel(vH.screen, rect, fill, accent, shadow=3)
+        return rect
 
-    def _build_family(self):
-        family_counts = {}
+    def _bar(self, rect, y, label, value, maximum, color, value_text):
+        ui.draw_text(vH.screen, label, self._px(9), ui.MUTED,
+                     (rect.x + self._px(11), y))
+        ui.draw_text(vH.screen, value_text, self._px(9), ui.TEXT,
+                     (rect.right - self._px(11), y), "topright")
+        ratio = value / maximum if maximum else 0
+        ui.draw_progress(vH.screen, (rect.x + self._px(11), y + self._px(14),
+                         rect.width - self._px(22), self._px(11)), ratio, color, 10)
+
+    def _family_counts(self):
+        counts = {}
         for name, count in cS.upgradeCollection["types"].items():
             definition = upgrades.DEFINITIONS_BY_NAME.get(name)
             if definition:
-                family_counts[definition.category] = family_counts.get(definition.category, 0) + count
-        if not family_counts:
-            return "UNSHAPED", 0
-        return max(family_counts.items(), key=lambda item: item[1])
+                counts[definition.category] = counts.get(definition.category, 0) + count
+        return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+    def _build_identity(self):
+        families = self._family_counts()
+        if not families:
+            return "FRESH START", "Your first picks will shape this run.", "No weakness yet"
+        family = families[0][0]
+        title, strength = BUILD_NAMES.get(family, (family.upper(), "A flexible set of upgrades."))
+        if cS.defense < 1 and cS.playerSpeed < 2.5:
+            caution = "Fragile if cornered"
+        elif cS.bulletDamage < 1.35 and cS.projectileCount >= 2:
+            caution = "Relies on shot volume"
+        elif cS.bulletRange < vH.tileSizeGlobal * 5:
+            caution = "Best at close range"
+        else:
+            caution = "No clear weakness"
+        return title, strength, caution
+
+    def _combat_values(self):
+        attacks_per_second = vH.frameRate / max(1, cS.attackCooldownStat)
+        guaranteed_crits = floor(cS.critChance)
+        bonus_chance = cS.critChance - guaranteed_crits
+        expected_crit = (cS.critDamage ** guaranteed_crits
+                         * ((1 - bonus_chance) + bonus_chance * cS.critDamage))
+        dps = cS.bulletDamage * cS.projectileCount * attacks_per_second * expected_crit
+        return attacks_per_second, dps
+
+    def _rating(self, value, baseline, inverse=False):
+        if value <= 0:
+            return "None"
+        ratio = baseline / max(.001, value) if inverse else value / max(.001, baseline)
+        if ratio >= 2.0:
+            return "Exceptional"
+        if ratio >= 1.45:
+            return "Very strong"
+        if ratio >= 1.12:
+            return "Strong"
+        return "Normal"
+
+    def _shot_text(self):
+        whole = floor(cS.projectileCount)
+        chance = round((cS.projectileCount - whole) * 100)
+        return f"{whole} shots + {chance}% bonus" if chance else f"{whole} shot{'s' if whole != 1 else ''}"
+
+    def _pierce_text(self):
+        # A pierce value of one allows the initial target plus one pass-through.
+        whole = floor(cS.bulletPierce) + 1
+        chance = round((cS.bulletPierce - floor(cS.bulletPierce)) * 100)
+        return f"Hits {whole} + {chance}% extra" if chance else f"Hits up to {whole} enemies"
+
+    def _pressure(self):
+        if cS.gameCompleted:
+            return "RUN COMPLETE", ui.CREAM, 0
+        if cS.activeBoss is not None:
+            return "BOSS", ui.RED, 1
+        threat = sum(getattr(enemy, "threatCost", 1.0)
+                     for enemy in cS.enemyHolster if not enemy.is_dead())
+        ratio = min(1, threat / max(1, cS.enemyThreatCap))
+        if not cS.enemyHolster:
+            return "CALM", ui.GREEN, ratio
+        if any(getattr(enemy, "combatRole", "") == "elite" for enemy in cS.enemyHolster):
+            return "ELITE NEARBY", ui.PURPLE, ratio
+        if ratio >= .72:
+            return "DANGEROUS", ui.RED, ratio
+        return "ACTIVE", ui.GOLD, ratio
+
+    def _bounty_details(self):
+        bounty = cS.currentBounty
+        if not bounty:
+            return "Explore the arena", "No active target"
+        dx = bounty["world"][0] - (bG.playerPosX + cS.playerSize / 2)
+        dy = bounty["world"][1] - (bG.playerPosY + cS.playerSize / 2)
+        tiles = hypot(dx, dy) / max(1, vH.tileSizeGlobal)
+        target = bounty["target"]
+        members = getattr(target, "members", None)
+        count = len([member for member in members if not member.is_dead()]) if members else 1
+        distance = "Target nearby" if tiles < 8 else f"About {tiles:.0f} tiles away"
+        return bounty["label"].title(), f"{count} hostile{'s' if count != 1 else ''}  •  {distance}"
+
+    def _next_milestone(self):
+        gates = [(level, name.replace("miniboss_", "").title())
+                 for level, name in MINIBOSS_GATES]
+        gates += [(MID_BOSS_LEVEL, "Beaudis"), (FINAL_BOSS_LEVEL, "Dissonance")]
+        gates.sort()
+        return next(((level, name) for level, name in gates if level > cS.currentLevel),
+                    (FINAL_BOSS_LEVEL, "Complete"))
 
     def _draw_header(self):
-        hovered = self.headerRect.collidepoint(vH.mouseX, vH.mouseY)
-        ui.draw_panel(vH.screen, self.headerRect, ui.PANEL_RAISED, ui.CREAM if hovered else ui.BORDER, hovered=hovered)
-        ui.draw_text(vH.screen, "ROT // RUN", self._px(21), ui.TEXT, (self.headerRect.x + self._px(14), self.headerRect.y + self._px(10)))
-        ui.draw_tag(vH.screen, f"LV {cS.currentLevel:02}", (self.headerRect.x + self._px(14), self.headerRect.bottom - self._px(31)), ui.GREEN, self._px(10))
-        threat_color = ui.RED if cS.currEnemyCount > cS.enemyCap * 0.7 else ui.GOLD
-        tag = f"THREAT {cS.currEnemyCount:02}"
-        tag_width = ui.font(self._px(10)).size(tag)[0] + self._px(12)
-        ui.draw_tag(vH.screen, tag, (self.headerRect.right - self._px(14) - tag_width, self.headerRect.bottom - self._px(31)), threat_color, self._px(10))
+        rect = self._panel(self.padding, self._px(62), ui.CREAM)
+        ui.draw_text(vH.screen, f"LEVEL {cS.currentLevel:02}", self._px(17), ui.TEXT,
+                     (rect.x + self._px(11), rect.y + self._px(9)))
+        pressure, color, _ = self._pressure()
+        ui.draw_text(vH.screen, pressure, self._px(9), color,
+                     (rect.right - self._px(11), rect.y + self._px(14)), "topright")
+        ui.draw_text(vH.screen, "Tab: build details" if self.mode == "compact" else "Tab: compact view",
+                     self._px(8), ui.MUTED, (rect.x + self._px(11), rect.bottom - self._px(15)))
+        return rect.bottom + self.padding
 
-    def _draw_upgrade_summary(self, rect, y):
-        family, count = self._build_family()
-        ui.draw_text(vH.screen, "RUN SHAPE", self._px(10), ui.MUTED, (rect.x + self._px(16), y))
-        ui.draw_text(vH.screen, family.upper(), self._px(13), ui.PURPLE if count else ui.MUTED, (rect.right - self._px(16), y - self._px(2)), "topright")
-        items = sorted(cS.upgradeCollection["types"].items(), key=lambda item: (-item[1], item[0]))[:2]
-        if not items:
-            ui.draw_text(vH.screen, "Draft a card to define this run", self._px(9), ui.MUTED, (rect.x + self._px(16), y + self._px(18)))
+    def _draw_status(self, y):
+        health_color = ui.GREEN if cS.healthPoints > cS.maxHealthPoints * .3 else ui.RED
+        rect = self._panel(y, self._px(112), health_color)
+        self._bar(rect, rect.y + self._px(9), "HEALTH", cS.healthPoints, cS.maxHealthPoints,
+                  health_color, f"{cS.healthPoints} / {cS.maxHealthPoints}")
+        dash_value = max(0, cS.dashCooldownMax - cS.currDashCooldown)
+        dash_text = "READY" if cS.currDashCooldown <= 0 else f"{cS.currDashCooldown / vH.frameRate:.1f} sec"
+        self._bar(rect, rect.y + self._px(39), "DASH", dash_value, cS.dashCooldownMax,
+                  ui.BLUE, dash_text)
+        percent = cS.expCount / max(1, cS.expNeededForNextLevel) * 100
+        self._bar(rect, rect.y + self._px(69), "NEXT PICK", cS.expCount,
+                  cS.expNeededForNextLevel, ui.GOLD, f"{percent:.0f}%")
+        if percent >= 82:
+            ui.draw_text(vH.screen, "Next pick soon", self._px(8), ui.GOLD,
+                         (rect.right - self._px(11), rect.bottom - self._px(11)), "bottomright")
+        return rect.bottom + self.padding
+
+    def _draw_build(self, y):
+        height = self._px(106 if self.mode == "compact" else 134)
+        rect = self._panel(y, height, ui.PURPLE)
+        title, strength, caution = self._build_identity()
+        ui.draw_text(vH.screen, title, self._px(14), ui.PURPLE,
+                     (rect.x + self._px(11), rect.y + self._px(9)))
+        ui.draw_text(vH.screen, strength, self._px(8), ui.TEXT,
+                     (rect.x + self._px(11), rect.y + self._px(31)))
+        ui.draw_text(vH.screen, caution, self._px(8), ui.MUTED,
+                     (rect.x + self._px(11), rect.y + self._px(49)))
+        families = self._family_counts()
+        if families:
+            max_pips = 5
+            for index, (family, count) in enumerate(families[:2 if self.mode == "compact" else 4]):
+                row_y = rect.y + self._px(68 + index * 16)
+                ui.draw_text(vH.screen, family.title(), self._px(8), ui.MUTED,
+                             (rect.x + self._px(11), row_y))
+                for pip in range(max_pips):
+                    pip_rect = pg.Rect(rect.right - self._px(11 + (max_pips - pip) * 11),
+                                       row_y + self._px(1), self._px(7), self._px(7))
+                    pg.draw.rect(vH.screen, ui.PURPLE if pip < count else ui.INK, pip_rect)
+                    pg.draw.rect(vH.screen, ui.BORDER, pip_rect, 1)
+        return rect.bottom + self.padding
+
+    def _stat_row(self, rect, y, symbol, label, value, rating=None, help_text=None):
+        icon_rect = pg.Rect(rect.x + self._px(10), y - self._px(3), self._px(24), self._px(24))
+        pg.draw.rect(vH.screen, ui.INK, icon_rect, border_radius=self._px(3))
+        statCards.draw_stat_symbol(vH.screen, symbol, icon_rect.inflate(-self._px(4), -self._px(4)), ui.CREAM)
+        label_rect = ui.draw_text(vH.screen, label, self._px(8), ui.MUTED,
+                                  (icon_rect.right + self._px(7), y))
+        ui.draw_text(vH.screen, value, self._px(9), ui.TEXT,
+                     (icon_rect.right + self._px(7), y + self._px(12)))
+        if rating:
+            ui.draw_text(vH.screen, rating, self._px(7), ui.GREEN,
+                         (rect.right - self._px(10), y + self._px(1)), "topright")
+        hover_rect = pg.Rect(icon_rect.x, y - self._px(4), rect.right - icon_rect.x, self._px(31))
+        if help_text and hover_rect.collidepoint(vH.mouseX, vH.mouseY):
+            self.tooltip = help_text
+        return label_rect
+
+    def _draw_stats(self, y):
+        attacks, _ = self._combat_values()
+        rows = [
+            ("Bullet Damage", "Damage", f"{cS.bulletDamage} / hit",
+             self._rating(cS.bulletDamage, 100), "The exact damage dealt by a normal projectile hit."),
+            ("Attack Speed", "Fire rate", f"{attacks:.2f} / sec",
+             self._rating(attacks, vH.frameRate / 40), "The exact number of volleys fired each second."),
+            ("Bullet Count", "Projectiles", self._shot_text(), None,
+             "Fractional projectile count becomes a chance to fire one bonus shot."),
+            ("Crit Chance", "Critical", f"{cS.critChance * 100:.0f}% for x{cS.critDamage:.1f}", None,
+             "Critical chance and the damage multiplier applied when it succeeds."),
+        ]
+        if self.mode == "expanded":
+            rows += [
+                ("Bullet Pierce", "Piercing", self._pierce_text(), None,
+                 "How many enemies one projectile can damage before disappearing."),
+                ("Defense", "Defense", f"Blocks {cS.defense} damage", self._rating(cS.defense, 100),
+                 "Flat damage removed from every incoming hit."),
+                ("Vitality", "Vitality", f"{cS.vitality} HP / sec", self._rating(cS.vitality, 25),
+                 "Health recovered continuously each second."),
+                ("Bullet Range", "Range", f"{cS.bulletRange / vH.tileSizeGlobal:.1f} tiles",
+                 self._rating(cS.bulletRange, 250), "Approximate projectile travel distance."),
+            ]
+        height = self._px(153 if self.mode == "compact" else 246)
+        rect = self._panel(y, height, ui.BLUE)
+        ui.draw_text(vH.screen, "YOUR WEAPON", self._px(9), ui.BLUE,
+                     (rect.x + self._px(10), rect.y + self._px(8)))
+        for index, row in enumerate(rows):
+            self._stat_row(rect, rect.y + self._px(29 + index * 31), *row)
+        return rect.bottom + self.padding
+
+    def _draw_objective(self, y):
+        rect = self._panel(y, self._px(80), ui.GOLD)
+        pressure, color, ratio = self._pressure()
+        name, detail = self._bounty_details()
+        ui.draw_text(vH.screen, name[:32], self._px(11), color,
+                     (rect.x + self._px(10), rect.y + self._px(8)))
+        ui.draw_text(vH.screen, detail, self._px(8), ui.TEXT,
+                     (rect.x + self._px(10), rect.y + self._px(29)))
+        ui.draw_progress(vH.screen, (rect.x + self._px(10), rect.y + self._px(47),
+                         rect.width - self._px(20), self._px(8)), ratio, color, 8)
+        level, milestone = self._next_milestone()
+        ui.draw_text(vH.screen, f"Next: level {level} • {milestone}", self._px(7), ui.MUTED,
+                     (rect.x + self._px(10), rect.bottom - self._px(9)), "bottomleft")
+        return rect.bottom + self.padding
+
+    def _draw_recent_table(self, minimum_y):
+        available = self.totalHeight - minimum_y - self.padding
+        height = max(self._px(76), min(self._px(112), available))
+        y = self.totalHeight - height - self.padding
+        rect = self._panel(y, height, ui.CREAM, ui.PANEL)
+        ui.draw_text(vH.screen, "RECENT PICKS", self._px(8), ui.MUTED,
+                     (rect.x + self._px(10), rect.y + self._px(7)))
+        table_y = rect.y + self._px(25)
+        pg.draw.rect(vH.screen, ui.INK,
+                     (rect.x + self._px(7), table_y, rect.width - self._px(14), rect.bottom - table_y - self._px(7)))
+        pg.draw.line(vH.screen, ui.GOLD, (rect.x + self._px(7), table_y),
+                     (rect.right - self._px(7), table_y), self._px(2))
+        history = cS.upgradeCollection.get("history", [])[-5:]
+        if not history:
+            ui.draw_text(vH.screen, "Your upgrade cards will collect here.", self._px(7), ui.MUTED,
+                         (rect.centerx, table_y + (rect.bottom - table_y) / 2), "center")
             return
-        cursor_x = rect.x + self._px(16)
-        for name, amount in items:
-            tag = ui.draw_tag(vH.screen, f"{name} x{amount}", (cursor_x, y + self._px(22)), ui.BLUE, self._px(9))
-            cursor_x = tag.right + self._px(6)
-            if cursor_x > rect.right - self._px(60):
-                break
+        gap = self._px(5)
+        max_card_w = (rect.width - self._px(24) - (len(history) - 1) * gap) / len(history)
+        card_h = min(self._px(58), rect.bottom - table_y - self._px(10), max_card_w / .72)
+        card_w = int(card_h * .72)
+        total = len(history) * card_w + (len(history) - 1) * gap
+        start_x = rect.centerx - total / 2
+        for index, entry in enumerate(history):
+            card_rect = pg.Rect(start_x + index * (card_w + gap), table_y + self._px(5), card_w, card_h)
+            hovered = card_rect.collidepoint(vH.mouseX, vH.mouseY)
+            statCards.draw_upgrade_card(vH.screen, card_rect, entry["name"], entry["rarity"],
+                                        entry["math_type"], hovered)
+            if hovered:
+                mode = "Flat increase" if entry["math_type"] == "additive" else "Multiplicative increase"
+                self.tooltip = f"{entry['rarity']} {entry['name']} • {mode}"
+
+    def _draw_tooltip(self):
+        if not self.tooltip:
+            return
+        width = min(self._px(250), int(vH.sW * .24))
+        font = ui.font(self._px(8))
+        words, lines, line = self.tooltip.split(), [], ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if font.size(candidate)[0] > width - self._px(18) and line:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        lines.append(line)
+        rect = pg.Rect(vH.mouseX - width - self._px(10), vH.mouseY + self._px(10), width,
+                       self._px(14 + len(lines) * 13))
+        rect.clamp_ip(vH.screen.get_rect())
+        ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=4)
+        for index, text in enumerate(lines):
+            ui.draw_text(vH.screen, text, self._px(8), ui.TEXT,
+                         (rect.x + self._px(9), rect.y + self._px(7 + index * 13)))
 
     def updateCurrLevel(self):
         return None
 
     def drawSheet(self):
-        panel_rect = pg.Rect(self.posX, 0, self.totalLength, self.totalHeight)
-        pg.draw.rect(vH.screen, ui.VOID, panel_rect)
-        pg.draw.rect(vH.screen, ui.INK, (self.posX, 0, self._px(7), self.totalHeight))
-        pg.draw.line(vH.screen, ui.BORDER, (self.posX + self._px(7), 0), (self.posX + self._px(7), self.totalHeight), self._px(2))
-        self._draw_header()
-
-        vitality = self.cardRects[0]
-        self._draw_section(vitality, 1, "Condition", ui.GREEN, [
-            ("Armor", f"{cS.defense:.1f}", ui.TEXT),
-            ("Move", f"{cS.playerSpeed:.2f}", ui.TEXT),
-            ("Dash", "READY" if cS.currDashCooldown <= 0 else "CHARGING", ui.GREEN if cS.currDashCooldown <= 0 else ui.MUTED),
-        ])
-        self._draw_bar(vitality, vitality.bottom - self._px(61), "Integrity", cS.healthPoints, cS.maxHealthPoints, ui.GREEN)
-        self._draw_bar(vitality, vitality.bottom - self._px(32), "Dash", max(0, cS.dashCooldownMax - cS.currDashCooldown), cS.dashCooldownMax, ui.BLUE)
-
-        combat = self.cardRects[1]
-        self._draw_section(combat, 2, "Loadout", ui.BLUE, [
-            ("Damage", f"{cS.bulletDamage:.2f}", ui.CREAM),
-            ("Volley", f"{cS.projectileCount:.1f}", ui.TEXT),
-            ("Pierce", f"{cS.bulletPierce:.1f}", ui.TEXT),
-            ("Range", f"{cS.bulletRange:.0f}", ui.TEXT),
-            ("Critical", f"{cS.critChance * 100:.0f}%  x{cS.critDamage:.1f}", ui.PURPLE),
-        ])
-
-        progress = self.cardRects[2]
-        self._draw_section(progress, 3, "Momentum", ui.GOLD, [
-            ("Kills", f"{cS.numOfEnemiesKilled}", ui.TEXT),
-            ("Magnet", f"{cS.aura:.0f}", ui.TEXT),
-            ("Autofire [I]", "ON" if cS.autoFire else "OFF", ui.GREEN if cS.autoFire else ui.MUTED),
-        ])
-        self._draw_bar(progress, progress.bottom - self._px(67), "Experience", cS.expCount, cS.expNeededForNextLevel, ui.GOLD)
-        self._draw_upgrade_summary(progress, progress.bottom - self._px(34))
+        self.tooltip = None
+        pg.draw.rect(vH.screen, ui.VOID, (self.posX, 0, self.totalLength, self.totalHeight))
+        pg.draw.rect(vH.screen, ui.INK, (self.posX, 0, self._px(6), self.totalHeight))
+        y = self._draw_header()
+        y = self._draw_status(y)
+        y = self._draw_build(y)
+        y = self._draw_stats(y)
+        if self.mode == "compact" and y + self._px(90) < self.totalHeight - self._px(82):
+            y = self._draw_objective(y)
+        self._draw_recent_table(y)
+        self._draw_tooltip()

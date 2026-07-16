@@ -51,6 +51,11 @@ damage modifier, and 900 reward XP. Sixty baseline
 stagger hits are required to force a break, while coherent damage, critical, volley,
 tempo, movement, and defense selections remain useful throughout its pattern pool.
 
+During damage phases, Dissonance's portals require 15 separate player hits to disable
+for the remainder of that phase. Disabled portals stop intercepting player shots and
+fire reduced volleys. Survival-phase portals are untargetable and cannot be disabled,
+so their formations remain a constant threat for the entire survival timer.
+
 ### Acts and survival phases
 
 - Act I uses phases 1–3 and unlocks its 20-second survival at two-thirds health.
@@ -71,3 +76,5 @@ rune cannon, and `Y` toggles invincibility.
 Natural encounters are ordered and one-shot per run: Beaudis at level 10 must be
 defeated before Dissonance can start at level 20. Defeating Dissonance marks the run
 complete and leaves ordinary spawning disabled. Player progression is capped at 20.
+Defense can never nullify hostile damage completely: enemy and boss hits retain the
+greater of 0.25 damage or 10% of their pre-defense value (before casual-mode scaling).

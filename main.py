@@ -3,6 +3,7 @@ import character as cH
 import pygame as pg
 import characterStats as cS
 import background as bG
+import menus
 
 CAMERA_ROTATION_DEGREES_PER_SECOND = 180.0
 
@@ -19,6 +20,10 @@ def main():
             #This state is when the player reaches a level up
             case vH.States.LEVELING:
                 runLeveling()
+            case vH.States.PAUSED:
+                runPaused()
+            case vH.States.RESULTS:
+                runResults()
         
 def runGame():
     pg.mouse.set_visible(False)
@@ -27,7 +32,10 @@ def runGame():
         vH.hasBeenReset = False
     
     baseInputCollection() #Collects the inputs from the player
-    pg.mouse.set_visible(vH.mouseX >= vH.sW * .75)
+    if vH.state != vH.States.GAMERUN:
+        return
+    cS.runTimeSeconds += min(vH.deltaMilliseconds, 50) / 1000.0
+    pg.mouse.set_visible(vH.mouseX >= cS.informationSheet.arena_width)
     
     cH.drawBackground() #Draws the base level background
     
@@ -50,6 +58,7 @@ def runGame():
     cH.updateDamageTexts()
     cH.updateExperience()
     cH.expForPlayer()
+    cH.recoverPlayerHealth()
     cH.hurtPlayer()
 
     cH.drawBountyIndicator()
@@ -64,6 +73,20 @@ def runLeveling():
     
     cH.handleLevelingProcess()
     
+    paintAndClearScreen(vH.backgroundColor)
+
+def runPaused():
+    pg.mouse.set_visible(True)
+    baseInputCollection()
+    menus.draw_pause()
+    menus.handle_pause()
+    paintAndClearScreen(vH.backgroundColor)
+
+def runResults():
+    pg.mouse.set_visible(True)
+    baseInputCollection()
+    menus.draw_results()
+    menus.handle_results()
     paintAndClearScreen(vH.backgroundColor)
     
 def runTitle():
@@ -89,8 +112,13 @@ def baseInputCollection():
     update_input_toggles()
     update_camera_controls()
 
-    if vH.keys[pg.K_ESCAPE]:
-        vH.done = True
+    if pg.K_ESCAPE in vH.keyPressed:
+        if vH.state == vH.States.GAMERUN:
+            vH.pauseReturnState = vH.States.GAMERUN
+            vH.state = vH.States.PAUSED
+        elif vH.state == vH.States.LEVELING:
+            vH.pauseReturnState = vH.States.LEVELING
+            vH.state = vH.States.PAUSED
 
     vH.mouseX, vH.mouseY = pg.mouse.get_pos()  # Save mouse position for aim and clicks
 
@@ -102,6 +130,11 @@ def update_input_toggles():
         cS.bossDebugRequested = True
     if pg.K_i in vH.keyPressed:
         cS.autoFire = not cS.autoFire
+        import gameProfile
+        gameProfile.profile["autofire"] = cS.autoFire
+        gameProfile.save_profile()
+    if pg.K_TAB in vH.keyPressed and vH.state == vH.States.GAMERUN:
+        cS.informationSheet.toggle_mode()
     if pg.K_y in vH.keyPressed:
         cS.bossDebugInvincible = not cS.bossDebugInvincible
 
@@ -132,6 +165,23 @@ def handle_input_events():
         elif event.type == pg.MOUSEBUTTONUP:
             if event.button == 1:
                 vH.mouseDown = False
+        elif event.type == pg.JOYAXISMOTION:
+            if event.axis == 0:
+                vH.controllerMoveX = event.value if abs(event.value) > .2 else 0
+            elif event.axis == 1:
+                vH.controllerMoveY = event.value if abs(event.value) > .2 else 0
+            elif event.axis == 2:
+                vH.controllerAimX = event.value if abs(event.value) > .25 else 0
+            elif event.axis == 3:
+                vH.controllerAimY = event.value if abs(event.value) > .25 else 0
+        elif event.type == pg.JOYBUTTONDOWN:
+            if event.button == 0:
+                vH.keyPressed.add(pg.K_SPACE)
+            elif event.button == 2:
+                vH.keyPressed.add(pg.K_i)
+            elif event.button == 7 and vH.state == vH.States.GAMERUN:
+                vH.pauseReturnState = vH.States.GAMERUN
+                vH.state = vH.States.PAUSED
 
 
 def paintAndClearScreen(color):

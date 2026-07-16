@@ -7,6 +7,7 @@ import pygame
 import background as bG
 import uiTheme as ui
 import variableHolster as vH
+import gameProfile
 
 
 class EnemyProjectile:
@@ -23,8 +24,9 @@ class EnemyProjectile:
         self.originY = float(world_y)
         self.direction = direction
         self.speed = speed
-        self.damage = (damage * self.DISSONANCE_DAMAGE_SCALE
-                       if str(owner).startswith("dissonance") else damage)
+        boss_scale = 100 if str(owner).startswith(("beaudis", "dissonance")) else 1
+        dissonance_scale = self.DISSONANCE_DAMAGE_SCALE if str(owner).startswith("dissonance") else 1
+        self.damage = round(damage * boss_scale * dissonance_scale)
         self.size = size
         self.remainingRange = travel_range
         self.color = color or ui.RED
@@ -144,7 +146,8 @@ class EnemyProjectile:
             self.worldX = center_x + cos(self.orbitAngle) * self.orbitRadius - self.size / 2
             self.worldY = center_y + sin(self.orbitAngle) * self.orbitRadius - self.size / 2
         else:
-            distance = self.speed * self.HOSTILE_SPEED_SCALE * vH.get_frame_scale()
+            comfort_scale = .88 if gameProfile.profile["casual_mode"] else 1.0
+            distance = self.speed * self.HOSTILE_SPEED_SCALE * comfort_scale * vH.get_frame_scale()
             self.travelled += distance
             self.remainingRange -= distance
             if self.path == "sine":
@@ -222,6 +225,8 @@ class EnemyProjectile:
             pygame.draw.rect(screen, self.color, rect)
             pygame.draw.rect(screen, ui.INK, rect, max(2, int(self.size * .1)))
             pygame.draw.rect(screen, ui.lighten(self.color, 45), rect.inflate(-int(self.size * .5), -int(self.size * .5)))
+        if gameProfile.profile["high_contrast"]:
+            pygame.draw.rect(screen, ui.CREAM, rect.inflate(4, 4), max(2, int(self.size * .08)))
 
         expired = self.lifetime is not None and self.age >= self.lifetime
         range_spent = self.path != "orbit" and self.remainingRange <= 0

@@ -12,11 +12,29 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Space`: dash (briefly avoids contact damage)
 - Hold `Q` / `E`: smoothly rotate the arena clockwise / counter-clockwise
 - `I`: toggle autofire
+- `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
 - `B`: hidden debug shortcut that clears the arena and summons Dissonance
 - `Y`: toggle player invincibility during boss practice
-- `Escape`: quit
+- `Escape`: pause during a run; quit from the title screen
+- Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
+
+## Comfort and accessibility
+
+The pause menu includes a casual assist, persistent autofire, contextual hints,
+an aim guide, damage-number control, high-contrast hostile outlines, and adjustable
+screen shake. Casual assist reduces incoming damage and hostile projectile speed
+without reducing enemy variety. Preferences and best-run records are saved locally
+in `data/profile.json`.
+
+The in-run information sidebar starts in a compact, action-focused mode. Press
+`Tab` for additional weapon outcomes and build-family detail. Damage and fire rate
+retain exact values; fractional projectiles and pierce are translated into plain
+language such as “5 shots + 35% bonus.” Each upgrade has a stat symbol, a `+` corner
+mark for flat bonuses or an `x` mark for multiplicative bonuses, and its rarity
+color. The five most recent cards collect on the small table at the bottom of the
+sidebar; hover one when you want its name and bonus type.
 
 ## Run locally
 

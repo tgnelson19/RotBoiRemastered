@@ -36,7 +36,7 @@ class DissonanceBossTests(unittest.TestCase):
         vH.screenShakeY = 0
 
     def test_boss_health_and_stagger_match_level_twenty_balance_target(self):
-        self.assertEqual(self.boss.maxHp, 1350)
+        self.assertEqual(self.boss.maxHp, 135000)
         self.assertEqual(self.boss.maxStagger / self.boss.minimumStaggerPerHit, 60)
 
     def test_initial_phase_uses_bolster_dialogue(self):
@@ -88,7 +88,7 @@ class DissonanceBossTests(unittest.TestCase):
         self.assertGreater(phase_particles, 0)
         self.assertGreater(self.boss.actTransitionTimer, 0)
         portal = self.boss.projectilePortals[0]
-        for _ in range(3):
+        for _ in range(15):
             self.boss.take_damage(1, "portal:0")
         self.assertGreater(len(self.boss.visualParticles), phase_particles)
 
@@ -148,6 +148,12 @@ class DissonanceBossTests(unittest.TestCase):
             result = boss.take_damage(999)
             self.assertFalse(result.applied)
             self.assertEqual(boss.hp, hp)
+            self.assertFalse(any(str(part).startswith("portal:")
+                                 for part, _ in boss.get_world_hitboxes()))
+            portal = boss.projectilePortals[0]
+            portal_hp = portal.hp
+            self.assertTrue(boss.take_damage(1, "portal:0").blocked)
+            self.assertEqual(portal.hp, portal_hp)
 
     def test_survival_completion_advances_or_begins_final_death(self):
         self.boss.debug_set_phase(3)
@@ -159,7 +165,7 @@ class DissonanceBossTests(unittest.TestCase):
         self.boss.updateEnemy(*self.boss._center(), [])
         self.assertTrue(self.boss.dying)
         self.assertEqual(self.boss.deathRemaining, 10)
-        self.assertEqual(self.boss.hp, .01)
+        self.assertEqual(self.boss.hp, 1)
 
     def test_survival_boundary_portals_fire_variable_speed_inward_shots(self):
         self.boss.debug_set_phase(3)
@@ -297,7 +303,7 @@ class DissonanceBossTests(unittest.TestCase):
         self.assertTrue(self.boss.transitionCleanupRequested)
         old_hp = self.boss.hp
         self.assertTrue(self.boss.take_damage(7).applied)
-        self.assertEqual(self.boss.hp, old_hp - 7 * 1.35)
+        self.assertEqual(self.boss.hp, old_hp - round(7 * 1.35))
         self.boss.patternCooldown = 0
         projectiles = []
         self.boss.updateEnemy(*self.boss._center(), projectiles)
@@ -319,12 +325,15 @@ class DissonanceBossTests(unittest.TestCase):
         self.assertEqual(self.boss.hp, hp)
         self.assertEqual(self.boss.stagger, 0)
 
-    def test_three_portal_hits_disable_interception_and_halve_firepower_for_phase(self):
+    def test_fifteen_portal_hits_disable_interception_and_halve_firepower_for_phase(self):
         portal = self.boss.projectilePortals[0]
         starting_stagger = self.boss.stagger
-        for _ in range(3):
+        for _ in range(14):
             result = self.boss.take_damage(1, "portal:0")
             self.assertTrue(result.applied)
+        self.assertTrue(portal.blocks_shots)
+        result = self.boss.take_damage(1, "portal:0")
+        self.assertTrue(result.applied)
         self.assertTrue(portal.active)
         self.assertTrue(portal.phaseDisabled)
         self.assertFalse(portal.blocks_shots)
@@ -365,8 +374,8 @@ class DissonanceBossTests(unittest.TestCase):
         self.boss.take_damage(1)
         self.assertTrue(self.boss.perfectStagger)
         self.assertEqual(self.boss.staggerRemaining, self.boss.staggerDuration)
-        first = self.boss.take_damage(10).amount
-        second = self.boss.take_damage(10).amount
+        first = self.boss.take_damage(100).amount
+        second = self.boss.take_damage(100).amount
         self.assertGreater(second, first)
 
     def test_stagger_expiry_starts_projectile_free_phase_transition(self):
@@ -394,7 +403,7 @@ class DissonanceBossTests(unittest.TestCase):
         receiver_index = self.boss.runeCannonReceiver
         self.assertIsNotNone(receiver_index)
         receiver = self.boss.projectilePortals[receiver_index]
-        for _ in range(3):
+        for _ in range(15):
             receiver.take_damage(1)
         previous_stagger = self.boss.stagger
         self.boss._update_rune_cannon(*self.boss._center(), [], .1)
@@ -405,7 +414,7 @@ class DissonanceBossTests(unittest.TestCase):
         initial = self.boss.challenge_results()
         self.assertTrue(initial["no_portals_broken"])
         self.assertTrue(initial["unbroken_pressure"])
-        for _ in range(3):
+        for _ in range(15):
             self.boss.take_damage(1, "portal:0")
         self.assertFalse(self.boss.challenge_results()["no_portals_broken"])
 

@@ -1,18 +1,19 @@
 import pygame as pg
 import variableHolster as vH
+import gameProfile
 import background as bG
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 
-upgradeCollection = {"types": {}, "rarities": {}}
+upgradeCollection = {"types": {}, "rarities": {}, "history": []}
 
 
 def reset_upgrade_tracking():
     global upgradeCollection
-    upgradeCollection = {"types": {}, "rarities": {}}
+    upgradeCollection = {"types": {}, "rarities": {}, "history": []}
 
 
-def record_upgrade(upgrade_type, rarity):
+def record_upgrade(upgrade_type, rarity, math_type=None):
     global upgradeCollection
     if upgrade_type not in upgradeCollection["types"]:
         upgradeCollection["types"][upgrade_type] = 0
@@ -21,6 +22,12 @@ def record_upgrade(upgrade_type, rarity):
     if rarity not in upgradeCollection["rarities"]:
         upgradeCollection["rarities"][rarity] = 0
     upgradeCollection["rarities"][rarity] += 1
+    if math_type:
+        upgradeCollection["history"].append({
+            "name": upgrade_type,
+            "rarity": rarity,
+            "math_type": math_type,
+        })
 
 
 enemyCap = 50
@@ -28,7 +35,12 @@ enemyThreatCap = 36.0
 enemyPopulationThreatCap = 60.0
 currEnemyCount = 0
 
-highestLevel = 0
+highestLevel = int(gameProfile.profile["best_level"])
+runTimeSeconds = 0.0
+runOutcome = "DEFEATED"
+currentBounty = None
+lastUpgrade = None
+lastUpgradeAt = -100.0
 
 playerSpeed = 2.1
 playerSize = vH.tileSizeGlobal * .75
@@ -47,7 +59,7 @@ azimuthalProjectileAngle = 200
 attackCooldownStat = 40
 attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
 
-bulletDamage = 1
+bulletDamage = 100
 bulletSpeed = 4
 bulletRange = 150
 bulletSize = vH.tileSizeGlobal / 2
@@ -67,8 +79,10 @@ expNeededForNextLevel = 40
 baseExpNeededForNextLevel = 40
 levelScaleIncreaseFunction = 1.15
 
-healthPoints = 10
-maxHealthPoints = 10
+healthPoints = 1000
+maxHealthPoints = 1000
+vitality = 25
+healthRecoveryBuffer = 0.0
 defense = 0
 
 enemyOneInFramesChance = 220
@@ -88,7 +102,7 @@ dashModifier = 4
 dashCooldownMax = vH.frameRate * 1
 currDashCooldown = 0
 
-autoFire = False
+autoFire = bool(gameProfile.profile["autofire"])
 autoFlop = False
 
 fdX, fdY = 0, 0
@@ -114,17 +128,17 @@ levelingHandler = LevelingHandler()
 
 newRandoUps = False
 
-collectiveStats = {"Defense" : defense, "Bullet Pierce" : bulletPierce, "Bullet Count" : projectileCount, "Spread Angle" : azimuthalProjectileAngle, 
+collectiveStats = {"Defense" : defense, "Health" : maxHealthPoints, "Vitality" : vitality, "Bullet Pierce" : bulletPierce, "Bullet Count" : projectileCount, "Spread Angle" : azimuthalProjectileAngle, 
                                   "Attack Speed" : attackCooldownStat, "Bullet Speed" : bulletSpeed, "Bullet Range" : bulletRange, "Bullet Damage" : bulletDamage, 
                                   "Bullet Size" : bulletSize, "Player Speed" : playerSpeed, "Crit Chance" : critChance, "Crit Damage" : critDamage, 
                                   "Aura Size" : aura, "Aura Strength" : auraSpeed, "Exp Multiplier": xpMult}
         
-collectiveAddStats = {"Defense" : [0], "Bullet Pierce" : [0], "Bullet Count" : [0], "Spread Angle" : [0], 
+collectiveAddStats = {"Defense" : [0], "Health" : [0], "Vitality" : [0], "Bullet Pierce" : [0], "Bullet Count" : [0], "Spread Angle" : [0], 
                             "Attack Speed" : [0], "Bullet Speed" : [0], "Bullet Range" : [0], "Bullet Damage" : [0], 
                             "Bullet Size" : [0], "Player Speed" : [0], "Crit Chance": [0], "Crit Damage": [0],
                             "Aura Size" : [0], "Aura Strength" : [0], "Exp Multiplier": [0]}
 
-collectiveMultStats = {"Defense" : [1], "Bullet Pierce" : [1], "Bullet Count" : [1], "Spread Angle" : [1], 
+collectiveMultStats = {"Defense" : [1], "Health" : [1], "Vitality" : [1], "Bullet Pierce" : [1], "Bullet Count" : [1], "Spread Angle" : [1], 
                             "Attack Speed" : [1], "Bullet Speed" : [1], "Bullet Range" : [1], "Bullet Damage" : [1], 
                             "Bullet Size" : [1], "Player Speed" : [1], "Crit Chance": [1], "Crit Damage": [1],
                             "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}

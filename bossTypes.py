@@ -12,6 +12,7 @@ from enemyProjectile import EnemyProjectile
 from projectilePortal import ProjectilePortal
 import uiTheme as ui
 import variableHolster as vH
+import gameProfile
 
 
 class Beaudis(Enemy):
@@ -35,7 +36,7 @@ class Beaudis(Enemy):
     def __init__(self, world_x, world_y, rng=None):
         size = vH.tileSizeGlobal * 1.55
         super().__init__(world_x, world_y, .38, size, ui.PURPLE,
-                         2.0, 260, 240, 3.2, "beaudis")
+                         200, 26000, 240, 3.2, "beaudis")
         self.rng = rng or random
         self.phase = 1
         self.phaseLabel, self.phaseFlavor, self.phaseAccent = self.PHASE_METADATA[1]
@@ -98,7 +99,7 @@ class Beaudis(Enemy):
         self.staggerRemaining = 0.0
         self.survivalActive = phase == 5
         if self.survivalActive:
-            self.hp = max(.01, self.hp)
+            self.hp = max(1, self.hp)
             self.survivalRemaining = self.survivalDuration
             self.survivalCooldown = .75
             self._deploy_finale_portals()
@@ -127,10 +128,10 @@ class Beaudis(Enemy):
         if self.dying or self.survivalActive or self.phaseProtectionTimer > 0:
             return HitResult(False, False, 0, blocked=True)
         multiplier = 1.25 if self.isStaggered else 1.0
-        applied = amount * multiplier
+        applied = round(amount * multiplier)
         self.hp -= applied
         self.stagger = min(self.maxStagger,
-                           self.stagger + max(self.minimumStaggerPerHit, amount * 1.4))
+                           self.stagger + max(self.minimumStaggerPerHit, amount * .014))
         if self.stagger >= self.maxStagger and not self.isStaggered:
             self.isStaggered = True
             self.staggerRemaining = self.staggerDuration
@@ -138,7 +139,7 @@ class Beaudis(Enemy):
         next_phase = self._phase_for_health()
         if next_phase != self.phase and not self.debugPhaseLocked:
             self._set_phase(next_phase)
-        self.hp = max(.01 if self.phase == 5 else 0.0, self.hp)
+        self.hp = max(1 if self.phase == 5 else 0, self.hp)
         return HitResult(True, False, applied)
 
     def _clear_portals(self):
@@ -345,7 +346,7 @@ class Dissonance(Enemy):
         size = vH.tileSizeGlobal * 1.9
         # Dissonance expects a complete twenty-card build and preserves the full
         # nine-rune encounter as the run's final mechanical examination.
-        super().__init__(world_x, world_y, .72, size, ui.PURPLE, 5.2, 1350, 900, 5, "dissonance")
+        super().__init__(world_x, world_y, .72, size, ui.PURPLE, 520, 135000, 900, 5, "dissonance")
         self.rng = rng or random
         self.phase = 1
         self.damagePhaseHistory = [1]
@@ -363,7 +364,7 @@ class Dissonance(Enemy):
         # pierce, and critical builds can all contribute without trivializing it.
         # retained briefly, then drains gradually if the player disengages.
         self.maxStagger = 360.0
-        self.staggerPerDamage = 2.0
+        self.staggerPerDamage = .02
         self.minimumStaggerPerHit = 6.0
         self.staggerDecayDelay = 2.0
         self.staggerDecayTimer = 0.0
@@ -452,6 +453,7 @@ class Dissonance(Enemy):
         self._deploy_phase_one_portals()
         for portal in self.projectilePortals:
             portal.reset_for_phase(self.PHASE_RUNES[self.phase][1])
+            portal.hitsToDisable = 15
 
     def _seconds(self):
         return vH.get_timer_step() / max(1, vH.frameRate)
@@ -474,8 +476,9 @@ class Dissonance(Enemy):
         self.ambientParticleCooldown -= dt
         self.motionTrailCooldown -= dt
         self.shakeStrength = max(0.0, self.shakeStrength - 16 * dt)
-        vH.screenShakeX = int(sin(self.age * .73) * self.shakeStrength)
-        vH.screenShakeY = int(cos(self.age * .61) * self.shakeStrength * .65)
+        shake_scale = float(gameProfile.profile["screen_shake"])
+        vH.screenShakeX = int(sin(self.age * .73) * self.shakeStrength * shake_scale)
+        vH.screenShakeY = int(cos(self.age * .61) * self.shakeStrength * .65 * shake_scale)
         if self.ambientParticleCooldown <= 0:
             center_x, center_y = self._center()
             angle = self.age * .013 + self.rng.uniform(-.5, .5)
@@ -510,6 +513,8 @@ class Dissonance(Enemy):
             return HitResult(False, False, 0, blocked=True)
         if self.transitionRemaining > 0 or self.phaseProtectionTimer > 0:
             return HitResult(False, False, 0, blocked=True)
+        if self.survivalActive:
+            return HitResult(False, False, 0, blocked=True)
         if str(part_id).startswith("portal:"):
             index = int(str(part_id).split(":", 1)[1])
             if 0 <= index < len(self.projectilePortals):
@@ -522,20 +527,18 @@ class Dissonance(Enemy):
                                           portal.color, 18, 2.4)
                 return HitResult(True, False, amount)
             return HitResult(False, False, 0, blocked=True)
-        if self.survivalActive:
-            return HitResult(False, False, 0, blocked=True)
         if self.isStaggered:
             multiplier = 1.35 + self.fracture * .02
-            applied = amount * multiplier
+            applied = round(amount * multiplier)
             self.hp -= applied
-            self.fracture = min(self.maxFracture, self.fracture + amount * .35)
+            self.fracture = min(self.maxFracture, self.fracture + amount * .0035)
             self.hitFlash = .12
             self._burst_particles(*self._center(), ui.CREAM, 4, 1.0)
-            self.hp = max(0.0, self.hp)
+            self.hp = max(0, self.hp)
             return HitResult(True, False, applied)
 
         # Normal pressure chips Dissonance as well as building toward a break.
-        applied = amount * .45
+        applied = round(amount * .45)
         self.hp -= applied
         self.hitFlash = .08
         gained = max(self.minimumStaggerPerHit, amount * self.staggerPerDamage)
@@ -551,7 +554,7 @@ class Dissonance(Enemy):
         self.staggerDecayTimer = self.staggerDecayDelay
         if self.stagger >= self.maxStagger:
             self._trigger_stagger()
-        self.hp = max(0.0, self.hp)
+        self.hp = max(0, self.hp)
         return HitResult(True, False, applied)
 
     def _trigger_stagger(self):
@@ -714,6 +717,7 @@ class Dissonance(Enemy):
         rune_strokes = self.PHASE_RUNES[phase][1]
         for portal in self.projectilePortals + self.survivalPortals:
             portal.reset_for_phase(rune_strokes)
+            portal.hitsToDisable = 15
 
     def _choose_damage_phase(self):
         """Choose from the six attacks without repeating the last three used."""
@@ -852,7 +856,7 @@ class Dissonance(Enemy):
     def _begin_death(self):
         if self.dying:
             return
-        self.hp = .01
+        self.hp = 1
         self.dying = True
         self.deathRemaining = self.deathDuration
         self.shakeStrength = 6
@@ -1638,6 +1642,8 @@ class Dissonance(Enemy):
 
     def get_screen_hitboxes(self):
         hitboxes = super().get_screen_hitboxes()
+        if self.survivalActive:
+            return hitboxes
         for index, portal in enumerate(self.projectilePortals):
             if portal.blocks_shots:
                 x, y = bG.world_to_screen(portal.worldX, portal.worldY)
@@ -1646,6 +1652,8 @@ class Dissonance(Enemy):
 
     def get_world_hitboxes(self):
         hitboxes = super().get_world_hitboxes()
+        if self.survivalActive:
+            return hitboxes
         for index, portal in enumerate(self.projectilePortals):
             if portal.blocks_shots:
                 hitboxes.append((f"portal:{index}", pygame.Rect(

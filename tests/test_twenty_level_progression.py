@@ -64,8 +64,41 @@ class TwentyLevelProgressionTests(unittest.TestCase):
                                                owner="dissonance_test")
         beaudis_shot = EnemyProjectile(0, 0, 0, 1, 2, 10,
                                             owner="beaudis_test")
-        self.assertEqual(dissonance_shot.damage, 2.6)
-        self.assertEqual(beaudis_shot.damage, 2)
+        self.assertEqual(dissonance_shot.damage, 260)
+        self.assertEqual(beaudis_shot.damage, 200)
+
+    def test_defense_cannot_reduce_hostile_damage_to_zero(self):
+        self.assertEqual(game.hostile_damage_after_defense(0, 999), 0)
+        self.assertEqual(game.hostile_damage_after_defense(100, 99900), 25)
+        self.assertEqual(game.hostile_damage_after_defense(520, 99900), 52)
+        self.assertEqual(game.hostile_damage_after_defense(520, 100), 420)
+
+    def test_reset_uses_integer_hundred_scale_combat_stats(self):
+        self.assertEqual(cS.healthPoints, 1000)
+        self.assertEqual(cS.maxHealthPoints, 1000)
+        self.assertEqual(cS.bulletDamage, 100)
+        enemy = ENEMY_CATALOG.create("runner", 0, 0, 0, random.Random(7))
+        self.assertIsInstance(enemy.hp, int)
+        self.assertIsInstance(enemy.damage, int)
+
+    def test_vitality_recovers_smooth_integer_health(self):
+        cS.healthPoints = 900
+        cS.healthRecoveryBuffer = 0
+        game.recoverPlayerHealth()
+        self.assertLess(cS.healthPoints, 925)
+        for _ in range(vH.frameRate - 1):
+            game.recoverPlayerHealth()
+        self.assertEqual(cS.healthPoints, 925)
+        self.assertIsInstance(cS.healthPoints, int)
+
+    def test_health_and_vitality_upgrades_recompute_survival_stats(self):
+        cS.healthPoints = 800
+        cS.collectiveAddStats["Health"].append(100)
+        cS.collectiveMultStats["Vitality"].append(1.12)
+        game.combarinoPlayerStats()
+        self.assertEqual(cS.maxHealthPoints, 1100)
+        self.assertEqual(cS.healthPoints, 900)
+        self.assertEqual(cS.vitality, 28)
 
     def test_beaudis_finale_fades_with_italic_last_line(self):
         boss = self._midpoint_boss()

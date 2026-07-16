@@ -29,7 +29,7 @@ class ProjectilePortal:
         self.polarity = 1 if polarity >= 0 else -1
         self.movementPath = movement_path
         self.size = vH.tileSizeGlobal * .9
-        self.maxHp = 6.0
+        self.maxHp = 600
         self.hp = self.maxHp
         self.hitsTaken = 0
         self.hitsToDisable = 3
@@ -98,7 +98,7 @@ class ProjectilePortal:
         if not self.blocks_shots:
             return False
         self.hitsTaken += 1
-        self.hp = self.maxHp * max(0, self.hitsToDisable - self.hitsTaken) / self.hitsToDisable
+        self.hp = round(self.maxHp * max(0, self.hitsToDisable - self.hitsTaken) / self.hitsToDisable)
         if self.hitsTaken >= self.hitsToDisable:
             self.phaseDisabled = True
             return True

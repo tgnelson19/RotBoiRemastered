@@ -49,18 +49,20 @@ RARITY_WEIGHTS = {
 
 
 DEFINITIONS = (
-    UpgradeDefinition("Defense", "survival", 1, 0.12, "Reduce contact damage"),
+    UpgradeDefinition("Defense", "survival", 100, 0.12, "Reduce incoming damage"),
+    UpgradeDefinition("Health", "survival", 100, 0.10, "Increase current and maximum health"),
+    UpgradeDefinition("Vitality", "survival", 5, 0.12, "Recover health continuously"),
     UpgradeDefinition("Bullet Pierce", "volley", 0.25, 0.12, "Shots pass through more foes"),
     UpgradeDefinition("Bullet Count", "volley", 0.25, 0.12, "Fire additional projectiles"),
     UpgradeDefinition("Spread Angle", "volley", 0.314159, 0.12, "Widen the firing arc"),
     UpgradeDefinition("Attack Speed", "tempo", -1, -0.04, "Shorten time between attacks"),
     UpgradeDefinition("Bullet Speed", "precision", 3, 0.18, "Shots reach targets sooner"),
     UpgradeDefinition("Bullet Range", "precision", 75, 0.18, "Shots travel farther"),
-    UpgradeDefinition("Bullet Damage", "power", 0.25, 0.16, "Increase every hit"),
+    UpgradeDefinition("Bullet Damage", "power", 25, 0.16, "Increase every hit"),
     UpgradeDefinition("Bullet Size", "power", 4, 0.12, "Make shots easier to land"),
     UpgradeDefinition("Player Speed", "survival", 0.2, 0.16, "Improve repositioning"),
     UpgradeDefinition("Crit Chance", "critical", 0.08, 0.04, "Land critical hits more often"),
-    UpgradeDefinition("Crit Damage", "critical", 0.4, 0.16, "Critical hits deal more damage"),
+    UpgradeDefinition("Crit Damage", "critical", 40, 0.16, "Critical hits deal more damage"),
     UpgradeDefinition("Aura Size", "harvest", 8, 0.14, "Collect experience from farther away"),
     UpgradeDefinition("Aura Strength", "harvest", 0.8, 0.14, "Pull experience in faster"),
     UpgradeDefinition("Exp Multiplier", "harvest", 0.2, 0.16, "Gain more experience per foe"),

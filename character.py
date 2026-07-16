@@ -14,6 +14,7 @@ from math import atan, atan2, ceil, floor, pi, trunc, hypot
 from random import randint
 import upgrades
 import uiTheme as ui
+import gameProfile
 from spatialHash import SpatialHash
 from progression import (FINAL_BOSS_LEVEL, MAX_LEVEL, MID_BOSS_LEVEL,
                          MINIBOSS_GATES, encounter_caps, encounter_pacing)
@@ -78,7 +79,7 @@ def resetAllStats():
     cS.attackCooldownStat = 40
     cS.attackCooldownTimer = 0 #Number of frames before next bullet can be fired (Yes, I know, I don't care)
 
-    cS.bulletDamage = 1
+    cS.bulletDamage = 100
     cS.bulletSpeed = 4
     cS.bulletRange = 250
     cS.bulletSize = vH.tileSizeGlobal / 2
@@ -99,8 +100,10 @@ def resetAllStats():
     cS.baseExpNeededForNextLevel = 40
     cS.levelScaleIncreaseFunction = 1.15
 
-    cS.healthPoints = 10
-    cS.maxHealthPoints = 10
+    cS.healthPoints = 1000
+    cS.maxHealthPoints = 1000
+    cS.vitality = 25
+    cS.healthRecoveryBuffer = 0.0
     cS.defense = 0
     cS.currEnemyCount = 0
     cS.enemyCap = 50
@@ -141,8 +144,14 @@ def resetAllStats():
     cS.beaudisDefeated = False
     cS.dissonanceEncounterStarted = False
     cS.gameCompleted = False
+    cS.runTimeSeconds = 0.0
+    cS.runOutcome = "DEFEATED"
+    cS.currentBounty = None
+    cS.lastUpgrade = None
+    cS.lastUpgradeAt = -100.0
     cS.guaranteedMiniBossesSpawned = set()
     cS.enemySpawningEnabled = True
+    cS.autoFire = bool(gameProfile.profile["autofire"])
 
     cS.informationSheet = InformationSheet()
     
@@ -151,22 +160,23 @@ def resetAllStats():
     
     cS.newRandoUps = False
     
-    cS.collectiveStats = {"Defense" : cS.defense, "Bullet Pierce" : cS.bulletPierce, "Bullet Count" : cS.projectileCount, "Spread Angle" : cS.azimuthalProjectileAngle, 
+    cS.collectiveStats = {"Defense" : cS.defense, "Health" : cS.maxHealthPoints, "Vitality" : cS.vitality, "Bullet Pierce" : cS.bulletPierce, "Bullet Count" : cS.projectileCount, "Spread Angle" : cS.azimuthalProjectileAngle, 
                                   "Attack Speed" : cS.attackCooldownStat, "Bullet Speed" : cS.bulletSpeed, "Bullet Range" : cS.bulletRange, "Bullet Damage" : cS.bulletDamage, 
                                   "Bullet Size" : cS.bulletSize, "Player Speed" : cS.playerSpeed, "Crit Chance" : cS.critChance, "Crit Damage" : cS.critDamage, 
                                   "Aura Size" : cS.aura, "Aura Strength" : cS.auraSpeed, "Exp Multiplier": cS.xpMult}
         
-    cS.collectiveAddStats = {"Defense" : [0], "Bullet Pierce" : [0], "Bullet Count" : [0], "Spread Angle" : [0], 
+    cS.collectiveAddStats = {"Defense" : [0], "Health" : [0], "Vitality" : [0], "Bullet Pierce" : [0], "Bullet Count" : [0], "Spread Angle" : [0], 
                                 "Attack Speed" : [0], "Bullet Speed" : [0], "Bullet Range" : [0], "Bullet Damage" : [0], 
                                 "Bullet Size" : [0], "Player Speed" : [0], "Crit Chance": [0], "Crit Damage": [0],
                                 "Aura Size" : [0], "Aura Strength" : [0], "Exp Multiplier": [0]}
     
-    cS.collectiveMultStats = {"Defense" : [1], "Bullet Pierce" : [1], "Bullet Count" : [1], "Spread Angle" : [1], 
+    cS.collectiveMultStats = {"Defense" : [1], "Health" : [1], "Vitality" : [1], "Bullet Pierce" : [1], "Bullet Count" : [1], "Spread Angle" : [1], 
                                 "Attack Speed" : [1], "Bullet Speed" : [1], "Bullet Range" : [1], "Bullet Damage" : [1], 
                                 "Bullet Size" : [1], "Player Speed" : [1], "Crit Chance": [1], "Crit Damage": [1],
                                 "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
     
 def combarinoPlayerStats():
+    previous_max_health = cS.maxHealthPoints
 
     cS.projectileCount = (cS.collectiveStats["Bullet Count"] + sum(cS.collectiveAddStats["Bullet Count"])) * (multiply_list(cS.collectiveMultStats["Bullet Count"]))
     cS.azimuthalProjectileAngle = (cS.collectiveStats["Spread Angle"] + sum(cS.collectiveAddStats["Spread Angle"])) * (multiply_list(cS.collectiveMultStats["Spread Angle"]))
@@ -176,11 +186,14 @@ def combarinoPlayerStats():
     cS.bulletSpeed = (cS.collectiveStats["Bullet Speed"] + sum(cS.collectiveAddStats["Bullet Speed"])) * (multiply_list(cS.collectiveMultStats["Bullet Speed"]))
     cS.bulletRange = (cS.collectiveStats["Bullet Range"] + sum(cS.collectiveAddStats["Bullet Range"])) * (multiply_list(cS.collectiveMultStats["Bullet Range"]))
     cS.bulletSize = (cS.collectiveStats["Bullet Size"] + sum(cS.collectiveAddStats["Bullet Size"])) * (multiply_list(cS.collectiveMultStats["Bullet Size"]))
-    cS.bulletDamage = (cS.collectiveStats["Bullet Damage"] + sum(cS.collectiveAddStats["Bullet Damage"])) * (multiply_list(cS.collectiveMultStats["Bullet Damage"]))
+    cS.bulletDamage = round(_combine_stat("Bullet Damage"))
     cS.bulletPierce = (cS.collectiveStats["Bullet Pierce"] + sum(cS.collectiveAddStats["Bullet Pierce"])) * (multiply_list(cS.collectiveMultStats["Bullet Pierce"]))
-    cS.defense = (cS.collectiveStats["Defense"] + sum(cS.collectiveAddStats["Defense"])) * (multiply_list(cS.collectiveMultStats["Defense"]))
+    cS.defense = round(_combine_stat("Defense"))
+    cS.maxHealthPoints = max(1, round(_combine_stat("Health")))
+    cS.healthPoints = min(cS.maxHealthPoints, cS.healthPoints + max(0, cS.maxHealthPoints - previous_max_health))
+    cS.vitality = max(0, round(_combine_stat("Vitality")))
     cS.critChance = (cS.collectiveStats["Crit Chance"] + sum(cS.collectiveAddStats["Crit Chance"])) * (multiply_list(cS.collectiveMultStats["Crit Chance"]))
-    cS.critDamage = (cS.collectiveStats["Crit Damage"] + sum(cS.collectiveAddStats["Crit Damage"])) * (multiply_list(cS.collectiveMultStats["Crit Damage"]))
+    cS.critDamage = round(_combine_stat("Crit Damage"))
     cS.aura = (cS.collectiveStats["Aura Size"] + sum(cS.collectiveAddStats["Aura Size"])) * (multiply_list(cS.collectiveMultStats["Aura Size"]))
     cS.auraSpeed = (cS.collectiveStats["Aura Strength"] + sum(cS.collectiveAddStats["Aura Strength"])) * (multiply_list(cS.collectiveMultStats["Aura Strength"]))
     cS.xpMult = (cS.collectiveStats["Exp Multiplier"]+ sum(cS.collectiveAddStats["Exp Multiplier"])) * (multiply_list(cS.collectiveMultStats["Exp Multiplier"]))
@@ -197,7 +210,9 @@ def handleLevelingProcess():
 
     if (pDecision != "none"):
         card = cS.levelingHandler.selected_card
-        cS.record_upgrade(card.name, card.rarity)
+        cS.record_upgrade(card.name, card.rarity, card.math_type)
+        cS.lastUpgrade = (card.name, card.rarity)
+        cS.lastUpgradeAt = cS.runTimeSeconds
         modifier = upgrades.card_modifier(card)
         if card.math_type == "additive":
             cS.collectiveAddStats[card.name].append(modifier)
@@ -213,8 +228,8 @@ def handleLevelingProcess():
             vH.state = vH.States.GAMERUN
 
 def movePlayer():
-    input_x = int(bool(vH.keys[pg.K_a])) - int(bool(vH.keys[pg.K_d]))
-    input_y = int(bool(vH.keys[pg.K_w])) - int(bool(vH.keys[pg.K_s]))
+    input_x = int(bool(vH.keys[pg.K_a])) - int(bool(vH.keys[pg.K_d])) - vH.controllerMoveX
+    input_y = int(bool(vH.keys[pg.K_w])) - int(bool(vH.keys[pg.K_s])) - vH.controllerMoveY
     direction_scale = 0.70710678 if input_x and input_y else 1.0
     input_x *= direction_scale
     input_y *= direction_scale
@@ -290,7 +305,8 @@ def drawBackground():
 
 def handlingBulletCreation():
 
-    if (cS.attackCooldownTimer <= 0 and (cS.autoFire or vH.mouseDown)):
+    controller_firing = hypot(vH.controllerAimX, vH.controllerAimY) > .3
+    if (cS.attackCooldownTimer <= 0 and (cS.autoFire or vH.mouseDown or controller_firing)):
         cS.attackCooldownTimer = cS.attackCooldownStat
         currCrit = False
         currCritChance = floor(cS.critChance)
@@ -313,9 +329,14 @@ def handlingBulletCreation():
             originY = bG.playerPosY + cS.playerSize / 2
             screenOriginX = bG.lockX + cS.playerSize / 2
             screenOriginY = bG.lockY + cS.playerSize / 2
-            targetDX, targetDY = bG.screen_vector_to_world(
-                vH.mouseX - screenOriginX, vH.mouseY - screenOriginY,
-            )
+            if hypot(vH.controllerAimX, vH.controllerAimY) > .3:
+                targetDX, targetDY = bG.screen_vector_to_world(
+                    vH.controllerAimX * vH.sW, vH.controllerAimY * vH.sH,
+                )
+            else:
+                targetDX, targetDY = bG.screen_vector_to_world(
+                    vH.mouseX - screenOriginX, vH.mouseY - screenOriginY,
+                )
             targetX, targetY = originX + targetDX, originY + targetDY
             direction = _direction_to_target(originX, originY, targetX, targetY)
 
@@ -666,6 +687,8 @@ def handlingDamagingEnemies():
                 cS.beaudisDefeated = True
             elif getattr(enemy, "bossName", "") == "DISSONANCE":
                 cS.gameCompleted = True
+                cS.runOutcome = "RUN COMPLETE"
+                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled, completed=True)
             cS.activeBoss = None
             cS.enemySpawningEnabled = not cS.gameCompleted
             vH.screenShakeX = 0
@@ -680,6 +703,9 @@ def handlingDamagingEnemies():
     cS.bulletHolster[:] = [bullet for bullet in cS.bulletHolster if not bullet.remFlag]
 
 def updateDamageTexts():
+    if not gameProfile.profile["damage_numbers"]:
+        cS.damageTextList.clear()
+        return
     for dText in cS.damageTextList[:]:
         dText.drawAndUpdateDamageText(cS.dX, cS.dY)
         if dText.deleteMe:
@@ -736,6 +762,32 @@ def expForPlayer():
         else:
             bubble.naturalSpawn = True
             
+HOSTILE_MIN_DAMAGE = 25
+HOSTILE_DAMAGE_FLOOR_RATIO = .1
+
+
+def hostile_damage_after_defense(raw_damage, defense):
+    """Apply defense while preserving a small chip-damage floor for hostile hits."""
+    raw_damage = max(0.0, float(raw_damage))
+    if raw_damage <= 0:
+        return 0
+    return round(max(raw_damage - defense,
+               min(raw_damage, max(HOSTILE_MIN_DAMAGE,
+                                   raw_damage * HOSTILE_DAMAGE_FLOOR_RATIO))))
+
+
+def recoverPlayerHealth():
+    """Apply vitality continuously while keeping stored and displayed HP integral."""
+    if cS.healthPoints >= cS.maxHealthPoints or cS.vitality <= 0:
+        cS.healthRecoveryBuffer = 0.0
+        return
+    cS.healthRecoveryBuffer += cS.vitality * vH.get_timer_step() / max(1, vH.frameRate)
+    recovered = int(cS.healthRecoveryBuffer)
+    if recovered:
+        cS.healthPoints = min(cS.maxHealthPoints, cS.healthPoints + recovered)
+        cS.healthRecoveryBuffer -= recovered
+
+
 def hurtPlayer():
     timer_step = vH.get_timer_step()
     cS.playerInvulnerabilityTimer = max(0, cS.playerInvulnerabilityTimer - timer_step)
@@ -753,7 +805,9 @@ def hurtPlayer():
         if projectile.collides(player_world_rect):
             if not getattr(projectile, "persistentHazard", False):
                 projectile.remFlag = True
-            trueDMG = max(projectile.damage - cS.defense, 0)
+            trueDMG = hostile_damage_after_defense(projectile.damage, cS.defense)
+            if gameProfile.profile["casual_mode"]:
+                trueDMG = round(trueDMG * .8)
             cS.damageTextList.append(DamageText(
                 bG.playerPosX, bG.playerPosY, ui.RED, trueDMG,
                 vH.tileSizeGlobal, vH.frameRate,
@@ -761,7 +815,9 @@ def hurtPlayer():
             cS.healthPoints -= trueDMG
             cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
             if cS.healthPoints <= 0:
-                vH.state = vH.States.TITLESCREEN
+                cS.runOutcome = "DEFEATED"
+                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
+                vH.state = vH.States.RESULTS
                 cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
             return
 
@@ -771,7 +827,9 @@ def hurtPlayer():
             None,
         )
         if collided_hitbox:
-            trueDMG = max(eman.damage - cS.defense, 0)
+            trueDMG = hostile_damage_after_defense(eman.damage, cS.defense)
+            if gameProfile.profile["casual_mode"]:
+                trueDMG = round(trueDMG * .8)
             cS.damageTextList.append(DamageText(
                 bG.playerPosX, bG.playerPosY, ui.RED, trueDMG,
                 vH.tileSizeGlobal, vH.frameRate,
@@ -792,7 +850,9 @@ def hurtPlayer():
                 knockback_x, knockback_y,
             )
             if cS.healthPoints <= 0:
-                vH.state = vH.States.TITLESCREEN
+                cS.runOutcome = "DEFEATED"
+                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
+                vH.state = vH.States.RESULTS
                 cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
             break
 
@@ -887,11 +947,11 @@ def _bounty_arrow_geometry(target_screen, viewport):
 
 
 def drawBountyIndicator():
-    bounty = selectBountyTarget()
+    bounty = cS.currentBounty or selectBountyTarget()
     if bounty is None:
         return
     target_screen = bG.world_to_screen(*bounty["world"])
-    arena_width = int(vH.sW * .75)
+    arena_width = cS.informationSheet.arena_width
     top_margin = 112 if cS.activeBoss is not None else 44
     viewport = pg.Rect(34, top_margin, max(1, arena_width - 68),
                        max(1, int(vH.sH) - top_margin - 42))
@@ -910,7 +970,8 @@ def drawBountyIndicator():
                  label_position, "center")
     
 def drawInformationSheet():
-    if vH.mouseX < vH.sW * 0.75:
+    cS.currentBounty = selectBountyTarget()
+    if vH.mouseX < cS.informationSheet.arena_width:
         center = (int(vH.mouseX), int(vH.mouseY))
         color = ui.CREAM if (cS.autoFire or vH.mouseDown) else ui.TEXT
         pg.draw.rect(vH.screen, ui.INK, (center[0] - 3, center[1] - 3, 6, 6))
@@ -920,16 +981,38 @@ def drawInformationSheet():
         pg.draw.line(vH.screen, color, (center[0] + gap, center[1]), (center[0] + gap + length, center[1]), 2)
         pg.draw.line(vH.screen, color, (center[0], center[1] - gap - length), (center[0], center[1] - gap), 2)
         pg.draw.line(vH.screen, color, (center[0], center[1] + gap), (center[0], center[1] + gap + length), 2)
+        if gameProfile.profile["aim_guide"]:
+            origin = (int(bG.lockX + cS.playerSize / 2), int(bG.lockY + cS.playerSize / 2))
+            dx, dy = center[0] - origin[0], center[1] - origin[1]
+            distance = max(1, hypot(dx, dy))
+            guide_length = min(distance, vH.tileSizeGlobal * 3)
+            end = (origin[0] + dx / distance * guide_length,
+                   origin[1] + dy / distance * guide_length)
+            pg.draw.line(vH.screen, ui.CREAM, origin, end, 1)
     drawBossHealthBar()
     drawRunCompleteBanner()
+    drawLowHealthWarning()
     cS.informationSheet.drawSheet()
+    drawTutorialHint()
+
+
+def drawLowHealthWarning():
+    ratio = cS.healthPoints / max(1, cS.maxHealthPoints)
+    if ratio > .3:
+        return
+    arena_width = cS.informationSheet.arena_width
+    alpha = int(35 + (1 - ratio / .3) * 65)
+    overlay = pg.Surface((arena_width, int(vH.sH)), pg.SRCALPHA)
+    border = max(8, int(22 * ui.display_scale(vH.screen)))
+    pg.draw.rect(overlay, (*ui.RED[:3], alpha), overlay.get_rect(), border)
+    vH.screen.blit(overlay, (0, 0))
 
 
 def drawRunCompleteBanner():
     if not cS.gameCompleted:
         return
     scale = ui.display_scale(vH.screen)
-    arena_width = vH.sW * .75
+    arena_width = cS.informationSheet.arena_width
     width = min(arena_width * .58, 680 * scale)
     rect = pg.Rect((arena_width - width) / 2, 22 * scale, width, 76 * scale)
     ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=7)
@@ -937,6 +1020,31 @@ def drawRunCompleteBanner():
                  (rect.centerx, rect.y + 10 * scale), "midtop")
     ui.draw_text(vH.screen, "LEVEL 20 // RUN COMPLETE", 11 * scale, ui.PURPLE,
                  (rect.centerx, rect.bottom - 12 * scale), "midbottom")
+    ui.draw_text(vH.screen, "ENTER  VIEW RESULTS", 9 * scale, ui.TEXT,
+                 (rect.centerx, rect.bottom + 12 * scale), "midtop")
+    if pg.K_RETURN in vH.keyPressed:
+        vH.state = vH.States.RESULTS
+
+
+def drawTutorialHint():
+    if not gameProfile.profile["tutorial_hints"] or cS.runTimeSeconds > 42:
+        return
+    hints = (
+        (0, 8, "WASD MOVE  //  MOUSE AIM  //  PRESS I FOR AUTOFIRE"),
+        (8, 16, "SPACE DASHES IN YOUR MOVEMENT DIRECTION AND BRIEFLY AVOIDS DAMAGE"),
+        (16, 25, "FOLLOW THE RED BOUNTY ARROW TO HIGH-VALUE PATROLS"),
+        (25, 34, "Q / E ROTATE THE ARENA  //  MOVEMENT STAYS SCREEN-RELATIVE"),
+        (34, 42, "TAB OPENS DETAILS  //  ESC PAUSES AND OPENS COMFORT SETTINGS"),
+    )
+    text = next((text for start, end, text in hints if start <= cS.runTimeSeconds < end), None)
+    if not text:
+        return
+    scale = ui.display_scale(vH.screen)
+    width = min(cS.informationSheet.arena_width * .72, 760 * scale)
+    rect = pg.Rect((cS.informationSheet.arena_width - width) / 2,
+                   vH.sH - 58 * scale, width, 38 * scale)
+    ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.BLUE, shadow=4)
+    ui.draw_text(vH.screen, text, 9 * scale, ui.TEXT, rect.center, "center")
 
 
 def drawBossHealthBar():
@@ -946,7 +1054,7 @@ def drawBossHealthBar():
     if getattr(boss, "entranceRemaining", 0) > 1.0:
         return
     scale = ui.display_scale(vH.screen)
-    arena_width = vH.sW * .75
+    arena_width = cS.informationSheet.arena_width
     width = min(arena_width * .62, 720 * scale)
     height = 88 * scale
     rect = pg.Rect((arena_width - width) / 2, 16 * scale, width, height)
@@ -1010,9 +1118,12 @@ def runTheTitleScreen():
         ui.draw_text(vH.screen, key, scale * .014, ui.BLUE, key_rect.center, "center")
         ui.draw_text(vH.screen, action, scale * .011, ui.MUTED, (center_x, key_rect.bottom + 11 * ui_scale), "midtop")
 
-    record_label = "NO RUNS LOGGED" if cS.highestLevel <= 0 else f"BEST RUN  //  LEVEL {cS.highestLevel:02}"
-    ui.draw_tag(vH.screen, record_label, (left, int(vH.sH * .80)), ui.GOLD if cS.highestLevel else ui.BORDER, int(scale * .012))
+    best_level = max(cS.highestLevel, int(gameProfile.profile["best_level"]))
+    record_label = "NO RUNS LOGGED" if best_level <= 0 else f"BEST RUN  //  LEVEL {best_level:02}  //  {int(gameProfile.profile['best_kills'])} KILLS"
+    ui.draw_tag(vH.screen, record_label, (left, int(vH.sH * .80)), ui.GOLD if best_level else ui.BORDER, int(scale * .012))
     ui.draw_text(vH.screen, "ESC  QUIT", scale * .012, ui.MUTED, (left + content_width, vH.sH * .805), "topright")
 
     if pg.K_SPACE in vH.keyPressed or (hovered and vH.mousePressed):
         vH.state = vH.States.GAMERUN
+    elif pg.K_ESCAPE in vH.keyPressed:
+        vH.done = True

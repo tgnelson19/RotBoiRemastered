@@ -848,7 +848,7 @@ class SnakeEnemy(Enemy):
         self.size = self.headSize
         self.segmentSpacing = self.segmentSize * 1.18
         self.segments = []
-        segment_hp = segment_hp or self.maxHp * .6
+        segment_hp = round(segment_hp or self.maxHp * .6)
         for index in range(segment_count):
             segment_x = self.worldX - (index + 1) * self.segmentSpacing
             segment_y = self.worldY + self.size * .2
@@ -950,6 +950,7 @@ class SnakeEnemy(Enemy):
         return hitboxes
 
     def take_damage(self, amount, part_id="head"):
+        amount = round(amount)
         if part_id == "head":
             if self.segments:
                 return HitResult(False, False, 0, True)
@@ -1118,7 +1119,7 @@ class WarderEnemy(WanderingRangedEnemy):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.shieldAngle = 0
-        self.shieldHp = self.maxHp * (.35 + .2 * self.tierRank)
+        self.shieldHp = round(self.maxHp * (.35 + .2 * self.tierRank))
         self.maxShieldHp = self.shieldHp
 
     def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
@@ -1322,11 +1323,11 @@ class EnemyCatalog:
             enemy.speed *= 1.18
             if hasattr(enemy, "attackCooldownMax"):
                 enemy.attackCooldownMax *= .72
-            enemy.maxHp *= .82
+            enemy.maxHp = round(enemy.maxHp * .82)
             enemy.hp = enemy.maxHp
             enemy.expValue *= 1.2
         elif modifier == "armored":
-            enemy.maxHp *= 1.75
+            enemy.maxHp = round(enemy.maxHp * 1.75)
             enemy.hp = enemy.maxHp
             enemy.speed *= .82
             enemy.expValue *= 1.45
@@ -1338,7 +1339,7 @@ class EnemyCatalog:
             enemy.expValue *= 1.35
         elif modifier == "champion":
             enemy.size *= 1.18
-            enemy.maxHp *= 1.55
+            enemy.maxHp = round(enemy.maxHp * 1.55)
             enemy.hp = enemy.maxHp
             enemy.damage *= 1.25
             enemy.threatCost *= 1.5
@@ -1366,8 +1367,8 @@ class EnemyCatalog:
             BASE_ENEMY_SPEED_SCALE * scales["speed"] * tier["speed"] * definition.speed * variation,
             size,
             definition.color,
-            .9 * scales["damage"] * tier["damage"] * definition.damage / variation,
-            2.2 * scales["health"] * tier["health"] * definition.health / variation,
+            round(90 * scales["damage"] * tier["damage"] * definition.damage / variation),
+            round(220 * scales["health"] * tier["health"] * definition.health / variation),
             2.4 * scales["experience"] * tier["experience"] * definition.experience * difficulty,
             difficulty,
             **options,

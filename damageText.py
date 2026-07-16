@@ -29,7 +29,7 @@ class DamageText:
         if self.lifetime <= 0:
             self.deleteMe = True
 
-        label = str(format(self.value, '.3g')) if isinstance(self.value, (int, float)) else str(self.value)
+        label = str(round(self.value)) if isinstance(self.value, (int, float)) else str(self.value)
         shadow_render = vH.damageTextFont.render(label, True, ui.INK)
         textRender = vH.damageTextFont.render(label, True, self.color)
         textRect = textRender.get_rect(center=(self.posX + self.objSize / 2, self.posY - self.deltaVal))

@@ -70,6 +70,31 @@ class LevelingHandler:
         rendered = font.render(text, True, color)
         vH.screen.blit(rendered, rendered.get_rect(center=(x, y)))
 
+    def _projected_value(self, card, cS):
+        base = cS.collectiveStats[card.name]
+        additive = sum(cS.collectiveAddStats[card.name])
+        multiplicative = 1
+        for value in cS.collectiveMultStats[card.name]:
+            multiplicative *= value
+        modifier = upgrades.card_modifier(card)
+        current = (base + additive) * multiplicative
+        projected = ((base + additive + modifier) * multiplicative
+                     if card.math_type == "additive"
+                     else current * modifier)
+        return current, projected
+
+    def _recommendation(self, card, cS):
+        owned_categories = {}
+        for name, count in cS.upgradeCollection["types"].items():
+            definition = upgrades.DEFINITIONS_BY_NAME.get(name)
+            if definition:
+                owned_categories[definition.category] = owned_categories.get(definition.category, 0) + count
+        if cS.healthPoints <= cS.maxHealthPoints * .45 and card.definition.category == "survival":
+            return "SAFE PICK", ui.GREEN
+        if owned_categories.get(card.definition.category, 0) >= 2:
+            return "BUILD MATCH", ui.PURPLE
+        return None, None
+
     def drawCards(self):
         import characterStats as cS
 
@@ -83,6 +108,9 @@ class LevelingHandler:
         ui.draw_text(vH.screen, "LEVEL SECURED", self.tileSize * 0.34, ui.GREEN, (self.sW / 2, self.tileSize * 0.3), "midtop")
         ui.draw_text(vH.screen, "CHOOSE ONE // SHAPE THE RUN", self.tileSize * 0.72, ui.TEXT, (self.sW / 2, self.tileSize * 0.75), "midtop")
         ui.draw_text(vH.screen, "Every card stays with you until the run ends.", self.tileSize * 0.3, ui.MUTED, (self.sW / 2, self.tileSize * 1.65), "midtop")
+        if cS.pendingLevelUps > 1:
+            ui.draw_tag(vH.screen, f"{cS.pendingLevelUps} DRAFTS QUEUED",
+                        (self.tileSize * 2, self.tileSize * 1.25), ui.GOLD, int(self.tileSize * .21))
 
         mouse_position = (vH.mouseX, vH.mouseY)
         for index, (rect, card) in enumerate(zip(self.card_rects, self.cards)):
@@ -106,11 +134,21 @@ class LevelingHandler:
             mode_width = ui.font(int(self.tileSize * .2)).size(mode.upper())[0]
             ui.draw_tag(vH.screen, mode, (visual_rect.centerx - mode_width / 2, visual_rect.centery + self.tileSize * 0.65), ui.BLUE, int(self.tileSize * .2))
             ui.draw_text(vH.screen, upgrades.format_card_value(card), self.tileSize * 0.78, accent, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 1.25), "center")
+            current, projected = self._projected_value(card, cS)
+            direction = "LOWER IS FASTER" if card.name == "Attack Speed" else "PROJECTED STAT"
+            ui.draw_text(vH.screen, f"{direction}  //  {current:.2f} → {projected:.2f}",
+                         self.tileSize * .19, ui.GREEN if projected != current else ui.MUTED,
+                         (visual_rect.centerx, visual_rect.bottom - self.tileSize * .76), "center")
             owned = cS.upgradeCollection["types"].get(card.name, 0)
             ui.draw_text(vH.screen, f"OWNED  {owned}", self.tileSize * 0.22, ui.MUTED, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 0.45), "center")
+            recommendation, recommendation_color = self._recommendation(card, cS)
+            if recommendation:
+                ui.draw_tag(vH.screen, recommendation,
+                            (visual_rect.x + self._px(18), visual_rect.bottom - self.tileSize * .62),
+                            recommendation_color, int(self.tileSize * .18))
 
         ui.draw_button(
-            vH.screen, self.rerollButton, f"REROLL  //  {self.rerolls} LEFT", mouse_position,
+            vH.screen, self.rerollButton, f"RUN REROLLS  //  {self.rerolls} LEFT", mouse_position,
             vH.mouseDown, self.rerolls > 0, ui.RED, "R", int(self.tileSize * 0.31),
         )
 

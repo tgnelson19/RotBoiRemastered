@@ -28,9 +28,9 @@ class Enemy:
         self.speed = speed
         self.size = size
         self.color = color
-        self.damage = damage
-        self.hp = hp
-        self.maxHp = hp
+        self.damage = round(damage)
+        self.hp = round(hp)
+        self.maxHp = round(hp)
         self.cantTouchMeList = []
         self.expValue = exp_value
         self.difficulty = difficulty
@@ -51,6 +51,7 @@ class Enemy:
         self.behaviorModifier = None
         self.modifierColor = None
         self.regenerationRate = 0.0
+        self.regenerationBuffer = 0.0
         self.volatileBurst = 0
         self.visualAttackTimer = 0.0
         self.visualAttackCooldown = random.uniform(.7, 1.4) * vH.frameRate
@@ -144,7 +145,10 @@ class Enemy:
 
         if not self._update_awareness(distance):
             if self.regenerationRate and self.hp < self.maxHp:
-                self.hp = min(self.maxHp, self.hp + self.regenerationRate * timer_step)
+                self.regenerationBuffer += self.regenerationRate * timer_step
+                recovered = int(self.regenerationBuffer)
+                self.hp = min(self.maxHp, self.hp + recovered)
+                self.regenerationBuffer -= recovered
             self._wander()
             self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
             return
@@ -240,6 +244,7 @@ class Enemy:
         return [("body", self._world_rect())]
 
     def take_damage(self, amount, part_id="body"):
+        amount = round(amount)
         self.hp -= amount
         return HitResult(True, self.hp <= 0, amount)
 

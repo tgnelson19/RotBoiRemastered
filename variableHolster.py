@@ -7,13 +7,18 @@ class States(Enum):
     TITLESCREEN = 0
     GAMERUN = 1
     LEVELING = 2
+    PAUSED = 3
+    RESULTS = 4
     
 state = States.TITLESCREEN
+pauseReturnState = States.GAMERUN
 
 hasBeenReset = False
 
 environ['SDL_VIDEO_CENTERED'] = '1'
 pg.init()  # Initializes a window
+for joystick_index in range(pg.joystick.get_count()):
+    pg.joystick.Joystick(joystick_index).init()
 pg.display.set_caption("RotBoiRemastered")
 
 tileSizeGlobal = 50 #Global tile size that should hopefully not look too bad for people...
@@ -39,6 +44,10 @@ clock = pg.time.Clock()  # Main time keeper
 done = False
 mouseDown = False
 mousePressed = False
+controllerMoveX = 0.0
+controllerMoveY = 0.0
+controllerAimX = 0.0
+controllerAimY = 0.0
 
 REFERENCE_FPS = 240
 deltaMilliseconds = 1000 / frameRate
