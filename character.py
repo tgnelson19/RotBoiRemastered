@@ -1156,17 +1156,18 @@ def runTheTitleScreen():
     ui.draw_text(vH.screen, "CHOOSE WHAT THE ROT REMEMBERS.", scale * .019, ui.MUTED, (vH.sW / 2, vH.sH * .305), "midtop")
 
     selector_y = vH.sH * .365
-    gap = 14 * ui_scale
-    selector_width = (content_width - gap) / 2
+    gap = 8 * ui_scale
+    path_list = list(gamePaths.PATHS.values())
+    selector_width = (content_width - gap * (len(path_list) - 1)) / len(path_list)
     path_hovers = {}
-    for index, path in enumerate(gamePaths.PATHS.values()):
+    for index, path in enumerate(path_list):
         rect = pg.Rect(left + index * (selector_width + gap), selector_y,
-                       selector_width, max(54 * ui_scale, scale * .064))
+                       selector_width, max(50 * ui_scale, scale * .058))
         is_selected = path.key == gamePaths.selected_key
         path_hovers[path.key] = ui.draw_button(
             vH.screen, rect, path.title, (vH.mouseX, vH.mouseY), vH.mouseDown,
             True, path.accent if is_selected else ui.BORDER,
-            "SELECTED" if is_selected else None, int(scale * .019),
+            None, int(scale * .014),
         )
 
     if pg.K_LEFT in vH.keyPressed or pg.K_a in vH.keyPressed:
