@@ -1,6 +1,6 @@
 """Friendly, outcome-first run sidebar with collectible upgrade icon cards."""
 
-from math import floor, hypot
+from math import cos, floor, hypot, radians, sin
 
 import pygame as pg
 
@@ -53,6 +53,7 @@ class InformationSheet:
         if next_scale != self.uiScale or self._layoutSize != vH.screen.get_size():
             self.uiScale = next_scale
             self._build_layout()
+            bG.lockX = self.arena_width / 2
 
     @property
     def arena_width(self):
@@ -63,6 +64,7 @@ class InformationSheet:
         gameProfile.profile["hud_mode"] = self.mode
         gameProfile.save_profile()
         self._build_layout()
+        bG.lockX = self.arena_width / 2
 
     def _panel(self, y, height, accent=ui.BORDER, fill=ui.PANEL_RAISED):
         rect = pg.Rect(self.posX + self.padding, y,
@@ -200,6 +202,38 @@ class InformationSheet:
                          (rect.right - self._px(11), rect.bottom - self._px(11)), "bottomright")
         return rect.bottom + self.padding
 
+    def _draw_inventory(self, y):
+        header_h = self._px(24)
+        hub_h = self._px(140)
+        height = header_h + hub_h + self._px(12)
+        rect = self._panel(y, height, ui.BORDER)
+        ui.draw_text(vH.screen, "EQUIPMENT", self._px(9), ui.MUTED,
+                     (rect.x + self._px(10), rect.y + self._px(8)))
+
+        hub_x = rect.centerx
+        hub_y = rect.y + header_h + hub_h / 2
+        radius_x = rect.width * .28
+        radius_y = hub_h * .38
+        slot_size = self._px(38)
+
+        slots = (
+            ("WEAPON", 90),
+            ("RING", 18),
+            ("ACC 2", -54),
+            ("ACC 1", -126),
+            ("ARMOR", 162),
+        )
+        for label, angle_degrees in slots:
+            angle = radians(angle_degrees)
+            center = (hub_x + cos(angle) * radius_x, hub_y - sin(angle) * radius_y)
+            slot_rect = pg.Rect(0, 0, slot_size, slot_size)
+            slot_rect.center = center
+            pg.draw.rect(vH.screen, ui.INK, slot_rect)
+            pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
+            ui.draw_text(vH.screen, label, self._px(7), ui.MUTED,
+                         (center[0], slot_rect.bottom + self._px(3)), "midtop")
+        return rect.bottom + self.padding
+
     def _draw_build(self, y):
         height = self._px(106 if self.mode == "compact" else 134)
         rect = self._panel(y, height, ui.PURPLE)
@@ -263,7 +297,7 @@ class InformationSheet:
                 ("Bullet Range", "Range", f"{cS.bulletRange / vH.tileSizeGlobal:.1f} tiles",
                  self._rating(cS.bulletRange, 250), "Approximate projectile travel distance."),
             ]
-        height = self._px(153 if self.mode == "compact" else 246)
+        height = self._px(29 + len(rows) * 31)
         rect = self._panel(y, height, ui.BLUE)
         ui.draw_text(vH.screen, "YOUR WEAPON", self._px(9), ui.BLUE,
                      (rect.x + self._px(10), rect.y + self._px(8)))
@@ -334,7 +368,7 @@ class InformationSheet:
         lines.append(line)
         rect = pg.Rect(vH.mouseX - width - self._px(10), vH.mouseY + self._px(10), width,
                        self._px(14 + len(lines) * 13))
-        rect.clamp_ip(vH.screen.get_rect())
+        rect.clamp_ip(pg.Rect(self.posX, 0, self.totalLength, self.totalHeight))
         ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=4)
         for index, text in enumerate(lines):
             ui.draw_text(vH.screen, text, self._px(8), ui.TEXT,
@@ -350,6 +384,7 @@ class InformationSheet:
         pg.draw.rect(vH.screen, ui.INK, (self.posX, 0, self._px(6), self.totalHeight))
         y = self._draw_header()
         y = self._draw_status(y)
+        y = self._draw_inventory(y)
         y = self._draw_build(y)
         y = self._draw_stats(y)
         if self.mode == "compact" and y + self._px(90) < self.totalHeight - self._px(82):
