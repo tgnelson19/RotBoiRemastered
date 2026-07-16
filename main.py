@@ -3,6 +3,7 @@ import character as cH
 import pygame as pg
 import characterStats as cS
 import background as bG
+import keybinds
 import menus
 
 CAMERA_ROTATION_DEGREES_PER_SECOND = 180.0
@@ -138,25 +139,27 @@ def _cancel_drag():
 
 def update_input_toggles():
     """Toggle persistent gameplay assists once per key press."""
-    if (pg.K_b in vH.keyPressed and cS.activeBoss is None
+    if (keybinds.pressed("dev_boss") and cS.activeBoss is None
             and not cS.bossDebugRequested):
         cS.bossDebugRequested = True
-    if pg.K_i in vH.keyPressed:
+    if keybinds.pressed("autofire"):
         cS.autoFire = not cS.autoFire
         import gameProfile
         gameProfile.profile["autofire"] = cS.autoFire
         gameProfile.save_profile()
-    if pg.K_TAB in vH.keyPressed and vH.state == vH.States.GAMERUN:
+    if keybinds.pressed("hud_toggle") and vH.state == vH.States.GAMERUN:
         cS.informationSheet.toggle_mode()
-    if pg.K_y in vH.keyPressed:
+    if keybinds.pressed("dev_invincible"):
         cS.bossDebugInvincible = not cS.bossDebugInvincible
+    if keybinds.pressed("dev_level_up") and vH.state == vH.States.GAMERUN:
+        cH.debugForceLevelUp()
 
 
 def update_camera_controls():
     """Apply held Q/E camera input at a frame-rate-independent angular speed."""
     if vH.state != vH.States.GAMERUN:
         return
-    direction = int(bool(vH.keys[pg.K_e])) - int(bool(vH.keys[pg.K_q]))
+    direction = int(keybinds.held("rotate_right")) - int(keybinds.held("rotate_left"))
     if direction:
         elapsed_seconds = min(max(vH.deltaMilliseconds, 0), 50) / 1000.0
         bG.rotate_camera(
@@ -189,9 +192,13 @@ def handle_input_events():
                 vH.controllerAimY = event.value if abs(event.value) > .25 else 0
         elif event.type == pg.JOYBUTTONDOWN:
             if event.button == 0:
-                vH.keyPressed.add(pg.K_SPACE)
+                dash_key = keybinds.key_for("dash")
+                if dash_key is not None:
+                    vH.keyPressed.add(dash_key)
             elif event.button == 2:
-                vH.keyPressed.add(pg.K_i)
+                autofire_key = keybinds.key_for("autofire")
+                if autofire_key is not None:
+                    vH.keyPressed.add(autofire_key)
             elif event.button == 7 and vH.state == vH.States.GAMERUN:
                 vH.pauseReturnState = vH.States.GAMERUN
                 vH.state = vH.States.PAUSED

@@ -4,12 +4,14 @@ import pygame as pg
 
 import characterStats as cS
 import gameProfile
+import keybinds
 import uiTheme as ui
 import variableHolster as vH
 
 
 _buttons = {}
 _settings_tab = "gameplay"
+_rebinding_action = None
 
 _GAMEPLAY_OPTIONS = (
     ("casual_mode", "CASUAL ASSIST", "20% less incoming damage"),
@@ -19,6 +21,8 @@ _GAMEPLAY_OPTIONS = (
     ("damage_numbers", "DAMAGE NUMBERS", "Show combat damage text"),
     ("high_contrast", "HIGH CONTRAST", "Brighten hostile warnings"),
 )
+
+_TABS = (("gameplay", "GAMEPLAY"), ("options", "OPTIONS"), ("keybinds", "KEYBINDS"))
 
 
 def _backdrop(title, subtitle):
@@ -34,10 +38,12 @@ def _backdrop(title, subtitle):
     return scale
 
 
-def _button(name, rect, label, accent=ui.CREAM, key=None, enabled=True):
+def _button(name, rect, label, accent=ui.CREAM, key=None, enabled=True, text_size=None):
     _buttons[name] = pg.Rect(rect)
+    if text_size is None:
+        text_size = int(15 * ui.display_scale(vH.screen))
     return ui.draw_button(vH.screen, rect, label, (vH.mouseX, vH.mouseY), vH.mouseDown,
-                          enabled, accent, key, int(15 * ui.display_scale(vH.screen)))
+                          enabled, accent, key, text_size)
 
 
 def _activated(name):
@@ -57,8 +63,8 @@ def draw_pause():
     ui.draw_panel(vH.screen, settings, ui.PANEL, ui.BLUE, shadow=6)
 
     tab_h = 38 * scale
-    tab_w = settings.width / 2
-    for index, (key, label) in enumerate((("gameplay", "GAMEPLAY"), ("options", "OPTIONS"))):
+    tab_w = settings.width / len(_TABS)
+    for index, (key, label) in enumerate(_TABS):
         rect = pg.Rect(settings.x + index * tab_w, settings.y, tab_w, tab_h)
         _button(f"tab_{key}", rect, label, ui.BLUE if _settings_tab == key else ui.BORDER)
 
@@ -72,7 +78,7 @@ def draw_pause():
                     ui.GREEN if active else ui.BORDER)
             ui.draw_text(vH.screen, description, 8 * scale, ui.MUTED,
                          (rect.x + 10 * scale, rect.bottom - 4 * scale), "bottomleft")
-    else:
+    elif _settings_tab == "options":
         shake_rect = pg.Rect(settings.x + 14 * scale, body_top, settings.width - 28 * scale, 42 * scale)
         _button("screen_shake", shake_rect,
                 f"SCREEN SHAKE  //  {int(float(gameProfile.profile['screen_shake']) * 100)}%", ui.GOLD)
@@ -88,19 +94,45 @@ def draw_pause():
         _button("text_size", text_size_rect, f"TEXT SIZE  //  {labels[idx]}", ui.GOLD)
         ui.draw_text(vH.screen, "Scales all in-game text", 8 * scale, ui.MUTED,
                      (text_size_rect.x + 10 * scale, text_size_rect.bottom - 4 * scale), "bottomleft")
+    else:
+        row_h = 33 * scale
+        for index, (action_id, label, _default) in enumerate(keybinds.ACTIONS):
+            y = body_top + index * row_h
+            rect = pg.Rect(settings.x + 14 * scale, y, settings.width - 28 * scale, 28 * scale)
+            if _rebinding_action == action_id:
+                _button(f"keybind_{action_id}", rect,
+                        f"{label}  //  PRESS A KEY (ESC CLEARS)", ui.GOLD, text_size=int(13 * scale))
+            else:
+                key = keybinds.key_for(action_id)
+                key_label = keybinds.label_for_key(key)
+                _button(f"keybind_{action_id}", rect, f"{label}  //  {key_label}",
+                        ui.BLUE if key is not None else ui.BORDER, text_size=int(13 * scale))
+        mouse_y = body_top + len(keybinds.ACTIONS) * row_h + 10 * scale
+        ui.draw_text(vH.screen, "MOUSE  //  AIM / FIRE  (not rebindable)", 8 * scale, ui.MUTED,
+                     (settings.x + 14 * scale, mouse_y))
 
     ui.draw_text(vH.screen, "TAB toggles HUD details during play", 9 * scale, ui.MUTED,
                  (vH.sW / 2, vH.sH * .82), "center")
 
 
 def handle_pause():
-    global _settings_tab
+    global _settings_tab, _rebinding_action
     import character as game
+
+    if _rebinding_action is not None:
+        if vH.keyPressed:
+            pressed_key = next(iter(vH.keyPressed))
+            if pressed_key == pg.K_ESCAPE:
+                keybinds.clear_binding(_rebinding_action)
+            else:
+                keybinds.set_binding(_rebinding_action, pressed_key)
+            _rebinding_action = None
+        return
 
     if pg.K_ESCAPE in vH.keyPressed or _activated("resume"):
         vH.state = vH.pauseReturnState
         return
-    if pg.K_r in vH.keyPressed or _activated("restart"):
+    if keybinds.pressed("restart") or _activated("restart"):
         game.resetAllStats()
         vH.state = vH.States.GAMERUN
         return
@@ -109,10 +141,10 @@ def handle_pause():
         vH.hasBeenReset = False
         return
 
-    if _activated("tab_gameplay"):
-        _settings_tab = "gameplay"
-    elif _activated("tab_options"):
-        _settings_tab = "options"
+    for key, _label in _TABS:
+        if _activated(f"tab_{key}"):
+            _settings_tab = key
+            break
 
     if _settings_tab == "gameplay":
         for key, _label, _description in _GAMEPLAY_OPTIONS:
@@ -120,7 +152,7 @@ def handle_pause():
                 gameProfile.toggle(key)
                 if key == "autofire":
                     cS.autoFire = bool(gameProfile.profile[key])
-    else:
+    elif _settings_tab == "options":
         if _activated("screen_shake"):
             levels = (0.0, .35, .65, 1.0)
             current = float(gameProfile.profile["screen_shake"])
@@ -132,6 +164,11 @@ def handle_pause():
             idx = min(range(len(levels)), key=lambda i: abs(levels[i] - current))
             gameProfile.profile["text_size"] = levels[(idx + 1) % len(levels)]
             gameProfile.save_profile()
+    else:
+        for action_id, _label, _default in keybinds.ACTIONS:
+            if _activated(f"keybind_{action_id}"):
+                _rebinding_action = action_id
+                break
 
 
 def draw_results():

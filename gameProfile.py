@@ -19,6 +19,7 @@ DEFAULTS = {
     "high_contrast": False,
     "hud_mode": "compact",
     "text_size": 1.0,
+    "keybinds": {},
 }
 
 

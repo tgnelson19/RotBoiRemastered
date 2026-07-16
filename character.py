@@ -9,6 +9,7 @@ from experienceBubble import ExperienceBubble
 from enemyProjectile import EnemyProjectile
 from lootCrate import LootCrate
 import items
+import keybinds
 from informationSheet import InformationSheet
 from levelingHandler import LevelingHandler
 from math import atan, atan2, ceil, floor, pi, trunc, hypot
@@ -241,8 +242,8 @@ def handleLevelingProcess():
 def movePlayer():
     cS.update_boss_afflictions(vH.get_timer_step() / max(1, vH.frameRate))
     cS.update_dream_state(vH.get_timer_step() / max(1, vH.frameRate))
-    input_x = int(bool(vH.keys[pg.K_a])) - int(bool(vH.keys[pg.K_d])) - vH.controllerMoveX
-    input_y = int(bool(vH.keys[pg.K_w])) - int(bool(vH.keys[pg.K_s])) - vH.controllerMoveY
+    input_x = int(keybinds.held("move_left")) - int(keybinds.held("move_right")) - vH.controllerMoveX
+    input_y = int(keybinds.held("move_up")) - int(keybinds.held("move_down")) - vH.controllerMoveY
     direction_scale = 0.70710678 if input_x and input_y else 1.0
     input_x *= direction_scale
     input_y *= direction_scale
@@ -250,7 +251,7 @@ def movePlayer():
     # values below are still the historical camera deltas used by this function.
     input_x, input_y = bG.screen_vector_to_world(input_x, input_y)
 
-    if pg.K_SPACE in vH.keyPressed and cS.currDashCooldown <= 0 and (input_x or input_y):
+    if keybinds.pressed("dash") and cS.currDashCooldown <= 0 and (input_x or input_y):
         cS.dashing = True
         cS.currDashCooldown = cS.dashCooldownMax
         cS.fdX = input_x
@@ -809,6 +810,16 @@ def expForPlayer():
                 bubble.direction = atan(deltaY / deltaX) if deltaX > 0 else -atan(deltaY / abs(deltaX)) + pi
         else:
             bubble.naturalSpawn = True
+
+def debugForceLevelUp():
+    """Dev/testing hotkey: spawn one level's worth of experience on the player.
+
+    Reuses the real pickup path in expForPlayer() rather than duplicating the
+    level-up transition, so this behaves exactly like a natural level up.
+    """
+    cS.experienceList.append(ExperienceBubble(
+        bG.playerPosX, bG.playerPosY, cS.expNeededForNextLevel, 1, vH.frameRate,
+    ))
 
 def updateLootCrates():
     old_clip = vH.screen.get_clip()
