@@ -19,10 +19,9 @@ class LevelingHandler:
         self.rerolls = 2
         self.tileSize = min(self.sW, self.sH) / 20
         self.uiScale = ui.display_scale(vH.screen)
-        font_path = "data/media/coolveticarg.otf"
-        self.titleFont = pygame.font.Font(font_path, int(self.tileSize * 0.9))
-        self.descFont = pygame.font.Font(font_path, int(self.tileSize * 0.45))
-        self.smallFont = pygame.font.Font(font_path, int(self.tileSize * 0.34))
+        self.titleFont = ui.font(self.tileSize * 0.9)
+        self.descFont = ui.font(self.tileSize * 0.45)
+        self.smallFont = ui.font(self.tileSize * 0.34)
         self.update_layout()
         self.firstClick = True
         self.upgradeRarityColors = ui.RARITY_COLORS
@@ -111,6 +110,7 @@ class LevelingHandler:
             ui.draw_tag(vH.screen, f"{cS.pendingLevelUps} DRAFTS QUEUED",
                         (self.tileSize * 2, self.tileSize * 1.25), ui.GOLD, int(self.tileSize * .21))
 
+        text_scale = ui.text_scale_multiplier()
         mouse_position = (vH.mouseX, vH.mouseY)
         for index, (rect, card) in enumerate(zip(self.card_rects, self.cards)):
             hovered = rect.collidepoint(mouse_position)
@@ -132,14 +132,14 @@ class LevelingHandler:
             mode = "Flat bonus" if card.math_type == "additive" else "Scaling bonus"
             mode_width = ui.font(int(self.tileSize * .2)).size(mode.upper())[0]
             ui.draw_tag(vH.screen, mode, (visual_rect.centerx - mode_width / 2, visual_rect.centery + self.tileSize * 0.65), ui.BLUE, int(self.tileSize * .2))
-            ui.draw_text(vH.screen, upgrades.format_card_value(card), self.tileSize * 0.78, accent, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 1.25), "center")
+            ui.draw_text(vH.screen, upgrades.format_card_value(card), self.tileSize * 0.78, accent, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 1.25 * text_scale), "center")
             current, projected = self._projected_value(card, cS)
             direction = "LOWER IS FASTER" if card.name == "Attack Speed" else "PROJECTED STAT"
             ui.draw_text(vH.screen, f"{direction}  //  {current:.2f} → {projected:.2f}",
                          self.tileSize * .19, ui.GREEN if projected != current else ui.MUTED,
-                         (visual_rect.centerx, visual_rect.bottom - self.tileSize * .76), "center")
+                         (visual_rect.centerx, visual_rect.bottom - self.tileSize * .76 * text_scale), "center")
             owned = cS.upgradeCollection["types"].get(card.name, 0)
-            ui.draw_text(vH.screen, f"OWNED  {owned}", self.tileSize * 0.22, ui.MUTED, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 0.45), "center")
+            ui.draw_text(vH.screen, f"OWNED  {owned}", self.tileSize * 0.22, ui.MUTED, (visual_rect.centerx, visual_rect.bottom - self.tileSize * 0.45 * text_scale), "center")
             recommendation, recommendation_color = self._recommendation(card, cS)
             if recommendation:
                 ui.draw_tag(vH.screen, recommendation,

@@ -2,6 +2,8 @@
 
 import pygame as pg
 
+import gameProfile
+
 
 FONT_PATH = "data/media/coolveticarg.otf"
 
@@ -36,6 +38,9 @@ REFERENCE_HEIGHT = 1080
 MIN_DISPLAY_SCALE = .6
 MAX_DISPLAY_SCALE = 2.4
 
+TEXT_SIZE_LEVELS = (0.85, 1.0, 1.15, 1.3)
+TEXT_SIZE_LABELS = ("SMALL", "NORMAL", "LARGE", "HUGE")
+
 
 def display_scale(surface):
     """Return a height-aware UI scale that remains stable across aspect ratios."""
@@ -46,8 +51,13 @@ def display_scale(surface):
     ))
 
 
+def text_scale_multiplier():
+    """User-configurable text size preference, layered on top of display_scale."""
+    return float(gameProfile.profile.get("text_size", 1.0))
+
+
 def font(size, italic=False, bold=False):
-    size = max(9, int(size))
+    size = max(9, int(round(size * text_scale_multiplier())))
     key = (size, bool(italic), bool(bold))
     if key not in _font_cache:
         typeface = pg.font.Font(FONT_PATH, size)

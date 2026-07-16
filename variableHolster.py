@@ -93,4 +93,4 @@ backgroundColor = pg.Color(17,20,27)
 # LevelingHandler.uiScale, so damage numbers grow and shrink with the rest of the HUD
 # instead of staying a fixed pixel size on every monitor.
 _damageTextScale = max(.7, min(3.2, min(sW / 1024, sH / 768)))
-damageTextFont = pg.font.Font("data/media/coolveticarg.otf", max(9, int(round(40 * _damageTextScale))))
+damageTextSize = max(9, int(round(40 * _damageTextScale)))

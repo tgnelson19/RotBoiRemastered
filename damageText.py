@@ -30,8 +30,9 @@ class DamageText:
             self.deleteMe = True
 
         label = str(round(self.value)) if isinstance(self.value, (int, float)) else str(self.value)
-        shadow_render = vH.damageTextFont.render(label, True, ui.INK)
-        textRender = vH.damageTextFont.render(label, True, self.color)
+        font = ui.font(vH.damageTextSize)
+        shadow_render = font.render(label, True, ui.INK)
+        textRender = font.render(label, True, self.color)
         textRect = textRender.get_rect(center=(self.posX + self.objSize / 2, self.posY - self.deltaVal))
         vH.screen.blit(shadow_render, textRect.move(3, 3))
         vH.screen.blit(textRender, textRect)
