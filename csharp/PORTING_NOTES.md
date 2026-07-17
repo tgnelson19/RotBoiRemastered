@@ -87,8 +87,19 @@ Dependency order roughly follows the Python import graph:
    `characterStats.py` globals) and `EnemyFactory` delegates (replacing
    `enemy_class: type` + a `**kwargs` options dict) -- see
    `Entities/README.md`'s "Enemy catalog" section.
-5. **`UI/InformationSheet.cs`, `UI/Menus.cs`, `UI/LevelingHandler.cs`** -- the
-   HUD and menu screens, once the systems and entities they display are in place.
+5. **`UI/StatCards.cs`, `UI/LevelingHandler.cs`, `UI/Menus.cs`** -- the
+   upgrade-card draft screen and pause/results screens. **Done. Deferred:
+   `UI/InformationSheet.cs`** (the sidebar HUD) -- it's far more deeply
+   coupled to `characterStats.py` than the other two (dozens of fields
+   across nearly the whole player/run state), enough that snapshotting it
+   cleanly is really the same design question as Player.cs's data model --
+   see `UI/README.md`'s "Explicitly deferred" section. Also confirmed
+   `hpBar.py`/`levelBar.py`/`dashBar.py` as dead code (grepped, unreferenced
+   anywhere) and skipped them rather than porting unused files. This pass
+   introduced `LevelUpStatSnapshot`/`RunResultsSnapshot` (replacing direct
+   `characterStats.py` reads, same pattern as `EnemyUpdateContext`) and a
+   `MenuAction` enum (replacing direct `vH.state = ...` assignment) -- see
+   `UI/README.md`'s "Cleanup vs. the Python original" section.
 6. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
@@ -245,6 +256,25 @@ Dependency order roughly follows the Python import graph:
   `new EnemyCatalog()` still gives an empty, unregistered catalog -- useful
   for tests that want an isolated roster instead of the full ~20-definition
   default one.
+- **`LevelUpStatSnapshot`/`RunResultsSnapshot` replace direct
+  `characterStats.py` reads** in `LevelingHandler`/`Menus`. Both screens
+  read run-state fields (`collectiveStats`, `upgradeCollection`,
+  `healthPoints`, `currentLevel`, ...) that only exist once `characterStats.py`
+  is ported (deferred alongside `Player.cs`) -- these snapshot types are the
+  explicit seam, same idea as `Entities/EnemyUpdateContext`.
+- **`MenuAction` enum replaces `vH.state = ...` assignment.**
+  `menus.py`'s `handle_pause`/`handle_results` directly mutated the global
+  game state and called `game.resetAllStats()` themselves. `Menus.
+  HandlePause`/`HandleResults` return a `MenuAction` (`None`/`Resume`/
+  `Restart`/`ReturnToTitle`) instead, leaving the actual transition to
+  whatever ends up owning the main-loop state machine. Matches
+  `LevelingHandler.PlayerClicked`'s existing return-a-result contract.
+- **Mouse state joined `Core/InputState.cs`** (`MousePosition`/`MouseDown`/
+  `MousePressed`, alongside the keyboard fields already there) -- but
+  `Menus`/`LevelingHandler` never read it directly. Every draw/input method
+  takes mouse position/state as explicit parameters instead, matching
+  `UiTheme.DrawButton`'s existing shape; only the eventual game-loop entry
+  point touches `InputState` at all.
 - **Test parallelism**: xUnit runs different test *classes* in parallel by
   default (Python's unittest runs everything sequentially, so this never came
   up there). Any test class touching `GameProfile.Profile`/`SavePath`
