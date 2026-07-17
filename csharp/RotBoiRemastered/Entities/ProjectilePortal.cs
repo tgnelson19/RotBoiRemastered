@@ -89,7 +89,8 @@ public sealed class ProjectilePortal
     public bool Active => !RemFlag && DisabledRemaining <= 0;
     public bool BlocksShots => Active && !PhaseDisabled;
 
-    private void Place()
+    /// <summary>Public (Python's `_place` was underscore-private in name only -- Beaudis's survival phase calls it directly to reposition a portal it's driving manually).</summary>
+    public void Place()
     {
         float centerX = OrbitCenter.X, centerY = OrbitCenter.Y;
         float offsetX, offsetY;
@@ -203,8 +204,8 @@ public sealed class ProjectilePortal
         FireCooldown += FireInterval;
     }
 
-    /// <summary>Advance queued follow-up waves without coupling them to portal movement.</summary>
-    private void UpdateBursts(List<EnemyProjectile> projectileSink, float dt)
+    /// <summary>Advance queued follow-up waves without coupling them to portal movement. Public in Python too -- Beaudis's survival phase calls it directly instead of the portal's own Update.</summary>
+    public void UpdateBursts(List<EnemyProjectile> projectileSink, float dt)
     {
         if (!Active)
             return;

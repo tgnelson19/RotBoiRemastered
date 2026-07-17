@@ -231,6 +231,10 @@ public sealed class RunState
     public bool BeaudisDefeated { get; set; }
     public bool DissonanceEncounterStarted { get; set; }
     public bool GameCompleted { get; set; }
+
+    /// <summary>Hidden debug hotkey state (character.py's `bossDebugRequested`/`bossDebugInvincible`), back per Entities/README.md's promise once a boss existed. `BossDebugRequested`'s spawn-branch is unwired for now -- Python's own debug shortcut always summons the *final* boss (Dissonance), not Beaudis, and Dissonance isn't ported yet.</summary>
+    public bool BossDebugRequested { get; set; }
+    public bool BossDebugInvincible { get; set; }
     public HashSet<string> GuaranteedMiniBossesSpawned { get; private set; } = new();
     public bool EnemySpawningEnabled { get; set; } = true;
 
@@ -325,6 +329,8 @@ public sealed class RunState
         BeaudisDefeated = false;
         DissonanceEncounterStarted = false;
         GameCompleted = false;
+        BossDebugRequested = false;
+        BossDebugInvincible = false;
         RunTimeSeconds = 0.0;
         RunOutcome = "DEFEATED";
         GuaranteedMiniBossesSpawned = new HashSet<string>();

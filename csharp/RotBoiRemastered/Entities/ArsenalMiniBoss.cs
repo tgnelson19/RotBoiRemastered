@@ -20,8 +20,6 @@ public sealed class ArsenalMiniBoss : Enemy
     public IReadOnlyList<string> PhaseOrder { get; }
     public int Phase { get; private set; }
     public bool Invulnerable { get; private set; }
-    public bool TransitionCleanupRequested { get; set; }
-    public string TransitionCleanupOwner { get; }
 
     private float _transitionRemaining;
 

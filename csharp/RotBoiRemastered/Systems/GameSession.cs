@@ -194,14 +194,33 @@ public sealed class GameSession
 
     // ----- Enemies -----
 
-    /// <summary>Ported from character.py's handlingEnemyCreation(). The boss-spawn branch is deferred entirely.</summary>
+    /// <summary>
+    /// Ported from character.py's handlingEnemyCreation(). The natural
+    /// Beaudis trigger now really spawns one. Every other trigger reason
+    /// (a natural Dissonance request, or the hidden debug-summon hotkey)
+    /// resolves to gamePaths.py's *final*-boss content key in Python
+    /// (Dissonance on the default "sound" path, never Beaudis) -- not
+    /// ported yet, so those stay a documented no-op. `dissonanceEncounterStarted`/
+    /// `BossDebugRequested` are deliberately left unconsumed in that case so the
+    /// trigger keeps re-evaluating every frame instead of silently disabling
+    /// itself forever.
+    /// </summary>
     public void HandleEnemyCreation(Random? rng = null)
     {
         rng ??= Random.Shared;
         bool naturalBeaudisRequested = State.CurrentLevel >= Progression.MidBossLevel && !State.BeaudisEncounterStarted && State.ActiveBoss is null;
         bool naturalDissonanceRequested = State.CurrentLevel >= Progression.FinalBossLevel && State.BeaudisDefeated && !State.DissonanceEncounterStarted && State.ActiveBoss is null;
-        if (naturalBeaudisRequested || naturalDissonanceRequested)
-            return; // Boss spawning (bossTypes.py's BOSS_CATALOG) is deferred.
+        if (State.BossDebugRequested || naturalBeaudisRequested || naturalDissonanceRequested)
+        {
+            bool naturalEncounter = !State.BossDebugRequested;
+            if (naturalBeaudisRequested && naturalEncounter)
+            {
+                State.BeaudisEncounterStarted = true;
+                SpawnBoss((x, y, r) => new Beaudis(x, y, AwarenessRange, r), rng);
+                State.BossDebugRequested = false;
+            }
+            return;
+        }
 
         if (!State.EnemySpawningEnabled)
             return;
@@ -270,6 +289,39 @@ public sealed class GameSession
     }
 
     /// <summary>
+    /// Ported from character.py's shared boss-spawn prep (the arena-clearing
+    /// block in handlingEnemyCreation) + BossCatalog.spawn's arena-center
+    /// placement search. `factory` receives the found spawn position instead
+    /// of constructing at a placeholder position and being repositioned
+    /// after -- Enemy.WorldX/Y only have a protected setter, and every boss
+    /// constructor already accepts worldX/Y directly, so there's no need for
+    /// a reposition hook.
+    /// </summary>
+    private void SpawnBoss(Func<float, float, Random, Enemy> factory, Random rng)
+    {
+        State.EnemyHolster.Clear();
+        State.EnemyProjectileHolster.Clear();
+        State.DamageTextList.Clear();
+        State.ExperienceList.Clear();
+        State.LootCrateList.Clear();
+        State.NearbyCrate = null;
+
+        float footprint = Simulation.TileSize * 1.9f;
+        float centerX = Battleground.Width * Simulation.TileSize / 2f;
+        float centerY = Battleground.Height * Simulation.TileSize / 2f;
+        var requested = new Rectangle((int)(centerX - footprint / 2f), (int)(centerY - footprint / 2f), (int)footprint, (int)footprint);
+        var spawnRect = Battleground.FindNearestOpenRect(requested);
+
+        var boss = factory(spawnRect.X, spawnRect.Y, rng);
+        State.EnemyHolster.Add(boss);
+        State.ActiveBoss = boss;
+        State.BossDebugInvincible = false;
+        State.CurrEnemyCount = 1;
+        State.EnemySpawningEnabled = false;
+        State.GracePeriod = Simulation.FrameRate * 2;
+    }
+
+    /// <summary>
     /// Ported from character.py's handlingEnemyUpdatesAndDrawing(). Split
     /// into Update/Draw (Python interleaved per-enemy update-then-draw
     /// purely to share one loop; drawing order among enemies was never
@@ -326,10 +378,13 @@ public sealed class GameSession
         {
             enemy.Update(context);
             // gamePaths.py's tune_new_projectiles (per-path projectile tuning) is deferred.
-            if (enemy is ArsenalMiniBoss { TransitionCleanupRequested: true } miniBoss)
+            if (enemy.TransitionCleanupRequested)
             {
-                State.EnemyProjectileHolster.RemoveAll(p => p.Owner == miniBoss.TransitionCleanupOwner);
-                miniBoss.TransitionCleanupRequested = false;
+                if (enemy.TransitionCleanupOwner is not null)
+                    State.EnemyProjectileHolster.RemoveAll(p => p.Owner == enemy.TransitionCleanupOwner);
+                else
+                    State.EnemyProjectileHolster.Clear();
+                enemy.TransitionCleanupRequested = false;
             }
             if (enemy.SpawnedEnemies.Count > 0)
                 spawnedGroups.Add((enemy, new List<Enemy>(enemy.SpawnedEnemies), enemy.AtomicSpawnGroup));
@@ -440,10 +495,13 @@ public sealed class GameSession
                 if (bullet.Pierce <= 0)
                     bullet.RemFlag = true;
                 var result = enemy.TakeDamage(bullet.Damage, collided.Part);
-                if (enemy is ArsenalMiniBoss { TransitionCleanupRequested: true } miniBoss)
+                if (enemy.TransitionCleanupRequested)
                 {
-                    State.EnemyProjectileHolster.RemoveAll(p => p.Owner == miniBoss.TransitionCleanupOwner);
-                    miniBoss.TransitionCleanupRequested = false;
+                    if (enemy.TransitionCleanupOwner is not null)
+                        State.EnemyProjectileHolster.RemoveAll(p => p.Owner == enemy.TransitionCleanupOwner);
+                    else
+                        State.EnemyProjectileHolster.Clear();
+                    enemy.TransitionCleanupRequested = false;
                 }
                 Color currColor = bullet.IsCritical ? UiTheme.Purple : UiTheme.Gold;
                 object displayValue = result.Applied ? Math.Round(bullet.Damage) : "BLOCK";
@@ -493,7 +551,13 @@ public sealed class GameSession
 
             if (ReferenceEquals(enemy, State.ActiveBoss))
             {
-                // Boss-defeat handling (mid-boss/final-boss progression) is deferred with bossTypes.py.
+                // Ported from character.py's per-content-key outcome branch, simplified to a
+                // direct type check since gamePaths.py's path-based boss-content-key lookup
+                // (which boss variant counts as "the mid boss" on the active path) isn't
+                // ported. Dissonance/"final boss defeated -> GameCompleted" is still deferred
+                // alongside Dissonance itself (see Entities/README.md).
+                if (enemy is Beaudis)
+                    State.BeaudisDefeated = true;
                 State.ActiveBoss = null;
                 State.EnemySpawningEnabled = !State.GameCompleted;
                 ScreenShake = Vector2.Zero;
@@ -590,6 +654,45 @@ public sealed class GameSession
     /// <summary>Dev/testing hotkey. Ported from character.py's debugForceLevelUp().</summary>
     public void DebugForceLevelUp(Random? rng = null) =>
         State.ExperienceList.Add(new ExperienceBubble(Player.WorldX, Player.WorldY, State.ExpNeededForNextLevel, 1, rng));
+
+    private static readonly Keys[] BossDebugPhaseKeys =
+        { Keys.D1, Keys.D2, Keys.D3, Keys.D4, Keys.D5, Keys.D6, Keys.D7, Keys.D8, Keys.D9 };
+
+    /// <summary>
+    /// Dev/testing hotkeys. Ported from character.py's handlingBossDebugControls().
+    /// `boss.debug_set_phase`/`hasattr(boss, "runeCannonCooldown")` were duck-typed
+    /// across every boss type in Python -- pattern-matched against `Beaudis`
+    /// here since `ActiveBoss` is untyped and it's the only boss ported so
+    /// far, so the "C" rune-cannon hotkey (Dissonance-only in Python) is a
+    /// no-op until that boss exists.
+    /// </summary>
+    public void HandleBossDebugControls(IReadOnlySet<Keys> keysPressed)
+    {
+        if (State.ActiveBoss is not Beaudis boss)
+            return;
+        for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
+        {
+            if (keysPressed.Contains(BossDebugPhaseKeys[index]))
+            {
+                boss.DebugSetPhase(index + 1);
+                State.EnemyProjectileHolster.Clear();
+                return;
+            }
+        }
+        if (keysPressed.Contains(Keys.R))
+        {
+            boss.DebugSetPhase(boss.Phase);
+            State.EnemyProjectileHolster.Clear();
+        }
+        if (keysPressed.Contains(Keys.L))
+            boss.DebugPhaseLocked = !boss.DebugPhaseLocked;
+        if (keysPressed.Contains(Keys.F) && !boss.IsStaggered)
+        {
+            boss.Stagger = boss.MaxStagger - boss.MinimumStaggerPerHit;
+            boss.TakeDamage(1);
+        }
+        // Keys.C (rune-cannon cooldown reset) is Dissonance-only; deferred alongside it.
+    }
 
     /// <summary>Ported from character.py's updateLootCrates(). Viewport clipping against the (not yet built) HUD sidebar is deferred.</summary>
     public void DrawLootCrates(SpriteBatch spriteBatch)
@@ -709,13 +812,18 @@ public sealed class GameSession
     /// Ported from character.py's hurtPlayer(). Returns true if the hit was
     /// fatal (caller should transition to the Results state) -- doesn't
     /// mutate game state itself, matching MenuAction's return-a-result
-    /// contract. `bossDebugInvincible` is dropped (see RunState.cs).
+    /// contract.
     /// </summary>
     public bool HurtPlayer()
     {
         double timerStep = Simulation.GetTimerStep();
         State.PlayerInvulnerabilityTimer = Math.Max(0, State.PlayerInvulnerabilityTimer - timerStep);
         State.GracePeriod = Math.Max(0, State.GracePeriod - timerStep);
+        if (State.BossDebugInvincible)
+        {
+            State.HealthPoints = State.MaxHealthPoints;
+            return false;
+        }
         if (State.PlayerInvulnerabilityTimer > 0 || State.GracePeriod > 0)
             return false;
 

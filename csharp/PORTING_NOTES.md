@@ -130,7 +130,25 @@ Dependency order roughly follows the Python import graph:
    deferred alongside it (the bounty-arrow/boss-health-bar/tutorial-hint/
    low-health-warning/run-complete-banner HUD overlays character.py layers
    on top of the sheet, and the title screen).
-8. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+8. **`Entities/Beaudis.cs`** -- the first of `bossTypes.py`'s fifteen boss
+   classes (~4750 lines total). Scoped to just the level-10 midpoint boss
+   this pass, deliberately: `Dissonance` alone is ~1780 lines of bespoke
+   nine-phase/three-act attack patterns and cinematic rendering, and the
+   `PathChaseBoss` family (eight more subclasses for non-"sound" content
+   paths, `Malady`'s ~680-line procedural puppet body among them) is its
+   own separate scope again -- see `Entities/README.md`'s "Explicitly
+   deferred" section for the full breakdown and why. **Beaudis: done** --
+   five-phase state machine, stagger/phase-protection gating, and the
+   finale survival phase's four orbiting `ProjectilePortal`s. `GameSession`
+   now really spawns it on the natural level-10 trigger (previously a
+   no-op), sets `BeaudisDefeated` on death, and gained
+   `HandleBossDebugControls` (phase-jump/relock/lock/force-stagger
+   hotkeys). `Entities/Enemy.cs`'s `TransitionCleanupRequested`/
+   `TransitionCleanupOwner` (previously `ArsenalMiniBoss`-only) moved to
+   the base class so that cleanup works polymorphically for any boss/
+   miniboss. `RunState.BossDebugRequested`/`BossDebugInvincible` are back,
+   as promised when they were dropped in step 6.
+9. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 

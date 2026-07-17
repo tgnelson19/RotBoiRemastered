@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
@@ -246,6 +247,104 @@ public class GameSessionTests
         session.State.EnemyHolster.Add(dead);
 
         Assert.Null(session.SelectBountyTarget());
+    }
+
+    [Fact]
+    public void HandleEnemyCreation_NaturalBeaudisTrigger_SpawnsBossAndClearsArena()
+    {
+        var session = MakeSession(level: 10); // Progression.MidBossLevel
+        session.State.EnemyHolster.Add(new Enemy(0, 0, speed: 0, size: 10, Color.Red, damage: 1, hp: 10, expValue: 1, difficulty: 1, awarenessRange: 100f));
+        session.State.LootCrateList.Add(new LootCrate(0, 0, Array.Empty<ItemDrop>()));
+
+        session.HandleEnemyCreation(new Random(1));
+
+        Assert.True(session.State.BeaudisEncounterStarted);
+        Assert.IsType<Beaudis>(session.State.ActiveBoss);
+        Assert.Same(session.State.ActiveBoss, session.State.EnemyHolster.Single());
+        Assert.False(session.State.EnemySpawningEnabled);
+        Assert.Empty(session.State.LootCrateList);
+    }
+
+    [Fact]
+    public void HandleEnemyCreation_BeaudisAlreadyActive_DoesNotSpawnAnother()
+    {
+        var session = MakeSession(level: 10);
+        session.HandleEnemyCreation(new Random(1));
+        int countAfterFirst = session.State.EnemyHolster.Count;
+
+        session.HandleEnemyCreation(new Random(1));
+
+        Assert.Equal(countAfterFirst, session.State.EnemyHolster.Count);
+    }
+
+    [Fact]
+    public void HandleDamagingEnemies_KillingBeaudis_MarksDefeatedAndClearsActiveBoss()
+    {
+        var session = MakeSession(level: 10);
+        session.HandleEnemyCreation(new Random(1));
+        var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
+        // Beaudis only ever reaches 0 HP via its own choreographed survival/death
+        // countdown (a huge single hit instead pins it to the next survival gate --
+        // see BeaudisTests.TakeDamage_CrossingSurvivalThreshold_EntersSurvivalPhaseFive
+        // and Update_DeathCountdownElapsed_SetsHpToZero for that sequence). This test
+        // is purely about GameSession's defeat-handling glue once IsDead() is true.
+        boss.Hp = 0;
+
+        session.HandleDamagingEnemies(new Random(1));
+
+        Assert.True(session.State.BeaudisDefeated);
+        Assert.Null(session.State.ActiveBoss);
+        Assert.True(session.State.EnemySpawningEnabled);
+    }
+
+    [Fact]
+    public void HurtPlayer_BossDebugInvincible_HealsToMaxAndTakesNoDamage()
+    {
+        var session = MakeSession();
+        session.State.GracePeriod = 0;
+        session.State.PlayerInvulnerabilityTimer = 0;
+        session.State.BossDebugInvincible = true;
+        session.State.HealthPoints = 1;
+        var enemy = new Enemy(session.Player.WorldX, session.Player.WorldY, speed: 0, size: 40,
+            Color.Red, damage: 100, hp: 100, expValue: 5, difficulty: 1, awarenessRange: 300f);
+        session.State.EnemyHolster.Add(enemy);
+
+        bool fatal = session.HurtPlayer();
+
+        Assert.False(fatal);
+        Assert.Equal(session.State.MaxHealthPoints, session.State.HealthPoints);
+    }
+
+    [Fact]
+    public void HandleBossDebugControls_NumberKey_JumpsBossToThatPhase()
+    {
+        var session = MakeSession(level: 10);
+        session.HandleEnemyCreation(new Random(1));
+        var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
+
+        session.HandleBossDebugControls(new HashSet<Keys> { Keys.D3 });
+
+        Assert.Equal(3, boss.Phase);
+    }
+
+    [Fact]
+    public void HandleBossDebugControls_FKey_ForcesBossToTheBrinkOfStagger()
+    {
+        var session = MakeSession(level: 10);
+        session.HandleEnemyCreation(new Random(1));
+        var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
+
+        session.HandleBossDebugControls(new HashSet<Keys> { Keys.F });
+
+        Assert.True(boss.IsStaggered);
+    }
+
+    [Fact]
+    public void HandleBossDebugControls_NoActiveBoss_DoesNothing()
+    {
+        var session = MakeSession();
+        session.HandleBossDebugControls(new HashSet<Keys> { Keys.D1 }); // should not throw
+        Assert.Null(session.State.ActiveBoss);
     }
 
     [Fact]

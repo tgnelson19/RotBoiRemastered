@@ -44,4 +44,16 @@ port first since they were deliberately kept pygame-free in the Python original.
   `ToggleHudMode` -- see UI/README.md) and
   `SelectBountyTarget()`/`BountyInfo` (ported from
   character.py's `selectBountyTarget()`, feeds InformationSheet's
-  objective panel).
+  objective panel). Now that `Entities/Beaudis.cs` exists (see
+  Entities/README.md), the natural level-10 boss trigger really spawns one
+  (`SpawnBoss`, shared arena-clearing + placement-search prep mirroring
+  `BossCatalog.spawn`), boss defeat sets `RunState.BeaudisDefeated`, and
+  `HandleBossDebugControls` ports the boss-practice hotkeys
+  (phase-jump/relock/lock/force-stagger). The natural Dissonance trigger
+  and the "C" rune-cannon hotkey stay documented no-ops until Dissonance
+  exists (see Entities/README.md's "Explicitly deferred" section).
+  `RunState.BossDebugRequested`/`BossDebugInvincible` are back (dropped
+  since the Player.cs/GameSession pass, promised to return once a boss
+  existed) -- `BossDebugInvincible` is wired into `HurtPlayer`;
+  `BossDebugRequested`'s spawn branch stays unwired since Python's own
+  debug hotkey always summons the *final* boss, never Beaudis.

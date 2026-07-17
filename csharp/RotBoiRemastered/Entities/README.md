@@ -91,12 +91,57 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   which together with this file cover the rest of `character.py` +
   `characterStats.py`'s non-boss gameplay loop.
 
+- **`Beaudis.cs`** <- `bossTypes.py`'s `Beaudis` (the run's level-10
+  midpoint boss; one of fifteen boss classes in that ~4750-line file --
+  see "Explicitly deferred" below for the rest). **Done**, including its
+  five-phase state machine (four damage phases + a finale survival phase
+  with four orbiting `ProjectilePortal`s), stagger/phase-protection gating
+  on `TakeDamage`, and the death fade. `GameSession.cs` now really spawns
+  it on the natural level-10 trigger (previously a documented no-op), sets
+  `BeaudisDefeated` on death, and has boss debug hotkeys
+  (`HandleBossDebugControls`, pattern-matched against `Beaudis` since
+  `RunState.ActiveBoss` is untyped and it's the only boss ported so far).
+  `Entities/Enemy.cs`'s `TransitionCleanupRequested`/`TransitionCleanupOwner`
+  (previously declared directly on `ArsenalMiniBoss`, its only prior
+  setter) were promoted to the base class so `GameSession`'s cleanup logic
+  works polymorphically for any boss/miniboss instead of one type-check per
+  concrete type -- a null `TransitionCleanupOwner` now means "clear every
+  live enemy projectile" (Beaudis's isolated encounter), not just "no
+  owner set." See `Beaudis.cs`'s doc comment for the specific dead-in-this-
+  port fields (`damagePhaseHistory`, `perfectStagger`,
+  `staggerRecoveryRemaining`, `runeSilenceRemaining`, ...) shared in name
+  only with Dissonance, dropped until that boss and the still-deferred
+  `drawBossHealthBar` HUD function actually need a shared contract for them.
+
 ## Explicitly deferred (not in Entities/ yet)
 
-- **Boss types** <- `bossTypes.py` (~4750 lines). Its own future module --
-  every boss references `ProjectilePortal`/`EnemyProjectile`/`Enemy`, all of
-  which are now ported and ready for it to build on. Until it exists, every
-  boss-specific branch in `Player.cs`/`GameSession.cs` (movement
-  obstacles/arena constraints, arena-radius projectile clipping, boss
-  spawning, boss debug hotkeys, portal-hit bullet routing) is a documented
-  no-op -- see those files' doc comments for the specifics.
+- **The rest of `bossTypes.py`'s ~4750 lines** -- fourteen more boss
+  classes beyond `Beaudis.cs`. Scoped down deliberately this pass rather
+  than attempted in one shot:
+  - **`Dissonance`** (~1780 lines on its own) -- the run's level-20 final
+    boss. Nine phases across three "acts," each with bespoke attack
+    patterns (rune cannon, portal relay, mirror-step teleport, rotating
+    diamond field, crossfire carousel, event horizon, last-word callback
+    cycling...), cinematic phase transitions, arena-boundary/mask
+    rendering (a star-shaped exterior blackout), a death spectacle, and
+    polarity-based player-bullet routing through its portals. By far the
+    most complex single class in the codebase -- its own dedicated pass.
+  - **`PathChaseBoss`** and its eight subclasses/pairs (`TouchPortal`/
+    `PlagueTouchBoss`/`Bair`/`Sting`, `Ishe`/`Chronos`,
+    `SinChemesthesisBoss`/`Kage`/`Rot`, `PhantasiaBoss`/`Hypno`/`Malady`)
+    -- alternate mid/final bosses for non-"sound" content paths (see
+    `gamePaths.py`'s `boss_key()`), each with its own arena-constraint
+    shape and terrain/persistent-hazard mechanics. `Malady` alone
+    (~680 lines) has a fully custom procedural "puppet" body with jointed
+    limb rendering.
+  - **`BossDefinition`/`BossCatalog`** -- straightforward once every boss
+    behind them exists (same `register`/`spawn` shape as `EnemyCatalog`),
+    but genuinely blocked on the above, not worth stubbing early.
+
+  Until these exist, every boss-specific branch in
+  `Player.cs`/`GameSession.cs` for anything beyond Beaudis (boss movement
+  obstacles/arena constraints, arena-radius projectile clipping, the
+  natural Dissonance spawn trigger, the "C" rune-cannon debug hotkey,
+  portal-hit bullet routing, `gamePaths.py`'s per-path boss content-key
+  selection) is a documented no-op -- see those files' doc comments for
+  the specifics.

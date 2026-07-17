@@ -112,6 +112,20 @@ public class Enemy
     public float? AttackCooldownMax { get; set; }
     public float? AttackCooldown { get; set; }
 
+    /// <summary>
+    /// Set by a boss/miniboss to request that GameSession purge live enemy
+    /// projectiles on its next Update pass (a phase transition invalidating
+    /// its own projectile field). Promoted to the base class from
+    /// ArsenalMiniBoss (its only prior setter) now that Beaudis needs it
+    /// too. When <see cref="TransitionCleanupOwner"/> is null the request
+    /// means "clear every live enemy projectile" (Beaudis's isolated
+    /// encounter has nothing else to preserve); when set, only that
+    /// owner's projectiles are removed (ArsenalMiniBoss's per-instance tag,
+    /// so multiple simultaneous minibosses don't clear each other's shots).
+    /// </summary>
+    public bool TransitionCleanupRequested { get; set; }
+    public string? TransitionCleanupOwner { get; set; }
+
     private Vector2 _lastVisualWorld;
     private readonly Random _rng;
 
