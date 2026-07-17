@@ -69,7 +69,18 @@ Dependency order roughly follows the Python import graph:
    style strings all became proper instance classes, lazily-computed fields,
    a `TileType` enum, and a `BuildingStyle` enum respectively -- see
    `World/Battleground.cs`'s and `World/Camera.cs`'s doc comments.
-4. **`Entities/`** -- player, bullets, enemies, loot crates.
+4. **`Entities/`** -- bullets, enemy projectiles/portals, the `Enemy` base
+   class, XP bubbles, loot crates, damage text (plus `UI/ItemCards.cs`, its
+   natural companion). **Done for those; deferred: `enemyTypes.py`'s ~1600-line
+   subclass catalog, `Player.cs` (`character.py` + `characterStats.py`, the
+   ~1550-line combined player-entity/run-state/game-loop object), and
+   `bossTypes.py` (~4750 lines)** -- see `Entities/README.md`'s "Explicitly
+   deferred" section for the reasoning on each. This pass also split every
+   entity's combined Python update-and-draw method into separate
+   Update/Draw calls (Update mutates state, Draw only reads it), so physics/
+   collision/expiry logic is unit testable without a GraphicsDevice; added
+   `Core/Simulation.cs` (frame-scale/timer-step clock) and grew
+   `Core/Primitives2D.cs` to cover circles/ellipses/arcs/filled polygons.
 5. **`UI/InformationSheet.cs`, `UI/Menus.cs`, `UI/LevelingHandler.cs`** -- the
    HUD and menu screens, once the systems and entities they display are in place.
 6. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
@@ -149,6 +160,44 @@ Dependency order roughly follows the Python import graph:
   on tile coordinates, not actual RNG calls), so `CreateForPath("sound")`
   just regenerates it -- identical result, and cheap enough (sub-millisecond
   for a ~100x100 grid) that the caching complexity isn't worth carrying over.
+- **Entity Update/Draw split**: every Python entity in the original combined
+  physics/state mutation and rendering into one method (`updateAndDrawBullet`,
+  `drawAndUpdateDamageText`, `updateBubble`, `updateAndDraw`, `drawEnemy`
+  mutating `visualAttackTimer`, etc.). Every ported entity in `Entities/`
+  splits this into `Update` (mutates state, no `SpriteBatch`) and `Draw`
+  (reads state, never mutates) instead. This is the single cleanup pattern
+  applied most broadly this pass -- see `Entities/README.md`.
+- **No mesh/vertex renderer for filled shapes**: `Primitives2D`'s new
+  `FillCircle`/`FillEllipse`/`FillPolygon` all rasterize via horizontal
+  scanline `FillRect` strips (or, for polygons, an even-odd scanline fill).
+  This is slower than a real mesh would be and has no anti-aliasing, but
+  needed no new rendering infrastructure beyond the existing
+  stretched-1x1-pixel technique -- fine for this game's entity counts.
+  `Arc`/`CircleOutline`/`EllipseOutline`/`Polyline` sample points and
+  connect them with `Line` calls the same way.
+- **Camera/player position stay explicit parameters, not globals**: every
+  entity's `Draw` takes `Camera camera, Vector2 playerWorldPosition, Vector2
+  screenShake` explicitly (`bG.world_to_screen` read `playerPosX`/
+  `playerPosY`/`screenShakeX`/`screenShakeY` as module globals in Python).
+  Continues the same cleanup `World/Camera.cs` established -- there's still
+  no "current player" singleton anywhere in the C# port; whatever owns that
+  once `Player.cs` exists is what these parameters will come from.
+- **`EnemyProjectile.Trail` stores world-space points**, not screen-space
+  pixels like `enemyProjectile.py`'s `self.trail`. Python recomputed and
+  appended a screen position once per frame immediately before drawing it,
+  which is only correct because update-then-draw always happened
+  back-to-back in the same frame. World-space points converted through the
+  camera at Draw time have no such ordering dependency and stay correct
+  even if the camera rotates between when a point was recorded and drawn.
+- **Several entities had constructor/method parameters Python accepted but
+  never read** (`DamageText.drawAndUpdateDamageText(pDX, pDY)`,
+  `ExperienceBubble`'s constructor `frameRate` arg and `updateBubble`'s
+  `pDX, pDY`, `Bullet`'s unused... none in Bullet, but see each file's doc
+  comment) -- dropped rather than ported faithfully, consistent with
+  `Battleground.FindNearestOpenRect`'s dropped `size` param from the World/
+  pass. `ExperienceBubble`'s dead `frameRate` constructor slot was repurposed
+  for an injectable `Random? rng`, matching this port's usual testability
+  convention instead of adding a new unused parameter.
 - **Test parallelism**: xUnit runs different test *classes* in parallel by
   default (Python's unittest runs everything sequentially, so this never came
   up there). Any test class touching `GameProfile.Profile`/`SavePath`
