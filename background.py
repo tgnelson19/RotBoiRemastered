@@ -509,7 +509,11 @@ def moveAndDisplayBackground(surface):
             floor(playerPosY * render_scale - source_height / 2),
             source_width, source_height,
         )
-        staging = pg.Surface(source_rect.size)
+        staging_key = ("staging", source_rect.width, source_rect.height)
+        staging = _camera_render_surfaces.get(staging_key)
+        if staging is None:
+            staging = pg.Surface(source_rect.size)
+            _camera_render_surfaces[staging_key] = staging
         staging.fill(pg.Color(15, 18, 25))
         clipped_source = source_rect.clip(scaled_background.get_rect())
         if clipped_source.width and clipped_source.height:
@@ -933,6 +937,36 @@ def generate_phantasia_battleground(size=101):
                 grid[y][x] = 2
     return _rect_grid(grid)
 
+
+def generate_soul_battleground(width=45, height=33):
+    """A compact permanent sanctuary with a central court and station alcoves."""
+    width, height = max(35, width | 1), max(27, height | 1)
+    cx, cy = width // 2, height // 2
+    grid = [[0 for _ in range(width)] for _ in range(height)]
+    for y in range(height):
+        for x in range(width):
+            edge = min(x, y, width - 1 - x, height - 1 - y)
+            if edge < 1:
+                grid[y][x] = 5
+            elif edge < 2:
+                grid[y][x] = 1
+            elif abs(x - cx) <= 2 or abs(y - cy) <= 2:
+                grid[y][x] = 2
+    for y in range(cy - 5, cy + 6):
+        for x in range(cx - 5, cx + 6):
+            if hypot(x - cx, y - cy) <= 5:
+                grid[y][x] = 3
+    # Short walls separate the six alcoves while leaving generous entrances.
+    for x in range(5, width - 5):
+        if abs(x - cx) > 4:
+            grid[6][x] = 4
+            grid[height - 7][x] = 4
+    for y in range(7, height - 7):
+        if abs(y - cy) > 4:
+            grid[y][7] = 4
+            grid[y][width - 8] = 4
+    return _rect_grid(grid)
+
 basicRoomFile = 'data/backgrounds/basicRoom.csv'
 basicRoomRects = generate_battleground()
 currRoomRects = basicRoomRects
@@ -975,6 +1009,24 @@ def configure_battleground(path_key):
     BIOME_PALETTES = palettes[path_key]
     WALL_HEIGHT = {"touch": 22, "phantasia": 20}.get(path_key, 14)
     currRoomRects = generators[path_key]()
+    currNumOfXTiles = len(currRoomRects[0])
+    currNumOfYTiles = len(currRoomRects)
+    spawnX = currNumOfXTiles // 2 * vH.tileSizeGlobal - vH.tileSizeGlobal / 2
+    spawnY = currNumOfYTiles // 2 * vH.tileSizeGlobal - vH.tileSizeGlobal / 2
+    playerPosX, playerPosY = spawnX, spawnY
+    _open_tile_cache.clear()
+    _camera_background_cache.clear()
+    _raised_scenery_cache.clear()
+    repasteableRoomSurface = drawRepasteableBackground(currRoomRects)
+
+
+def configure_soul_hub():
+    """Swap in the small non-combat Soul sanctuary."""
+    global BIOME_PALETTES, WALL_HEIGHT, currRoomRects, repasteableRoomSurface
+    global spawnX, spawnY, playerPosX, playerPosY, currNumOfXTiles, currNumOfYTiles
+    BIOME_PALETTES = PHANTASIA_PALETTES
+    WALL_HEIGHT = 18
+    currRoomRects = generate_soul_battleground()
     currNumOfXTiles = len(currRoomRects[0])
     currNumOfYTiles = len(currRoomRects)
     spawnX = currNumOfXTiles // 2 * vH.tileSizeGlobal - vH.tileSizeGlobal / 2

@@ -56,8 +56,13 @@ def draw_pause():
     left = (vH.sW - width) / 2
     button_w, button_h = width * .34, 58 * scale
     _button("resume", (left, vH.sH * .25, button_w, button_h), "RESUME", ui.GREEN, "ESC")
-    _button("restart", (left, vH.sH * .25 + 72 * scale, button_w, button_h), "RESTART RUN", ui.GOLD, "R")
-    _button("title", (left, vH.sH * .25 + 144 * scale, button_w, button_h), "RETURN TO TITLE", ui.RED, "Q")
+    _button("restart", (left, vH.sH * .25 + 72 * scale, button_w, button_h), "ABANDON + RESTART", ui.GOLD, "R")
+    _button("title", (left, vH.sH * .25 + 144 * scale, button_w, button_h), "ABANDON TO TITLE", ui.RED, "Q")
+    if cS.beaudisDefeated and not cS.gameCompleted:
+        _button("extract", (left, vH.sH * .25 + 216 * scale, button_w, button_h),
+                "EXTRACT TO SOUL", ui.PURPLE, "F")
+    ui.draw_text(vH.screen, "ABANDONING OR DYING DESTROYS CARRIED ITEMS",
+                 8 * scale, ui.RED, (left, vH.sH * .25 + 286 * scale))
 
     settings = pg.Rect(left + width * .40, vH.sH * .25, width * .60, vH.sH * .48)
     ui.draw_panel(vH.screen, settings, ui.PANEL, ui.BLUE, shadow=6)
@@ -140,6 +145,15 @@ def handle_pause():
         vH.state = vH.States.TITLESCREEN
         vH.hasBeenReset = False
         return
+    if cS.beaudisDefeated and not cS.gameCompleted \
+            and (pg.K_f in vH.keyPressed or _activated("extract")):
+        import metaProgression
+        import soulHub
+        metaProgression.extract_equipment(cS.equipment)
+        gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
+        soulHub.enter()
+        vH.state = vH.States.SOUL
+        return
 
     for key, _label in _TABS:
         if _activated(f"tab_{key}"):
@@ -174,7 +188,12 @@ def handle_pause():
 def draw_results():
     completed = cS.runOutcome == "RUN COMPLETE"
     accent = ui.CREAM if completed else ui.RED
-    scale = _backdrop(cS.runOutcome, "The build is saved to your run record.")
+    subtitle = ("The memory settles. Return to the Soul when ready."
+                if cS.practiceMode else
+                "Surviving equipment was extracted to the Soul."
+                if completed else
+                "Carried equipment was lost. Permanent Soul buffs remain.")
+    scale = _backdrop(cS.runOutcome, subtitle)
     width = min(vH.sW * .62, 820 * scale)
     panel = pg.Rect((vH.sW - width) / 2, vH.sH * .25, width, vH.sH * .38)
     ui.draw_panel(vH.screen, panel, ui.PANEL_RAISED, accent, shadow=8)
@@ -196,7 +215,7 @@ def draw_results():
     ui.draw_text(vH.screen, f"RUN SHAPE  //  {shape}", 13 * scale, ui.PURPLE,
                  (panel.centerx, panel.bottom - 50 * scale), "center")
     _button("retry", (panel.x, panel.bottom + 24 * scale, panel.width * .48, 58 * scale),
-            "PLAY AGAIN", ui.GREEN, "ENTER")
+            "RETURN TO SOUL", ui.GREEN, "ENTER")
     _button("results_title", (panel.right - panel.width * .48, panel.bottom + 24 * scale,
                                panel.width * .48, 58 * scale), "TITLE SCREEN", ui.RED, "ESC")
 
@@ -205,8 +224,9 @@ def handle_results():
     import character as game
 
     if pg.K_RETURN in vH.keyPressed or _activated("retry"):
-        game.resetAllStats()
-        vH.state = vH.States.GAMERUN
+        import soulHub
+        soulHub.enter()
+        vH.state = vH.States.SOUL
     elif pg.K_ESCAPE in vH.keyPressed or _activated("results_title"):
         vH.state = vH.States.TITLESCREEN
         vH.hasBeenReset = False

@@ -18,6 +18,8 @@ import upgrades
 import uiTheme as ui
 import gameProfile
 import gamePaths
+import metaProgression
+import statusEffects
 from spatialHash import SpatialHash
 from progression import (FINAL_BOSS_LEVEL, MAX_LEVEL, MID_BOSS_LEVEL,
                          MINIBOSS_GATES, encounter_caps, encounter_pacing)
@@ -33,8 +35,14 @@ def multiply_list(values):
 
 def _combine_stat(stat_name):
     base_value = cS.collectiveStats[stat_name]
-    additive = sum(cS.collectiveAddStats[stat_name])
+    item_add, item_mult = items.equipment_adjustments(cS.equipment)
+    soul_add, soul_mult = metaProgression.stat_adjustments()
+    additive = (sum(cS.collectiveAddStats[stat_name])
+                + sum(item_add.get(stat_name, ()))
+                + sum(soul_add.get(stat_name, ())))
     multiplicative = multiply_list(cS.collectiveMultStats[stat_name])
+    multiplicative *= multiply_list(item_mult.get(stat_name, ()))
+    multiplicative *= multiply_list(soul_mult.get(stat_name, ()))
     return (base_value + additive) * multiplicative
 
 
@@ -59,8 +67,20 @@ textColor = (245,245,220)
 
 MAX_LOOT_CRATES = 40
 CRATE_INTERACT_RADIUS = 24
+_overlay_surfaces = {}
 
-def resetAllStats():
+
+def _reusable_overlay(key, size):
+    cache_key = (key, *size)
+    overlay = _overlay_surfaces.get(cache_key)
+    if overlay is None:
+        overlay = pg.Surface(size, pg.SRCALPHA)
+        _overlay_surfaces[cache_key] = overlay
+    else:
+        overlay.fill((0, 0, 0, 0))
+    return overlay
+
+def resetAllStats(starting_equipment=None):
     
     bG.playerPosX = bG.spawnX
     bG.playerPosY = bG.spawnY
@@ -108,7 +128,7 @@ def resetAllStats():
 
     cS.healthPoints = 1000
     cS.maxHealthPoints = 1000
-    cS.vitality = 25
+    cS.vitality = 10
     cS.healthRecoveryBuffer = 0.0
     cS.defense = 0
     cS.currEnemyCount = 0
@@ -144,7 +164,8 @@ def resetAllStats():
     cS.experienceList = []
     cS.enemyProjectileHolster = []
     cS.lootCrateList = []
-    cS.equipment = {"weapon": None, "armor": None, "ring": None, "accessory_1": None, "accessory_2": None}
+    cS.equipment = (starting_equipment if starting_equipment is not None
+                    else metaProgression.empty_equipment())
     vH.dragInProgress = False
     cS.activeBoss = None
     cS.bossDebugRequested = False
@@ -160,6 +181,8 @@ def resetAllStats():
     cS.lastUpgradeAt = -100.0
     cS.guaranteedMiniBossesSpawned = set()
     cS.enemySpawningEnabled = True
+    cS.practiceBossKey = None
+    cS.practiceMode = False
     cS.autoFire = bool(gameProfile.profile["autofire"])
 
     cS.informationSheet = InformationSheet()
@@ -186,32 +209,33 @@ def resetAllStats():
                                 "Attack Speed" : [1], "Bullet Speed" : [1], "Bullet Range" : [1], "Bullet Damage" : [1], 
                                 "Bullet Size" : [1], "Player Speed" : [1], "Crit Chance": [1], "Crit Damage": [1],
                                 "Aura Size" : [1], "Aura Strength" : [1], "Exp Multiplier": [1]}
+    combarinoPlayerStats()
     
 def combarinoPlayerStats():
     previous_max_health = cS.maxHealthPoints
 
-    cS.projectileCount = (cS.collectiveStats["Bullet Count"] + sum(cS.collectiveAddStats["Bullet Count"])) * (multiply_list(cS.collectiveMultStats["Bullet Count"]))
-    cS.azimuthalProjectileAngle = (cS.collectiveStats["Spread Angle"] + sum(cS.collectiveAddStats["Spread Angle"])) * (multiply_list(cS.collectiveMultStats["Spread Angle"]))
-    cS.playerSpeed = (cS.collectiveStats["Player Speed"] + sum(cS.collectiveAddStats["Player Speed"])) * (multiply_list(cS.collectiveMultStats["Player Speed"]))
-    cS.attackCooldownStat = (cS.collectiveStats["Attack Speed"] + sum(cS.collectiveAddStats["Attack Speed"])) * (multiply_list(cS.collectiveMultStats["Attack Speed"]))
+    cS.projectileCount = _combine_stat("Bullet Count")
+    cS.azimuthalProjectileAngle = _combine_stat("Spread Angle")
+    cS.playerSpeed = _combine_stat("Player Speed")
+    cS.attackCooldownStat = _combine_stat("Attack Speed")
     if(cS.attackCooldownStat <= 1): cS.attackCooldownStat = 1
-    cS.bulletSpeed = (cS.collectiveStats["Bullet Speed"] + sum(cS.collectiveAddStats["Bullet Speed"])) * (multiply_list(cS.collectiveMultStats["Bullet Speed"]))
-    cS.bulletRange = (cS.collectiveStats["Bullet Range"] + sum(cS.collectiveAddStats["Bullet Range"])) * (multiply_list(cS.collectiveMultStats["Bullet Range"]))
-    cS.bulletSize = (cS.collectiveStats["Bullet Size"] + sum(cS.collectiveAddStats["Bullet Size"])) * (multiply_list(cS.collectiveMultStats["Bullet Size"]))
+    cS.bulletSpeed = _combine_stat("Bullet Speed")
+    cS.bulletRange = _combine_stat("Bullet Range")
+    cS.bulletSize = _combine_stat("Bullet Size")
     cS.bulletDamage = round(_combine_stat("Bullet Damage"))
-    cS.bulletPierce = (cS.collectiveStats["Bullet Pierce"] + sum(cS.collectiveAddStats["Bullet Pierce"])) * (multiply_list(cS.collectiveMultStats["Bullet Pierce"]))
+    cS.bulletPierce = _combine_stat("Bullet Pierce")
     cS.defense = round(_combine_stat("Defense"))
     cS.maxHealthPoints = max(1, round(_combine_stat("Health")))
     cS.healthPoints = min(cS.maxHealthPoints, cS.healthPoints + max(0, cS.maxHealthPoints - previous_max_health))
     cS.vitality = max(0, round(_combine_stat("Vitality")))
-    cS.critChance = (cS.collectiveStats["Crit Chance"] + sum(cS.collectiveAddStats["Crit Chance"])) * (multiply_list(cS.collectiveMultStats["Crit Chance"]))
+    cS.critChance = _combine_stat("Crit Chance")
     # Crit damage is a multiplier (2.0 means double damage), so retaining its
     # fractional upgrades is essential.  Rounding this to an integer made small
     # multiplicative bonuses jump by an entire damage tier.
     cS.critDamage = round(_combine_stat("Crit Damage"), 2)
-    cS.aura = (cS.collectiveStats["Aura Size"] + sum(cS.collectiveAddStats["Aura Size"])) * (multiply_list(cS.collectiveMultStats["Aura Size"]))
-    cS.auraSpeed = (cS.collectiveStats["Aura Strength"] + sum(cS.collectiveAddStats["Aura Strength"])) * (multiply_list(cS.collectiveMultStats["Aura Strength"]))
-    cS.xpMult = (cS.collectiveStats["Exp Multiplier"]+ sum(cS.collectiveAddStats["Exp Multiplier"])) * (multiply_list(cS.collectiveMultStats["Exp Multiplier"]))
+    cS.aura = _combine_stat("Aura Size")
+    cS.auraSpeed = _combine_stat("Aura Strength")
+    cS.xpMult = _combine_stat("Exp Multiplier")
 
 def handleLevelingProcess():
     
@@ -226,6 +250,7 @@ def handleLevelingProcess():
     if (pDecision != "none"):
         card = cS.levelingHandler.selected_card
         cS.record_upgrade(card.name, card.rarity, card.math_type)
+        gameProfile.discover_card(card.name)
         cS.lastUpgrade = (card.name, card.rarity)
         cS.lastUpgradeAt = cS.runTimeSeconds
         modifier = upgrades.card_modifier(card)
@@ -418,9 +443,12 @@ def handlingEnemyCreation():
         and not cS.dissonanceEncounterStarted
         and cS.activeBoss is None
     )
-    if cS.bossDebugRequested or natural_beaudis_requested or natural_dissonance_requested:
+    if cS.bossDebugRequested or cS.practiceBossKey or natural_beaudis_requested or natural_dissonance_requested:
         natural_encounter = not cS.bossDebugRequested
-        if natural_beaudis_requested and natural_encounter:
+        if cS.practiceBossKey:
+            boss_key = cS.practiceBossKey
+            cS.practiceBossKey = None
+        elif natural_beaudis_requested and natural_encounter:
             cS.beaudisEncounterStarted = True
             boss_key = gamePaths.boss_key(midpoint=True)
         else:
@@ -434,6 +462,7 @@ def handlingEnemyCreation():
         cS.lootCrateList.clear()
         cS.informationSheet.nearby_crate = None
         boss = BOSS_CATALOG.spawn(boss_key)
+        gameProfile.research_enemy(boss_key, boss=True)
         if boss_key == "dissonance":
             arena_x, arena_y = boss._arena_center()
             boss.worldX, boss.worldY = arena_x - boss.size / 2, arena_y - boss.size / 2
@@ -458,7 +487,7 @@ def handlingEnemyCreation():
     if not cS.enemySpawningEnabled:
         return
 
-    caps = encounter_caps(cS.currentLevel)
+    caps = gamePaths.tune_encounter_caps(encounter_caps(cS.currentLevel), cS.currentLevel)
     cS.enemyCap = caps["enemy_cap"]
     cS.enemyThreatCap = caps["threat_cap"]
     cS.enemyPopulationThreatCap = caps["population_threat_cap"]
@@ -481,7 +510,8 @@ def handlingEnemyCreation():
     cS.enemySpawnTimer -= vH.get_timer_step()
     cS.encounterSpawnCooldown = max(0, cS.encounterSpawnCooldown - vH.get_timer_step())
     current_threat = sum(getattr(enemy, "threatCost", 1.0) for enemy in cS.enemyHolster)
-    pacing = encounter_pacing(cS.currentLevel)
+    pacing = gamePaths.tune_encounter_pacing(
+        encounter_pacing(cS.currentLevel), cS.currentLevel)
     world_encounters = {enemy.encounter.id for enemy in cS.enemyHolster
                         if getattr(enemy, "encounter", None) is not None}
     if (len(world_encounters) < pacing["max_world_encounters"]
@@ -571,13 +601,31 @@ def handlingEnemyUpdatesAndDrawing():
     spawned_groups = []
     for enemy in cS.enemyHolster:
         projectile_start = len(cS.enemyProjectileHolster)
-        enemy.updateEnemy(
-            bG.playerPosX + cS.playerSize/2,
-            bG.playerPosY + cS.playerSize/2,
-            cS.enemyProjectileHolster,
+        gameProfile.research_enemy(getattr(enemy, "contentKey", getattr(enemy, "family", type(enemy).__name__)),
+                                   boss=enemy is cS.activeBoss)
+        control = statusEffects.update(enemy, vH.get_timer_step() / max(1, vH.frameRate))
+        original_speed = enemy.speed
+        enemy.speed *= control.movement_multiplier
+        if not control.stunned:
+            enemy.updateEnemy(
+                bG.playerPosX + cS.playerSize/2,
+                bG.playerPosY + cS.playerSize/2,
+                cS.enemyProjectileHolster,
+            )
+            if control.attack_delay and hasattr(enemy, "attackCooldown"):
+                enemy.attackCooldown += control.attack_delay * vH.get_timer_step()
+        enemy.speed = original_speed
+        gamePaths.tune_new_projectiles(
+            cS.enemyProjectileHolster, projectile_start, cS.currentLevel,
+            late_pressure=cS.activeBoss is None,
         )
-        gamePaths.tune_new_projectiles(cS.enemyProjectileHolster, projectile_start)
         enemy.drawEnemy(vH.screen)
+        active_effects = statusEffects.summary(enemy)
+        effect_colors = {"poison": ui.GREEN, "bleed": ui.RED, "slow": ui.BLUE,
+                         "daze": ui.GOLD, "stun": ui.CREAM}
+        for effect_index, effect_name in enumerate(active_effects):
+            pg.draw.circle(vH.screen, effect_colors.get(effect_name, ui.PURPLE),
+                           (int(enemy.posX + 5 + effect_index * 9), int(enemy.posY - 7)), 3)
         if getattr(enemy, "transitionCleanupRequested", False):
             cleanup_owner = getattr(enemy, "transitionCleanupOwner", None)
             if cleanup_owner:
@@ -595,19 +643,19 @@ def handlingEnemyUpdatesAndDrawing():
             enemy.spawnedEnemies.clear()
 
     rejected_atomic_owners = set()
+    current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
     for owner, group, atomic in spawned_groups:
-        current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
         group_threat = sum(getattr(item, "threatCost", 1.0) for item in group)
         if atomic and (len(cS.enemyHolster) + len(group) > cS.enemyCap
                        or current_threat + group_threat > cS.enemyPopulationThreatCap):
             rejected_atomic_owners.add(owner)
             continue
         for enemy in group:
-            gamePaths.apply_enemy_identity(enemy)
-            current_threat = sum(getattr(item, "threatCost", 1.0) for item in cS.enemyHolster)
+            gamePaths.apply_enemy_identity(enemy, cS.currentLevel)
             if len(cS.enemyHolster) >= cS.enemyCap:
                 break
-            if current_threat + getattr(enemy, "threatCost", 1.0) > cS.enemyPopulationThreatCap:
+            enemy_threat = getattr(enemy, "threatCost", 1.0)
+            if current_threat + enemy_threat > cS.enemyPopulationThreatCap:
                 break
             if owner.encounter is not None and enemy.encounter is None:
                 enemy.encounter = owner.encounter
@@ -615,6 +663,7 @@ def handlingEnemyUpdatesAndDrawing():
                 enemy.combatSide = -1 if enemy.encounterSlot % 2 else 1
                 owner.encounter.members.append(enemy)
             cS.enemyHolster.append(enemy)
+            current_threat += enemy_threat
     if rejected_atomic_owners:
         cS.enemyHolster[:] = [enemy for enemy in cS.enemyHolster
                               if enemy not in rejected_atomic_owners]
@@ -640,17 +689,41 @@ def handlingEnemyProjectileUpdating():
     cS.enemyProjectileHolster[:] = [
         projectile for projectile in cS.enemyProjectileHolster if not projectile.remFlag
     ]
-    gamePaths.tune_new_projectiles(spawned_projectiles, 0)
+    gamePaths.tune_new_projectiles(
+        spawned_projectiles, 0, cS.currentLevel,
+        late_pressure=cS.activeBoss is None,
+    )
     cS.enemyProjectileHolster.extend(spawned_projectiles)
-    if boss is not None and len(cS.enemyProjectileHolster) > 150:
-        overflow = len(cS.enemyProjectileHolster) - 150
-        for projectile in cS.enemyProjectileHolster[:overflow]:
-            projectile.remFlag = True
+    cap = gamePaths.projectile_cap(cS.currentLevel, boss is not None)
+    if len(cS.enemyProjectileHolster) > cap:
+        overflow = len(cS.enemyProjectileHolster) - cap
+        # Oldest projectiles are at the front. Remove ordinary shots first so
+        # freshly drawn telegraphs remain truthful; persistent fields are still
+        # bounded if they alone fill the budget.
+        ordinary = [projectile for projectile in cS.enemyProjectileHolster
+                    if not getattr(projectile, "persistentHazard", False)]
+        victims = ordinary[:overflow]
+        if len(victims) < overflow:
+            victim_ids = {id(projectile) for projectile in victims}
+            remaining = [projectile for projectile in cS.enemyProjectileHolster
+                         if id(projectile) not in victim_ids]
+            victims.extend(remaining[:overflow - len(victims)])
+        victim_ids = {id(projectile) for projectile in victims}
+        cS.enemyProjectileHolster[:] = [
+            projectile for projectile in cS.enemyProjectileHolster
+            if id(projectile) not in victim_ids
+        ]
         
 def handlingDamagingEnemies():
     enemy_grid = SpatialHash(max(64, int(vH.tileSizeGlobal * 2)))
+    # Complex bosses expose multipart hitboxes. Build each enemy's geometry once
+    # per frame instead of rebuilding it for the grid, shield ordering, and every
+    # player bullet candidate.
+    hitboxes_by_enemy = {}
     for enemy in cS.enemyHolster:
-        for _, hitbox in enemy.get_screen_hitboxes():
+        hitboxes = tuple(enemy.get_screen_hitboxes())
+        hitboxes_by_enemy[enemy] = hitboxes
+        for _, hitbox in hitboxes:
             enemy_grid.insert(enemy, hitbox)
 
     dead_enemies = set()
@@ -659,12 +732,13 @@ def handlingDamagingEnemies():
         candidates = list(enemy_grid.query(bullet_rect))
         candidates.sort(key=lambda enemy: 0 if any(
             part_id == "shield" and bullet_rect.colliderect(hitbox)
-            for part_id, hitbox in enemy.get_screen_hitboxes()) else 1)
+            for part_id, hitbox in hitboxes_by_enemy[enemy]) else 1)
         for eman in candidates:
             if eman in dead_enemies:
                 continue
             collided_part = next(
-                ((part_id, hitbox) for part_id, hitbox in eman.get_screen_hitboxes() if bullet_rect.colliderect(hitbox)),
+                ((part_id, hitbox) for part_id, hitbox in hitboxes_by_enemy[eman]
+                 if bullet_rect.colliderect(hitbox)),
                 None,
             )
             if collided_part:
@@ -677,7 +751,10 @@ def handlingDamagingEnemies():
                     bullet.bPierce -= 1
                     if bullet.bPierce <= 0:
                         bullet.remFlag = True
-                    result = eman.take_damage(bullet.damage, part_id)
+                    hit_damage = bullet.damage * statusEffects.damage_multiplier(eman, bullet)
+                    result = eman.take_damage(hit_damage, part_id)
+                    if result.applied and not result.killed:
+                        statusEffects.roll_player_hit(eman, bullet, cS.equipment)
                     if getattr(eman, "transitionCleanupRequested", False):
                         cleanup_owner = getattr(eman, "transitionCleanupOwner", None)
                         if cleanup_owner:
@@ -713,6 +790,8 @@ def handlingDamagingEnemies():
             dead_enemies.add(enemy)
 
     for enemy in dead_enemies:
+        research_key = getattr(enemy, "contentKey", getattr(enemy, "family", type(enemy).__name__))
+        gameProfile.research_enemy(research_key, defeated=True, boss=enemy is cS.activeBoss)
         cS.numOfEnemiesKilled += 1
         cS.experienceList.append(ExperienceBubble(
             enemy.worldX, enemy.worldY,
@@ -732,9 +811,10 @@ def handlingDamagingEnemies():
                 ))
         drop_count = items.roll_drop_count()
         if drop_count:
-            cS.lootCrateList.append(LootCrate(
-                enemy.worldX, enemy.worldY, items.generate_drops(drop_count),
-            ))
+            drops = items.generate_drops(drop_count)
+            for drop in drops:
+                gameProfile.discover_item(drop.name)
+            cS.lootCrateList.append(LootCrate(enemy.worldX, enemy.worldY, drops))
             if len(cS.lootCrateList) > MAX_LOOT_CRATES:
                 evictable = next((crate for crate in cS.lootCrateList
                                   if crate is not cS.informationSheet.nearby_crate), None)
@@ -742,12 +822,18 @@ def handlingDamagingEnemies():
                     cS.lootCrateList.remove(evictable)
         if enemy is cS.activeBoss:
             content_key = getattr(enemy, "contentKey", "")
-            if content_key == gamePaths.active().mid_boss:
+            if cS.practiceMode:
+                cS.gameCompleted = True
+                cS.runOutcome = "PRACTICE COMPLETE"
+            elif content_key == gamePaths.active().mid_boss:
                 cS.beaudisDefeated = True
             elif content_key == gamePaths.active().final_boss:
                 cS.gameCompleted = True
                 cS.runOutcome = "RUN COMPLETE"
-                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled, completed=True)
+                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled,
+                                       completed=True, path_key=gamePaths.active_key)
+                metaProgression.extract_equipment(cS.equipment)
+                metaProgression.complete_ready_quests()
             cS.activeBoss = None
             cS.enemySpawningEnabled = not cS.gameCompleted
             vH.screenShakeX = 0
@@ -926,7 +1012,8 @@ def hurtPlayer():
             cS.playerInvulnerabilityTimer = cS.playerInvulnerabilityMax
             if cS.healthPoints <= 0:
                 cS.runOutcome = "DEFEATED"
-                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
+                if not cS.practiceMode:
+                    gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
                 vH.state = vH.States.RESULTS
                 cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
             return
@@ -961,7 +1048,8 @@ def hurtPlayer():
             )
             if cS.healthPoints <= 0:
                 cS.runOutcome = "DEFEATED"
-                gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
+                if not cS.practiceMode:
+                    gameProfile.record_run(cS.currentLevel, cS.numOfEnemiesKilled)
                 vH.state = vH.States.RESULTS
                 cS.highestLevel = max(cS.highestLevel, cS.currentLevel)
             break
@@ -1116,7 +1204,7 @@ def drawLowHealthWarning():
         return
     arena_width = cS.informationSheet.arena_width
     alpha = max(0, min(255, int(35 + (1 - ratio / .3) * 65)))
-    overlay = pg.Surface((arena_width, int(vH.sH)), pg.SRCALPHA)
+    overlay = _reusable_overlay("low_health", (arena_width, int(vH.sH)))
     border = max(8, int(22 * ui.display_scale(vH.screen)))
     pg.draw.rect(overlay, (*ui.RED[:3], alpha), overlay.get_rect(), border)
     vH.screen.blit(overlay, (0, 0))
@@ -1130,10 +1218,11 @@ def drawRunCompleteBanner():
     width = min(arena_width * .58, 680 * scale)
     rect = pg.Rect((arena_width - width) / 2, 22 * scale, width, 76 * scale)
     ui.draw_panel(vH.screen, rect, ui.PANEL_RAISED, ui.CREAM, shadow=7)
-    ending = f"{gamePaths.active().final_boss.upper()} ENDED"
+    ending = ("MEMORY CONQUERED" if cS.practiceMode
+              else f"{gamePaths.active().final_boss.upper()} ENDED")
     ui.draw_text(vH.screen, ending, 24 * scale, ui.CREAM,
                  (rect.centerx, rect.y + 10 * scale), "midtop")
-    ui.draw_text(vH.screen, "LEVEL 20 // RUN COMPLETE", 11 * scale, ui.PURPLE,
+    ui.draw_text(vH.screen, "BOSS PRACTICE COMPLETE" if cS.practiceMode else "LEVEL 20 // RUN COMPLETE", 11 * scale, ui.PURPLE,
                  (rect.centerx, rect.bottom - 12 * scale), "midbottom")
     ui.draw_text(vH.screen, "ENTER  VIEW RESULTS", 9 * scale, ui.TEXT,
                  (rect.centerx, rect.bottom + 12 * scale), "midtop")
@@ -1171,7 +1260,7 @@ def drawBossHealthBar():
     exposure = cS.bossAfflictions["exposure"]
     if exposure > .05:
         intensity = min(1.0, exposure / 10.0)
-        veil = pg.Surface(vH.screen.get_size(), pg.SRCALPHA)
+        veil = _reusable_overlay("boss_exposure", vH.screen.get_size())
         edge = max(18, int(min(vH.screen.get_size()) * .055))
         alpha = int(18 + intensity * 62)
         color = (126, 48, 32, alpha)
@@ -1268,11 +1357,16 @@ def runTheTitleScreen():
     path = gamePaths.selected()
     ui.draw_text(vH.screen, f"{path.subtitle}  //  {path.description}", scale * .013,
                  path.accent, (vH.sW / 2, vH.sH * .455), "midtop")
-    play_rect = pg.Rect(left + content_width * .27, vH.sH * .495, content_width * .46,
+    play_rect = pg.Rect(left + content_width * .08, vH.sH * .495, content_width * .52,
                         max(54 * ui_scale, scale * .064))
     hovered = ui.draw_button(vH.screen, play_rect, f"ENTER {path.title}",
                              (vH.mouseX, vH.mouseY), vH.mouseDown, True,
                              path.accent, "SPACE", int(scale * .019))
+    soul_rect = pg.Rect(left + content_width * .63, vH.sH * .495, content_width * .29,
+                        max(54 * ui_scale, scale * .064))
+    soul_hovered = ui.draw_button(vH.screen, soul_rect, "ENTER SOUL",
+                                  (vH.mouseX, vH.mouseY), vH.mouseDown, True,
+                                  ui.PURPLE, "F", int(scale * .016))
 
     controls_rect = pg.Rect(left, vH.sH * .615, content_width, max(116 * ui_scale, vH.sH * .15))
     ui.draw_panel(vH.screen, controls_rect, ui.PANEL, ui.BORDER, shadow=6)
@@ -1296,7 +1390,11 @@ def runTheTitleScreen():
 
     if pg.K_SPACE in vH.keyPressed or (hovered and vH.mousePressed):
         gamePaths.activate_selected()
-        resetAllStats()
+        resetAllStats(metaProgression.begin_run())
         vH.state = vH.States.GAMERUN
+    elif pg.K_f in vH.keyPressed or (soul_hovered and vH.mousePressed):
+        import soulHub
+        soulHub.enter()
+        vH.state = vH.States.SOUL
     elif pg.K_ESCAPE in vH.keyPressed:
         vH.done = True

@@ -15,6 +15,21 @@ import variableHolster as vH
 import gameProfile
 
 
+_TRANSIENT_SURFACES = {}
+
+
+def _transient_surface(screen, purpose="veil"):
+    """Reuse full-screen alpha buffers used by short boss transitions."""
+    key = (purpose, *screen.get_size())
+    surface = _TRANSIENT_SURFACES.get(key)
+    if surface is None:
+        surface = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        _TRANSIENT_SURFACES[key] = surface
+    else:
+        surface.fill((0, 0, 0, 0))
+    return surface
+
+
 def _draw_outside_arena(screen, center, vertices):
     """Black out a star-shaped arena exterior without a full-screen alpha mask."""
     if len(vertices) < 3:
@@ -42,9 +57,9 @@ class Beaudis(Enemy):
 
     bossName = "BEAUDIS"
     subtitle = "THE ECHO THAT FOLLOWS"
-    DAMAGE_PHASES = (1, 2, 3, 4)
-    SURVIVAL_PHASES = (5,)
-    SURVIVAL_THRESHOLDS = (2 / 3, 1 / 3, 0)
+    DAMAGE_PHASES = (1, 2, 3, 5)
+    SURVIVAL_PHASES = (4,)
+    SURVIVAL_THRESHOLD = .5
     PHASE_COUNT = 5
     FINAL_FLAVOR = "You can't escape me..."
 
@@ -52,19 +67,19 @@ class Beaudis(Enemy):
         1: ("AWAKEN", "You hear it too.", ui.PURPLE),
         2: ("ANSWER", "Stay a while.", ui.BLUE),
         3: ("PRESS", "The pattern remembers.", ui.GOLD),
-        4: ("PERSIST", "This is not the end.", ui.RED),
-        5: ("ENDURE", "Run, while you still can.", ui.CREAM),
+        4: ("ENDURE", "Run, while you still can.", ui.CREAM),
+        5: ("PERSIST", "This is not the end.", ui.RED),
     }
 
     def __init__(self, world_x, world_y, rng=None):
         size = vH.tileSizeGlobal * 1.55
         super().__init__(world_x, world_y, .38, size, ui.PURPLE,
-                         200, 26000, 240, 3.2, "beaudis")
+                         220, 50000, 240, 3.2, "beaudis")
         self.showOverheadHealthBar = False
         self.rng = rng or random
         self.phase = 1
         self.damagePhaseHistory = [1]
-        self.nextSurvivalIndex = 0
+        self.midpointSurvivalComplete = False
         self.phaseLabel, self.phaseFlavor, self.phaseAccent = self.PHASE_METADATA[1]
         self.phaseElapsed = 0.0
         self.phaseTimeLimit = 28.0
@@ -128,7 +143,7 @@ class Beaudis(Enemy):
         self.isStaggered = False
         self.staggerRemaining = 0.0
         self.phaseForcedByTimer = False
-        self.survivalActive = phase == 5
+        self.survivalActive = phase == 4
         if self.survivalActive:
             self.hp = max(1, self.hp)
             self.survivalRemaining = self.survivalDuration
@@ -139,20 +154,15 @@ class Beaudis(Enemy):
 
     def debug_set_phase(self, phase):
         phase = max(1, min(self.PHASE_COUNT, int(phase)))
-        if phase == 5:
-            # Phase-five practice remains the final survival and fade sequence.
-            self.nextSurvivalIndex = len(self.SURVIVAL_THRESHOLDS) - 1
         if phase == self.phase:
             self.phase = 0
         self._set_phase(phase)
 
     def _survival_health(self):
-        ratio = self.SURVIVAL_THRESHOLDS[self.nextSurvivalIndex]
-        return self.maxHp * ratio
+        return self.maxHp * self.SURVIVAL_THRESHOLD
 
     def _choose_damage_phase(self):
-        pools = ((1, 2), (2, 3), (3, 4))
-        pool = pools[min(self.nextSurvivalIndex, len(pools) - 1)]
+        pool = (5,) if self.midpointSurvivalComplete else (1, 2, 3)
         choices = [phase for phase in pool if phase != self.phase]
         return self.rng.choice(choices or list(pool))
 
@@ -169,10 +179,16 @@ class Beaudis(Enemy):
             self.staggerRemaining = self.staggerDuration
             self.transitionCleanupRequested = True
         threshold_hp = self._survival_health()
-        if self.hp <= threshold_hp and not self.debugPhaseLocked:
-            # Pin health to the gate so one large hit cannot skip a survival.
-            self.hp = max(1, threshold_hp)
-            self._set_phase(5)
+        if (not self.midpointSurvivalComplete and self.hp <= threshold_hp
+                and not self.debugPhaseLocked):
+            # Every level-ten boss owns exactly one half-health survival lesson.
+            self.hp = threshold_hp
+            self._set_phase(4)
+        elif self.midpointSurvivalComplete and self.hp <= 0 and not self.debugPhaseLocked:
+            # The midpoint ends on a damage movement. Its survival is never a
+            # substitute for the level-twenty boss's zero-health spectacle.
+            self.hp = 1
+            self._begin_fade()
         else:
             self.hp = max(0, self.hp)
         return HitResult(True, False, applied)
@@ -266,11 +282,9 @@ class Beaudis(Enemy):
             self.portalIndex += 1
             self.survivalCooldown = .85
         if self.survivalRemaining <= 0:
-            if self.nextSurvivalIndex >= len(self.SURVIVAL_THRESHOLDS) - 1:
-                self._begin_fade()
-            else:
-                self.nextSurvivalIndex += 1
-                self._set_phase(self._choose_damage_phase())
+            self.midpointSurvivalComplete = True
+            self.hp = max(self.hp, self._survival_health())
+            self._set_phase(5)
 
     def _begin_fade(self):
         if self.dying:
@@ -359,6 +373,7 @@ class Beaudis(Enemy):
 class Dissonance(Enemy):
     bossName = "DISSONANCE"
     subtitle = "THE ROT AT THE CENTER"
+    PHASE_COUNT = 9
     PHASE_RUNES = {
         1: ("OTHALA", (((-.34, -.12), (0, -.5), (.34, -.12), (0, .28), (-.34, -.12)),
                        ((0, .28), (-.38, .52)), ((0, .28), (.38, .52)))),
@@ -389,7 +404,7 @@ class Dissonance(Enemy):
         size = vH.tileSizeGlobal * 1.9
         # Dissonance expects a complete twenty-card build and preserves the full
         # nine-rune encounter as the run's final mechanical examination.
-        super().__init__(world_x, world_y, .72, size, ui.PURPLE, 520, 135000, 900, 5, "dissonance")
+        super().__init__(world_x, world_y, .72, size, ui.PURPLE, 550, 150000, 900, 5, "dissonance")
         self.showOverheadHealthBar = False
         self.rng = rng or random
         self.phase = 1
@@ -2058,7 +2073,7 @@ class Dissonance(Enemy):
 
     def _draw_perfect_break(self, screen):
         alpha = int(150 * min(1, self.perfectBreakFlash * 2))
-        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        veil = _transient_surface(screen)
         veil.fill((12, 14, 18, alpha))
         screen.blit(veil, (0, 0))
         scale = ui.display_scale(screen)
@@ -2074,7 +2089,7 @@ class Dissonance(Enemy):
     def _draw_act_transition(self, screen):
         progress = 1 - self.actTransitionTimer / 2.2
         alpha = int(185 * min(1, progress * 5, (1 - progress) * 5))
-        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        veil = _transient_surface(screen)
         pygame.draw.rect(veil, (ui.VOID.r, ui.VOID.g, ui.VOID.b, alpha),
                          (0, screen.get_height() * .3, screen.get_width(), screen.get_height() * .4))
         screen.blit(veil, (0, 0))
@@ -2276,40 +2291,45 @@ class PathChaseBoss(Enemy):
     def constrain_player_position(self, player_x, player_y, player_size):
         player_center = (player_x + player_size/2, player_y + player_size/2)
         vertices = self._arena_vertices()
-        nearest, segment_index, distance_sq = self._closest_boundary_point(
-            player_center, vertices)
         # A center-only test permits half the player body to leak through diagonal
         # edges. Keep a circular body margin inside every segment instead.
         margin = player_size * .72
-        inside = self._point_in_polygon(player_center, vertices)
-        if inside and distance_sq >= margin*margin:
-            return player_x, player_y
-
-        start = vertices[segment_index]
-        end = vertices[(segment_index + 1) % len(vertices)]
-        dx, dy = end[0]-start[0], end[1]-start[1]
-        length = max(1e-9, hypot(dx, dy))
         signed_area = sum(
             vertices[index][0]*vertices[(index+1)%len(vertices)][1]
             - vertices[(index+1)%len(vertices)][0]*vertices[index][1]
             for index in range(len(vertices)))
-        # These world polygons currently wind with positive signed area. The left
-        # segment normal is therefore inward; retain support for reversed winding.
-        if signed_area >= 0:
-            normal = (-dy/length, dx/length)
-        else:
-            normal = (dy/length, -dx/length)
-        corrected = (nearest[0] + normal[0]*margin,
-                     nearest[1] + normal[1]*margin)
+        corrected = player_center
+        # A corner violates two edges at once. A single nearest-edge projection
+        # alternates between those edges on successive frames, which made the
+        # camera and player visibly vibrate. Resolve every violated edge in one
+        # call so the same attempted corner position always has one stable answer.
+        for _ in range(max(4, min(12, len(vertices)))):
+            nearest, segment_index, distance_sq = self._closest_boundary_point(
+                corrected, vertices)
+            if (self._point_in_polygon(corrected, vertices)
+                    and distance_sq >= (margin - 1e-4) ** 2):
+                return corrected[0]-player_size/2, corrected[1]-player_size/2
 
-        # Mildly concave animated boundaries can place a local normal outside an
-        # adjacent spike. Fall back to a short centerward inset only in that case.
-        if not self._point_in_polygon(corrected, vertices):
-            center = self._arena_center()
-            toward_x, toward_y = center[0]-nearest[0], center[1]-nearest[1]
-            toward_length = max(1e-9, hypot(toward_x, toward_y))
-            corrected = (nearest[0] + toward_x/toward_length*margin,
-                         nearest[1] + toward_y/toward_length*margin)
+            start = vertices[segment_index]
+            end = vertices[(segment_index + 1) % len(vertices)]
+            dx, dy = end[0]-start[0], end[1]-start[1]
+            length = max(1e-9, hypot(dx, dy))
+            # These world polygons currently wind with positive signed area. The
+            # left segment normal is inward; retain support for reversed winding.
+            normal = ((-dy/length, dx/length) if signed_area >= 0
+                      else (dy/length, -dx/length))
+            corrected = (nearest[0] + normal[0]*margin,
+                         nearest[1] + normal[1]*margin)
+
+            # Mildly concave animated boundaries can place a local normal outside
+            # an adjacent spike. A centerward inset gives the next iteration a
+            # valid interior point from which to resolve the remaining margin.
+            if not self._point_in_polygon(corrected, vertices):
+                center = self._arena_center()
+                toward_x, toward_y = center[0]-nearest[0], center[1]-nearest[1]
+                toward_length = max(1e-9, hypot(toward_x, toward_y))
+                corrected = (nearest[0] + toward_x/toward_length*margin,
+                             nearest[1] + toward_y/toward_length*margin)
         return corrected[0]-player_size/2, corrected[1]-player_size/2
 
     def _draw_path_arena(self, screen):
@@ -2677,7 +2697,117 @@ class PlagueTouchBoss(PathChaseBoss):
                          (rect.centerx, rect.y-18), "midbottom")
 
 
-class Bair(PlagueTouchBoss):
+class MidpointBossStructure:
+    """Shared level-ten pacing: damage, one lesson, then a damage finish."""
+
+    MIDPOINT_MAX_HP = 90000
+    MIDPOINT_CONTACT_DAMAGE = 340
+    MIDPOINT_SURVIVAL_PHASE = 0
+    MIDPOINT_SURVIVAL_DURATION = 14.0
+    MIDPOINT_PRE_SURVIVAL_PHASES = ()
+    MIDPOINT_POST_SURVIVAL_PHASES = ()
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        if self.finalBoss:
+            return
+        self.maxHp = self.MIDPOINT_MAX_HP
+        self.hp = self.maxHp
+        self.damage = self.MIDPOINT_CONTACT_DAMAGE
+        self.midpointSurvivalComplete = False
+        self.survivalActive = False
+        self.survivalRemaining = 0.0
+        self.DAMAGE_PHASES = (self.MIDPOINT_PRE_SURVIVAL_PHASES
+                              + self.MIDPOINT_POST_SURVIVAL_PHASES)
+        self.SURVIVAL_PHASES = {
+            self.MIDPOINT_SURVIVAL_PHASE: self.MIDPOINT_SURVIVAL_DURATION,
+        }
+
+    def _set_midpoint_phase(self, phase):
+        if hasattr(self, "_set_plague_phase"):
+            self._set_plague_phase(phase)
+        elif hasattr(self, "_set_sin_phase"):
+            self._set_sin_phase(phase)
+        elif hasattr(self, "_set_dream_phase"):
+            self._set_dream_phase(phase)
+        else:
+            self.phase = max(1, min(len(self.phaseLabels), int(phase)))
+            self.phaseLabel = self.phaseLabels[self.phase - 1]
+            self.phaseElapsed = 0.0
+            self.attackCooldown = min(self.attackCooldown, vH.frameRate * .4)
+            self.transitionCleanupRequested = True
+
+    def _begin_midpoint_survival(self):
+        self.hp = self.maxHp * .5
+        self._set_midpoint_phase(self.MIDPOINT_SURVIVAL_PHASE)
+        self.survivalActive = True
+        self.survivalRemaining = self.MIDPOINT_SURVIVAL_DURATION
+        self.transitionCleanupRequested = True
+
+    def debug_set_phase(self, phase):
+        if self.finalBoss:
+            return super().debug_set_phase(phase)
+        self._set_midpoint_phase(phase)
+        self.debugPhaseLocked = True
+        self.attackCooldown = 0
+        self.survivalActive = self.phase == self.MIDPOINT_SURVIVAL_PHASE
+        self.survivalRemaining = (self.MIDPOINT_SURVIVAL_DURATION
+                                  if self.survivalActive else 0.0)
+
+    def _update_phase(self):
+        if self.finalBoss:
+            return super()._update_phase()
+        if self.debugPhaseLocked or self.survivalActive:
+            return
+        ratio = max(0.0, min(1.0, self.hp / self.maxHp))
+        if not self.midpointSurvivalComplete:
+            if ratio <= .5:
+                self._begin_midpoint_survival()
+                return
+            phases = self.MIDPOINT_PRE_SURVIVAL_PHASES
+            span = .5 / max(1, len(phases))
+            index = min(len(phases) - 1, int((1.0 - ratio) / span + 1e-9))
+            desired = phases[max(0, index)]
+        else:
+            phases = self.MIDPOINT_POST_SURVIVAL_PHASES
+            desired = phases[-1]
+        if desired != self.phase:
+            self._set_midpoint_phase(desired)
+
+    def take_damage(self, amount, part_id="body"):
+        if self.finalBoss:
+            return super().take_damage(amount, part_id)
+        if self.survivalActive:
+            return HitResult(False, False, 0, blocked=True)
+        previous = self.hp
+        result = super().take_damage(amount, part_id)
+        if (not self.debugPhaseLocked and not self.midpointSurvivalComplete
+                and self.phase in self.MIDPOINT_PRE_SURVIVAL_PHASES):
+            index = self.MIDPOINT_PRE_SURVIVAL_PHASES.index(self.phase)
+            phase_floor = 1.0 - ((index + 1) * .5
+                                 / len(self.MIDPOINT_PRE_SURVIVAL_PHASES))
+            self.hp = max(self.hp, self.maxHp * phase_floor)
+        if (not self.debugPhaseLocked and not self.midpointSurvivalComplete
+                and self.hp <= self.maxHp * .5):
+            self._begin_midpoint_survival()
+        return HitResult(result.applied, self.hp <= 0,
+                         max(0, previous - self.hp), result.blocked)
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        if self.finalBoss:
+            return super().updateEnemy(player_world_x, player_world_y, projectile_sink)
+        if (self.survivalActive and self.entranceRemaining <= 0
+                and getattr(self, "actTransitionTimer", 0) <= 0):
+            self.survivalRemaining = max(0.0, self.survivalRemaining - self._seconds())
+            if self.survivalRemaining <= 0 and not self.debugPhaseLocked:
+                self.survivalActive = False
+                self.midpointSurvivalComplete = True
+                self.hp = max(self.hp, self.maxHp * .5)
+                self._set_midpoint_phase(self.MIDPOINT_POST_SURVIVAL_PHASES[0])
+        return super().updateEnemy(player_world_x, player_world_y, projectile_sink)
+
+
+class Bair(MidpointBossStructure, PlagueTouchBoss):
     bossName = "BAIR"
     subtitle = "THE FIRST LOCK"
     ownerPrefix = "bair_touch"
@@ -2691,6 +2821,12 @@ class Bair(PlagueTouchBoss):
     movementModes = ("chase", "path", "static", "path", "static")
     movementSpeed = .10
     cooldownSeconds = 2.2
+    MIDPOINT_MAX_HP = 110000
+    MIDPOINT_CONTACT_DAMAGE = 380
+    MIDPOINT_SURVIVAL_PHASE = 4
+    MIDPOINT_SURVIVAL_DURATION = 14.0
+    MIDPOINT_PRE_SURVIVAL_PHASES = (1, 2, 3)
+    MIDPOINT_POST_SURVIVAL_PHASES = (5,)
 
     def _fire_pattern(self, player_x, player_y, sink):
         if self.phase == 1:
@@ -2706,55 +2842,10 @@ class Bair(PlagueTouchBoss):
         self.patternRotation += 1
 
 
-class Sting(PlagueTouchBoss):
-    bossName = "STING"
-    subtitle = "THE THING THE PRISON KEPT"
-    finalBoss = True
-    ownerPrefix = "sting_touch"
-    phaseLabels = ("BLOOD", "FROGS", "GNATS", "FLIES", "PESTILENCE",
-                   "BOILS", "HAIL", "LOCUSTS", "DARKNESS", "FIRSTBORN")
-    phaseFlavors = tuple(name.title() for name, _ in PLAGUE_SIGILS)
-    phaseColors = tuple(pygame.Color(*c) for c in ((142,38,43),(69,139,75),(112,91,57),
-        (91,76,53),(93,122,67),(166,71,61),(137,169,194),(117,139,58),(45,46,61),(189,163,119)))
-    phaseSigils = tuple(range(10))
-    movementModes = ("chase","path","static","path","static",
-                     "chase","static","path","static","chase")
-    movementSpeed = .075
-    finalCooldownSeconds = 1.7
-    finalBodyScale = 2.65
-
-    def _fire_pattern(self, player_x, player_y, sink):
-        if self.phase == 1:
-            self._radial(sink, 10, .3, 330, "blood")
-        elif self.phase == 2:
-            for offset in (-1,0,1):
-                self._projectile(sink, 0, 0, 340, "frogs", .31, "bomb",
-                                 (player_x+offset*vH.tileSizeGlobal*1.4, player_y))
-        elif self.phase == 3:
-            self._radial(sink, 16, .52, 305, "gnats")
-        elif self.phase == 4:
-            self._fan(sink, player_x, player_y, 7, 1.6, .5, 325, "flies")
-        elif self.phase == 5:
-            self._radial(sink, 12, .36, 350, "pestilence")
-        elif self.phase == 6:
-            self._projectile(sink, 0, 0, 380, "boils", .4, "bomb", (player_x,player_y))
-        elif self.phase == 7:
-            for offset in range(-2,3):
-                self._projectile(sink, pi/2+offset*.13, .58, 365, "hail", .28)
-        elif self.phase == 8:
-            self._fan(sink, player_x, player_y, 11, 2.1, .48, 340, "locusts")
-        elif self.phase == 9:
-            self._fan(sink, player_x, player_y, 5, .72, .28, 390, "darkness")
-        else:
-            self._radial(sink, 10, .48, 380, "severance")
-            self._fan(sink, player_x, player_y, 3, .26, .72, 400, "firstborn")
-        self.patternRotation += 1
-
-
-class Ishe(PathChaseBoss):
+class Ishe(MidpointBossStructure, PathChaseBoss):
     bossName = "ISHE"
     subtitle = "THE NEAR HORIZON"
-    phaseLabels = ("GLIMPSE", "BLINK", "FLASH")
+    phaseLabels = ("GLIMPSE", "BLINK", "FLASH", "AFTERGLOW")
     pattern = "rush"
     ownerPrefix = "ishe_sight"
     bodyColor = pygame.Color(107, 190, 221)
@@ -2767,6 +2858,12 @@ class Ishe(PathChaseBoss):
     shotRangeTiles = 8
     arenaShape = "triangle"
     arenaScale = 11.2
+    MIDPOINT_MAX_HP = 80000
+    MIDPOINT_CONTACT_DAMAGE = 300
+    MIDPOINT_SURVIVAL_PHASE = 3
+    MIDPOINT_SURVIVAL_DURATION = 12.0
+    MIDPOINT_PRE_SURVIVAL_PHASES = (1, 2)
+    MIDPOINT_POST_SURVIVAL_PHASES = (4,)
     SIGHT_SYMBOLS = (
         ("GLIMPSE", (((-.7, 0), (0, -.45), (.7, 0), (0, .45), (-.7, 0)),
                     ((0, -.18), (0, .18)))),
@@ -2774,7 +2871,34 @@ class Ishe(PathChaseBoss):
                    ((-.72, .3), (0, 0), (.72, .3)))),
         ("FLASH", (((0, -.76), (-.18, -.14), (.3, -.14), (-.22, .76),
                    (0, .12), (-.34, .12), (0, -.76)),)),
+        ("AFTERGLOW", (((-.7, .18), (-.18, -.42), (.28, -.18), (.7, .42)),
+                       ((-.55, .52), (.55, .52)))),
     )
+
+    def _fire_pattern(self, player_x, player_y, projectile_sink):
+        center_x, center_y = self._center()
+        aimed = atan2(player_y - center_y, player_x - center_x)
+        rotation = getattr(self, "patternRotation", 0)
+        count = (3, 5, 10, 7)[self.phase - 1]
+        if self.phase == 3:
+            gap = rotation % count
+            angles = [rotation * .12 + index * 2 * pi / count
+                      for index in range(count) if index != gap]
+        else:
+            spread = (.28, .62, 0, .88)[self.phase - 1]
+            angles = [aimed + (index - (count - 1) / 2) * spread / max(1, count - 1)
+                      for index in range(count)]
+        for direction in angles:
+            shot_size = self.size * self.shotScale
+            projectile_sink.append(EnemyProjectile(
+                center_x - shot_size / 2, center_y - shot_size / 2,
+                direction, self.shotSpeed, 115, shot_size,
+                travel_range=vH.tileSizeGlobal * self.shotRangeTiles,
+                color=self.phaseAccent, shape="diamond",
+                owner=f"{self.ownerPrefix}_{'flash_survival' if self.phase == 3 else 'mid'}",
+            ))
+        self.patternRotation = rotation + 1
+        self._mark_attack(.3)
 
     def drawEnemy(self, screen):
         super().drawEnemy(screen)
@@ -2792,16 +2916,317 @@ class Ishe(PathChaseBoss):
 
 
 class Chronos(Ishe):
+    """Sight's fragile reflex fight: tiny volleys now, exact echoes later."""
+
     bossName = "CHRONOS"
     subtitle = "THE LAST SECOND"
     finalBoss = True
     ownerPrefix = "chronos_sight"
-    finalBodyColor = pygame.Color(81, 164, 204)
-    finalAccentColor = pygame.Color(244, 166, 73)
-    finalBodyScale = 1.7
-    finalCooldownSeconds = .92
-    finalShotSpeed = 2.15
-    finalShotScale = .22
+    finalBodyColor = pygame.Color(88, 196, 239)
+    finalAccentColor = pygame.Color(151, 232, 255)
+    finalBodyScale = 1.16
+    movementSpeed = .68
+    finalCooldownSeconds = .72
+    finalShotSpeed = 2.35
+    finalShotScale = .12
+    shotRangeTiles = 42
+    arenaScale = 11.8
+    phaseLabels = ("TICK", "CROSSCUT", "BLINK", "STILL SECOND",
+                   "QUICKEN", "PARALLAX", "AFTERIMAGE")
+    phaseFlavors = (
+        "Five bright instants. Choose between them.",
+        "The open angle moves before the hand does.",
+        "Look where the light is going, not where it was.",
+        "For one second, the horizon refuses to move.",
+        "The interval is smaller now.",
+        "Two futures disagree by a fraction.",
+        "Every second you escaped has followed you here.",
+    )
+    phaseColors = tuple(pygame.Color(*color) for color in (
+        (133, 224, 255), (104, 203, 250), (173, 239, 255),
+        (218, 251, 255), (91, 214, 255), (157, 194, 255), (235, 253, 255)))
+    movementModes = ("chase", "path", "chase", "static", "path", "chase", "chase")
+    DAMAGE_PHASES = (1, 2, 3, 5, 6)
+    SURVIVAL_PHASES = {4: 18.0, 7: 30.0}
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        # Chronos is intentionally the weakest final boss. Its defense is player
+        # execution, not a long health bar or a collection of arena hazards.
+        self.maxHp = 240000
+        self.hp = self.maxHp
+        self.damage = 780
+        self.expValue = 1500
+        self.maxStagger = 105
+        self.phaseLabel = self.phaseLabels[0]
+        self.phaseFlavor = self.phaseFlavors[0]
+        self.phaseAccent = self.phaseColors[0]
+        self.phaseTimeLimit = 18.0
+        self.firstSurvivalComplete = False
+        self.survivalActive = False
+        self.survivalRemaining = 0.0
+        self.collapsing = False
+        self.collapseDuration = 10.0
+        self.collapseRemaining = 0.0
+        self.patternRotation = 0
+        self.blinkCooldown = .55
+        self.echoQueue = []
+        self.attackMemory = []
+        self.motionEchoes = []
+        self.lastMotionSample = (self.worldX, self.worldY)
+
+    def _set_chronos_phase(self, phase):
+        previous = self.phase
+        self.phase = max(1, min(len(self.phaseLabels), int(phase)))
+        self.phaseLabel = self.phaseLabels[self.phase - 1]
+        self.phaseFlavor = self.phaseFlavors[self.phase - 1]
+        self.phaseAccent = self.phaseColors[self.phase - 1]
+        self.phaseElapsed = 0.0
+        self.attackCooldown = min(self.attackCooldown, vH.frameRate * .28)
+        self.survivalActive = self.phase in self.SURVIVAL_PHASES
+        self.survivalRemaining = self.SURVIVAL_PHASES.get(self.phase, 0.0)
+        self.transitionCleanupRequested = True
+        if self.phase == 4:
+            center_x, center_y = self._arena_center()
+            self.worldX, self.worldY = center_x - self.size / 2, center_y - self.size / 2
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+        elif self.phase == 7 and previous != 7:
+            # The chase opens by returning a sample of attacks the player has
+            # already seen. New attacks continue adding their own delayed echo.
+            self.echoQueue = []
+            for index, memory in enumerate(self.attackMemory[-8:]):
+                origin, angles, path = memory
+                self.echoQueue.append([.65 + index * .34, origin, angles, path])
+
+    def _update_phase(self):
+        if self.debugPhaseLocked or self.survivalActive or self.collapsing:
+            return
+        ratio = self.hp / self.maxHp
+        if not self.firstSurvivalComplete:
+            desired = 1 if ratio > 5/6 else 2 if ratio > 2/3 else 3
+            if ratio <= .5:
+                self.hp = self.maxHp * .5
+                desired = 4
+        else:
+            desired = 5 if ratio > .25 else 6
+            if self.hp <= 0:
+                self.hp = 1
+                desired = 7
+        if desired != self.phase:
+            self._set_chronos_phase(desired)
+
+    def debug_set_phase(self, phase):
+        self._set_chronos_phase(phase)
+        self.debugPhaseLocked = True
+        self.attackCooldown = 0
+
+    def take_damage(self, amount, part_id="body"):
+        if self.survivalActive or self.collapsing:
+            return HitResult(False, False, 0, blocked=True)
+        previous = self.hp
+        Enemy.take_damage(self, amount, "body")
+        if not self.debugPhaseLocked:
+            gates = {1: 5/6, 2: 2/3, 3: 1/2, 5: 1/4, 6: 0}
+            self.hp = max(self.hp, self.maxHp * gates.get(self.phase, 0))
+            self._update_phase()
+        return HitResult(True, False, max(0, previous - self.hp))
+
+    def _spawn_angles(self, sink, origin, angles, suffix, path="linear",
+                      speed=None, damage=125, echo=False):
+        size = self.size * (.085 if echo else .105)
+        color = self.phaseAccent.lerp(ui.CREAM, .35 if echo else .08)
+        for index, direction in enumerate(angles):
+            shot = EnemyProjectile(
+                origin[0] - size / 2, origin[1] - size / 2, direction,
+                self.finalShotSpeed if speed is None else speed, damage, size,
+                travel_range=self.arenaRadius * 2.35, color=color,
+                shape="diamond", path=path,
+                amplitude=(((-1 if index % 2 else 1) * vH.tileSizeGlobal * .42)
+                           if path == "sine" else 0),
+                frequency=.029, owner=f"{self.ownerPrefix}_{suffix}",
+                ignore_walls=True)
+            sink.append(shot)
+
+    def _remember(self, origin, angles, path="linear"):
+        memory = ((float(origin[0]), float(origin[1])), tuple(angles), path)
+        self.attackMemory.append(memory)
+        self.attackMemory = self.attackMemory[-12:]
+        if self.phase == 7:
+            self.echoQueue.append([1.7, memory[0], memory[1], memory[2]])
+
+    def _fire_pattern(self, player_x, player_y, sink):
+        origin = self._center()
+        aimed = atan2(player_y - origin[1], player_x - origin[0])
+        rotation = self.patternRotation
+        if self.phase == 1:
+            angles = [aimed + offset for offset in (-.24, -.12, 0, .12, .24)]
+            path, suffix = "linear", "tick"
+        elif self.phase == 2:
+            # A rotating two-bullet gap makes the dense ring hard but honest.
+            gap = rotation % 14
+            angles = [rotation * .09 + index * 2 * pi / 14 for index in range(14)
+                      if index not in (gap, (gap + 1) % 14)]
+            path, suffix = "linear", "crosscut"
+        elif self.phase == 3:
+            angles = ([aimed - .52 + index * .105 for index in range(5)]
+                      + [aimed + .10 + index * .105 for index in range(5)])
+            path, suffix = "linear", "blink"
+        elif self.phase == 4:
+            gap = (rotation * 3) % 16
+            angles = [rotation * .075 + index * 2 * pi / 16 for index in range(16)
+                      if index not in (gap, (gap + 1) % 16, (gap + 8) % 16)]
+            path, suffix = "linear", "still_survival"
+        elif self.phase == 5:
+            angles = [aimed + (index - 3) * .115 for index in range(7)]
+            path, suffix = "sine", "quicken"
+        elif self.phase == 6:
+            # Two narrow predictions cross but leave the exact aimed line open.
+            angles = [aimed + offset for offset in (-.62, -.48, -.34, -.20,
+                                                     .20, .34, .48, .62)]
+            path, suffix = "linear", "parallax"
+        else:
+            fan = [aimed + offset for offset in (-.38, -.23, -.08, .08, .23, .38)]
+            gap = rotation % 12
+            ring = [rotation * .11 + index * 2 * pi / 12 for index in range(12)
+                    if index not in (gap, (gap + 1) % 12)]
+            angles, path, suffix = fan + ring, "linear", "final_survival"
+        damage = 108 if self.survivalActive else 124 + self.phase * 3
+        self._spawn_angles(sink, origin, angles, suffix, path, damage=damage)
+        self._remember(origin, angles, path)
+        self.patternRotation += 1
+        self._mark_attack(.24)
+
+    def _update_echoes(self, sink, dt):
+        remaining = []
+        for delay, origin, angles, path in self.echoQueue:
+            delay -= dt
+            if delay <= 0:
+                self._spawn_angles(sink, origin, angles, "past_echo_survival", path,
+                                   speed=2.05, damage=96, echo=True)
+            else:
+                remaining.append([delay, origin, angles, path])
+        self.echoQueue = remaining
+
+    def _blink_motion(self, dt):
+        if self.phase == 4 or self.entranceRemaining > 0:
+            return
+        self.blinkCooldown -= dt
+        if self.blinkCooldown > 0:
+            return
+        old = (self.worldX, self.worldY)
+        angle = self.rng.uniform(-pi, pi)
+        distance = vH.tileSizeGlobal * (1.05 if self.phase == 7 else .62)
+        self._try_axis_move(cos(angle) * distance, "x")
+        self._try_axis_move(sin(angle) * distance, "y")
+        self.motionEchoes.append((old[0], old[1], 1.0))
+        self.blinkCooldown = self.rng.uniform(.34, .52) if self.phase == 7 else self.rng.uniform(.62, .92)
+
+    def _begin_collapse(self):
+        self.hp = 1
+        self.collapsing = True
+        self.collapseRemaining = self.collapseDuration
+        self.survivalActive = False
+        self.echoQueue.clear()
+        self.transitionCleanupRequested = True
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        sink = projectile_sink if projectile_sink is not None else []
+        dt = self._seconds()
+        if self.collapsing:
+            self.age += vH.get_timer_step()
+            self.collapseRemaining = max(0.0, self.collapseRemaining - dt)
+            self.motionEchoes = [(x, y, fade - dt * .45)
+                                 for x, y, fade in self.motionEchoes if fade - dt * .45 > 0]
+            if self.collapseRemaining <= 0:
+                self.hp = 0
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        self._blink_motion(dt)
+        self._update_echoes(sink, dt)
+        self.motionEchoes = [(x, y, fade - dt * 1.55)
+                             for x, y, fade in self.motionEchoes if fade - dt * 1.55 > 0]
+        if hypot(self.worldX - self.lastMotionSample[0], self.worldY - self.lastMotionSample[1]) > self.size * .16:
+            self.motionEchoes.append((self.lastMotionSample[0], self.lastMotionSample[1], .7))
+            self.motionEchoes = self.motionEchoes[-10:]
+            self.lastMotionSample = (self.worldX, self.worldY)
+        if self.survivalActive and self.entranceRemaining <= 0:
+            self.survivalRemaining = max(0.0, self.survivalRemaining - dt)
+            if self.survivalRemaining <= 0 and not self.debugPhaseLocked:
+                if self.phase == 4:
+                    self.firstSurvivalComplete = True
+                    self.hp = self.maxHp * .5
+                    self._set_chronos_phase(5)
+                else:
+                    self._begin_collapse()
+                    return
+        original_speed = self.speed
+        if self.phase == 7:
+            self.speed *= 1.32
+        PathChaseBoss.updateEnemy(self, player_world_x, player_world_y, sink)
+        self.speed = original_speed
+        if self.survivalActive:
+            base = .82 if self.phase == 4 else .48
+            self.attackCooldown = min(self.attackCooldown,
+                                      self.attackCooldownMax * base)
+
+    def _draw_portal_cube(self, screen, center, fade=1.0, collapse=0.0):
+        pulse = .5 + .5 * sin(self.age * .12)
+        base = self.size * (1 - collapse * .76)
+        rect = pygame.Rect(0, 0, base, base)
+        rect.center = center
+        layers = ((0, self.finalBodyColor.lerp(ui.CREAM, .12)),
+                  (.17, self.finalBodyColor.lerp(self.phaseAccent, .42)),
+                  (.34, self.phaseAccent.lerp(ui.CREAM, .28 + pulse * .18)))
+        pygame.draw.rect(screen, ui.SHADOW, rect.move(4, 5))
+        pygame.draw.rect(screen, ui.INK, rect.inflate(4, 4), max(2, int(base * .055)))
+        for inset, color in layers:
+            layer = rect.inflate(-base * inset, -base * inset)
+            pygame.draw.rect(screen, color.lerp(ui.VOID, (1 - fade) * .55), layer)
+        shine = rect.inflate(-base * .62, -base * .62)
+        pygame.draw.rect(screen, ui.CREAM, shine, max(1, int(base * .035)))
+
+    def drawEnemy(self, screen):
+        self.visualAttackTimer = max(0, self.visualAttackTimer - vH.get_timer_step())
+        self._draw_path_arena(screen)
+        collapse = (0.0 if not self.collapsing else
+                    1.0 - self.collapseRemaining / self.collapseDuration)
+        for world_x, world_y, fade in self.motionEchoes:
+            point = bG.world_to_screen(world_x + self.size / 2, world_y + self.size / 2)
+            echo_rect = pygame.Rect(0, 0, self.size * .72 * fade, self.size * .72 * fade)
+            echo_rect.center = point
+            pygame.draw.rect(screen, self.phaseAccent.lerp(ui.VOID, 1 - fade), echo_rect, 2)
+        center = (self.posX + self.size / 2, self.posY + self.size / 2)
+        attack = min(1.0, self.visualAttackTimer / max(1, vH.frameRate * .24))
+        particle_count = 72 if self.collapsing else 18
+        for index in range(particle_count):
+            angle = index * 2.399963 + self.age * (.012 + (index % 4) * .002)
+            if self.collapsing:
+                distance = self.size * collapse * (1.2 + (index % 11) * .34)
+                fade = max(0.08, 1 - collapse * .72)
+            else:
+                cycle = (self.age * .012 + index * .073) % 1.0
+                distance = self.size * (.42 + cycle * (.55 + attack * .45))
+                fade = 1 - cycle * .62
+            point = (center[0] + cos(angle) * distance,
+                     center[1] + sin(angle) * distance * (.76 + .12 * sin(index)))
+            extent = max(1, int(self.size * (.026 + (index % 3) * .011) * fade))
+            color = (ui.CREAM if index % 5 == 0 else
+                     self.phaseAccent.lerp(self.finalBodyColor, (index % 4) / 5))
+            pygame.draw.rect(screen, color,
+                             (point[0] - extent / 2, point[1] - extent / 2,
+                              extent, extent))
+        if collapse < .97:
+            self._draw_portal_cube(screen, center, 1 - collapse * .85, collapse)
+        # The delayed shot origins remain visible as thin temporal apertures.
+        if self.phase == 7:
+            for delay, origin, _, _ in self.echoQueue[-7:]:
+                point = bG.world_to_screen(*origin)
+                radius = self.size * (.11 + .05 * max(0, min(1, delay / 1.7)))
+                pygame.draw.circle(screen, ui.INK, point, radius + 3, 2)
+                pygame.draw.circle(screen, self.phaseAccent, point, radius, 1)
+        if self.entranceRemaining > 0:
+            ui.draw_text(screen, self.phaseLabel, 9 * ui.display_scale(screen),
+                         self.phaseAccent, (center[0], self.posY - 12), "midbottom")
 
 
 class SinChemesthesisBoss(PathChaseBoss):
@@ -2858,7 +3283,8 @@ class SinChemesthesisBoss(PathChaseBoss):
 
     def _shot(self, sink, direction, speed, damage, scale=.25, *, shape="diamond",
               path="linear", lifetime=None, speed_decay=0, orbit_radius=0,
-              angular_speed=0, owner_suffix="sin", affliction=None,
+              angular_speed=0, amplitude=0, frequency=.035,
+              owner_suffix="sin", affliction=None,
               affliction_duration=0.0, affliction_strength=0.0, exposure=0.0,
               affliction_source=None):
         center_x, center_y = self._center()
@@ -2867,7 +3293,8 @@ class SinChemesthesisBoss(PathChaseBoss):
             center_x - size / 2, center_y - size / 2, direction, speed, damage, size,
             travel_range=vH.tileSizeGlobal * self.shotRangeTiles,
             color=self.phaseAccent, shape=shape, path=path, lifetime=lifetime,
-            speed_decay=speed_decay, orbit_center=self._center() if orbit_radius else None,
+            speed_decay=speed_decay, amplitude=amplitude, frequency=frequency,
+            orbit_center=self._center() if orbit_radius else None,
             orbit_radius=orbit_radius, orbit_angle=direction,
             angular_speed=angular_speed,
             owner=f"{self.ownerPrefix}_{owner_suffix}", ignore_walls=True,
@@ -3020,7 +3447,7 @@ class SinChemesthesisBoss(PathChaseBoss):
             return
         progress = 1 - self.actTransitionTimer / self.actTransitionDuration
         alpha = int(185 * min(1, progress * 5, (1 - progress) * 5))
-        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        veil = _transient_surface(screen)
         pygame.draw.rect(veil, (ui.VOID.r, ui.VOID.g, ui.VOID.b, alpha),
                          (0, screen.get_height() * .3,
                           screen.get_width(), screen.get_height() * .4))
@@ -3043,6 +3470,16 @@ class SinChemesthesisBoss(PathChaseBoss):
         center = bG.world_to_screen(*self._center())
         tile = vH.tileSizeGlobal
         extent = int(tile * (7.2 if self.finalBoss else 4.8))
+        cache_key = (extent, self.phase, tuple(self.phaseAccent), self.finalBoss)
+        cached = getattr(self, "_fieldDiagramSurface", None)
+        if cached is not None and getattr(self, "_fieldDiagramCacheKey", None) == cache_key:
+            screen.blit(cached, (center[0] - extent, center[1] - extent))
+            sigil_progress = 1 - self.sigilTransitionTimer / self.sigilTransitionDuration
+            self._draw_sigil(screen, center, tile * (2.25 if self.finalBoss else 1.55),
+                             max(0.0, sigil_progress), self.age * .0008,
+                             alpha=55, phase=self.phase)
+            self._draw_persistent_terrain(screen)
+            return
         field = pygame.Surface((extent * 2, extent * 2), pygame.SRCALPHA)
         local = (extent, extent)
         pulse = .5 + .5 * sin(self.age * .025)
@@ -3109,6 +3546,8 @@ class SinChemesthesisBoss(PathChaseBoss):
             point = (local[0] + cos(angle) * radius,
                      local[1] + sin(angle) * radius - (self.age * .04 + index * 13) % tile)
             pygame.draw.circle(field, bright, point, 2 + index % 3)
+        self._fieldDiagramCacheKey = cache_key
+        self._fieldDiagramSurface = field
         screen.blit(field, (center[0] - extent, center[1] - extent))
         sigil_progress = 1 - self.sigilTransitionTimer / self.sigilTransitionDuration
         self._draw_sigil(screen, center, tile * (2.25 if self.finalBoss else 1.55),
@@ -3122,8 +3561,9 @@ class SinChemesthesisBoss(PathChaseBoss):
     def _draw_chemical_body(self, screen):
         rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
         pulse = .5 + .5 * sin(self.age * .04)
-        # Seven reaction vessels make Rot's phase progression readable on its body.
-        pip_count = 7 if self.finalBoss else 4
+        # Reaction vessels mirror the encounter's actual phase count. Rot fills
+        # seven; Kage and the temporary Ache scaffold fill four.
+        pip_count = len(self.phaseLabels)
         pip_radius = self.size * .62
         for index in range(pip_count):
             angle = -pi / 2 + index * 2 * pi / pip_count
@@ -3167,7 +3607,9 @@ class SinChemesthesisBoss(PathChaseBoss):
         name, strokes = self.SIN_SIGILS[index]
         progress = max(0.0, min(1.0, progress))
         extent = max(8, int(radius * 2.8))
-        aa = 2
+        # These vector marks are already small. Rendering at final resolution
+        # avoids allocating and smooth-scaling a 4x-pixel temporary every frame.
+        aa = 1
         symbol = pygame.Surface((extent * aa, extent * aa), pygame.SRCALPHA)
         origin = (extent * aa / 2, extent * aa / 2)
         cos_angle, sin_angle = cos(rotation), sin(rotation)
@@ -3203,12 +3645,11 @@ class SinChemesthesisBoss(PathChaseBoss):
                                   max(1, line_width // 3))
                 pygame.draw.circle(symbol, (*ui.CREAM[:3], alpha), visible[-1],
                                    max(1, line_width // 2))
-        symbol = pygame.transform.smoothscale(symbol, (extent, extent))
         screen.blit(symbol, (center[0] - extent / 2, center[1] - extent / 2))
         return name
 
 
-class Kage(SinChemesthesisBoss):
+class Kage(MidpointBossStructure, SinChemesthesisBoss):
     bossName = "KAGE"
     subtitle = "THE FIRST REACTION"
     phaseLabels = ("FEAST", "PROVOCATION", "STAGNANT MIRROR", "LURE")
@@ -3253,6 +3694,12 @@ class Kage(SinChemesthesisBoss):
     shotSpeed = .30
     shotScale = .26
     shotRangeTiles = 34
+    MIDPOINT_MAX_HP = 93000
+    MIDPOINT_CONTACT_DAMAGE = 340
+    MIDPOINT_SURVIVAL_PHASE = 3
+    MIDPOINT_SURVIVAL_DURATION = 14.0
+    MIDPOINT_PRE_SURVIVAL_PHASES = (1, 2)
+    MIDPOINT_POST_SURVIVAL_PHASES = (4,)
 
     def _fire_pattern(self, player_x, player_y, projectile_sink):
         center_x, center_y = self._center()
@@ -3275,217 +3722,223 @@ class Kage(SinChemesthesisBoss):
 
 class Rot(Kage):
     bossName = "ROT"
-    subtitle = "THE FIELD THAT REMAINS"
+    subtitle = "THE WEIGHT THAT REMAINS"
     finalBoss = True
-    ownerPrefix = "rot_chemesthesis"
-    finalBodyColor = pygame.Color(122, 47, 36)
-    finalAccentColor = pygame.Color(210, 85, 36)
-    finalBodyScale = 2.5
-    finalCooldownSeconds = 1.35
-    finalShotSpeed = .38
-    finalShotScale = .29
-    movementSpeed = .07
-    movementModes = ("static", "path", "chase", "static", "path", "chase", "static")
+    ownerPrefix = "rot_touch"
+    finalBodyColor = pygame.Color(91, 69, 43)
+    finalAccentColor = pygame.Color(143, 173, 73)
+    finalBodyScale = 3.15
+    finalCooldownSeconds = 1.55
+    finalShotSpeed = .28
+    finalShotScale = .31
+    movementSpeed = .035
+    movementModes = ("static", "path", "static", "path", "static", "path", "static")
+    shotRangeTiles = 64
+    arenaShape = "square"
+    arenaScale = 9.4
     ACT_METADATA = {
-        3: "ACT II // TEMPTATION",
-        5: "ACT III // SATURATION",
+        3: "ACT II // STAGNATION",
+        6: "ACT III // BURIAL",
+        7: "FINALE // THE ROOM CLOSES",
     }
-    phaseLabels = ("CROWN", "HOARD", "PULL", "BORROWED SHAPE",
-                   "CONSUMPTION", "RETORT", "THE ROT")
+    phaseLabels = ("SEEP", "SILT", "SLUMP", "BLOOM",
+                   "SINKHOLE", "MIASMA", "BURIAL")
     phaseFlavors = (
-        "There is room for only one above.",
-        "Nothing is enough.",
-        "Every nerve bends toward desire.",
-        "Your strength looks better on me.",
-        "The field must feed.",
-        "Every wound demands an answer.",
-        "Rest. Become part of the garden.",
+        "The first stain is patient.",
+        "What settles does not leave.",
+        "Even the ground is too tired to stand.",
+        "Still water learns to breathe.",
+        "The room caves in one lane at a time.",
+        "The air thickens until distance means nothing.",
+        "Stop struggling. The floor has room.",
     )
     phaseColors = (
-        pygame.Color(232, 196, 84), pygame.Color(211, 145, 45),
-        pygame.Color(216, 80, 112), pygame.Color(111, 155, 88),
-        pygame.Color(153, 77, 42), pygame.Color(224, 55, 35),
-        pygame.Color(91, 117, 52),
+        pygame.Color(151, 128, 65), pygame.Color(119, 105, 61),
+        pygame.Color(127, 91, 55), pygame.Color(116, 158, 72),
+        pygame.Color(91, 112, 57), pygame.Color(83, 129, 78),
+        pygame.Color(106, 74, 48),
     )
     SIN_SIGILS = (
-        ("PRIDE", (
+        ("SEEPAGE", (
             ((-.72, .52), (-.58, -.22), (-.25, .08), (0, -.72),
              (.25, .08), (.58, -.22), (.72, .52)),
             ((-.58, .28), (.58, .28)), ((0, -.72), (0, .68)),
         )),
-        ("GREED", (
+        ("SEDIMENT", (
             ((0, -.74), (.62, -.18), (.42, .58), (0, .74),
              (-.42, .58), (-.62, -.18), (0, -.74)),
             ((-.42, -.06), (0, .28), (.42, -.06)),
             ((0, -.42), (0, .74)),
         )),
-        ("LUST", (
+        ("SLUMP", (
             ((0, .72), (-.68, -.04), (-.42, -.6), (0, -.22),
              (.42, -.6), (.68, -.04), (0, .72)),
             ((-.72, 0), (.72, 0)),
         )),
-        ("ENVY", (
+        ("SPORE BLOOM", (
             ((-.74, 0), (-.36, -.42), (0, 0), (-.36, .42), (-.74, 0)),
             ((.74, 0), (.36, -.42), (0, 0), (.36, .42), (.74, 0)),
             ((-.36, 0), (.36, 0)),
         )),
-        ("GLUTTONY", (
+        ("SINKHOLE", (
             ((-.7, -.34), (-.34, -.68), (.34, -.68), (.7, -.34)),
             ((-.7, .34), (-.34, .68), (.34, .68), (.7, .34)),
             ((-.7, -.34), (-.28, 0), (-.7, .34)),
             ((.7, -.34), (.28, 0), (.7, .34)),
         )),
-        ("WRATH", (
+        ("MIASMA", (
             ((-.58, -.7), (.1, -.08), (-.18, .08), (.58, .7)),
             ((.58, -.7), (-.1, -.08), (.18, .08), (-.58, .7)),
             ((-.72, 0), (.72, 0)),
         )),
-        ("SLOTH", (
+        ("BURIAL", (
             ((-.62, -.56), (.48, -.56), (.48, .34), (-.28, .34),
              (-.28, -.1), (.14, -.1), (.14, .06)),
             ((0, -.76), (0, -.56)),
             ((-.48, .62), (0, .76), (.48, .62)),
         )),
     )
+    DAMAGE_PHASES = (1, 2, 3, 4, 5, 6)
+    SURVIVAL_PHASES = {7: 30.0}
 
     def __init__(self, world_x, world_y, rng=None):
         super().__init__(world_x, world_y, rng)
-        self.actTitle = "ACT I // APPETITE"
+        # Rot remains the endurance check, but Burial is now a zero-health
+        # survival spectacle rather than another slice of its damageable pool.
+        self.maxHp = 330000
+        self.hp = self.maxHp
+        self.damage = 980
+        self.expValue = 1600
+        self.maxStagger = float("inf")
+        self.minimumStaggerPerHit = 0
+        self.actTitle = "ACT I // ACCUMULATION"
         self.actTransitionTimer = self.actTransitionDuration
         self.phaseProtectionTimer = self.actTransitionDuration
-        self.crystalWalls = []
-        self.cleansingVents = []
-        self.ventsUsed = 0
+        self.mudBanks = []
         self.peakExposure = 0.0
-        self.compressionCooldown = 5.0
-        self.consumedCrystalPulse = 0.0
-        center_x, center_y = self._center()
-        for index in range(4):
-            angle = index * pi / 2 + pi / 4
-            self.cleansingVents.append({
-                "x": center_x + cos(angle) * vH.tileSizeGlobal * 5.7,
-                "y": center_y + sin(angle) * vH.tileSizeGlobal * 5.7,
-                "angle": angle, "cooldown": 0.0, "flash": 0.0,
-            })
+        self.terrainCooldown = 4.8
+        self.survivalActive = False
+        self.survivalRemaining = 0.0
+        self.collapsing = False
+        self.collapseDuration = 10.0
+        self.collapseRemaining = 0.0
 
     def _set_sin_phase(self, phase):
         super()._set_sin_phase(phase)
-        if hasattr(self, "crystalWalls"):
-            self.crystalWalls.clear()
-        if phase == 7 and hasattr(self, "compressionCooldown"):
-            self.compressionCooldown = 5.0
+        if hasattr(self, "mudBanks") and phase in self.ACT_METADATA:
+            self.mudBanks.clear()
+        if hasattr(self, "terrainCooldown"):
+            self.terrainCooldown = 4.8
+        if hasattr(self, "survivalRemaining"):
+            self.survivalActive = self.phase in self.SURVIVAL_PHASES
+            self.survivalRemaining = self.SURVIVAL_PHASES.get(self.phase, 0.0)
+
+    def _update_phase(self):
+        if self.debugPhaseLocked or self.survivalActive or self.collapsing:
+            return
+        if self.hp <= 0:
+            self.hp = 1
+            self._set_sin_phase(7)
+            return
+        ratio = max(0.0, min(1.0, self.hp / self.maxHp))
+        desired = min(6, int((1.0 - ratio) * 6 + 1e-9) + 1)
+        if desired != self.phase:
+            self._set_sin_phase(desired)
 
     def _camera_cardinal_angle(self, quarter_turn=0):
         screen_x, screen_y = bG.screen_vector_to_world(1, 0)
         base = atan2(screen_y, screen_x)
         return base + quarter_turn * pi / 2
 
-    def _grow_crystal_wall(self, angle, duration=8.0, kind=None, distance_tiles=3.9,
-                           compression=False):
-        center_x, center_y = self._center()
+    def _raise_mud_bank(self, angle, duration=12.0, distance_tiles=6.6,
+                        width_tiles=4.6, advancing=False):
+        center_x, center_y = self._arena_center()
         distance = vH.tileSizeGlobal * distance_tiles
         wall_center_x = center_x + cos(angle) * distance
         wall_center_y = center_y + sin(angle) * distance
         horizontal = abs(cos(angle)) < abs(sin(angle))
-        width = vH.tileSizeGlobal * (3.5 if horizontal else .72)
-        height = vH.tileSizeGlobal * (.72 if horizontal else 3.5)
+        width = vH.tileSizeGlobal * (width_tiles if horizontal else .9)
+        height = vH.tileSizeGlobal * (.9 if horizontal else width_tiles)
         rect = pygame.Rect(0, 0, width, height)
         rect.center = (wall_center_x, wall_center_y)
-        kind = kind or ("brittle" if self.patternRotation % 2 == 0 else "reinforced")
-        self.crystalWalls.append({"rect": rect, "remaining": duration,
-                                  "duration": duration, "angle": angle,
-                                  "kind": kind, "hp": 420 if kind == "brittle" else None,
-                                  "warning": 2.5 if compression else 0.0,
-                                  "compression": compression})
-        self.crystalWalls[:] = self.crystalWalls[-6:]
+        self.mudBanks.append({"rect": rect, "remaining": duration,
+                              "duration": duration, "angle": angle,
+                              "warning": 1.8, "advancing": advancing})
+        self.mudBanks[:] = self.mudBanks[-8:]
 
     def _update_terrain(self, player_x, player_y, dt):
         import characterStats as cS
         self.peakExposure = max(self.peakExposure, cS.bossAfflictions["exposure"])
-        self.consumedCrystalPulse = max(0.0, self.consumedCrystalPulse - dt)
-        for wall in self.crystalWalls:
+        for wall in self.mudBanks:
             wall["remaining"] = max(0.0, wall["remaining"] - dt)
             wall["warning"] = max(0.0, wall["warning"] - dt)
-            if wall["compression"] and wall["warning"] <= 0:
-                center_x, center_y = self._center()
+            if wall["advancing"] and wall["warning"] <= 0:
+                center_x, center_y = self._arena_center()
                 delta_x = center_x - wall["rect"].centerx
                 delta_y = center_y - wall["rect"].centery
                 distance = max(1.0, hypot(delta_x, delta_y))
-                if distance > vH.tileSizeGlobal * 2.25:
-                    step = vH.tileSizeGlobal * .34 * dt
+                if distance > vH.tileSizeGlobal * 2.8:
+                    step = vH.tileSizeGlobal * .22 * dt
                     wall["rect"].centerx += delta_x / distance * step
                     wall["rect"].centery += delta_y / distance * step
-        self.crystalWalls[:] = [wall for wall in self.crystalWalls
-                                if wall["remaining"] > 0]
-        for vent in self.cleansingVents:
-            vent["cooldown"] = max(0.0, vent["cooldown"] - dt)
-            vent["flash"] = max(0.0, vent["flash"] - dt)
-            if (vent["cooldown"] <= 0 and cS.bossAfflictions["exposure"] > .25
-                    and hypot(player_x - vent["x"], player_y - vent["y"])
-                    <= vH.tileSizeGlobal * 1.05):
-                cS.reset_boss_afflictions()
-                vent["cooldown"] = 12.0
-                vent["flash"] = 1.0
-                self.ventsUsed += 1
-                # Cleansing opens the player's immediate position but seals the
-                # corresponding inner route, turning relief into a terrain choice.
-                self._grow_crystal_wall(vent["angle"], 7.0)
-        if self.phase == 7 and self.actTransitionTimer <= 0:
-            self.compressionCooldown -= dt
-            if self.compressionCooldown <= 0:
+        self.mudBanks[:] = [wall for wall in self.mudBanks if wall["remaining"] > 0]
+        if self.phase in (5, 7) and self.actTransitionTimer <= 0:
+            self.terrainCooldown -= dt
+            if self.terrainCooldown <= 0:
                 angle = self._camera_cardinal_angle(self.patternRotation % 2)
-                self._grow_crystal_wall(angle, 11.0, "reinforced", 6.2, True)
-                self._grow_crystal_wall(angle + pi, 11.0, "reinforced", 6.2, True)
-                self.compressionCooldown = 12.0
+                self._raise_mud_bank(angle, 13.0, advancing=True)
+                self._raise_mud_bank(angle + pi, 13.0, advancing=True)
+                self.terrainCooldown = 7.5 if self.phase == 5 else 5.2
 
     def movement_obstacles(self):
-        return tuple(wall["rect"] for wall in self.crystalWalls
+        return tuple(wall["rect"] for wall in self.mudBanks
                      if wall["warning"] <= 0)
 
     def get_screen_hitboxes(self):
-        hitboxes = super().get_screen_hitboxes()
-        for index, wall in enumerate(self.crystalWalls):
-            if wall["kind"] != "brittle" or wall["warning"] > 0:
-                continue
-            rect = wall["rect"]
-            corners = tuple(bG.world_to_screen(x, y) for x, y in (
-                (rect.left, rect.top), (rect.right, rect.top),
-                (rect.right, rect.bottom), (rect.left, rect.bottom)))
-            left = min(point[0] for point in corners)
-            top = min(point[1] for point in corners)
-            right = max(point[0] for point in corners)
-            bottom = max(point[1] for point in corners)
-            hitboxes.append((f"crystal:{index}", pygame.Rect(
-                left, top, max(1, right - left), max(1, bottom - top))))
-        return hitboxes
+        # Mud, spores, and sinking cubes are all presentation or terrain. Rot
+        # exposes one consistent body hitbox and never a damage-multiplier part.
+        return Enemy.get_screen_hitboxes(self)
 
-    def _damage_crystal(self, part_id, amount):
-        index = int(str(part_id).split(":", 1)[1])
-        if not 0 <= index < len(self.crystalWalls):
+    def take_damage(self, amount, part_id="body"):
+        if (self.survivalActive or self.collapsing or self.phaseProtectionTimer > 0
+                or self.actTransitionTimer > 0):
             return HitResult(False, False, 0, blocked=True)
-        wall = self.crystalWalls[index]
-        if wall["kind"] != "brittle":
-            return HitResult(False, False, 0, blocked=True)
-        applied = min(wall["hp"], round(amount))
-        wall["hp"] -= applied
-        if wall["hp"] <= 0:
-            self.crystalWalls.pop(index)
-        return HitResult(True, False, applied)
+        previous_hp = self.hp
+        result = Enemy.take_damage(self, amount, "body")
+        if not self.debugPhaseLocked and self.phase in self.DAMAGE_PHASES:
+            gate = self.maxHp * (6 - self.phase) / 6
+            self.hp = max(self.hp, gate)
+            self._update_phase()
+        return HitResult(result.applied, False,
+                         max(0, previous_hp - self.hp), result.blocked)
+
+    def _begin_collapse(self):
+        self.hp = 1
+        self.collapsing = True
+        self.collapseRemaining = self.collapseDuration
+        self.survivalActive = False
+        self.mudBanks.clear()
+        self.transitionCleanupRequested = True
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        if self.collapsing:
+            dt = self._seconds()
+            self.age += vH.get_timer_step()
+            self.collapseRemaining = max(0.0, self.collapseRemaining - dt)
+            if self.collapseRemaining <= 0:
+                self.hp = 0
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        if (self.survivalActive and self.entranceRemaining <= 0
+                and self.actTransitionTimer <= 0):
+            self.survivalRemaining = max(0.0, self.survivalRemaining - self._seconds())
+            if self.survivalRemaining <= 0 and not self.debugPhaseLocked:
+                self._begin_collapse()
+                return
+        super().updateEnemy(player_world_x, player_world_y, projectile_sink)
 
     def _draw_persistent_terrain(self, screen):
-        for vent in self.cleansingVents:
-            point = bG.world_to_screen(vent["x"], vent["y"])
-            ready = vent["cooldown"] <= 0
-            color = ui.CREAM if vent["flash"] > 0 else (
-                pygame.Color(96, 185, 151) if ready else ui.BORDER)
-            radius = int(vH.tileSizeGlobal * (.42 if ready else .32))
-            pygame.draw.circle(screen, ui.INK, point, radius + 6)
-            pygame.draw.circle(screen, color, point, radius, 4)
-            pygame.draw.line(screen, color, (point[0] - radius, point[1]),
-                             (point[0] + radius, point[1]), 2)
-            pygame.draw.line(screen, color, (point[0], point[1] - radius),
-                             (point[0], point[1] + radius), 2)
-        for wall in self.crystalWalls:
+        for wall in self.mudBanks:
             rect = wall["rect"]
             top_left = bG.world_to_screen(rect.left, rect.top)
             bottom_right = bG.world_to_screen(rect.right, rect.bottom)
@@ -3495,114 +3948,578 @@ class Rot(Kage):
                                       max(8, abs(bottom_right[1] - top_left[1])))
             fade = min(1.0, wall["remaining"] * 2)
             warning = wall["warning"] > 0
-            color = (ui.CREAM if warning else ui.lighten(
-                self.phaseAccent, 48 if wall["kind"] == "brittle" else int(20 * fade)))
+            color = ui.CREAM if warning else self.phaseAccent.lerp(ui.VOID, .32)
+            pygame.draw.rect(screen, ui.SHADOW, screen_rect.move(8, 9))
             pygame.draw.rect(screen, ui.INK, screen_rect.inflate(8, 8))
             pygame.draw.rect(screen, color, screen_rect, 3 if warning else 0)
             for offset in range(0, max(screen_rect.width, screen_rect.height),
                                 max(8, int(vH.tileSizeGlobal * .4))):
                 if screen_rect.width >= screen_rect.height:
-                    pygame.draw.line(screen, ui.CREAM,
+                    pygame.draw.line(screen, ui.lighten(color, int(22 * fade)),
                                      (screen_rect.x + offset, screen_rect.bottom),
                                      (screen_rect.x + offset + 9, screen_rect.y), 2)
                 else:
-                    pygame.draw.line(screen, ui.CREAM,
+                    pygame.draw.line(screen, ui.lighten(color, int(22 * fade)),
                                      (screen_rect.x, screen_rect.y + offset),
                                      (screen_rect.right, screen_rect.y + offset + 9), 2)
-        if self.actTransitionTimer > 0:
-            self._draw_route_preview(screen)
-
-    def _draw_route_preview(self, screen):
-        ready = [vent for vent in self.cleansingVents if vent["cooldown"] <= 0]
-        if len(ready) < 2:
-            return
-        color = pygame.Color(96, 185, 151)
-        start = bG.world_to_screen(ready[0]["x"], ready[0]["y"])
-        end = bG.world_to_screen(ready[2 if len(ready) > 2 else 1]["x"],
-                                 ready[2 if len(ready) > 2 else 1]["y"])
-        pygame.draw.line(screen, ui.INK, start, end, 9)
-        pygame.draw.line(screen, color, start, end, 3)
-        midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
-        ui.draw_text(screen, "PREVIEW // CLEAN ROUTE", 9 * ui.display_scale(screen),
-                     color, midpoint, "center")
 
     def challenge_results(self):
         return {
             "clean_traversal": self.peakExposure <= 3.0,
-            "vent_discipline": self.ventsUsed <= 1,
             "uncontaminated": self.peakExposure <= .25,
+            "open_ground": not self.mudBanks,
         }
+
+    def _pool(self, sink, x, y, damage, suffix, size_tiles=1.7,
+              lifetime=17.0, telegraph=1.15):
+        size = vH.tileSizeGlobal * size_tiles
+        pool = EnemyProjectile(
+            x - size / 2, y - size / 2, 0, 0, damage, size,
+            color=self.phaseAccent, shape="square", path="pool", lifetime=lifetime,
+            owner=f"{self.ownerPrefix}_{suffix}", ignore_walls=True,
+        )
+        pool.telegraphDuration = telegraph
+        pool.persistentHazard = True
+        pool.affliction = "slow"
+        pool.afflictionDuration = 1.1
+        pool.afflictionStrength = .12
+        pool.exposure = .7
+        sink.append(pool)
+        return pool
+
+    def _pool_ring(self, sink, count, radius_tiles, damage, suffix, gap=None):
+        center_x, center_y = self._arena_center()
+        for index in range(count):
+            if gap is not None and index == gap % count:
+                continue
+            angle = index * 2 * pi / count + self.patternRotation * .17
+            self._pool(sink,
+                       center_x + cos(angle) * vH.tileSizeGlobal * radius_tiles,
+                       center_y + sin(angle) * vH.tileSizeGlobal * radius_tiles,
+                       damage, suffix)
+
+    @staticmethod
+    def _afflict_recent(shots, count, strength=.12, exposure=.65):
+        for shot in shots[-count:]:
+            shot.affliction = "slow"
+            shot.afflictionDuration = 1.3
+            shot.afflictionStrength = strength
+            shot.exposure = exposure
 
     def _fire_pattern(self, player_x, player_y, projectile_sink):
         center_x, center_y = self._center()
         aimed = atan2(player_y - center_y, player_x - center_x)
-        if self.phase == 1:  # Pride
-            lane_angle = self._camera_cardinal_angle(self.patternRotation % 2)
-            self._parallel_lanes(projectile_sink, lane_angle, 3,
-                                 vH.tileSizeGlobal * 2.4, 330, "pride_crown")
-            self.patternRotation += 1
-        elif self.phase == 2:  # Greed
-            self._radial(projectile_sink, 9, .25, 315, "greed_hoard", mine=True)
-            for index in range(3):
-                self._shot(projectile_sink, index * 2 * pi / 3, 0, 290, scale=.20,
-                           shape="mine", path="orbit", lifetime=12,
-                           orbit_radius=vH.tileSizeGlobal * (3.2 + index),
-                           angular_speed=.26 + index * .05, owner_suffix="greed_coin")
-            self._grow_crystal_wall(self._camera_cardinal_angle(self.patternRotation % 4))
-        elif self.phase == 3:  # Lust
+        if self.phase == 1:  # Seep: simple stains establish the slow vocabulary.
+            self._radial(projectile_sink, 14, .24, 430, "seep_front")
+            self._afflict_recent(projectile_sink, 14)
+            for side in (-1, 1):
+                angle = aimed + side * pi / 2
+                self._pool(projectile_sink,
+                           player_x + cos(angle) * vH.tileSizeGlobal * 1.6,
+                           player_y + sin(angle) * vH.tileSizeGlobal * 1.6,
+                           390, "seep_puddle", 1.45, 15.0)
+        elif self.phase == 2:  # Silt: orbiting clots settle while a new ring spreads.
+            self._radial(projectile_sink, 10, .20, 445, "silt_ring")
+            self._afflict_recent(projectile_sink, 10)
+            for index in range(4):
+                self._shot(projectile_sink, index * pi / 2, 0, 405, scale=.24,
+                           shape="mine", path="orbit", lifetime=16,
+                           orbit_radius=vH.tileSizeGlobal * (3.2 + index * .75),
+                           angular_speed=.12 + index * .025, owner_suffix="silt_clot",
+                           affliction="slow", affliction_duration=1.2,
+                           affliction_strength=.13, exposure=.7)
+            if self.patternRotation % 2 == 0:
+                self._raise_mud_bank(self._camera_cardinal_angle(self.patternRotation % 4),
+                                     11.0, 5.8, 3.8)
+        elif self.phase == 3:  # Slump: the boss barely travels while broad waves sag.
             for index in range(9):
-                offset = -1.3 + 2.6 * index / 8
-                self._shot(projectile_sink, aimed + offset, .62, 325,
-                           owner_suffix="lust_pull", affliction="pull",
-                           affliction_duration=1.4, affliction_strength=.32,
-                           exposure=.8, affliction_source=self._center())
-            self._bomb(projectile_sink, player_x, player_y, 340, "lust_lure")
-        elif self.phase == 4:  # Envy
-            import characterStats as cS
-            build = cS.player_build_snapshot()
-            identity = build["dominant_offense"]
-            count = max(3, min(9, round(build["stats"]["projectile_count"])))
-            if identity == "critical":
-                self._laser(projectile_sink, aimed, 375, "envy_critical")
-            elif identity == "tempo":
-                self._fan(projectile_sink, aimed, count, .55, 1.38, 300, "envy_tempo")
-            elif identity == "precision":
-                self._fan(projectile_sink, aimed, 3, .22, 1.65, 350, "envy_precision")
-            else:
-                self._fan(projectile_sink, aimed, count, .9, 1.05, 335,
-                          f"envy_{identity}")
-            self._fan(projectile_sink, aimed + pi, count, .9, .62, 310,
-                      "envy_reflection")
-        elif self.phase == 5:  # Gluttony
-            if self.crystalWalls:
-                self.crystalWalls.pop(0)
-                self.stagger = max(0.0, self.stagger - self.maxStagger * .25)
-                self.consumedCrystalPulse = 1.0
-            self._bomb(projectile_sink, player_x, player_y, 390, "gluttony_feast")
-            self._radial(projectile_sink, 7, .32, 325, "gluttony_morsel", mine=True)
-        elif self.phase == 6:  # Wrath
-            self._fan(projectile_sink, aimed, 7, .65, 1.2, 370, "wrath_retort")
-            lane_angle = self._camera_cardinal_angle(self.patternRotation % 2)
-            self._parallel_lanes(projectile_sink, lane_angle, 2,
-                                 vH.tileSizeGlobal * 3.2, 360, "wrath_answer")
-            self._parallel_lanes(projectile_sink, lane_angle + pi / 2, 2,
-                                 vH.tileSizeGlobal * 3.2, 360, "wrath_cross")
+                offset = -1.45 + 2.9 * index / 8
+                self._shot(projectile_sink, aimed + offset, .31, 455,
+                           path="sine", owner_suffix="slump_wave",
+                           affliction="slow", affliction_duration=1.35,
+                           affliction_strength=.14, exposure=.75)
+            self._pool(projectile_sink, center_x, center_y, 410,
+                       "slump_wake", 1.8, 19.0, .8)
+        elif self.phase == 4:  # Bloom: spores curve outward around a targeted bog.
+            for index in range(12):
+                self._shot(projectile_sink, index * 2 * pi / 12 + self.patternRotation * .13,
+                           .29, 465, scale=.20, path="sine",
+                           owner_suffix="bloom_spore", affliction="slow",
+                           affliction_duration=1.25, affliction_strength=.12,
+                           exposure=.8)
+            self._pool(projectile_sink, player_x, player_y, 440,
+                       "bloom_bog", 2.25, 19.0, 1.4)
             self.patternRotation += 1
-        else:  # Sloth: persistent rot plus callbacks from the other sins.
-            self._radial(projectile_sink, 12, .16, 335, "sloth_rot", mine=True)
-            for projectile in projectile_sink[-12:]:
-                projectile.affliction = "slow"
-                projectile.afflictionDuration = 2.1
-                projectile.afflictionStrength = .16
-                projectile.exposure = 1.15
-            callback = self.patternRotation % 3
-            if callback == 0:
-                self._laser(projectile_sink, aimed, 345, "rot_crown", .08)
-            elif callback == 1:
-                self._bomb(projectile_sink, player_x, player_y, 355, "rot_feast")
-            else:
-                self._fan(projectile_sink, aimed, 7, 1.5, .72, 345, "rot_desire")
+        elif self.phase == 5:  # Sinkhole: concentric sludge leaves one rotating exit.
+            count = 8
+            gap = self.patternRotation % count
+            radius = 3.8 if self.patternRotation % 2 == 0 else 5.5
+            self._pool_ring(projectile_sink, count, radius, 455, "sinkhole", gap)
+            self._radial(projectile_sink, 8, .18, 475, "sinkhole_draw")
+            self._afflict_recent(projectile_sink, 8, .15, .9)
+        elif self.phase == 6:  # Miasma: slow crossing fogbanks make range unsafe.
+            self._fan(projectile_sink, aimed, 7, 1.8, .27, 485, "miasma_fog")
+            self._afflict_recent(projectile_sink, 7, .14, .85)
+            lane_angle = self._camera_cardinal_angle(self.patternRotation % 2)
+            self._laser(projectile_sink, lane_angle, 505, "miasma_sweep", .035)
+            self._laser(projectile_sink, lane_angle + pi, 505, "miasma_sweep", .035)
+        else:  # Burial: every layer persists while the remaining lanes close.
+            self._radial(projectile_sink, 12, .14, 500, "burial_clods", mine=True)
+            self._afflict_recent(projectile_sink, 12, .16, 1.0)
+            self._radial(projectile_sink, 8, .26, 520, "burial_front")
+            self._afflict_recent(projectile_sink, 8, .14, .85)
+            self._pool_ring(projectile_sink, 6, 4.6, 470, "burial_floor",
+                            self.patternRotation % 6)
         self._mark_attack(.58)
+
+    def drawEnemy(self, screen):
+        self._draw_path_arena(screen)
+        self._draw_field_diagram(screen)
+        self._draw_rot_body(screen)
+        if self.actTransitionTimer > 0:
+            self._draw_rot_act_transition(screen)
+
+    def _draw_rot_body(self, screen):
+        rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
+        baseline = rect.y + rect.height * .72
+        center_x = rect.centerx
+        radius = rect.width * .48
+        cube = max(7, int(self.size / 8.5))
+        vibration = 1.2 + .8 * min(1.0, self.phase / 7)
+
+        # A gridded upper half of a circle reads as a cube-blob sinking through
+        # the floor. Every cell vibrates independently but stays pixel-clean.
+        for row in range(-5, 1):
+            for column in range(-5, 6):
+                local_x = column * cube * .86
+                local_y = row * cube * .82
+                if local_x * local_x + local_y * local_y > radius * radius:
+                    continue
+                phase = row * 1.71 + column * 2.37
+                jitter_x = sin(self.age * .075 + phase) * vibration
+                jitter_y = cos(self.age * .061 + phase) * vibration
+                cell = pygame.Rect(center_x + local_x - cube / 2 + jitter_x,
+                                   baseline + local_y - cube / 2 + jitter_y,
+                                   cube + 1, cube + 1)
+                depth = max(0.0, min(1.0, -local_y / max(1.0, radius)))
+                color = self.finalBodyColor.lerp(self.phaseAccent, .16 + depth * .22)
+                if (row + column + int(self.age * .025)) % 7 == 0:
+                    color = ui.lighten(color, 24)
+                pygame.draw.rect(screen, ui.SHADOW, cell.move(5, 6))
+                pygame.draw.rect(screen, ui.INK, cell.inflate(3, 3))
+                pygame.draw.rect(screen, color, cell)
+                pygame.draw.line(screen, ui.lighten(color, 30), cell.topleft,
+                                 cell.topright, max(1, cube // 10))
+
+        # Detached cubes descend, vibrate, and dissolve to nothing below the
+        # floor rather than floating outward like Dissonance's echoes.
+        for index in range(18):
+            cycle = (self.age * .008 + index * .071) % 1.0
+            side = -1 if index % 2 else 1
+            start_x = center_x + side * radius * (.18 + (index % 7) * .095)
+            fall = radius * (.12 + cycle * 1.2)
+            size = max(1, int(cube * .62 * (1 - cycle)))
+            x = start_x + sin(self.age * .11 + index * 2.1) * (3 + cycle * 6)
+            y = baseline + fall
+            fragment = pygame.Rect(x - size / 2, y - size / 2, size, size)
+            pygame.draw.rect(screen, ui.INK, fragment.inflate(2, 2))
+            pygame.draw.rect(screen, self.phaseAccent.lerp(ui.VOID, cycle * .7), fragment)
+
+        # Mud shelf, square bubbles, and hanging slime keep the silhouette dirty
+        # without introducing a distinct targetable core.
+        shelf = pygame.Rect(center_x - radius * 1.12, baseline - cube * .18,
+                            radius * 2.24, cube * .42)
+        pygame.draw.rect(screen, ui.SHADOW, shelf.move(6, 7))
+        pygame.draw.rect(screen, ui.INK, shelf.inflate(5, 5))
+        pygame.draw.rect(screen, self.phaseAccent.lerp(self.finalBodyColor, .55), shelf)
+        for index in range(9):
+            bubble_size = 3 + index % 4
+            bubble_x = center_x + sin(index * 2.31) * radius * .78
+            bubble_y = baseline - radius * (.18 + ((self.age * .004 + index * .13) % .62))
+            pygame.draw.rect(screen, ui.INK,
+                             (bubble_x - 1, bubble_y - 1, bubble_size + 2, bubble_size + 2))
+            pygame.draw.rect(screen, ui.lighten(self.phaseAccent, 38),
+                             (bubble_x, bubble_y, bubble_size, bubble_size))
+        self._draw_sigil(screen, (center_x, baseline - radius * .48), radius * .38,
+                         max(.1, 1 - self.sigilTransitionTimer / self.sigilTransitionDuration),
+                         sin(self.age * .008) * .08, phase=self.phase)
+
+    def _draw_rot_act_transition(self, screen):
+        progress = 1 - self.actTransitionTimer / self.actTransitionDuration
+        alpha = int(185 * min(1, progress * 5, (1 - progress) * 5))
+        veil = _transient_surface(screen)
+        pygame.draw.rect(veil, (ui.VOID.r, ui.VOID.g, ui.VOID.b, alpha),
+                         (0, screen.get_height() * .3,
+                          screen.get_width(), screen.get_height() * .4))
+        screen.blit(veil, (0, 0))
+        scale = ui.display_scale(screen)
+        ui.draw_text(screen, self.actTitle, 31 * scale, self.phaseAccent,
+                     (screen.get_width() / 2, screen.get_height() * .43), "center")
+        ui.draw_text(screen, f"{self.phaseLabel} SPREADS", 13 * scale, ui.CREAM,
+                     (screen.get_width() / 2, screen.get_height() * .51), "center")
+        ui.draw_text(screen, self.phaseFlavor, 11 * scale,
+                     ui.lighten(self.phaseAccent, 45),
+                     (screen.get_width() / 2, screen.get_height() * .56), "center")
+
+
+class Ache(Kage):
+    """A low-health, high-precision storm of paired nerves and bent light."""
+
+    bossName = "ACHE"
+    subtitle = "THE REACTION WITHOUT REASON"
+    finalBoss = True
+    ownerPrefix = "ache_chemesthesis"
+    finalBodyColor = pygame.Color(202, 78, 38)
+    finalAccentColor = pygame.Color(245, 126, 44)
+    finalBodyScale = 2.28
+    finalCooldownSeconds = 1.12
+    movementSpeed = .18
+    arenaShape = "jagged"
+    arenaScale = 11.4
+    shotRangeTiles = 48
+    movementModes = ("chase", "path", "static", "chase",
+                     "path", "chase", "static", "path")
+    phaseLabels = ("PINPRICK", "CROSSED NERVES", "MISSTEP", "REFLEX STORM",
+                   "AFTERSHOCK", "FRACTURE", "WHITE ACHE", "OVERLOAD")
+    phaseFlavors = (
+        "The little pains arrive in pairs.",
+        "Every signal crosses another going the wrong way.",
+        "The broad warning is honest. Your foot is not.",
+        "Do not understand it. Outlast it.",
+        "The first pain was only the message.",
+        "Three points disagree on where straight is.",
+        "Small errors gather around one enormous consequence.",
+        "All nerves answer at once.",
+    )
+    phaseColors = tuple(pygame.Color(*color) for color in (
+        (242, 126, 42), (251, 151, 51), (233, 91, 42), (255, 174, 57),
+        (225, 78, 52), (247, 116, 39), (255, 194, 70), (255, 112, 43)))
+    SIN_SIGILS = (
+        ("PINPRICK", (((0, -.72), (0, .72)), ((-.18, -.45), (.18, -.45)))),
+        ("CROSSED NERVES", (((-.7, -.6), (.7, .6)), ((.7, -.6), (-.7, .6)))),
+        ("MISSTEP", (((-.7, -.55), (-.05, -.05), (-.45, .65)),
+                     ((.08, -.58), (.7, -.08), (.28, .66)))),
+        ("REFLEX", (((0, -.75), (.68, 0), (0, .75), (-.68, 0), (0, -.75)),)),
+        ("AFTERSHOCK", (((-.72, -.3), (-.25, -.3), (-.08, -.7),
+                         (.12, .48), (.3, .02), (.72, .02)),)),
+        ("FRACTURE", (((-.64, -.7), (-.12, -.12), (-.48, .68)),
+                      ((.55, -.72), (.08, -.08), (.62, .65)))),
+        ("WHITE ACHE", (((-.72, 0), (.72, 0)), ((0, -.72), (0, .72)),
+                        ((-.5, -.5), (.5, .5)), ((.5, -.5), (-.5, .5)))),
+        ("OVERLOAD", (((0, -.78), (.72, -.22), (.44, .68), (-.44, .68),
+                       (-.72, -.22), (0, -.78)), ((-.62, 0), (.62, 0)))),
+    )
+    DAMAGE_PHASES = (1, 2, 3, 5, 6, 7)
+    SURVIVAL_PHASES = {4: 20.0, 8: 30.0}
+    ACT_METADATA = {4: "ACT II // INVOLUNTARY REFLEX",
+                    8: "ACT III // TOTAL OVERLOAD"}
+
+    def __init__(self, world_x, world_y, rng=None):
+        super().__init__(world_x, world_y, rng)
+        self.maxHp = 280000
+        self.hp = self.maxHp
+        self.damage = 880
+        self.expValue = 1500
+        self.maxStagger = 135
+        self.actTitle = "ACT I // FIRST SIGNAL"
+        self.actTransitionTimer = self.actTransitionDuration
+        self.phaseProtectionTimer = self.actTransitionDuration
+        self.firstSurvivalComplete = False
+        self.survivalActive = False
+        self.survivalRemaining = 0.0
+        self.collapsing = False
+        self.collapseDuration = 10.0
+        self.collapseRemaining = 0.0
+        self.joltCooldown = .7
+        self.joltEchoes = []
+        self.attackAimAngle = 0.0
+        self.phaseTimeLimit = 20.0
+
+    def _set_sin_phase(self, phase):
+        super()._set_sin_phase(phase)
+        if hasattr(self, "joltCooldown"):
+            self.survivalActive = self.phase in self.SURVIVAL_PHASES
+            self.survivalRemaining = self.SURVIVAL_PHASES.get(self.phase, 0.0)
+            self.joltCooldown = .15
+            if self.phase == 4:
+                self.actTitle = "ACT II // INVOLUNTARY REFLEX"
+            elif self.phase == 8:
+                self.actTitle = "ACT III // TOTAL OVERLOAD"
+
+    def _update_phase(self):
+        if self.debugPhaseLocked or self.survivalActive or self.collapsing:
+            return
+        ratio = self.hp / self.maxHp
+        if not self.firstSurvivalComplete:
+            desired = 1 if ratio > 5/6 else 2 if ratio > 2/3 else 3
+            if ratio <= .5:
+                self.hp = self.maxHp * .5
+                desired = 4
+        else:
+            desired = 5 if ratio > 1/3 else 6 if ratio > 1/6 else 7
+            if self.hp <= 0:
+                self.hp = 1
+                desired = 8
+        if desired != self.phase:
+            self._set_sin_phase(desired)
+
+    def take_damage(self, amount, part_id="body"):
+        if (self.survivalActive or self.collapsing or self.actTransitionTimer > 0
+                or self.phaseProtectionTimer > 0):
+            return HitResult(False, False, 0, blocked=True)
+        previous = self.hp
+        Enemy.take_damage(self, amount, "body")
+        if not self.debugPhaseLocked:
+            gates = {1: 5/6, 2: 2/3, 3: 1/2, 5: 1/3, 6: 1/6, 7: 0}
+            self.hp = max(self.hp, self.maxHp * gates.get(self.phase, 0))
+            self._update_phase()
+        return HitResult(True, False, max(0, previous - self.hp))
+
+    def _begin_collapse(self):
+        self.hp = 1
+        self.collapsing = True
+        self.collapseRemaining = self.collapseDuration
+        self.survivalActive = False
+        self.transitionCleanupRequested = True
+
+    def _jolt(self, dt):
+        self.joltCooldown -= dt
+        if self.joltCooldown > 0 or self.entranceRemaining > 0:
+            return
+        old = (self.worldX, self.worldY)
+        mode = self.movementModes[(self.phase - 1) % len(self.movementModes)]
+        strength = (.95 if self.survivalActive else .55) * vH.tileSizeGlobal
+        if mode == "static":
+            strength *= .35
+        angle = self.rng.uniform(-pi, pi)
+        self._try_axis_move(cos(angle) * strength, "x")
+        self._try_axis_move(sin(angle) * strength, "y")
+        self.joltEchoes.append((old[0], old[1], 1.0))
+        self.joltEchoes = self.joltEchoes[-6:]
+        self.joltCooldown = self.rng.uniform(.34, .78) if self.survivalActive else self.rng.uniform(.7, 1.25)
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        projectile_sink = projectile_sink if projectile_sink is not None else []
+        dt = self._seconds()
+        if self.collapsing:
+            self.age += vH.get_timer_step()
+            self.collapseRemaining = max(0.0, self.collapseRemaining - dt)
+            self.joltEchoes = [(x, y, fade - dt * .9) for x, y, fade in self.joltEchoes
+                               if fade - dt * .9 > 0]
+            if self.collapseRemaining <= 0:
+                self.hp = 0
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        self._jolt(dt)
+        self.joltEchoes = [(x, y, fade - dt * 1.8) for x, y, fade in self.joltEchoes
+                           if fade - dt * 1.8 > 0]
+        if self.survivalActive and self.entranceRemaining <= 0 and self.actTransitionTimer <= 0:
+            self.survivalRemaining = max(0.0, self.survivalRemaining - dt)
+            if self.survivalRemaining <= 0 and not self.debugPhaseLocked:
+                if self.phase == 4:
+                    self.firstSurvivalComplete = True
+                    self.hp = self.maxHp * .5
+                    self._set_sin_phase(5)
+                else:
+                    self._begin_collapse()
+                    return
+        # Chase phases pursue a false future position; path phases retain the
+        # inherited crossed-frequency route. Jolts keep both from settling.
+        if self.movementModes[(self.phase - 1) % len(self.movementModes)] == "chase":
+            player_world_x += sin(self.phaseElapsed * 5.7) * self.arenaRadius * .16
+            player_world_y += cos(self.phaseElapsed * 4.3) * self.arenaRadius * .14
+        super().updateEnemy(player_world_x, player_world_y, projectile_sink)
+
+    def _helix(self, sink, direction, pairs, damage, suffix, speed=.72,
+               amplitude_tiles=1.15):
+        for lane in range(pairs):
+            base = direction + (lane - (pairs - 1) / 2) * .24
+            for sign in (-1, 1):
+                self._shot(sink, base, speed, damage, scale=.13, path="sine",
+                           amplitude=sign * vH.tileSizeGlobal * amplitude_tiles,
+                           frequency=.025 + lane * .002,
+                           owner_suffix=f"{suffix}_micro")
+
+    def _lightning(self, sink, direction, damage, suffix, origin=None):
+        origin = origin or self._center()
+        bolt = EnemyProjectile(
+            origin[0], origin[1], direction, 6.4, damage, self.size * .13,
+            travel_range=self.arenaRadius * 2.15, color=self.phaseAccent,
+            shape="laser", path="lightning", lifetime=6.0,
+            owner=f"{self.ownerPrefix}_{suffix}_heavy", ignore_walls=True)
+        bolt.telegraphDuration = 1.05
+        route_length = sum(hypot(end[0]-start[0], end[1]-start[1])
+                           for start, end in zip(bolt.lightningPoints,
+                                                 bolt.lightningPoints[1:]))
+        bolt.lifetime = (bolt.telegraphDuration
+                         + route_length / (bolt.speed * vH.tileSizeGlobal) + .35)
+        sink.append(bolt)
+        return bolt
+
+    def _satellite_origin(self, index):
+        center = self._center()
+        angle = self.age * .035 + index * 2 * pi / 3 + sin(self.age * .013 + index) * .5
+        return (center[0] + cos(angle) * self.size * .78,
+                center[1] + sin(angle) * self.size * .38)
+
+    def _fire_pattern(self, player_x, player_y, sink):
+        center = self._center()
+        aimed = atan2(player_y - center[1], player_x - center[0])
+        self.attackAimAngle = aimed
+        if self.phase == 1:
+            self._helix(sink, aimed, 3, 105, "pinprick")
+        elif self.phase == 2:
+            self._helix(sink, aimed + pi / 2, 2, 115, "crossed")
+            self._lightning(sink, aimed, 690, "crossed_arc", self._satellite_origin(0))
+        elif self.phase == 3:
+            self._helix(sink, aimed, 4, 120, "misstep", .78, .9)
+            self._laser(sink, aimed + pi / 2, 760, "honest_warning_heavy", .025)
+            sink[-1].telegraphDuration = 1.1
+        elif self.phase == 4:
+            for index in range(3):
+                self._helix(sink, index * 2 * pi / 3 + self.patternRotation * .21,
+                            2, 105, "reflex", .74, 1.35)
+            self._lightning(sink, aimed + self.rng.uniform(-.42, .42),
+                            720, "reflex_arc", self._satellite_origin(self.patternRotation % 3))
+        elif self.phase == 5:
+            self._helix(sink, aimed + pi, 4, 115, "aftershock", .82, 1.3)
+            self._laser(sink, aimed, 725, "aftershock_beam_heavy", -.035)
+            sink[-1].telegraphDuration = 1.1
+        elif self.phase == 6:
+            for index in range(3):
+                origin = self._satellite_origin(index)
+                direction = aimed + (index - 1) * .48
+                self._lightning(sink, direction, 750, "fracture", origin)
+            self._helix(sink, aimed, 2, 125, "fracture_fill", .8, .8)
+        elif self.phase == 7:
+            self._parallel_lanes(sink, aimed + pi / 2, 3,
+                                 vH.tileSizeGlobal * 2.4, 820, "white_wall_heavy")
+            self._helix(sink, aimed, 5, 130, "white_ache", .86, 1.05)
+        else:
+            for index in range(4):
+                self._helix(sink, index * pi / 2 + self.patternRotation * .17,
+                            2, 120, "overload", .88, 1.5)
+            for index in range(2):
+                self._lightning(sink, aimed + (index * 2 - 1) * .55,
+                                790, "overload_arc", self._satellite_origin(index))
+        self.patternRotation += 1
+        self._mark_attack(.48)
+
+    @staticmethod
+    def _project_orbit(core, angle, radius_x, radius_y):
+        depth = sin(angle)
+        return core[0] + cos(angle) * radius_x, core[1] + depth * radius_y, depth
+
+    def _orbit_elements(self, core):
+        mode = self.movementModes[(self.phase - 1) % len(self.movementModes)]
+        speed = {"static": .017, "path": .038, "chase": .061}[mode]
+        if self.survivalActive:
+            speed = .095 if self.phase == 4 else .128
+        attack = min(1.0, self.visualAttackTimer / max(1, vH.frameRate * .48))
+        elements = []
+        for index in range(3):
+            angle = (self.age * speed + index * 2 * pi / 3
+                     + sin(self.age * (.019 + index * .003) + index * 2.1) * .52)
+            spread = self.size * ((.42 if self.phase == 4 else .92) if self.survivalActive else 0)
+            spread += self.size * attack * (.34 + index * .09)
+            x, y, depth = self._project_orbit(
+                core, angle, self.size * (.82 + .13 * index) + spread,
+                self.size * (.34 + .05 * index) + spread * .42)
+            x += sin(self.age * .071 + index * 4.2) * self.size * (.06 if self.survivalActive else .025)
+            y += cos(self.age * .057 + index * 3.1) * self.size * (.05 if self.survivalActive else .02)
+            elements.append((depth, (x, y), angle * (1.6 + index * .2),
+                             self.size * (.135 + .018 * (depth + 1))))
+        return sorted(elements)
+
+    def _draw_orange_cube(self, screen, center, extent, angle, fade=1.0):
+        c, s = cos(angle), sin(angle)
+        face = [(center[0] + (x*c-y*s) * extent,
+                 center[1] + (x*s+y*c) * extent)
+                for x, y in ((-1, -.72), (1, -.72), (1, .72), (-1, .72))]
+        lift = (extent * .38, -extent * .42)
+        top = [face[0], face[1], (face[1][0]+lift[0], face[1][1]+lift[1]),
+               (face[0][0]+lift[0], face[0][1]+lift[1])]
+        side = [face[1], face[2], (face[2][0]+lift[0], face[2][1]+lift[1]),
+                (face[1][0]+lift[0], face[1][1]+lift[1])]
+        color = self.phaseAccent.lerp(ui.VOID, max(0, 1 - fade) * .75)
+        pygame.draw.polygon(screen, ui.SHADOW, [(x+5, y+7) for x, y in face])
+        pygame.draw.polygon(screen, ui.INK, face)
+        pygame.draw.polygon(screen, color, face)
+        pygame.draw.polygon(screen, ui.lighten(color, 42), top)
+        pygame.draw.polygon(screen, color.lerp(ui.VOID, .3), side)
+        pygame.draw.lines(screen, ui.INK, True, top, 2)
+        pygame.draw.lines(screen, ui.INK, True, side, 2)
+
+    def _draw_ache_body(self, screen):
+        core = (self.posX + self.size / 2,
+                self.posY + self.size / 2 + sin(self.age * .046) * self.size * .035)
+        collapse = (0 if not self.collapsing else
+                    1 - self.collapseRemaining / self.collapseDuration)
+        elements = self._orbit_elements(core)
+        for depth, point, angle, extent in elements:
+            if depth < 0:
+                if collapse:
+                    point = (point[0] + cos(angle) * self.size * collapse * 2.6,
+                             point[1] + sin(angle) * self.size * collapse * 2.0)
+                self._draw_orange_cube(screen, point, extent * (1 - collapse * .72), angle,
+                                       1 - collapse)
+        radius = self.size * (.29 + .025 * sin(self.age * .083)) * (1 - collapse * .82)
+        pygame.draw.circle(screen, ui.SHADOW, (core[0]+6, core[1]+8), radius * 1.18)
+        pygame.draw.circle(screen, ui.INK, core, radius * 1.14)
+        left = pygame.Rect(core[0]-radius, core[1]-radius, radius, radius*2)
+        right = pygame.Rect(core[0], core[1]-radius, radius, radius*2)
+        pygame.draw.ellipse(screen, pygame.Color(231, 47, 47), left.inflate(radius, 0))
+        pygame.draw.ellipse(screen, pygame.Color(35, 174, 255), right.inflate(radius, 0))
+        pygame.draw.circle(screen, ui.CREAM, core, max(3, int(radius * .19)))
+        if collapse:
+            for ring in range(3):
+                ring_radius = self.size * (.4 + collapse * (1.15 + ring * .7))
+                pygame.draw.circle(screen, (pygame.Color(231, 47, 47)
+                                             if ring % 2 == 0
+                                             else pygame.Color(35, 174, 255)),
+                                   core, ring_radius, max(1, int(5 * (1-collapse))))
+            for index in range(18):
+                angle = index * 2 * pi / 18 + sin(index * 2.7) * .28
+                distance = self.size * collapse * (1.1 + (index % 5) * .52)
+                shard_size = max(1, int(self.size * .045 * (1-collapse*.72)))
+                point = (core[0] + cos(angle) * distance,
+                         core[1] + sin(angle) * distance * (.62 + .12*(index % 3)))
+                shard_color = (self.phaseAccent if index % 3 == 0 else
+                               pygame.Color(35, 174, 255) if index % 2 else
+                               pygame.Color(231, 47, 47))
+                pygame.draw.rect(screen, shard_color,
+                                 (point[0]-shard_size/2, point[1]-shard_size/2,
+                                  shard_size, shard_size))
+        for depth, point, angle, extent in elements:
+            if depth >= 0:
+                if collapse:
+                    point = (point[0] + cos(angle) * self.size * collapse * 2.6,
+                             point[1] + sin(angle) * self.size * collapse * 2.0)
+                self._draw_orange_cube(screen, point, extent * (1 - collapse * .72), angle,
+                                       1 - collapse)
+        for world_x, world_y, fade in self.joltEchoes:
+            echo = bG.world_to_screen(world_x + self.size / 2, world_y + self.size / 2)
+            pygame.draw.circle(screen, self.phaseAccent.lerp(ui.VOID, 1-fade),
+                               echo, max(2, int(self.size * .2 * fade)), 2)
+
+    def drawEnemy(self, screen):
+        self.visualAttackTimer = max(0, self.visualAttackTimer-vH.get_timer_step())
+        self._draw_path_arena(screen)
+        self._draw_field_diagram(screen)
+        self._draw_ache_body(screen)
+        if self.actTransitionTimer > 0:
+            progress = 1 - self.actTransitionTimer / self.actTransitionDuration
+            alpha = int(185 * min(1, progress * 5, (1-progress) * 5))
+            veil = _transient_surface(screen)
+            pygame.draw.rect(veil, (*ui.VOID[:3], alpha),
+                             (0, screen.get_height()*.3, screen.get_width(),
+                              screen.get_height()*.4))
+            screen.blit(veil, (0, 0))
+            scale = ui.display_scale(screen)
+            ui.draw_text(screen, self.actTitle, 30*scale, self.phaseAccent,
+                         (screen.get_width()/2, screen.get_height()*.44), "center")
+            ui.draw_text(screen, self.phaseLabel, 13*scale, ui.CREAM,
+                         (screen.get_width()/2, screen.get_height()*.52), "center")
 
 
 COMMANDMENT_SIGILS = (
@@ -3828,7 +4745,7 @@ class PhantasiaBoss(PathChaseBoss):
         sigil_index = self.phaseSigils[max(0, min(len(self.phaseSigils) - 1, phase - 1))]
         name, strokes = COMMANDMENT_SIGILS[sigil_index]
         extent = max(12, int(radius * 2.7))
-        aa = 2
+        aa = 1
         layer = pygame.Surface((extent * aa, extent * aa), pygame.SRCALPHA)
         origin = extent * aa / 2
         c, s = cos(rotation), sin(rotation)
@@ -3847,7 +4764,6 @@ class PhantasiaBoss(PathChaseBoss):
             pygame.draw.lines(layer, (*ui.INK[:3], alpha), False, points, width + 7)
             pygame.draw.lines(layer, (*self.phaseAccent[:3], alpha), False, points, width)
             pygame.draw.lines(layer, (*ui.CREAM[:3], alpha), False, points, max(1, width // 3))
-        layer = pygame.transform.smoothscale(layer, (extent, extent))
         screen.blit(layer, (center[0] - extent / 2, center[1] - extent / 2))
         return name
 
@@ -3904,7 +4820,7 @@ class PhantasiaBoss(PathChaseBoss):
     def _draw_act_transition(self, screen):
         progress = 1 - self.actTransitionTimer / self.actTransitionDuration
         alpha = int(210 * min(1, progress * 6, (1 - progress) * 6))
-        veil = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        veil = _transient_surface(screen)
         curtain = int(screen.get_width() * min(.5, progress * .7))
         pygame.draw.rect(veil, (42, 13, 52, alpha), (0, 0, curtain, screen.get_height()))
         pygame.draw.rect(veil, (42, 13, 52, alpha),
@@ -3986,7 +4902,7 @@ class PhantasiaBoss(PathChaseBoss):
         }
 
 
-class Hypno(PhantasiaBoss):
+class Hypno(MidpointBossStructure, PhantasiaBoss):
     bossName = "HYPNO"
     subtitle = "THE ORNATE SUGGESTION"
     phaseLabels = ("IDOL", "SPOKEN RULE", "INHERITANCE", "CHOSEN", "OFFERING")
@@ -4008,6 +4924,12 @@ class Hypno(PhantasiaBoss):
     bodyScale = 1.8
     cooldownSeconds = 1.8
     shotRangeTiles = 28
+    MIDPOINT_MAX_HP = 107000
+    MIDPOINT_CONTACT_DAMAGE = 360
+    MIDPOINT_SURVIVAL_PHASE = 4
+    MIDPOINT_SURVIVAL_DURATION = 14.0
+    MIDPOINT_PRE_SURVIVAL_PHASES = (1, 2, 3)
+    MIDPOINT_POST_SURVIVAL_PHASES = (5,)
 
     def _fire_pattern(self, player_x, player_y, sink):
         center = self._center()
@@ -4073,7 +4995,7 @@ class Malady(PhantasiaBoss):
                      "chase", "path", "static", "chase", "static")
     shotRangeTiles = 38
     DAMAGE_PHASES = (1, 2, 3, 4, 6, 7, 8, 9)
-    SURVIVAL_PHASES = {5: 40.0, 10: 40.0}
+    SURVIVAL_PHASES = {5: 22.0, 10: 32.0}
     PROJECTILE_DAMAGE_SCALE = 2.45
 
     def __init__(self, world_x, world_y, rng=None):
@@ -4081,9 +5003,9 @@ class Malady(PhantasiaBoss):
         # Malady is balanced as the level-20 capstone. Dissonance effectively
         # carries roughly 300k health after its damage reduction; Malady trades
         # that hidden reduction for a larger, completely readable health pool.
-        self.maxHp = 360000
+        self.maxHp = 320000
         self.hp = self.maxHp
-        self.damage = 950
+        self.damage = 900
         self.expValue = 1400
         self.actTitle = "ACT I // THE DOCTRINE"
         self.actTransitionTimer = self.actTransitionDuration
@@ -4992,10 +5914,10 @@ BOSS_CATALOG = BossCatalog()
 BOSS_CATALOG.register(BossDefinition("beaudis", "Beaudis", Beaudis))
 BOSS_CATALOG.register(BossDefinition("dissonance", "Dissonance", Dissonance))
 BOSS_CATALOG.register(BossDefinition("bair", "Bair", Bair))
-BOSS_CATALOG.register(BossDefinition("sting", "Sting", Sting))
 BOSS_CATALOG.register(BossDefinition("ishe", "Ishe", Ishe))
 BOSS_CATALOG.register(BossDefinition("chronos", "Chronos", Chronos))
 BOSS_CATALOG.register(BossDefinition("kage", "Kage", Kage))
 BOSS_CATALOG.register(BossDefinition("rot", "Rot", Rot))
+BOSS_CATALOG.register(BossDefinition("ache", "Ache", Ache))
 BOSS_CATALOG.register(BossDefinition("hypno", "Hypno", Hypno))
 BOSS_CATALOG.register(BossDefinition("malady", "Malady", Malady))

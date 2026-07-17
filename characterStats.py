@@ -180,7 +180,7 @@ levelScaleIncreaseFunction = 1.15
 
 healthPoints = 1000
 maxHealthPoints = 1000
-vitality = 25
+vitality = 10
 healthRecoveryBuffer = 0.0
 defense = 0
 
@@ -220,6 +220,8 @@ beaudisEncounterStarted = False
 beaudisDefeated = False
 dissonanceEncounterStarted = False
 gameCompleted = False
+practiceBossKey = None
+practiceMode = False
 guaranteedMiniBossesSpawned = set()
 enemySpawningEnabled = True
 

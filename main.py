@@ -5,6 +5,7 @@ import characterStats as cS
 import background as bG
 import keybinds
 import menus
+import soulHub
 
 CAMERA_ROTATION_DEGREES_PER_SECOND = 180.0
 
@@ -25,6 +26,8 @@ def main():
                 runPaused()
             case vH.States.RESULTS:
                 runResults()
+            case vH.States.SOUL:
+                runSoul()
         
 def runGame():
     pg.mouse.set_visible(False)
@@ -102,6 +105,13 @@ def runTitle():
         
     cH.runTheTitleScreen()
 
+    paintAndClearScreen(vH.backgroundColor)
+
+
+def runSoul():
+    pg.mouse.set_visible(True)
+    baseInputCollection()
+    soulHub.run()
     paintAndClearScreen(vH.backgroundColor)
     
 def baseInputCollection():

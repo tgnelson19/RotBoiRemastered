@@ -1,6 +1,6 @@
 """Projectiles fired by enemies, including reusable boss path primitives."""
 
-from math import cos, pi, sin
+from math import ceil, cos, hypot, pi, sin
 
 import pygame
 
@@ -56,6 +56,13 @@ class EnemyProjectile:
         if (str(owner).startswith("malady_phantasia")
                 and path not in ("pool", "bomb", "orbit", "laser")):
             self.remainingRange = float("inf")
+        # Rot's deliberately sluggish volleys still belong to the whole arena.
+        # Their range ends at the encounter boundary, not after an arbitrary
+        # number of tiles; stationary sludge and orbiting clots keep their own
+        # lifetime rules.
+        if (str(owner).startswith("rot_touch")
+                and path not in ("pool", "bomb", "orbit", "laser", "mine")):
+            self.remainingRange = float("inf")
         if "survival" in str(owner) or "boundary_inward" in str(owner):
             self.remainingRange = float("inf")
         self.ignoreWalls = ignore_walls
@@ -75,9 +82,55 @@ class EnemyProjectile:
         self.travelled = 0.0
         self.remFlag = False
         self.trail = []
+        self.lightningTravel = 0.0
+        self.lightningPoints = self._build_lightning_points() if path == "lightning" else []
+        if path == "lightning":
+            self.persistentHazard = True
         self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
 
+    def _build_lightning_points(self):
+        """Build a stable, alternating convex beam instead of frame-random noise."""
+        segment = max(vH.tileSizeGlobal * 1.15, self.size * 3.2)
+        count = max(4, int(ceil(self.remainingRange / segment)))
+        along_x, along_y = cos(self.direction), sin(self.direction)
+        side_x, side_y = -along_y, along_x
+        points = [(self.worldX, self.worldY)]
+        for index in range(1, count + 1):
+            distance = min(self.remainingRange, index * segment)
+            bend = 0.0
+            if index < count:
+                bend = ((-1 if index % 2 else 1) * vH.tileSizeGlobal
+                        * (.48 + .22 * sin(index * 1.73 + self.direction)))
+            points.append((self.worldX + along_x * distance + side_x * bend,
+                           self.worldY + along_y * distance + side_y * bend))
+        return points
+
+    def _lightning_visible_points(self, distance=None):
+        if not self.lightningPoints:
+            return []
+        budget = self.lightningTravel if distance is None else distance
+        visible = [self.lightningPoints[0]]
+        for start, end in zip(self.lightningPoints, self.lightningPoints[1:]):
+            length = hypot(end[0] - start[0], end[1] - start[1])
+            if budget >= length:
+                visible.append(end)
+                budget -= length
+                continue
+            if budget > 0:
+                fraction = budget / max(1e-6, length)
+                visible.append((start[0] + (end[0] - start[0]) * fraction,
+                                start[1] + (end[1] - start[1]) * fraction))
+            break
+        return visible
+
     def world_rect(self):
+        if self.path == "lightning" and self.age >= self.telegraphDuration:
+            points = self._lightning_visible_points()
+            if len(points) < 2:
+                return pygame.Rect(self.worldX, self.worldY, self.size, self.size)
+            xs, ys = [point[0] for point in points], [point[1] for point in points]
+            return pygame.Rect(min(xs), min(ys), max(self.size, max(xs) - min(xs)),
+                               max(self.size, max(ys) - min(ys)))
         if self.path == "laser" and self.age >= self.telegraphDuration:
             end_x = self.worldX + cos(self.direction) * self.remainingRange
             end_y = self.worldY + sin(self.direction) * self.remainingRange
@@ -101,6 +154,13 @@ class EnemyProjectile:
             end = (self.worldX + cos(self.direction) * self.remainingRange,
                    self.worldY + sin(self.direction) * self.remainingRange)
             return bool(rect.inflate(self.size, self.size).clipline(start, end))
+        if self.path == "lightning":
+            if self.age < self.telegraphDuration:
+                return False
+            points = self._lightning_visible_points()
+            hazard = rect.inflate(self.size, self.size)
+            return any(hazard.clipline(start, end)
+                       for start, end in zip(points, points[1:]))
         if self.path == "bomb":
             if not self.exploded:
                 return False
@@ -150,6 +210,30 @@ class EnemyProjectile:
                 pygame.draw.line(screen, self.color, fill.bottomleft,
                                  fill.bottomright, 5)
             if self.age >= lifetime:
+                self.remFlag = True
+            return
+
+        if self.path == "lightning":
+            if self.age < self.telegraphDuration:
+                world_points = self.lightningPoints
+            else:
+                # Unlike an instantaneous laser, the active head visibly travels
+                # through every bend, giving the player time to read the route.
+                self.lightningTravel += (self.speed * vH.tileSizeGlobal * seconds)
+                world_points = self._lightning_visible_points()
+            points = [bG.world_to_screen(*point) for point in world_points]
+            if len(points) > 1:
+                if self.age < self.telegraphDuration:
+                    pygame.draw.lines(screen, self.color, False, points, 3)
+                    for point in points[1:-1]:
+                        pygame.draw.circle(screen, ui.CREAM, point, 3)
+                else:
+                    width = max(7, int(self.size * (1.0 + .2 * sin(self.age * 22))))
+                    pygame.draw.lines(screen, ui.INK, False, points, width + 7)
+                    pygame.draw.lines(screen, self.color, False, points, width)
+                    pygame.draw.lines(screen, ui.CREAM, False, points, max(2, width // 3))
+                    pygame.draw.circle(screen, ui.CREAM, points[-1], max(3, width // 2))
+            if self.lifetime is not None and self.age >= self.lifetime:
                 self.remFlag = True
             return
 

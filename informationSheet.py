@@ -10,6 +10,7 @@ import gameProfile
 from lootCrate import LootCrate
 from progression import FINAL_BOSS_LEVEL, MID_BOSS_LEVEL, MINIBOSS_GATES
 import itemCards
+import items
 import statCards
 import upgrades
 import uiTheme as ui
@@ -252,6 +253,8 @@ class InformationSheet:
             if item is not None and not dragging_this:
                 itemCards.draw_item_card(vH.screen, slot_rect, item.slot_type, item.rarity,
                                          hovered=slot_rect.collidepoint(vH.mouseX, vH.mouseY))
+                if slot_rect.collidepoint(vH.mouseX, vH.mouseY):
+                    self.tooltip = items.describe(item)
             else:
                 pg.draw.rect(vH.screen, ui.INK, slot_rect)
                 pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
@@ -292,6 +295,8 @@ class InformationSheet:
             if not dragging_this:
                 itemCards.draw_item_card(vH.screen, slot_rect, item.slot_type, item.rarity,
                                          hovered=slot_rect.collidepoint(vH.mouseX, vH.mouseY))
+                if slot_rect.collidepoint(vH.mouseX, vH.mouseY):
+                    self.tooltip = items.describe(item)
             else:
                 pg.draw.rect(vH.screen, ui.INK, slot_rect)
                 pg.draw.rect(vH.screen, ui.BORDER, slot_rect, self._px(2))
@@ -358,6 +363,8 @@ class InformationSheet:
                             cS.lootCrateList.remove(crate)
                         if self.nearby_crate is crate:
                             self.nearby_crate = None
+            import character
+            character.combarinoPlayerStats()
             return
 
         if source_kind == "equipment":
@@ -368,6 +375,8 @@ class InformationSheet:
                 crate.items.append(item)
             else:
                 cS.lootCrateList.append(LootCrate(bG.playerPosX, bG.playerPosY, [item]))
+            import character
+            character.combarinoPlayerStats()
         # source_kind == "crate" and invalid drop target: no-op, item stays put.
 
     def _draw_build(self, y):
@@ -428,7 +437,7 @@ class InformationSheet:
                  "How many enemies one projectile can damage before disappearing."),
                 ("Defense", "Defense", f"Blocks {cS.defense} damage", self._rating(cS.defense, 100),
                  "Flat damage removed from every incoming hit."),
-                ("Vitality", "Vitality", f"{cS.vitality} HP / sec", self._rating(cS.vitality, 25),
+                ("Vitality", "Vitality", f"{cS.vitality} HP / sec", self._rating(cS.vitality, 10),
                  "Health recovered continuously each second."),
                 ("Bullet Range", "Range", f"{cS.bulletRange / vH.tileSizeGlobal:.1f} tiles",
                  self._rating(cS.bulletRange, 250), "Approximate projectile travel distance."),

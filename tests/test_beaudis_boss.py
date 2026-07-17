@@ -36,7 +36,7 @@ class DissonanceBossTests(unittest.TestCase):
         vH.screenShakeY = 0
 
     def test_boss_health_and_stagger_match_level_twenty_balance_target(self):
-        self.assertEqual(self.boss.maxHp, 135000)
+        self.assertEqual(self.boss.maxHp, 150000)
         self.assertEqual(self.boss.maxStagger / self.boss.minimumStaggerPerHit, 60)
 
     def test_initial_phase_uses_bolster_dialogue(self):

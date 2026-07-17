@@ -9,6 +9,7 @@ class States(Enum):
     LEVELING = 2
     PAUSED = 3
     RESULTS = 4
+    SOUL = 5
     
 state = States.TITLESCREEN
 pauseReturnState = States.GAMERUN

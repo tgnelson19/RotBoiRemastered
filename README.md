@@ -18,6 +18,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `A` / `D`, arrows, or click: select a content path on the title screen
 - `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
+- `F`: enter the Soul from the title screen; interact with Soul stations
 - `Escape`: pause during a run; quit from the title screen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
 
@@ -36,6 +37,24 @@ language such as “5 shots + 35% bonus.” Each upgrade has a stat symbol, a `+
 mark for flat bonuses or an `x` mark for multiplicative bonuses, and its rarity
 color. The five most recent cards collect on the small table at the bottom of the
 sidebar; hover one when you want its name and bonus type.
+
+## The Soul and permanent progression
+
+Choose **Enter Soul** from the title screen to visit a small walkable sanctuary.
+Its extraction chest prepares a starting equipment loadout, the DPS effigy records
+five-second damage output, and the archive holds bestiary research, discovered
+cards and items, path mastery, records, and museum relics. Quests and first clears
+of each path award Soul tokens for small permanent Soul-tree bonuses. Bosses become
+available at the memory station after they have been encountered.
+
+After defeating a path's midpoint boss, the pause menu offers an extraction choice.
+Extracting ends the run safely and stores equipped items; completing the path does
+the same automatically. Selecting a chest item withdraws that specific stored copy
+when the next run begins. Dying, restarting, or abandoning the run destroys every
+carried item permanently, while Soul-tree bonuses and all other permanent progress
+remain intact. Equipment carries rarity-scaled stat tradeoffs, set
+bonuses, and occasional poison, bleed, slow, daze, or stun effects. Hover equipment
+or nearby loot in the information panel for its complete tooltip.
 
 ## Run locally
 
@@ -61,9 +80,9 @@ synergies already collected during a run. Gameplay rules for the draft live in
 
 Runs begin on one of five isolated content paths. Sound contains the original
 arena, Beaudis, and Dissonance. Touch uses a dense sewer-prison, heavy Rotton
-enemies, Bair, and Sting. Sight is an open blue-orange field of small quick
+enemies, Bair, and Rot. Sight is an open blue-orange field of small quick
 hunter enemies led by Ishe and Chronos. Chemesthesis scatters ruin fragments and
-long-lived, mostly unaimed hazards around durable enemies, Kage, and Rot.
+long-lived, mostly unaimed hazards around durable enemies, Kage, and Ache.
 Phantasia uses broad dark-pink dream courts with a few ornate structures, Hypno,
 and Malady.
 

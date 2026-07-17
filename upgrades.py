@@ -51,7 +51,7 @@ RARITY_WEIGHTS = {
 DEFINITIONS = (
     UpgradeDefinition("Defense", "survival", 100, 0.12, "Reduce incoming damage"),
     UpgradeDefinition("Health", "survival", 100, 0.10, "Increase current and maximum health"),
-    UpgradeDefinition("Vitality", "survival", 5, 0.12, "Recover health continuously"),
+    UpgradeDefinition("Vitality", "survival", 2, 0.08, "Recover health continuously"),
     UpgradeDefinition("Bullet Pierce", "volley", 0.25, 0.12, "Shots pass through more foes"),
     UpgradeDefinition("Bullet Count", "volley", 0.25, 0.12, "Fire additional projectiles"),
     UpgradeDefinition("Spread Angle", "volley", 0.314159, 0.12, "Widen the firing arc"),

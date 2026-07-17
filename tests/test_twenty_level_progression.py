@@ -38,43 +38,43 @@ class TwentyLevelProgressionTests(unittest.TestCase):
         self.assertEqual(Beaudis.bossName, "BEAUDIS")
         self.assertEqual(Dissonance.bossName, "DISSONANCE")
 
-    def test_beaudis_has_four_damage_phases_and_one_reused_survival_pattern(self):
+    def test_beaudis_has_four_damage_phases_and_one_survival_pattern(self):
         boss = self._midpoint_boss()
         self.assertEqual(boss.PHASE_COUNT, 5)
-        self.assertEqual(boss.DAMAGE_PHASES, (1, 2, 3, 4))
-        self.assertEqual(boss.SURVIVAL_PHASES, (5,))
+        self.assertEqual(boss.DAMAGE_PHASES, (1, 2, 3, 5))
+        self.assertEqual(boss.SURVIVAL_PHASES, (4,))
         for phase in boss.DAMAGE_PHASES:
             boss.debug_set_phase(phase)
             self.assertFalse(boss.survivalActive)
             self.assertEqual(boss.projectilePortals, [])
-        boss.debug_set_phase(5)
+        boss.debug_set_phase(4)
         self.assertTrue(boss.survivalActive)
         self.assertEqual(len(boss.projectilePortals), 4)
 
-    def test_beaudis_survival_is_forced_at_two_thirds_one_third_and_zero(self):
+    def test_beaudis_uses_one_half_health_survival_then_a_damage_finish(self):
         boss = self._midpoint_boss()
-        expected_health = (boss.maxHp * 2 / 3, boss.maxHp / 3, 1)
-        for gate_index, health in enumerate(expected_health):
-            boss.phaseProtectionTimer = 0
-            boss.take_damage(boss.maxHp)
-            self.assertEqual(boss.phase, 5)
-            self.assertTrue(boss.survivalActive)
-            self.assertAlmostEqual(boss.hp, health)
-            self.assertEqual(boss.nextSurvivalIndex, gate_index)
-            boss.survivalRemaining = 0
-            boss.updateEnemy(*boss._center(), [])
-            if gate_index < 2:
-                self.assertFalse(boss.survivalActive)
-                self.assertIn(boss.phase, boss.DAMAGE_PHASES)
-                self.assertFalse(boss.dying)
-            else:
-                self.assertTrue(boss.dying)
+        boss.phaseProtectionTimer = 0
+        boss.take_damage(boss.maxHp)
+        self.assertEqual(boss.phase, 4)
+        self.assertTrue(boss.survivalActive)
+        self.assertEqual(boss.hp, boss.maxHp * .5)
+        self.assertTrue(boss.take_damage(1000).blocked)
+        boss.survivalRemaining = 0
+        boss.updateEnemy(*boss._center(), [])
+        self.assertFalse(boss.survivalActive)
+        self.assertTrue(boss.midpointSurvivalComplete)
+        self.assertEqual(boss.phase, 5)
+        self.assertFalse(boss.dying)
+        boss.phaseProtectionTimer = 0
+        boss.take_damage(boss.maxHp)
+        self.assertTrue(boss.dying)
 
     def test_beaudis_timer_only_rotates_damage_patterns_inside_current_act(self):
         boss = self._midpoint_boss()
         boss.phaseElapsed = boss.phaseTimeLimit
         boss.updateEnemy(*boss._center(), [])
-        self.assertEqual(boss.phase, 2)
+        self.assertIn(boss.phase, (2, 3))
+        self.assertNotEqual(boss.phase, 1)
         self.assertFalse(boss.survivalActive)
         self.assertEqual(boss.hp, boss.maxHp)
         self.assertTrue(boss.phaseForcedByTimer)
@@ -114,20 +114,26 @@ class TwentyLevelProgressionTests(unittest.TestCase):
         cS.healthPoints = 900
         cS.healthRecoveryBuffer = 0
         game.recoverPlayerHealth()
-        self.assertLess(cS.healthPoints, 925)
+        self.assertLess(cS.healthPoints, 910)
         for _ in range(vH.frameRate - 1):
             game.recoverPlayerHealth()
-        self.assertEqual(cS.healthPoints, 925)
+        self.assertEqual(cS.healthPoints, 910)
         self.assertIsInstance(cS.healthPoints, int)
 
     def test_health_and_vitality_upgrades_recompute_survival_stats(self):
         cS.healthPoints = 800
         cS.collectiveAddStats["Health"].append(100)
-        cS.collectiveMultStats["Vitality"].append(1.12)
+        cS.collectiveMultStats["Vitality"].append(1.08)
         game.combarinoPlayerStats()
         self.assertEqual(cS.maxHealthPoints, 1100)
         self.assertEqual(cS.healthPoints, 900)
-        self.assertEqual(cS.vitality, 28)
+        self.assertEqual(cS.vitality, 11)
+
+    def test_vitality_card_is_a_small_increment_from_the_ten_point_base(self):
+        definition = upgrades.DEFINITIONS_BY_NAME["Vitality"]
+        self.assertEqual(cS.vitality, 10)
+        self.assertEqual(definition.additive, 2)
+        self.assertEqual(definition.multiplicative, .08)
 
     def test_one_crit_damage_upgrade_cannot_create_four_digit_base_hits(self):
         definition = upgrades.DEFINITIONS_BY_NAME["Crit Damage"]
@@ -139,9 +145,10 @@ class TwentyLevelProgressionTests(unittest.TestCase):
 
     def test_beaudis_finale_fades_with_italic_last_line(self):
         boss = self._midpoint_boss()
+        boss.midpointSurvivalComplete = True
         boss.debug_set_phase(5)
-        boss.survivalRemaining = 0
-        boss.updateEnemy(*boss._center(), [])
+        boss.phaseProtectionTimer = 0
+        boss.take_damage(boss.maxHp * 2)
         self.assertTrue(boss.dying)
         self.assertEqual(boss.deathDuration, 3.0)
         self.assertEqual(boss.phaseFlavor, "You can't escape me...")
