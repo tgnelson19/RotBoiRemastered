@@ -48,7 +48,11 @@ Dependency order roughly follows the Python import graph:
 
 1. **`Systems/`** first -- `upgrades.py`, `items.py`, `keybinds.py`,
    `gameProfile.py` are all deliberately pygame-free in the original, so they
-   port to plain C# with no rendering dependency to untangle.
+   port to plain C# with no rendering dependency to untangle. **Done**:
+   `Upgrades.cs`, `Items.cs`, `GameProfile.cs`, `Keybinds.cs` are all ported
+   with test coverage. `Keybinds.cs` turned out not to be pygame-free the way
+   the other three are (it needs real key constants and live input state),
+   so it pulled in a small `Core/InputState.cs` -- see `Core/README.md`.
 2. **`UI/UiTheme.cs`** (from `uiTheme.py`) -- the shared draw_text/draw_button/
    draw_panel primitives almost everything else calls into.
 3. **`World/`** -- background rendering and the camera/coordinate transforms
@@ -59,16 +63,41 @@ Dependency order roughly follows the Python import graph:
    HUD and menu screens, once the systems and entities they display are in place.
 6. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
-## Known differences from the Python version to decide on during porting
+## Known differences from the Python version
 
-- **Persistence**: `gameProfile.py` reads/writes `data/profile.json` next to the
-  script. The C# equivalent should probably use `System.Text.Json` and a
-  per-user app-data folder rather than a path relative to the executable.
+- **Persistence**: ported using `System.Text.Json` against a strongly-typed
+  `GameProfileData` POCO rather than Python's loosely-typed dict --
+  `JsonSerializer`'s default behavior (missing properties keep their class
+  defaults, unknown JSON properties are ignored) already reproduces the exact
+  merge-over-defaults logic `gameProfile.py` implemented by hand, so no manual
+  merge step was needed. Still defaults to a path relative to the working
+  directory (`data/profile.json`, mirroring the Python original) via a
+  *mutable* `GameProfile.SavePath`, not a per-user app-data folder yet --
+  revisit when the game is actually packaged for distribution.
+- **`gameProfile.toggle(key)`**: Python's version works on any dict entry
+  whose value happens to be a bool, keyed by string. `GameProfile.Toggle(name)`
+  reproduces that generic string-keyed capability via reflection over
+  `GameProfileData`'s properties (PascalCase names, not the old snake_case
+  JSON keys) -- kept generic rather than per-field setters because the
+  not-yet-ported pause menu drives its toggle rows from a data-driven list of
+  field names (`menus.py`'s `_GAMEPLAY_OPTIONS`).
 - **Resolution/fullscreen**: the Python version defaults to native-resolution
   fullscreen (`variableHolster.py`). The current skeleton defaults to a
   1280x720 window for easier dev iteration -- revisit once `uiTheme.py`'s
   `display_scale` logic is ported.
 - **RNG determinism**: several Python modules (`upgrades.py`, `items.py`)
-  accept an injectable `rng` parameter specifically so tests can seed it. Keep
-  that shape in C# (e.g. accept a `Random` instance) rather than reaching for
-  `Random.Shared` everywhere, or the equivalent tests won't be reproducible.
+  accept an injectable `rng` parameter specifically so tests can seed it. Kept
+  that shape in C# (`Random? rng = null`, defaulting to `Random.Shared`)
+  rather than reaching for `Random.Shared` everywhere, so the equivalent
+  tests stay reproducible. Note C# and Python use different PRNG algorithms,
+  so "reproducible" means the same seed gives the same result *within* one
+  language, not an identical sequence across both.
+- **Test parallelism**: xUnit runs different test *classes* in parallel by
+  default (Python's unittest runs everything sequentially, so this never came
+  up there). Any test class touching `GameProfile.Profile`/`SavePath`
+  (directly, or indirectly through `Keybinds`) must carry
+  `[Collection("GameProfileState")]` (see
+  `RotBoiRemastered.Tests/Systems/GameProfileStateCollection.cs`) or it will
+  intermittently fail from racing against other test classes mutating the
+  same shared static state. Found this the hard way: an early version of
+  `RecordRun`'s test failed about 1 run in 5 before the fix.
