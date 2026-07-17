@@ -25,7 +25,17 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="FontStashSharp.MonoGame" Version="1.5.6" />
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.*" />
     <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Read directly as raw bytes by FontStashSharp (UiTheme.Initialize), bypassing
+         the MonoGame content pipeline entirely; that's what lets it render at any
+         continuous pixel size instead of only pre-baked SpriteFont sizes. Needs an
+         explicit copy since it's not referenced from Content.mgcb. -->
+    <None Include="Content/Fonts/coolveticarg.otf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

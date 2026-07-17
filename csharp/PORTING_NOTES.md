@@ -54,7 +54,10 @@ Dependency order roughly follows the Python import graph:
    the other three are (it needs real key constants and live input state),
    so it pulled in a small `Core/InputState.cs` -- see `Core/README.md`.
 2. **`UI/UiTheme.cs`** (from `uiTheme.py`) -- the shared draw_text/draw_button/
-   draw_panel primitives almost everything else calls into.
+   draw_panel primitives almost everything else calls into. **Done**, including
+   a new `Core/Primitives2D.cs` (MonoGame has no `pygame.draw.rect`/`line`
+   equivalent, so every future rendering module needs this) and a FontStashSharp
+   dependency for text -- see "Known differences" below.
 3. **`World/`** -- background rendering and the camera/coordinate transforms
    (`world_to_screen`/`screen_to_world`), since entities need these to place
    themselves on screen.
@@ -83,8 +86,29 @@ Dependency order roughly follows the Python import graph:
   field names (`menus.py`'s `_GAMEPLAY_OPTIONS`).
 - **Resolution/fullscreen**: the Python version defaults to native-resolution
   fullscreen (`variableHolster.py`). The current skeleton defaults to a
-  1280x720 window for easier dev iteration -- revisit once `uiTheme.py`'s
-  `display_scale` logic is ported.
+  1280x720 window for easier dev iteration -- revisit once that module's
+  screen-setup piece is ported.
+- **Font rendering**: pygame renders TrueType/OpenType fonts at any continuous
+  pixel size at runtime, which is what powers the text-size accessibility
+  setting and `display_scale`-driven UI scaling. MonoGame's built-in
+  `SpriteFont` only supports fonts pre-baked at fixed sizes at build time --
+  using it would have been a real capability regression. Added
+  [FontStashSharp](https://github.com/FontStashSharp/FontStashSharp)
+  (`FontStashSharp.MonoGame` NuGet package) instead: it rasterizes TTF/OTF
+  fonts dynamically at any size, much closer to pygame's behavior, and its
+  own per-size glyph caching mirrors `uiTheme.py`'s `_font_cache`. The font
+  file is read directly as raw bytes (`UiTheme.Initialize`), bypassing the
+  MonoGame content pipeline entirely -- see the `.csproj` comment on the
+  `Content/Fonts/coolveticarg.otf` item. Italic/bold are accepted in
+  `UiTheme.Font()`'s signature for parity with `uiTheme.py` (used by
+  `bossTypes.py`, not yet ported) but not implemented yet -- there's only one
+  font file and no synthetic style synthesis wired up, so both currently
+  render at regular weight/slant. Revisit when boss dialogue text is ported.
+- **No `pygame.draw.rect`/`line` equivalent**: `Core/Primitives2D.cs` is new
+  infrastructure the Python original didn't need (pygame provides these for
+  free). Backed by a single 1x1 white pixel texture, tinted/stretched per
+  call -- the standard MonoGame technique. Every future rendering module
+  will lean on this, not just `UiTheme.cs`.
 - **RNG determinism**: several Python modules (`upgrades.py`, `items.py`)
   accept an injectable `rng` parameter specifically so tests can seed it. Kept
   that shape in C# (`Random? rng = null`, defaulting to `Random.Shared`)

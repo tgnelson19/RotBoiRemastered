@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using RotBoiRemastered.UI;
 
 namespace RotBoiRemastered.Core;
 
@@ -38,6 +39,7 @@ public class RotBoiGame : Game
     protected override void LoadContent()
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
+        UiTheme.Initialize(GraphicsDevice);
     }
 
     protected override void Update(GameTime gameTime)
