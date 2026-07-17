@@ -58,9 +58,17 @@ Dependency order roughly follows the Python import graph:
    a new `Core/Primitives2D.cs` (MonoGame has no `pygame.draw.rect`/`line`
    equivalent, so every future rendering module needs this) and a FontStashSharp
    dependency for text -- see "Known differences" below.
-3. **`World/`** -- background rendering and the camera/coordinate transforms
-   (`world_to_screen`/`screen_to_world`), since entities need these to place
-   themselves on screen.
+3. **`World/`** -- the camera/coordinate transforms and map generation, since
+   entities need these to place and collide with themselves. **Done, minus
+   pixel rendering of tiles/walls/decorations** (deferred to pair with
+   `Entities/` -- see `World/README.md`'s "Explicitly deferred" section).
+   This pass also did a real architectural cleanup, not just translation:
+   `background.py`'s pile of module globals (reassigned via `global` in
+   `configure_battleground`), `id()`-keyed caches that only ever held one
+   entry, per-tile `[type_int, Rect]` lists, and raw tile-id ints/building-
+   style strings all became proper instance classes, lazily-computed fields,
+   a `TileType` enum, and a `BuildingStyle` enum respectively -- see
+   `World/Battleground.cs`'s and `World/Camera.cs`'s doc comments.
 4. **`Entities/`** -- player, bullets, enemies, loot crates.
 5. **`UI/InformationSheet.cs`, `UI/Menus.cs`, `UI/LevelingHandler.cs`** -- the
    HUD and menu screens, once the systems and entities they display are in place.
@@ -116,6 +124,31 @@ Dependency order roughly follows the Python import graph:
   tests stay reproducible. Note C# and Python use different PRNG algorithms,
   so "reproducible" means the same seed gives the same result *within* one
   language, not an identical sequence across both.
+- **`Battleground.TileSize` is a compile-time constant (50)**, not an
+  instance field, matching how `vH.tileSizeGlobal` is a true global constant
+  for the whole game in the Python original (the Python test suite
+  monkey-patches it to 10 purely for smaller test numbers -- not something
+  C# can do to a `const`, so `BattlegroundTests`'s spawn/collision tests use
+  a hand-built small room fixture at the real 50px size instead).
+- **Dropped `find_nearest_open_rect`'s unused `size` parameter** -- the
+  Python original took it but never referenced it in the function body
+  (it only ever used `world_rect`'s own width/height). Porting dead
+  parameters isn't worth preserving for its own sake.
+- **`GamePaths.ActivateSelected()` returns the new `Battleground`** instead
+  of mutating a hidden global in place (Python's `activate_selected()` calls
+  `bG.configure_battleground(active_key)`, which reassigns
+  `background.py`'s module-level `currRoomRects` etc.). There's no "current
+  battleground" singleton in the C# port yet -- whatever ends up owning that
+  (a future session/world container, once `Entities/` and
+  `Core/RotBoiGame.cs`'s state machine are wired together) holds the
+  returned reference itself.
+- **Sound path's battleground isn't cached** -- `configure_battleground`
+  special-cased `"sound"` to reuse a module-level `basicRoomRects` generated
+  once at import, presumably as a minor performance optimization. All five
+  generators are fully deterministic (their "noise" is hash-like arithmetic
+  on tile coordinates, not actual RNG calls), so `CreateForPath("sound")`
+  just regenerates it -- identical result, and cheap enough (sub-millisecond
+  for a ~100x100 grid) that the caching complexity isn't worth carrying over.
 - **Test parallelism**: xUnit runs different test *classes* in parallel by
   default (Python's unittest runs everything sequentially, so this never came
   up there). Any test class touching `GameProfile.Profile`/`SavePath`
