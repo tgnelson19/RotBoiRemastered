@@ -21,7 +21,7 @@ public readonly record struct BurstWave(int Pellets, float Spread, float Speed, 
 /// Python's `projectile_sink` parameter), since portal firing genuinely is
 /// state mutation, not rendering -- Draw itself takes no projectile sink.
 /// </summary>
-public sealed class ProjectilePortal
+public class ProjectilePortal
 {
     private readonly record struct PendingBurst(
         float Timer, Vector2 Target, int PelletCount, float Spread, float Speed, float SizeScale,
@@ -40,7 +40,8 @@ public sealed class ProjectilePortal
     public Color Color { get; }
     public int Polarity { get; }
     public string MovementPath { get; set; }
-    public float Size { get; } = Simulation.TileSize * .9f;
+    /// <summary>Settable: TouchPortal (bossTypes.py) resizes itself right after construction, matching Python's post-`super().__init__()` reassignment.</summary>
+    public float Size { get; set; } = Simulation.TileSize * .9f;
     public float MaxHp { get; } = 600f;
     public float Hp { get; private set; }
     public int HitsTaken { get; private set; }
@@ -322,7 +323,8 @@ public sealed class ProjectilePortal
     public Vector2 OrbitCenterScreen(Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
         => camera.WorldToScreen(OrbitCenter, playerWorldPosition, screenShake);
 
-    public void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    /// <summary>Virtual: TouchPortal (bossTypes.py) draws its own heavy-gate chrome on top of this.</summary>
+    public virtual void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         if (RemFlag)
             return;

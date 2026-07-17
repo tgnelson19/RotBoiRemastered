@@ -169,11 +169,31 @@ Dependency order roughly follows the Python import graph:
    movement clamp, portal-hit bullet routing ahead of normal bullet
    consumption, a `ComputeScreenShake` call (screen shake became an
    explicit per-frame value instead of a global write), `GameCompleted` on
-   defeat, and the "C" rune-cannon debug hotkey. The `PathChaseBoss` family
-   (eight more subclasses for non-"sound" content paths) and
-   `BossDefinition`/`BossCatalog` remain deferred -- see
-   `Entities/README.md`'s "Explicitly deferred" section.
-10. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+   defeat, and the "C" rune-cannon debug hotkey.
+10. **`Entities/PathChaseBoss.cs`** -- the shared base for alternate mid/
+    final bosses on non-"sound" content paths, plus two of its four
+    concrete families. **Done**: `PathChaseBoss` itself (arena shapes,
+    `ConstrainPlayerPosition`, the generic chase/static/path movement-mode
+    dispatch); `Ishe`/`Chronos` (the simplest pair, no attack-pattern
+    override); `TouchPortal`/`PlagueTouchBoss`/`Bair`/`Sting` (the Touch
+    path, fully custom portal-driven combat); `BossCatalog`/`BossDefinition`
+    registering all six bosses ported so far (not wired into
+    `GameSession`'s spawn flow, since `gamePaths.py`'s per-path boss-key
+    selection -- the thing that would consume it -- isn't ported; kept as
+    standalone infrastructure, same reasoning as `EnemyCatalog.cs` before
+    `GameSession` existed). Python's ~24 overridable `PathChaseBoss` class
+    attributes became one `PathChaseBossConfig` record per subclass
+    (built with a `with` expression against the parent's config to mirror
+    partial class-attribute override) instead of C# virtual properties --
+    avoids the well-known hazard of calling virtual members from a base
+    constructor before `base(...)` finishes. Deferred: the
+    `SinChemesthesisBoss` family (`Kage`/`Rot` -- needs a real stagger
+    system plus `Rot`'s crystal-wall terrain and `characterStats.py`
+    integrations this port doesn't have yet) and the `PhantasiaBoss`
+    family (`Hypno`/`Malady` -- `Malady` alone is ~680 lines of custom
+    puppet-body rendering) -- see `Entities/README.md`'s "Explicitly
+    deferred" section for the full reasoning.
+11. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 

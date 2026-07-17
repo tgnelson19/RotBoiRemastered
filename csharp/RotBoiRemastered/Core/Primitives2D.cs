@@ -159,4 +159,32 @@ public static class Primitives2D
     /// <summary>Polygon outline (pygame.draw.polygon with width>0) -- closed Polyline.</summary>
     public static void PolygonOutline(SpriteBatch spriteBatch, IReadOnlyList<Vector2> points, Color color, int width)
         => Polyline(spriteBatch, points, closed: true, color, width);
+
+    /// <summary>
+    /// Black out a star-shaped/polygonal arena exterior without a full-screen
+    /// alpha mask. Ported from bossTypes.py's module-level `_draw_outside_arena`
+    /// helper -- shared by Dissonance and PathChaseBoss (both draw their own
+    /// arena boundary polygon, then black out everything past it), so it lives
+    /// here instead of being duplicated per boss class.
+    /// </summary>
+    public static void DrawOutsideArena(SpriteBatch spriteBatch, Vector2 center, IReadOnlyList<Vector2> vertices)
+    {
+        if (vertices.Count < 3)
+            return;
+        int stride = Math.Max(1, (vertices.Count + 15) / 16);
+        var sampled = vertices.Where((_, index) => index % stride == 0).ToList();
+        float outerRadius = MathF.Sqrt(1920 * 1920 + 1080 * 1080) * 2.2f;
+        var outer = new List<Vector2>();
+        foreach (var point in sampled)
+        {
+            var delta = point - center;
+            float distance = Math.Max(1.0f, delta.Length());
+            outer.Add(center + delta / distance * outerRadius);
+        }
+        for (int index = 0; index < sampled.Count; index++)
+        {
+            int nextIndex = (index + 1) % sampled.Count;
+            FillPolygon(spriteBatch, new[] { sampled[index], sampled[nextIndex], outer[nextIndex], outer[index] }, Color.Black);
+        }
+    }
 }

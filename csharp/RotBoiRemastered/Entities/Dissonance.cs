@@ -1862,28 +1862,6 @@ public sealed class Dissonance : Enemy
         }
     }
 
-    /// <summary>Black out a star-shaped arena exterior without a full-screen alpha mask.</summary>
-    private static void DrawOutsideArena(SpriteBatch spriteBatch, Vector2 center, IReadOnlyList<Vector2> vertices)
-    {
-        if (vertices.Count < 3)
-            return;
-        int stride = Math.Max(1, (vertices.Count + 15) / 16);
-        var sampled = vertices.Where((_, index) => index % stride == 0).ToList();
-        float outerRadius = MathF.Sqrt(1920 * 1920 + 1080 * 1080) * 2.2f;
-        var outer = new List<Vector2>();
-        foreach (var point in sampled)
-        {
-            var delta = point - center;
-            float distance = Math.Max(1.0f, delta.Length());
-            outer.Add(center + delta / distance * outerRadius);
-        }
-        for (int index = 0; index < sampled.Count; index++)
-        {
-            int nextIndex = (index + 1) % sampled.Count;
-            Primitives2D.FillPolygon(spriteBatch, new[] { sampled[index], sampled[nextIndex], outer[nextIndex], outer[index] }, Color.Black);
-        }
-    }
-
     private void DrawArenaMask(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         var center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
@@ -1893,7 +1871,7 @@ public sealed class Dissonance : Enemy
             float angle = index * 2f * MathF.PI / 64f;
             vertices[index] = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (ArenaRadius + 8);
         }
-        DrawOutsideArena(spriteBatch, center, vertices);
+        Primitives2D.DrawOutsideArena(spriteBatch, center, vertices);
     }
 
     private void DrawDeathSpectacle(SpriteBatch spriteBatch, Vector2 center)

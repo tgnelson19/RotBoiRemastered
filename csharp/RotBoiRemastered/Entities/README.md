@@ -139,24 +139,71 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   cached field from an explicit `Battleground` constructor parameter;
   dead-in-this-class fields dropped).
 
+- **`PathChaseBoss.cs`** <- bossTypes.py's `PathChaseBoss` ("Configurable
+  three-phase placeholder for rapidly prototyping path bosses" -- the
+  shared base for every alternate mid/final boss on non-"sound" content
+  paths; see `gamePaths.py`'s `boss_key()`). **Done**, along with two of
+  its four concrete families -- see "Explicitly deferred" below for the
+  other two and why this pass stopped here. Python's ~24 overridable class
+  attributes (`bossName`, `phaseLabels`, `bodyColor`, `movementSpeed`, ...)
+  become one `PathChaseBossConfig` record each subclass builds (using a
+  `with` expression against its parent's config to mirror Python's partial
+  class-attribute override exactly) instead of ~24 C# virtual properties --
+  calling virtual members from the base constructor to compute
+  `size`/`speed`/etc. before `base(...)` runs is a well-known C# hazard,
+  so subclasses build the record and pass it up explicitly instead. Arena
+  shapes (circle/square/triangle/jagged/atomic), the player-position arena
+  clamp (`ConstrainPlayerPosition`), and the arena-boundary/mask/timer-ring
+  drawing are all ported. `Core/Primitives2D.cs` gained `DrawOutsideArena`
+  (the star-shaped-exterior-blackout helper, previously private to
+  `Dissonance.cs`, now shared since `PathChaseBoss` needs the identical
+  technique for its own arena shapes).
+  - **`Ishe.cs`/`Chronos.cs`** -- "THE NEAR HORIZON"/"THE LAST SECOND," a
+    simple rush-pattern pair with no phase-attack override (stock
+    `PathChaseBoss` dispatch) beyond a sight-symbol icon drawn over the
+    body. The simplest possible full pair, useful as the base class's own
+    test bed.
+  - **`TouchPortal.cs`/`PlagueTouchBoss.cs`/`Bair.cs`/`Sting.cs`** -- the
+    Touch content path's mid/final bosses ("THE FIRST LOCK"/"THE THING THE
+    PRISON KEPT"). `TouchPortal` (a `ProjectilePortal` subclass -- which
+    had to become unsealed and gained a first `virtual Draw` for this)
+    marches along the arena wall and gates phase transitions.
+    `PlagueTouchBoss` fully overrides `Update`/`Draw` (its own portal-driven
+    combat and movement, not the base's chase-the-player behavior) but
+    still calls `base.Draw` for the shared arena rendering. `PlagueSigils.All`
+    holds the ten shared plague sigils Bair/Sting's `phaseSigils` index into.
+- **`BossCatalog.cs`** <- `BossDefinition`/`BossCatalog`/`BOSS_CATALOG`.
+  **Done** for the six bosses ported so far (`beaudis`/`dissonance`/
+  `ishe`/`chronos`/`bair`/`sting`) -- same `EnemyFactory`-delegate/
+  `CreateDefault()` cleanup as `EnemyCatalog.cs`. Not wired into
+  `GameSession`'s actual spawn flow (which constructs `Beaudis`/`Dissonance`
+  directly): `gamePaths.py`'s per-path boss-key selection -- the thing that
+  would ever ask the catalog for `ishe`/`bair`/etc. -- isn't ported, so
+  this stays standalone infrastructure ready for whenever that selection
+  exists, same reasoning as `EnemyCatalog.cs` before `GameSession` existed.
+
 ## Explicitly deferred (not in Entities/ yet)
 
-- **The rest of `bossTypes.py`'s ~4750 lines** -- thirteen more boss
-  classes beyond `Beaudis.cs`/`Dissonance.cs`. **`PathChaseBoss`** and its
-  eight subclasses/pairs (`TouchPortal`/`PlagueTouchBoss`/`Bair`/`Sting`,
-  `Ishe`/`Chronos`, `SinChemesthesisBoss`/`Kage`/`Rot`,
-  `PhantasiaBoss`/`Hypno`/`Malady`) -- alternate mid/final bosses for
-  non-"sound" content paths (see `gamePaths.py`'s `boss_key()`), each with
-  its own arena-constraint shape and terrain/persistent-hazard mechanics.
-  `Malady` alone (~680 lines) has a fully custom procedural "puppet" body
-  with jointed limb rendering. **`BossDefinition`/`BossCatalog`** --
-  straightforward once every boss behind them exists (same
-  `register`/`spawn` shape as `EnemyCatalog`), but genuinely blocked on
-  the above, not worth stubbing early.
+- **The rest of `bossTypes.py`'s ~4750 lines** -- two more `PathChaseBoss`
+  families, deliberately not attempted this pass:
+  - **`SinChemesthesisBoss`/`Kage`/`Rot`** ("THE FIRST REACTION"/"THE FIELD
+    THAT REMAINS") -- a real stagger/fracture system (unlike Ishe/Bair/
+    Sting, which use plain `Enemy.TakeDamage`), plus `Rot`'s crystal-wall
+    terrain obstacles (their own hitbox/damage subsystem, `movement_obstacles()`)
+    and direct integration with `characterStats.py`'s `bossAfflictions`
+    (exposure/pull) and a `player_build_snapshot()` function that doesn't
+    exist anywhere in this port yet. Genuinely a new subsystem, not just
+    more config.
+  - **`PhantasiaBoss`/`Hypno`/`Malady`** ("THE DREAM COURT"/final bosses) --
+    integrates with `RunState.DreamState`'s belief/truth mechanics (which
+    *does* already exist, unlike the Sin family) via true/false "commandment"
+    rules, but `Malady` alone is ~680 lines of a fully custom procedural
+    "puppet" body with jointed limb rendering -- its own dedicated pass.
 
   Until these exist, `Player.cs`/`GameSession.cs`'s boss-movement-obstacle
-  branch (`constrain_player_position`, the `PathChaseBoss`-family arena
-  shape) and `gamePaths.py`'s per-path boss content-key selection (which
-  boss variant counts as "the mid/final boss" on the active path -- always
-  the "sound" path's Beaudis/Dissonance here) stay documented no-ops -- see
-  those files' doc comments for the specifics.
+  branch for anything beyond `PathChaseBoss.ConstrainPlayerPosition`
+  (`Rot`'s crystal-wall `movement_obstacles()`) and `gamePaths.py`'s
+  per-path boss content-key selection (which boss variant counts as "the
+  mid/final boss" on the active path -- always the "sound" path's
+  Beaudis/Dissonance here) stay documented no-ops -- see those files' doc
+  comments for the specifics.
