@@ -4412,9 +4412,9 @@ class Ache(Kage):
 
     def _orbit_elements(self, core):
         mode = self.movementModes[(self.phase - 1) % len(self.movementModes)]
-        speed = {"static": .017, "path": .038, "chase": .061}[mode]
+        speed = {"static": .009, "path": .022, "chase": .036}[mode]
         if self.survivalActive:
-            speed = .095 if self.phase == 4 else .128
+            speed = .056 if self.phase == 4 else .074
         attack = min(1.0, self.visualAttackTimer / max(1, vH.frameRate * .48))
         elements = []
         for index in range(3):
@@ -4464,13 +4464,20 @@ class Ache(Kage):
                 self._draw_orange_cube(screen, point, extent * (1 - collapse * .72), angle,
                                        1 - collapse)
         radius = self.size * (.29 + .025 * sin(self.age * .083)) * (1 - collapse * .82)
-        pygame.draw.circle(screen, ui.SHADOW, (core[0]+6, core[1]+8), radius * 1.18)
-        pygame.draw.circle(screen, ui.INK, core, radius * 1.14)
-        left = pygame.Rect(core[0]-radius, core[1]-radius, radius, radius*2)
-        right = pygame.Rect(core[0], core[1]-radius, radius, radius*2)
-        pygame.draw.ellipse(screen, pygame.Color(231, 47, 47), left.inflate(radius, 0))
-        pygame.draw.ellipse(screen, pygame.Color(35, 174, 255), right.inflate(radius, 0))
-        pygame.draw.circle(screen, ui.CREAM, core, max(3, int(radius * .19)))
+        core_rect = pygame.Rect(0, 0, radius * 2, radius * 2)
+        core_rect.center = core
+        pygame.draw.rect(screen, ui.SHADOW, core_rect.move(6, 8).inflate(8, 8))
+        pygame.draw.rect(screen, ui.INK, core_rect.inflate(8, 8))
+        left = pygame.Rect(core_rect.left, core_rect.top,
+                           core_rect.width / 2, core_rect.height)
+        right = pygame.Rect(core_rect.centerx, core_rect.top,
+                            core_rect.width / 2, core_rect.height)
+        pygame.draw.rect(screen, pygame.Color(231, 47, 47), left)
+        pygame.draw.rect(screen, pygame.Color(35, 174, 255), right)
+        pygame.draw.rect(screen, ui.CREAM,
+                         (core[0]-radius*.19, core[1]-radius*.19,
+                          radius*.38, radius*.38))
+        pygame.draw.rect(screen, ui.INK, core_rect, max(2, int(radius * .09)))
         if collapse:
             for ring in range(3):
                 ring_radius = self.size * (.4 + collapse * (1.15 + ring * .7))
