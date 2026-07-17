@@ -6,3 +6,8 @@ build/
 dist/
 *.spec.bak
 data/profile.json
+
+# C# port (csharp/)
+csharp/**/bin/
+csharp/**/obj/
+*.user
