@@ -31,6 +31,7 @@ class Enemy:
         self.damage = round(damage)
         self.hp = round(hp)
         self.maxHp = round(hp)
+        self.showOverheadHealthBar = True
         self.cantTouchMeList = []
         self.expValue = exp_value
         self.difficulty = difficulty
@@ -104,7 +105,7 @@ class Enemy:
         else:
             pygame.draw.rect(screen, ui.lighten(self.color, 42), rect.inflate(-int(self.size * .48), -int(self.size * .48)))
 
-        if self.hp < self.maxHp:
+        if self.showOverheadHealthBar and self.hp < self.maxHp:
             bar = pygame.Rect(rect.x, rect.y - 9, rect.width, 5)
             pygame.draw.rect(screen, ui.INK, bar)
             fill = bar.copy()

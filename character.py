@@ -205,7 +205,10 @@ def combarinoPlayerStats():
     cS.healthPoints = min(cS.maxHealthPoints, cS.healthPoints + max(0, cS.maxHealthPoints - previous_max_health))
     cS.vitality = max(0, round(_combine_stat("Vitality")))
     cS.critChance = (cS.collectiveStats["Crit Chance"] + sum(cS.collectiveAddStats["Crit Chance"])) * (multiply_list(cS.collectiveMultStats["Crit Chance"]))
-    cS.critDamage = round(_combine_stat("Crit Damage"))
+    # Crit damage is a multiplier (2.0 means double damage), so retaining its
+    # fractional upgrades is essential.  Rounding this to an integer made small
+    # multiplicative bonuses jump by an entire damage tier.
+    cS.critDamage = round(_combine_stat("Crit Damage"), 2)
     cS.aura = (cS.collectiveStats["Aura Size"] + sum(cS.collectiveAddStats["Aura Size"])) * (multiply_list(cS.collectiveMultStats["Aura Size"]))
     cS.auraSpeed = (cS.collectiveStats["Aura Strength"] + sum(cS.collectiveAddStats["Aura Strength"])) * (multiply_list(cS.collectiveMultStats["Aura Strength"]))
     cS.xpMult = (cS.collectiveStats["Exp Multiplier"]+ sum(cS.collectiveAddStats["Exp Multiplier"])) * (multiply_list(cS.collectiveMultStats["Exp Multiplier"]))
@@ -348,6 +351,9 @@ def handlingBulletCreation():
         currCritChance = floor(cS.critChance)
         chance = randint(1, 100)
         
+        # Whole crit tiers are guaranteed critical hits; the fractional tier is
+        # the only part that needs a roll.
+        currCrit = currCritChance > 0
         if (chance <= 100*(cS.critChance - trunc(cS.critChance))): currCrit = True; currCritChance = floor(cS.critChance) + 1
         currDamage = cS.bulletDamage * (cS.critDamage **(currCritChance))
 

@@ -62,7 +62,7 @@ DEFINITIONS = (
     UpgradeDefinition("Bullet Size", "power", 4, 0.12, "Make shots easier to land"),
     UpgradeDefinition("Player Speed", "survival", 0.2, 0.16, "Improve repositioning"),
     UpgradeDefinition("Crit Chance", "critical", 0.08, 0.04, "Land critical hits more often"),
-    UpgradeDefinition("Crit Damage", "critical", 40, 0.16, "Critical hits deal more damage"),
+    UpgradeDefinition("Crit Damage", "critical", 0.25, 0.10, "Critical hits deal more damage"),
     UpgradeDefinition("Aura Size", "harvest", 8, 0.14, "Collect experience from farther away"),
     UpgradeDefinition("Aura Strength", "harvest", 0.8, 0.14, "Pull experience in faster"),
     UpgradeDefinition("Exp Multiplier", "harvest", 0.2, 0.16, "Gain more experience per foe"),

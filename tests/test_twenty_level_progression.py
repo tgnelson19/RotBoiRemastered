@@ -15,6 +15,7 @@ from enemyProjectile import EnemyProjectile
 from progression import (FINAL_BOSS_LEVEL, MAX_LEVEL, MID_BOSS_LEVEL,
                          encounter_caps, encounter_pacing, enemy_stat_scales)
 import variableHolster as vH
+import upgrades
 
 
 class TwentyLevelProgressionTests(unittest.TestCase):
@@ -127,6 +128,14 @@ class TwentyLevelProgressionTests(unittest.TestCase):
         self.assertEqual(cS.maxHealthPoints, 1100)
         self.assertEqual(cS.healthPoints, 900)
         self.assertEqual(cS.vitality, 28)
+
+    def test_one_crit_damage_upgrade_cannot_create_four_digit_base_hits(self):
+        definition = upgrades.DEFINITIONS_BY_NAME["Crit Damage"]
+        card = upgrades.UpgradeCard(definition, "Rare", "additive")
+        cS.collectiveAddStats["Crit Damage"].append(upgrades.card_modifier(card))
+        game.combarinoPlayerStats()
+        self.assertAlmostEqual(cS.critDamage, 2.4)
+        self.assertLess(cS.bulletDamage * cS.critDamage, 1000)
 
     def test_beaudis_finale_fades_with_italic_last_line(self):
         boss = self._midpoint_boss()

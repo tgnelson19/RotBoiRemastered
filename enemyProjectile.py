@@ -50,6 +50,12 @@ class EnemyProjectile:
         if (str(owner).startswith("dissonance") and path not in ("mine", "orbit")
                 and lifetime is None):
             self.remainingRange = max(self.remainingRange, vH.tileSizeGlobal * 72)
+        # Malady's moving shots belong to the arena, not to an arbitrary range
+        # budget. Character projectile handling removes them at the boss court's
+        # boundary, so they remain threatening until they visibly leave it.
+        if (str(owner).startswith("malady_phantasia")
+                and path not in ("pool", "bomb", "orbit", "laser")):
+            self.remainingRange = float("inf")
         if "survival" in str(owner) or "boundary_inward" in str(owner):
             self.remainingRange = float("inf")
         self.ignoreWalls = ignore_walls
@@ -86,13 +92,8 @@ class EnemyProjectile:
         if self.path == "pool":
             if self.age < self.telegraphDuration:
                 return False
-            center_x = self.worldX + self.size / 2
-            center_y = self.worldY + self.size / 2
-            nearest_x = max(rect.left, min(center_x, rect.right))
-            nearest_y = max(rect.top, min(center_y, rect.bottom))
-            radius = self.size * .46
-            return ((nearest_x - center_x) ** 2 + (nearest_y - center_y) ** 2
-                    <= radius ** 2)
+            hazard = pygame.Rect(self.worldX, self.worldY, self.size, self.size)
+            return rect.colliderect(hazard.inflate(-self.size*.12, -self.size*.12))
         if self.path == "laser":
             if self.age < self.telegraphDuration:
                 return False
@@ -116,31 +117,38 @@ class EnemyProjectile:
 
         if self.path == "pool":
             self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
-            rect = pygame.Rect(self.posX, self.posY, self.size, self.size * .58)
-            rect.centery = self.posY + self.size / 2
+            rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
             lifetime = self.lifetime if self.lifetime is not None else 8.0
             appearing = min(1.0, self.age / max(.01, self.telegraphDuration))
             fading = min(1.0, max(0.0, lifetime - self.age) / .7)
             scale = max(.08, min(appearing, fading))
             visible = rect.inflate(-rect.width * (1 - scale), -rect.height * (1 - scale))
-            pygame.draw.ellipse(screen, ui.SHADOW, visible.inflate(10, 7))
-            pygame.draw.ellipse(screen, ui.INK, visible.inflate(5, 3))
-            pygame.draw.ellipse(screen, self.color, visible)
-            inner = visible.inflate(-visible.width * .18, -visible.height * .24)
-            pygame.draw.ellipse(screen, ui.lighten(self.color, 34), inner, 3)
-            for index in range(5):
-                angle = self.age * (1.8 + index * .13) + index * 2 * pi / 5
-                radius_x, radius_y = visible.width * .34, visible.height * .27
-                point = (visible.centerx + cos(angle) * radius_x,
-                         visible.centery + sin(angle) * radius_y)
-                mote = max(2, int(self.size * (.025 + .008 * sin(self.age * 5 + index))))
-                pygame.draw.circle(screen, ui.INK, point, mote + 2)
-                pygame.draw.circle(screen, ui.CREAM, point, mote)
+            pygame.draw.rect(screen, ui.SHADOW, visible.move(7, 8))
+            pygame.draw.rect(screen, ui.INK, visible.inflate(5, 5))
+            tile = max(4, int(visible.width / 7))
+            for row in range(7):
+                for column in range(7):
+                    # A stable checker/noise field keeps the hazard blocky while
+                    # the alternating brightness makes it appear to flow.
+                    pulse = sin(self.age*4.2 + row*1.7 + column*2.3)
+                    if (row + column + int(self.age*3)) % 4 == 0:
+                        continue
+                    cell = pygame.Rect(visible.x + column*tile,
+                                       visible.y + row*tile, tile+1, tile+1)
+                    cell = cell.clip(visible)
+                    color = (ui.lighten(self.color, 38) if pulse > .45
+                             else self.color.lerp(ui.VOID, .24 if pulse < -.45 else .08))
+                    pygame.draw.rect(screen, color, cell)
+                    if (row*7 + column) % 6 == 0:
+                        pygame.draw.rect(screen, ui.INK, cell, 1)
             if self.age < self.telegraphDuration:
                 progress = self.age / max(.01, self.telegraphDuration)
-                warning = visible.inflate(12, 8)
-                pygame.draw.arc(screen, ui.CREAM, warning, -pi / 2,
-                                -pi / 2 + 2 * pi * progress, 3)
+                warning = visible.inflate(12, 12)
+                pygame.draw.rect(screen, ui.CREAM, warning, 3)
+                fill = warning.copy()
+                fill.width = warning.width * progress
+                pygame.draw.line(screen, self.color, fill.bottomleft,
+                                 fill.bottomright, 5)
             if self.age >= lifetime:
                 self.remFlag = True
             return

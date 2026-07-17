@@ -134,27 +134,41 @@ class GamePathTests(unittest.TestCase):
                 boss._fire_pattern(*boss._center(), shots)
                 self.assertTrue(shots, f"{boss.bossName} phase {phase} fired nothing")
 
-    def test_malady_uses_three_acts_and_health_gates_every_commandment(self):
+    def test_bosses_hide_redundant_overhead_health_bars(self):
+        for key in BOSS_CATALOG.definitions:
+            boss = BOSS_CATALOG.spawn(key, random.Random(3))
+            self.assertFalse(boss.showOverheadHealthBar, key)
+
+    def test_malady_rotates_eight_damage_phases_around_two_health_gates(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
         boss = Malady(rect.x, rect.y, random.Random(5))
         self.assertEqual(boss.actTitle, "ACT I // THE DOCTRINE")
         boss.actTransitionTimer = 0
         boss.phaseProtectionTimer = 0
         boss.take_damage(boss.maxHp * 2)
-        self.assertEqual(boss.hp, boss.maxHp * .9)
-        boss.updateEnemy(*boss._center(), [])
-        self.assertEqual(boss.phase, 2)
-        boss.debug_set_phase(4)
+        self.assertEqual(boss.hp, boss.maxHp * .5)
+        self.assertEqual(boss.phase, 5)
         self.assertEqual(boss.actTitle, "ACT II // THE COVENANT")
-        boss.debug_set_phase(7)
+        boss.debugPhaseLocked = False
+        boss.survivalRemaining = 0
+        boss.entranceRemaining = 0
+        boss.actTransitionTimer = 0
+        boss.updateEnemy(*boss._center(), [])
+        self.assertIn(boss.phase, boss.DAMAGE_PHASES)
+        self.assertNotEqual(boss.phase, 5)
+        boss.debug_set_phase(10)
         self.assertEqual(boss.actTitle, "ACT III // THE TESTIMONY")
+        self.assertEqual(set(boss.DAMAGE_PHASES), {1, 2, 3, 4, 6, 7, 8, 9})
+        self.assertEqual(boss.maxHp, 360000)
+        self.assertGreaterEqual(boss.damage, 900)
 
     def test_malady_survival_phases_seal_vitality_and_advance_on_time(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
         boss = Malady(rect.x, rect.y, random.Random(5))
-        boss.debug_set_phase(4)
+        boss.debug_set_phase(5)
         self.assertTrue(boss.survivalActive)
         self.assertTrue(boss.vitalitySuppressed)
+        self.assertEqual(boss.survivalRemaining, 40.0)
         hp = boss.hp
         self.assertTrue(boss.take_damage(1000).blocked)
         self.assertEqual(boss.hp, hp)
@@ -169,13 +183,21 @@ class GamePathTests(unittest.TestCase):
             cS.activeBoss, cS.healthPoints = previous_boss, previous_health
 
         timed_boss = Malady(rect.x, rect.y, random.Random(6))
-        timed_boss._set_dream_phase(4)
+        timed_boss._set_dream_phase(5)
         timed_boss.entranceRemaining = 0
         timed_boss.actTransitionTimer = 0
         timed_boss.survivalRemaining = 0
         timed_boss.updateEnemy(*timed_boss._center(), [])
-        self.assertEqual(timed_boss.phase, 5)
+        self.assertIn(timed_boss.phase, timed_boss.DAMAGE_PHASES)
         self.assertFalse(timed_boss.vitalitySuppressed)
+
+        timed_boss.firstSurvivalComplete = True
+        timed_boss._set_dream_phase(10)
+        timed_boss.actTransitionTimer = 0
+        timed_boss.survivalRemaining = 0
+        timed_boss.updateEnemy(*timed_boss._center(), [])
+        self.assertTrue(timed_boss.collapsing)
+        self.assertEqual(timed_boss.collapseRemaining, 10.0)
 
     def test_malady_survival_patterns_create_portals_pools_and_flowing_chains(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
@@ -183,19 +205,25 @@ class GamePathTests(unittest.TestCase):
         boss.debug_set_phase(4)
         boss.actTransitionTimer = 0
         boss.entranceRemaining = 0
-        boss._ensure_malady_portals()
         shots = []
         boss._fire_pattern(*boss._center(), shots)
         boss._update_sequences(shots, .1)
         boss._spawn_pool(shots, boss._arena_center())
-        self.assertEqual(len(boss.projectilePortals), 4)
+        self.assertEqual(len(boss.projectilePortals), 3)
+        self.assertTrue(all(hasattr(portal, "remainingLifetime")
+                            for portal in boss.projectilePortals))
         self.assertTrue(any(shot.owner.endswith("flowing_chain") for shot in shots))
+        moving_shot = next(shot for shot in shots
+                           if shot.path not in ("pool", "laser"))
+        self.assertEqual(moving_shot.remainingRange, float("inf"))
         pool = next(shot for shot in shots if shot.path == "pool")
         player = pygame.Rect(pool.worldX, pool.worldY, 20, 20)
         self.assertFalse(pool.collides(player))
         pool.age = pool.telegraphDuration
         player.center = pool.world_rect().center
         self.assertTrue(pool.collides(player))
+        boss._update_transient_portals(shots, 20)
+        self.assertEqual(boss.projectilePortals, [])
 
     def test_malady_puppet_has_cardinal_motion_attack_poses_and_wide_arms(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
@@ -223,10 +251,23 @@ class GamePathTests(unittest.TestCase):
         union = bounds[0].unionall(bounds[1:])
         self.assertGreater(union.width, boss.size * 2.25)
 
+    def test_malady_arm_orbit_crosses_front_then_recedes_behind_core(self):
+        core = (400, 300)
+        right = Malady._project_cube_orbit(core, 0, 120, 50)
+        front = Malady._project_cube_orbit(core, pi/2, 120, 50)
+        left = Malady._project_cube_orbit(core, pi, 120, 50)
+        behind = Malady._project_cube_orbit(core, 3*pi/2, 120, 50)
+        self.assertAlmostEqual(right[0], 520)
+        self.assertGreater(front[1], core[1])
+        self.assertGreater(front[2], 0)
+        self.assertAlmostEqual(left[0], 280)
+        self.assertLess(behind[1], core[1])
+        self.assertLess(behind[2], 0)
+
     def test_malady_final_survival_dance_opens_beyond_first_survival(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
         widths = []
-        for phase in (4, 7):
+        for phase in (5, 10):
             boss = Malady(rect.x, rect.y, random.Random(5))
             boss.debug_set_phase(phase)
             boss.posX, boss.posY = 450-boss.size/2, 350-boss.size/2
@@ -252,14 +293,22 @@ class GamePathTests(unittest.TestCase):
         self.assertEqual(boss.attackPose, "laser")
         self.assertGreater(boss.attackAnticipation, 0)
 
-        boss.debug_set_phase(10)
+        boss.firstSurvivalComplete = True
+        boss.debugPhaseLocked = False
+        boss._set_dream_phase(9)
         boss.phaseProtectionTimer = 0
         boss.actTransitionTimer = 0
         boss.hp = 10
         result = boss.take_damage(100)
         self.assertFalse(result.killed)
-        self.assertTrue(boss.collapsing)
+        self.assertEqual(boss.phase, 10)
+        self.assertTrue(boss.survivalActive)
         self.assertEqual(boss.hp, 1)
+        boss.actTransitionTimer = 0
+        boss.survivalRemaining = 0
+        boss.updateEnemy(*boss._center(), [])
+        self.assertTrue(boss.collapsing)
+        self.assertEqual(boss.collapseDuration, 10.0)
         boss.collapseRemaining = 0
         boss.updateEnemy(*boss._center(), [])
         self.assertTrue(boss.is_dead())
