@@ -864,6 +864,10 @@ def hostile_damage_after_defense(raw_damage, defense):
 
 def recoverPlayerHealth():
     """Apply vitality continuously while keeping stored and displayed HP integral."""
+    boss = cS.activeBoss
+    if boss is not None and getattr(boss, "vitalitySuppressed", False):
+        cS.healthRecoveryBuffer = 0.0
+        return
     if cS.healthPoints >= cS.maxHealthPoints or cS.vitality <= 0:
         cS.healthRecoveryBuffer = 0.0
         return

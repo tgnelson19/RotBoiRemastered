@@ -15,6 +15,28 @@ import variableHolster as vH
 import gameProfile
 
 
+def _draw_outside_arena(screen, center, vertices):
+    """Black out a star-shaped arena exterior without a full-screen alpha mask."""
+    if len(vertices) < 3:
+        return
+    # Sixteen silhouette samples are enough behind the detailed border and keep
+    # the blackout cheap at 1080p; the visible arena line still uses every point.
+    stride = max(1, (len(vertices) + 15) // 16)
+    vertices = vertices[::stride]
+    outer_radius = hypot(screen.get_width(), screen.get_height()) * 2.2
+    outer = []
+    for point in vertices:
+        delta_x, delta_y = point[0] - center[0], point[1] - center[1]
+        distance = max(1.0, hypot(delta_x, delta_y))
+        outer.append((center[0] + delta_x / distance * outer_radius,
+                      center[1] + delta_y / distance * outer_radius))
+    for index, point in enumerate(vertices):
+        next_index = (index + 1) % len(vertices)
+        pygame.draw.polygon(screen, (0, 0, 0),
+                            (point, vertices[next_index],
+                             outer[next_index], outer[index]))
+
+
 class Beaudis(Enemy):
     """A restrained midpoint echo fought in the ordinary world."""
 
@@ -1870,14 +1892,12 @@ class Dissonance(Enemy):
 
     def _draw_arena_mask(self, screen):
         center = bG.world_to_screen(*self._arena_center())
-        key = (screen.get_size(), tuple(map(int, center)), int(self.arenaRadius))
-        if key != self._arenaMaskCacheKey:
-            mask = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
-            mask.fill((0, 0, 0, 255))
-            pygame.draw.circle(mask, (0, 0, 0, 0), center, self.arenaRadius + 8)
-            self._arenaMaskCache = mask
-            self._arenaMaskCacheKey = key
-        screen.blit(self._arenaMaskCache, (0, 0))
+        vertices = [
+            (center[0] + cos(index * 2*pi/64) * (self.arenaRadius + 8),
+             center[1] + sin(index * 2*pi/64) * (self.arenaRadius + 8))
+            for index in range(64)
+        ]
+        _draw_outside_arena(screen, center, vertices)
 
     def _draw_death_spectacle(self, screen, center):
         if not self.dying:
@@ -2293,6 +2313,7 @@ class PathChaseBoss(Enemy):
         vertices = [bG.world_to_screen(*point) for point in self._arena_vertices()]
         if len(vertices) < 3:
             return
+        _draw_outside_arena(screen, bG.world_to_screen(*self._arena_center()), vertices)
         pygame.draw.lines(screen, ui.SHADOW, True, vertices, 14)
         pygame.draw.lines(screen, ui.INK, True, vertices, 8)
         pygame.draw.lines(screen, self.phaseAccent, True, vertices, 3)
@@ -2302,13 +2323,21 @@ class PathChaseBoss(Enemy):
         if self.arenaShape == "atomic":
             center = bG.world_to_screen(*self._arena_center())
             for index in range(3):
-                extent = int(self.arenaRadius*2.2)
-                orbit = pygame.Surface((extent, extent), pygame.SRCALPHA)
-                rect = pygame.Rect(0, 0, self.arenaRadius*1.8, self.arenaRadius*.62)
-                rect.center = (extent/2, extent/2)
-                pygame.draw.ellipse(orbit, (*self.phaseAccent[:3], 70), rect, 3)
-                orbit = pygame.transform.rotate(orbit, index*60 + self.age*.012)
-                screen.blit(orbit, orbit.get_rect(center=center))
+                # Rotating a full arena-sized alpha surface here used to allocate
+                # three ~3000x3000 buffers every frame for Malady. Draw the same
+                # projected atomic orbit as a compact polyline instead.
+                rotation = index * pi / 3 + self.age * .012 * pi / 180
+                c, s = cos(rotation), sin(rotation)
+                points = []
+                for step in range(65):
+                    angle = step * 2 * pi / 64
+                    local_x = cos(angle) * self.arenaRadius * .9
+                    local_y = sin(angle) * self.arenaRadius * .31
+                    points.append((center[0] + local_x * c - local_y * s,
+                                   center[1] + local_x * s + local_y * c))
+                orbit_color = self.phaseAccent.lerp(ui.VOID, .72)
+                pygame.draw.lines(screen, ui.INK, True, points, 5)
+                pygame.draw.lines(screen, orbit_color, True, points, 3)
         marker_index = min(len(vertices)-1, int((1-progress)*(len(vertices)-1)))
         pygame.draw.circle(screen, ui.CREAM, vertices[marker_index], 5)
 
@@ -3824,25 +3853,25 @@ class PhantasiaBoss(PathChaseBoss):
         tile = vH.tileSizeGlobal
         belief = __import__("characterStats").dreamState["belief"]
         chaos = (1.0 + belief * .055) if self.finalBoss else 1.0
-        court = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         for ring in range(3 if not self.finalBoss else 5):
             radius = tile * (2.1 + ring * 1.22 + sin(self.age * .018 + ring) * .18) * chaos
             rect = pygame.Rect(0, 0, radius * 2, radius * 2)
             rect.center = center
             start = self.age * (.0018 + ring * .0007) * (-1 if ring % 2 else 1)
+            ring_color = self.phaseAccent.lerp(ui.VOID, .82 - ring * .025)
             for segment in range(8 + ring * 2):
                 angle = start + segment * 2 * pi / (8 + ring * 2)
-                pygame.draw.arc(court, (*self.phaseAccent[:3], 32 + ring * 6), rect,
+                pygame.draw.arc(screen, ring_color, rect,
                                 angle, angle + pi / (9 + ring), 2 + ring % 2)
+        mote_color = self.phaseAccent.lerp(ui.VOID, .67)
         for index in range((8 if self.finalBoss else 4) + int(belief * .5)):
             angle = index * 2.399 + self.age * .0025
             radius = tile * (1.7 + index % 5)
             point = (center[0] + cos(angle) * radius, center[1] + sin(angle) * radius)
             size = 5 + index % 4
-            pygame.draw.polygon(court, (*self.phaseAccent[:3], 70),
+            pygame.draw.polygon(screen, mote_color,
                                 ((point[0], point[1] - size), (point[0] + size, point[1]),
                                  (point[0], point[1] + size), (point[0] - size, point[1])))
-        screen.blit(court, (0, 0))
         progress = 1 - self.sigilTransitionTimer / self.sigilTransitionDuration
         self._draw_commandment_sigil(screen, center, tile * (2.0 if self.finalBoss else 1.45),
                                      progress, rotation=self.age * .0007, alpha=62)
@@ -3889,8 +3918,13 @@ class PhantasiaBoss(PathChaseBoss):
 
     def drawEnemy(self, screen):
         self._draw_dream_court(screen)
-        super().drawEnemy(screen)
-        self._draw_mask_and_halоs(screen)
+        custom_body = getattr(self, "_draw_dream_body", None)
+        if custom_body is None:
+            super().drawEnemy(screen)
+            self._draw_mask_and_halоs(screen)
+        else:
+            self._draw_path_arena(screen)
+            custom_body(screen)
         import characterStats as cS
         belief = cS.dreamState["belief"]
         rect = pygame.Rect(self.posX, self.posY, self.size, self.size)
@@ -4031,24 +4065,593 @@ class Malady(PhantasiaBoss):
     finalBodyScale = 2.35
     finalCooldownSeconds = 1.25
     movementSpeed = .25
+    arenaScale = 13.5
     movementModes = ("static", "path", "chase", "static", "path",
                      "chase", "path", "static", "chase", "path")
     shotRangeTiles = 38
+    SURVIVAL_PHASES = {4: 13.0, 7: 15.0}
 
     def __init__(self, world_x, world_y, rng=None):
         super().__init__(world_x, world_y, rng)
         self.actTitle = "ACT I // THE DOCTRINE"
         self.actTransitionTimer = self.actTransitionDuration
         self.phaseProtectionTimer = self.actTransitionDuration
+        self.projectilePortals = []
+        self.portalFormationPhase = 0
+        self.sequenceQueue = []
+        self.poolCooldown = 1.2
+        self.survivalActive = False
+        self.survivalRemaining = 0.0
+        self.vitalitySuppressed = False
+        self.puppetMotion = [0.0, 0.0]
+        self.puppetMotionStrength = 0.0
+        self.puppetFacing = "south"
+        self.attackPose = "idle"
+        self.attackAimAngle = 0.0
+        self.attackAnimationDuration = .72
+        self.attackAnticipation = 0.0
+        self.collapsing = False
+        self.collapseDuration = 3.6
+        self.collapseRemaining = 0.0
+
+    def _set_dream_phase(self, phase):
+        super()._set_dream_phase(phase)
+        if hasattr(self, "sequenceQueue"):
+            self.sequenceQueue.clear()
+            self._clear_malady_portals()
+            self.poolCooldown = .8
+            self.survivalActive = self.phase in self.SURVIVAL_PHASES
+            self.survivalRemaining = self.SURVIVAL_PHASES.get(self.phase, 0.0)
+            self.vitalitySuppressed = self.survivalActive
+
+    def take_damage(self, amount, part_id="body"):
+        if self.survivalActive or self.collapsing:
+            return HitResult(False, False, 0, blocked=True)
+        result = super().take_damage(amount, part_id)
+        if result.killed:
+            self.hp = 1
+            self.collapsing = True
+            self.collapseRemaining = self.collapseDuration
+            self.vitalitySuppressed = False
+            self.sequenceQueue.clear()
+            self._clear_malady_portals()
+            self.transitionCleanupRequested = True
+            self.phaseAnnouncementTimer = 0.0
+            return HitResult(result.applied, False, result.amount, result.blocked)
+        return result
+
+    def _attack_pose_for_phase(self):
+        return ("laser" if self.phase in (3, 7, 9)
+                else "chain" if self.phase in (4, 5)
+                else "radial" if self.phase in (2, 8)
+                else "burst")
+
+    def _clear_malady_portals(self):
+        for portal in self.projectilePortals:
+            portal.remFlag = True
+        self.projectilePortals.clear()
+        self.portalFormationPhase = 0
+
+    def _ensure_malady_portals(self):
+        if self.portalFormationPhase == self.phase and self.projectilePortals:
+            return
+        self._clear_malady_portals()
+        center = self._arena_center()
+        count = (3, 4, 3, 4, 5, 3, 6, 4, 5, 6)[self.phase - 1]
+        paths = ("orbit", "figure8", "wave", "square", "tornado",
+                 "orbit", "square", "figure8", "wave", "tornado")
+        radius = self.arenaRadius * (.68 if self.phase in self.SURVIVAL_PHASES else .56)
+        for index in range(count):
+            portal = ProjectilePortal(
+                center, radius, index * 2 * pi / count + self.phase * .17,
+                angular_speed=(.22 + self.phase * .018) * (-1 if index % 2 else 1),
+                fire_interval=999, pellet_count=5, spread=.78,
+                owner=f"{self.ownerPrefix}_portal",
+                color=self.phaseAccent, polarity=-1 if index % 2 else 1,
+                movement_path=paths[self.phase - 1],
+            )
+            portal.showTether = self.phase not in (4, 7, 10)
+            self.projectilePortals.append(portal)
+        self.portalFormationPhase = self.phase
+
+    def _portal_origin(self, index):
+        if not self.projectilePortals:
+            return self._center()
+        portal = self.projectilePortals[index % len(self.projectilePortals)]
+        return portal.worldX + portal.size / 2, portal.worldY + portal.size / 2
+
+    def _spawn_pool(self, sink, position, duration=7.0, scale=1.0):
+        size = vH.tileSizeGlobal * 2.35 * scale
+        pool = EnemyProjectile(
+            position[0] - size / 2, position[1] - size / 2, 0, 0, 285, size,
+            color=pygame.Color(147, 57, 190), shape="pool", path="pool",
+            lifetime=duration, owner=f"{self.ownerPrefix}_purple_pool",
+            ignore_walls=True,
+        )
+        pool.telegraphDuration = 1.05
+        pool.persistentHazard = True
+        pool.truthMarked = True
+        pool.beliefGain = .35
+        sink.append(pool)
+        return pool
+
+    def _queue_chain(self, origin, start_angle, arc, count=16, interval=.055,
+                     speed=.74, damage=335):
+        for index in range(count):
+            fraction = index / max(1, count - 1)
+            self.sequenceQueue.append({
+                "delay": index * interval,
+                "origin": origin,
+                "direction": start_angle + arc * fraction,
+                "speed": speed * (1.0 - .18 * sin(fraction * pi)),
+                "damage": damage,
+            })
+
+    def _update_sequences(self, sink, dt):
+        remaining = []
+        for event in self.sequenceQueue:
+            event["delay"] -= dt
+            if event["delay"] <= 0:
+                shot = self._shot_from(
+                    sink, event["origin"], event["direction"], event["speed"],
+                    event["damage"], "flowing_chain", shape="diamond", belief=.38,
+                )
+                shot.size *= .82
+            else:
+                remaining.append(event)
+        self.sequenceQueue = remaining
+
+    def _fire_portal_phrase(self, sink, target, wide=False):
+        if not self.projectilePortals:
+            return
+        portal = self.projectilePortals[self.patternRotation % len(self.projectilePortals)]
+        waves = ((3, .28, .72, .30), (5, .72 if wide else .42, .96, .24),
+                 (3, .18, 1.26, .20))
+        portal.fire_pattern_burst(
+            sink, target, waves, wave_interval=.12, damage=325,
+            color=self.phaseAccent, owner_suffix="dream_burst",
+        )
+
+    def _update_puppet_motion(self, previous_x, previous_y):
+        delta_x, delta_y = self.worldX - previous_x, self.worldY - previous_y
+        screen_x, screen_y = bG.world_vector_to_screen(delta_x, delta_y)
+        magnitude = hypot(screen_x, screen_y)
+        if magnitude > .005:
+            target_x, target_y = screen_x / magnitude, screen_y / magnitude
+            self.puppetMotion[0] += (target_x - self.puppetMotion[0]) * .22
+            self.puppetMotion[1] += (target_y - self.puppetMotion[1]) * .22
+            self.puppetMotionStrength += (1.0 - self.puppetMotionStrength) * .18
+            if abs(screen_x) > abs(screen_y):
+                self.puppetFacing = "east" if screen_x > 0 else "west"
+            else:
+                self.puppetFacing = "south" if screen_y > 0 else "north"
+        else:
+            self.puppetMotion[0] *= .86
+            self.puppetMotion[1] *= .86
+            self.puppetMotionStrength *= .84
+
+    @staticmethod
+    def _offset_points(points, x, y):
+        return tuple((point[0] + x, point[1] + y) for point in points)
+
+    def _draw_limb_block(self, screen, start, end, width, color, taper=.82):
+        delta_x, delta_y = end[0] - start[0], end[1] - start[1]
+        length = max(1.0, hypot(delta_x, delta_y))
+        normal_x, normal_y = -delta_y / length, delta_x / length
+        start_half, end_half = width / 2, width * taper / 2
+        points = (
+            (start[0] + normal_x * start_half, start[1] + normal_y * start_half),
+            (end[0] + normal_x * end_half, end[1] + normal_y * end_half),
+            (end[0] - normal_x * end_half, end[1] - normal_y * end_half),
+            (start[0] - normal_x * start_half, start[1] - normal_y * start_half),
+        )
+        pygame.draw.polygon(screen, ui.SHADOW, self._offset_points(points, 5, 7))
+        pygame.draw.polygon(screen, ui.INK, points)
+        inset = max(2.0, width * .11)
+        inner = (
+            (start[0] + normal_x * (start_half-inset), start[1] + normal_y * (start_half-inset)),
+            (end[0] + normal_x * (end_half-inset), end[1] + normal_y * (end_half-inset)),
+            (end[0] - normal_x * (end_half-inset), end[1] - normal_y * (end_half-inset)),
+            (start[0] - normal_x * (start_half-inset), start[1] - normal_y * (start_half-inset)),
+        )
+        pygame.draw.polygon(screen, color, inner)
+        pygame.draw.line(screen, ui.lighten(color, 38), inner[0], inner[1],
+                         max(2, int(width * .07)))
+        return points
+
+    def _draw_attack_hand(self, screen, joint, end, width):
+        delta_x, delta_y = end[0]-joint[0], end[1]-joint[1]
+        length = max(1.0, hypot(delta_x, delta_y))
+        direction = (delta_x/length, delta_y/length)
+        perpendicular = (-direction[1], direction[0])
+        color = self.phaseAccent
+        if self.attackPose == "laser":
+            for side in (-1, 1):
+                start = (end[0] + perpendicular[0]*width*.22*side,
+                         end[1] + perpendicular[1]*width*.22*side)
+                tip = (start[0] + direction[0]*width*.62,
+                       start[1] + direction[1]*width*.62)
+                pygame.draw.line(screen, ui.INK, start, tip,
+                                 max(5, int(width*.18)))
+                pygame.draw.line(screen, ui.CREAM, start, tip,
+                                 max(2, int(width*.07)))
+        elif self.attackPose == "chain":
+            center = (end[0] + direction[0]*width*.28,
+                      end[1] + direction[1]*width*.28)
+            diamond = ((center[0]+direction[0]*width*.38,
+                        center[1]+direction[1]*width*.38),
+                       (center[0]+perpendicular[0]*width*.3,
+                        center[1]+perpendicular[1]*width*.3),
+                       (center[0]-direction[0]*width*.38,
+                        center[1]-direction[1]*width*.38),
+                       (center[0]-perpendicular[0]*width*.3,
+                        center[1]-perpendicular[1]*width*.3))
+            pygame.draw.polygon(screen, ui.SHADOW,
+                                self._offset_points(diamond, 4, 5))
+            pygame.draw.polygon(screen, ui.INK, diamond)
+            pygame.draw.polygon(screen, color, diamond, max(2, int(width*.1)))
+        elif self.attackPose == "burst":
+            for spread in (-.48, 0, .48):
+                ray_x = direction[0]*cos(spread)-direction[1]*sin(spread)
+                ray_y = direction[0]*sin(spread)+direction[1]*cos(spread)
+                tip = (end[0]+ray_x*width*.65, end[1]+ray_y*width*.65)
+                pygame.draw.line(screen, ui.INK, end, tip,
+                                 max(5, int(width*.16)))
+                pygame.draw.line(screen, color, end, tip,
+                                 max(2, int(width*.07)))
+        elif self.attackPose == "radial":
+            radius = max(4, int(width*.36))
+            pygame.draw.circle(screen, ui.INK, end, radius+4)
+            pygame.draw.circle(screen, color, end, radius, 3)
+            pygame.draw.circle(screen, ui.CREAM, end, max(2, radius//4))
+
+    def _draw_puppet_ground_sigil(self, screen, center):
+        ground = (center[0], center[1] + self.size * .62)
+        ring = pygame.Rect(0, 0, self.size * 1.42, self.size * .42)
+        ring.center = ground
+        pygame.draw.ellipse(screen, ui.SHADOW, ring.inflate(12, 8), 7)
+        pygame.draw.ellipse(screen, self.phaseAccent.lerp(ui.VOID, .5), ring, 3)
+        self._draw_commandment_sigil(
+            screen, ground, self.size * .34, 1.0,
+            alpha=115, rotation=self.age * -.0012,
+        )
+
+    def _draw_puppet_arm(self, screen, core, side, body_color, attack_amount,
+                         reassembly=0.0):
+        size = self.size
+        drift_x = -self.puppetMotion[0] * size * .2 * self.puppetMotionStrength
+        drift_y = -self.puppetMotion[1] * size * .13 * self.puppetMotionStrength
+        idle = self.age * .018 + side * 1.7
+        shoulder = (core[0] + side * size * .3, core[1] - size * .15)
+        points = [
+            shoulder,
+            (core[0] + side * size * .58 + drift_x * .25,
+             core[1] - size * .2 + sin(idle) * size * .07 + drift_y * .25),
+            (core[0] + side * size * .88 + drift_x * .62,
+             core[1] - size * .05 + sin(idle + .9) * size * .1 + drift_y * .62),
+            (core[0] + side * size * 1.18 + drift_x,
+             core[1] + size * .08 + sin(idle + 1.7) * size * .12 + drift_y),
+        ]
+        for index in range(1, 4):
+            scatter = reassembly * size * (.08 + index * .055)
+            points[index] = (points[index][0] + side * scatter,
+                             points[index][1]
+                             + sin(self.age*.024 + index*1.3 + side) * scatter*.7)
+
+        aim_x, aim_y = bG.world_vector_to_screen(
+            cos(self.attackAimAngle), sin(self.attackAimAngle))
+        aim_length = max(1e-6, hypot(aim_x, aim_y))
+        aim_x, aim_y = aim_x / aim_length, aim_y / aim_length
+        perpendicular = (-aim_y, aim_x)
+        if self.attackPose == "laser":
+            target = (core[0] + aim_x * size * 1.28 + perpendicular[0] * side * size * .22,
+                      core[1] + aim_y * size * 1.28 + perpendicular[1] * side * size * .22)
+            for index in range(1, 4):
+                fraction = index / 3
+                attack_point = (shoulder[0] + (target[0]-shoulder[0]) * fraction,
+                                shoulder[1] + (target[1]-shoulder[1]) * fraction)
+                points[index] = (points[index][0] * (1-attack_amount) + attack_point[0] * attack_amount,
+                                 points[index][1] * (1-attack_amount) + attack_point[1] * attack_amount)
+        elif self.attackPose == "chain" and side == (1 if aim_x >= 0 else -1):
+            target = (core[0] + aim_x * size * 1.52,
+                      core[1] + aim_y * size * 1.52 - size * .18)
+            arc = perpendicular[1] * size * .25
+            for index in range(1, 4):
+                fraction = index / 3
+                attack_point = (shoulder[0] + (target[0]-shoulder[0]) * fraction,
+                                shoulder[1] + (target[1]-shoulder[1]) * fraction
+                                - sin(fraction*pi) * arc)
+                points[index] = (points[index][0] * (1-attack_amount) + attack_point[0] * attack_amount,
+                                 points[index][1] * (1-attack_amount) + attack_point[1] * attack_amount)
+        elif self.attackPose == "burst":
+            points[-1] = (points[-1][0] + side * size * .23 * attack_amount,
+                          points[-1][1] - size * .32 * attack_amount)
+            points[-2] = (points[-2][0] + side * size * .12 * attack_amount,
+                          points[-2][1] - size * .17 * attack_amount)
+        elif self.attackPose == "radial":
+            orbit_angle = self.age * .035 + (0 if side > 0 else pi)
+            target = (core[0] + cos(orbit_angle) * size * 1.18,
+                      core[1] + sin(orbit_angle) * size * .72)
+            points[-1] = (points[-1][0] * (1-attack_amount) + target[0] * attack_amount,
+                          points[-1][1] * (1-attack_amount) + target[1] * attack_amount)
+
+        widths = (size * .27, size * .24, size * .2)
+        for index in range(3):
+            self._draw_limb_block(screen, points[index], points[index+1],
+                                  widths[index], body_color, .78)
+            if index < 2:
+                pygame.draw.circle(screen, ui.INK, points[index+1], int(widths[index] * .34))
+                pygame.draw.circle(screen, self.phaseAccent, points[index+1],
+                                   max(2, int(widths[index] * .18)))
+        hand_direction = side if abs(points[-1][0]-points[-2][0]) < 1 else (
+            1 if points[-1][0] > points[-2][0] else -1)
+        hand_end = (points[-1][0] + hand_direction * size * .18,
+                    points[-1][1] + size * .04)
+        self._draw_limb_block(screen, points[-1], hand_end, size * .28,
+                              self.phaseAccent, .62)
+        self._draw_attack_hand(screen, points[-1], hand_end, size * .28)
+
+    def _draw_survival_dance(self, screen, core, body_color):
+        size = self.size
+        finale = self.phase == 7
+        count = 12 if finale else 8
+        speed = .031 if finale else .022
+        for index in range(count):
+            angle = self.age * speed * (-1 if index % 2 else 1) + index * 2 * pi / count
+            radius = size * ((.98 + .25 * (index % 3))
+                             if finale else (.55 + .1 * (index % 2)))
+            center = (core[0] + cos(angle) * radius,
+                      core[1] + sin(angle * (1.35 if finale else 1.0)) * radius * .68)
+            tangent = angle + pi / 2 + sin(self.age * .017 + index) * .38
+            half = size * (.13 + .025 * (index % 3))
+            start = (center[0] - cos(tangent) * half,
+                     center[1] - sin(tangent) * half)
+            end = (center[0] + cos(tangent) * half,
+                   center[1] + sin(tangent) * half)
+            color = self.phaseAccent if index % 3 == 0 else body_color
+            self._draw_limb_block(screen, start, end,
+                                  size * (.17 + .02*(index%2)), color)
+        for index in range(3 if finale else 2):
+            angle = -self.age * (.019 + index * .004) + index * pi
+            point = (core[0] + cos(angle) * size * .42,
+                     core[1] + size * .36 + sin(angle) * size * .19)
+            slab_end = (point[0] + cos(angle+.3) * size * .38,
+                        point[1] + sin(angle+.3) * size * .12)
+            self._draw_limb_block(screen, point, slab_end,
+                                  size * .27, body_color, .72)
+
+    def _draw_collapse_choreography(self, screen, core, body_color):
+        progress = max(0.0, min(
+            1.0, 1.0 - self.collapseRemaining / self.collapseDuration))
+        for index in range(16):
+            angle = index * 2*pi/16 + self.age * (.017 if index % 2 else -.013)
+            distance = self.size * (.2 + progress * (1.05 + .12*(index%4)))
+            fall = self.size * progress * progress * (.35 + .08*(index%5))
+            center = (core[0] + cos(angle)*distance,
+                      core[1] + sin(angle)*distance*.58 + fall)
+            tangent = angle + pi/2 + progress*pi*(1 if index%2 else -1)
+            half = self.size * (.08 + .018*(index%3)) * (1-progress*.38)
+            start = (center[0]-cos(tangent)*half, center[1]-sin(tangent)*half)
+            end = (center[0]+cos(tangent)*half, center[1]+sin(tangent)*half)
+            color = self.phaseAccent if index % 3 == 0 else body_color
+            self._draw_limb_block(screen, start, end,
+                                  self.size*(.13+.015*(index%2)), color)
+        beam_length = self.size * (1.1 + progress * 2.2)
+        for index in range(6):
+            angle = index*pi/3 - self.age*.009
+            end = (core[0]+cos(angle)*beam_length,
+                   core[1]+sin(angle)*beam_length)
+            pygame.draw.line(screen, ui.INK, core, end, 6)
+            pygame.draw.line(screen, self.phaseAccent, core, end, 2)
+        shell_scale = max(.08, 1-progress*1.12)
+        shell = pygame.Rect(0, 0, self.size*.62*shell_scale,
+                            self.size*.73*shell_scale)
+        shell.center = core
+        pygame.draw.rect(screen, ui.INK, shell,
+                         border_radius=max(2, int(self.size*.07*shell_scale)))
+        pygame.draw.rect(screen, body_color, shell.inflate(-6, -6),
+                         border_radius=max(2, int(self.size*.05*shell_scale)))
+        core_radius = max(2, int(self.size * .11 *
+                                 (1-progress if progress > .72 else 1+progress*.8)))
+        pygame.draw.circle(screen, ui.INK, core, core_radius+7)
+        pygame.draw.circle(screen, ui.CREAM, core, core_radius)
+        for ring_index in range(4):
+            cycle = (progress*3 + ring_index/4) % 1
+            pygame.draw.circle(screen, self.phaseAccent, core,
+                               self.size*(.16+cycle*1.3),
+                               max(1, int(4*(1-cycle))))
+
+    def _draw_dream_body(self, screen):
+        self.visualAttackTimer = max(0, self.visualAttackTimer - vH.get_timer_step())
+        attack_progress = min(
+            1.0, self.visualAttackTimer
+            / max(1, vH.frameRate * self.attackAnimationDuration))
+        attack_amount = max(sin(attack_progress * pi),
+                            self.attackAnticipation * .62)
+        stillness = 1.0 - min(1.0, self.puppetMotionStrength)
+        bob = sin(self.age * .025) * self.size * .035 * (.45 + stillness * .55)
+        lean_x = self.puppetMotion[0] * self.size * .07 * self.puppetMotionStrength
+        lean_y = self.puppetMotion[1] * self.size * .035 * self.puppetMotionStrength
+        core = (self.posX + self.size / 2 + lean_x,
+                self.posY + self.size * .47 + bob + lean_y)
+        body_color = self.finalBodyColor.lerp(self.phaseAccent, .18)
+        bright = ui.lighten(body_color, 34)
+        transition = max(0.0, min(
+            1.0, self.sigilTransitionTimer / self.sigilTransitionDuration))
+        reassembly = transition * transition * (3 - 2*transition)
+        shadow = pygame.Rect(0, 0, self.size * 1.72, self.size * .42)
+        shadow.center = (core[0] - lean_x * .4, core[1] + self.size * .62)
+        pygame.draw.ellipse(screen, ui.SHADOW, shadow)
+        self._draw_puppet_ground_sigil(screen, core)
+
+        if self.collapsing:
+            self._draw_collapse_choreography(screen, core, body_color)
+            return
+
+        if self.survivalActive:
+            self._draw_survival_dance(screen, core, body_color)
+        else:
+            self._draw_puppet_arm(screen, core, -1, body_color,
+                                  attack_amount, reassembly)
+            self._draw_puppet_arm(screen, core, 1, body_color,
+                                  attack_amount, reassembly)
+
+        base_shift = (-self.puppetMotion[0] * self.size * .08 * self.puppetMotionStrength
+                      - reassembly*self.size*.12)
+        base_y = core[1] + self.size * .35
+        left_base = (
+            (core[0]-self.size*.66+base_shift, base_y-self.size*.08),
+            (core[0]-self.size*.05+base_shift, base_y-self.size*.03),
+            (core[0]-self.size*.11+base_shift, base_y+self.size*.27),
+            (core[0]-self.size*.78+base_shift, base_y+self.size*.18),
+        )
+        right_base = tuple((2*core[0]-x+base_shift*2, y) for x, y in left_base)
+        for points in (left_base, right_base):
+            pygame.draw.polygon(screen, ui.SHADOW,
+                                self._offset_points(points, 6, 8))
+            pygame.draw.polygon(screen, ui.INK, points)
+            inset = tuple((x + (core[0]-x)*.06,
+                           y + (core[1]-y)*.06) for x, y in points)
+            pygame.draw.polygon(screen, body_color, inset)
+        pygame.draw.line(screen, bright, left_base[0], left_base[1], 3)
+        pygame.draw.line(screen, bright, right_base[0], right_base[1], 3)
+
+        torso = pygame.Rect(0, 0, self.size * .62, self.size * .73)
+        torso.center = (core[0], core[1] + self.size * .02)
+        pygame.draw.rect(screen, ui.SHADOW, torso.move(6, 8),
+                         border_radius=int(self.size*.08))
+        pygame.draw.rect(screen, ui.INK, torso,
+                         border_radius=int(self.size*.08))
+        chest = torso.inflate(-self.size*.08, -self.size*.08)
+        pygame.draw.rect(screen, body_color, chest,
+                         border_radius=int(self.size*.055))
+        pygame.draw.line(screen, bright, chest.topleft, chest.topright, 3)
+
+        head_bob = sin(self.age * .031 + .8) * self.size * .035
+        head = pygame.Rect(0, 0, self.size * .43, self.size * .29)
+        head.midbottom = (core[0] + lean_x * .35,
+                          torso.top - self.size * (.09 + reassembly*.24) + head_bob)
+        pygame.draw.rect(screen, ui.SHADOW, head.move(5, 7),
+                         border_radius=int(self.size*.07))
+        pygame.draw.rect(screen, ui.INK, head,
+                         border_radius=int(self.size*.07))
+        pygame.draw.rect(screen, body_color, head.inflate(-6, -6),
+                         border_radius=int(self.size*.05))
+        eye_y, eye_offset = head.centery, self.size * .1
+        pygame.draw.line(screen, self.phaseAccent,
+                         (head.centerx-eye_offset, eye_y),
+                         (head.centerx+eye_offset, eye_y),
+                         max(2, int(self.size*.025)))
+
+        self._draw_commandment_sigil(
+            screen, torso.center, self.size * .19, 1.0,
+            alpha=255, rotation=sin(self.age*.008)*.08,
+        )
+        core_radius = max(4, int(self.size *
+                                 (.055 + .012*sin(self.age*.05))))
+        pygame.draw.circle(screen, ui.INK, torso.center, core_radius + 4)
+        pygame.draw.circle(screen, ui.CREAM, torso.center, core_radius)
+        if reassembly > .02:
+            radius = self.size * (.36 + reassembly*.72)
+            pygame.draw.circle(screen, self.phaseAccent, torso.center,
+                               radius, max(1, int(4*reassembly)))
+            for index in range(8):
+                angle = index*pi/4 + self.age*.014
+                point = (torso.centerx+cos(angle)*radius,
+                         torso.centery+sin(angle)*radius*.58)
+                pygame.draw.rect(screen, ui.CREAM,
+                                 (point[0]-2, point[1]-2, 4, 4))
+        if self.hp < self.maxHp:
+            bar = pygame.Rect(0, 0, self.size * .86, 6)
+            bar.midbottom = (core[0], head.top - 10)
+            pygame.draw.rect(screen, ui.INK, bar)
+            fill = bar.copy()
+            fill.width = int(bar.width * max(0, self.hp/self.maxHp))
+            pygame.draw.rect(screen, self.phaseAccent, fill)
+
+    def updateEnemy(self, player_world_x, player_world_y, projectile_sink=None):
+        projectile_sink = projectile_sink if projectile_sink is not None else []
+        dt = self._seconds()
+        previous_x, previous_y = self.worldX, self.worldY
+        if self.collapsing:
+            self.age += vH.get_timer_step()
+            self.collapseRemaining = max(0.0, self.collapseRemaining - dt)
+            self.phaseAnnouncementTimer = max(0.0,
+                                              self.phaseAnnouncementTimer-dt)
+            self.attackAnticipation = 0.0
+            if self.collapseRemaining <= 0:
+                self.hp = 0
+            self.posX, self.posY = bG.world_to_screen(self.worldX, self.worldY)
+            return
+        self._ensure_malady_portals()
+        self._update_sequences(projectile_sink, dt)
+        for portal in self.projectilePortals:
+            portal.orbitCenter = self._arena_center()
+            portal.angle += portal.angularSpeed * dt
+            portal._place()
+            portal.update_bursts(projectile_sink, dt)
+
+        if self.entranceRemaining <= 0 and self.actTransitionTimer <= 0:
+            self.poolCooldown -= dt
+            pool_rate = 1.65 if self.survivalActive else 4.2
+            if self.poolCooldown <= 0 and (self.survivalActive or self.phase in (2, 5, 8, 10)):
+                center = self._arena_center()
+                angle = self.rng.uniform(0, 2 * pi)
+                radius = self.rng.uniform(self.arenaRadius * .18, self.arenaRadius * .64)
+                position = (center[0] + cos(angle) * radius,
+                            center[1] + sin(angle) * radius)
+                self._spawn_pool(projectile_sink, position,
+                                 duration=5.8 if self.survivalActive else 7.5,
+                                 scale=self.rng.uniform(.82, 1.18))
+                self.poolCooldown = pool_rate
+
+            if self.survivalActive and not self.debugPhaseLocked:
+                self.survivalRemaining = max(0.0, self.survivalRemaining - dt)
+                if self.survivalRemaining <= 0:
+                    phase_count = len(self.phaseLabels)
+                    self.hp = self.maxHp * (phase_count - self.phase) / phase_count
+                    self.survivalActive = False
+                    self.vitalitySuppressed = False
+                    self._update_phase()
+
+        super().updateEnemy(player_world_x, player_world_y, projectile_sink)
+        self._update_puppet_motion(previous_x, previous_y)
+        anticipation_window = vH.frameRate * .34
+        if (self.entranceRemaining <= 0 and self.actTransitionTimer <= 0
+                and 0 < self.attackCooldown <= anticipation_window):
+            center = self._center()
+            self.attackPose = self._attack_pose_for_phase()
+            self.attackAimAngle = atan2(player_world_y-center[1],
+                                        player_world_x-center[0])
+            self.attackAnticipation = max(
+                0.0, min(1.0, 1-self.attackCooldown/anticipation_window))
+        else:
+            self.attackAnticipation = 0.0
+
+    def drawEnemy(self, screen):
+        super().drawEnemy(screen)
+        for portal in self.projectilePortals:
+            portal.draw(screen)
+        if self.survivalActive:
+            scale = ui.display_scale(screen)
+            width = min(screen.get_width() * .42, 520 * scale)
+            banner = pygame.Rect(0, 0, width, 54 * scale)
+            banner.midtop = (screen.get_width() / 2, screen.get_height() * .21)
+            ui.draw_panel(screen, banner, ui.PANEL_RAISED, self.phaseAccent, shadow=5)
+            ui.draw_text(screen, f"SURVIVE  {self.survivalRemaining:04.1f}",
+                         16 * scale, ui.CREAM, (banner.centerx, banner.y + 16 * scale), "center")
+            ui.draw_text(screen, "VITALITY SEALED", 9 * scale, self.phaseAccent,
+                         (banner.centerx, banner.bottom - 11 * scale), "center")
 
     def _fire_pattern(self, player_x, player_y, sink):
         center, target = self._center(), (player_x, player_y)
         aimed = atan2(player_y - center[1], player_x - center[0])
+        self.attackAimAngle = aimed
+        self.attackPose = self._attack_pose_for_phase()
         if self.phase == 1:  # Authority
             throne = self.patternRotation % 4
             for index in range(4):
-                origin = (center[0] + cos(index*pi/2)*vH.tileSizeGlobal*3.6,
-                          center[1] + sin(index*pi/2)*vH.tileSizeGlobal*3.6)
+                origin = self._portal_origin(index)
                 self._fan_from(sink, origin, target, 4, .62, .92, 330, "authority",
                                illusion=index != throne)
         elif self.phase == 2:  # Image
@@ -4059,10 +4662,15 @@ class Malady(PhantasiaBoss):
         elif self.phase == 3:  # Reverence
             self.ruleTruth = self.patternRotation % 3 != 1
             self.ruleText = ("PRESERVE THE NAME" if self.ruleTruth else "BREAK THE NAME")
-            self._laser_from(sink, center, aimed, 350, "name", illusion=not self.ruleTruth)
+            self._laser_from(sink, self._portal_origin(self.patternRotation), aimed,
+                             350, "name", illusion=not self.ruleTruth)
             self._fan_from(sink, center, target, 7, 1.4, .72, 325, "reverence")
         elif self.phase == 4:  # Rest
-            self._radial(sink, center, 12, .58, 320, "six_beats")
+            origin = self._portal_origin(self.patternRotation)
+            sweep = atan2(target[1] - origin[1], target[0] - origin[0]) - .95
+            self._queue_chain(origin, sweep, 1.9, count=18, interval=.05, speed=.68)
+            self._update_sequences(sink, 0.0)
+            self._fire_portal_phrase(sink, target, wide=True)
         elif self.phase == 5:  # Lineage
             for index in range(5):
                 shot = self._shot_from(sink, center, aimed+(index-2)*.3, .8, 330, "lineage")
@@ -4074,10 +4682,18 @@ class Malady(PhantasiaBoss):
             for index in range(12):
                 self._shot_from(sink, center, index*2*pi/12, .42, 0, "procession", illusion=True)
         elif self.phase == 7:  # Fidelity
-            chosen = self.patternRotation % 4
-            for index in range(4):
-                self._laser_from(sink, center, index*pi/2, 355, "vow", illusion=index == chosen)
-            self._fan_from(sink, center, target, 5, .72, .9, 340, "betrayal")
+            chosen = self.patternRotation % max(1, len(self.projectilePortals))
+            for index in range(0, len(self.projectilePortals), 2):
+                origin = self._portal_origin(index)
+                inward = atan2(center[1] - origin[1], center[0] - origin[0])
+                self._laser_from(sink, origin, inward, 355, "vow",
+                                 illusion=index == chosen)
+            chain_origin = self._portal_origin(chosen)
+            tangent = atan2(center[1]-chain_origin[1], center[0]-chain_origin[0]) + pi/2
+            self._queue_chain(chain_origin, tangent-.7, 1.4, count=20,
+                              interval=.045, speed=.82, damage=345)
+            self._update_sequences(sink, 0.0)
+            self._fire_portal_phrase(sink, target)
         elif self.phase == 8:  # Ownership
             build = __import__("characterStats").player_build_snapshot()
             count = max(4, min(10, round(build["stats"]["projectile_count"])+2))
@@ -4095,6 +4711,8 @@ class Malady(PhantasiaBoss):
                          350, "enough")
             self._fan_from(sink, center, target, 5 + intensity, 1.25, 1.0,
                            365, "covetous", path="sine")
+        if self.phase not in self.SURVIVAL_PHASES and self.patternRotation % 2 == 0:
+            self._fire_portal_phrase(sink, target, wide=self.phase >= 8)
         self.patternRotation += 1
         self._mark_attack(.62)
 

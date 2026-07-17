@@ -149,6 +149,141 @@ class GamePathTests(unittest.TestCase):
         boss.debug_set_phase(7)
         self.assertEqual(boss.actTitle, "ACT III // THE TESTIMONY")
 
+    def test_malady_survival_phases_seal_vitality_and_advance_on_time(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        boss.debug_set_phase(4)
+        self.assertTrue(boss.survivalActive)
+        self.assertTrue(boss.vitalitySuppressed)
+        hp = boss.hp
+        self.assertTrue(boss.take_damage(1000).blocked)
+        self.assertEqual(boss.hp, hp)
+
+        previous_boss, previous_health = cS.activeBoss, cS.healthPoints
+        try:
+            cS.activeBoss = boss
+            cS.healthPoints = max(1, cS.maxHealthPoints - 100)
+            game.recoverPlayerHealth()
+            self.assertEqual(cS.healthPoints, cS.maxHealthPoints - 100)
+        finally:
+            cS.activeBoss, cS.healthPoints = previous_boss, previous_health
+
+        timed_boss = Malady(rect.x, rect.y, random.Random(6))
+        timed_boss._set_dream_phase(4)
+        timed_boss.entranceRemaining = 0
+        timed_boss.actTransitionTimer = 0
+        timed_boss.survivalRemaining = 0
+        timed_boss.updateEnemy(*timed_boss._center(), [])
+        self.assertEqual(timed_boss.phase, 5)
+        self.assertFalse(timed_boss.vitalitySuppressed)
+
+    def test_malady_survival_patterns_create_portals_pools_and_flowing_chains(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        boss.debug_set_phase(4)
+        boss.actTransitionTimer = 0
+        boss.entranceRemaining = 0
+        boss._ensure_malady_portals()
+        shots = []
+        boss._fire_pattern(*boss._center(), shots)
+        boss._update_sequences(shots, .1)
+        boss._spawn_pool(shots, boss._arena_center())
+        self.assertEqual(len(boss.projectilePortals), 4)
+        self.assertTrue(any(shot.owner.endswith("flowing_chain") for shot in shots))
+        pool = next(shot for shot in shots if shot.path == "pool")
+        player = pygame.Rect(pool.worldX, pool.worldY, 20, 20)
+        self.assertFalse(pool.collides(player))
+        pool.age = pool.telegraphDuration
+        player.center = pool.world_rect().center
+        self.assertTrue(pool.collides(player))
+
+    def test_malady_puppet_has_cardinal_motion_attack_poses_and_wide_arms(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        directions = (((1, 0), "east"), ((-1, 0), "west"),
+                      ((0, -1), "north"), ((0, 1), "south"))
+        for (delta_x, delta_y), expected in directions:
+            boss = Malady(rect.x, rect.y, random.Random(5))
+            boss._update_puppet_motion(
+                boss.worldX - delta_x, boss.worldY - delta_y)
+            self.assertEqual(boss.puppetFacing, expected)
+
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        expected_poses = {1: "burst", 2: "radial", 3: "laser", 4: "chain"}
+        for phase, pose in expected_poses.items():
+            boss.debug_set_phase(phase)
+            boss._fire_pattern(boss._center()[0] + 100,
+                               boss._center()[1], [])
+            self.assertEqual(boss.attackPose, pose)
+
+        surface = pygame.Surface((900, 700), pygame.SRCALPHA)
+        boss.posX, boss.posY = 450-boss.size/2, 350-boss.size/2
+        boss.survivalActive = False
+        boss._draw_dream_body(surface)
+        bounds = pygame.mask.from_surface(surface).get_bounding_rects()
+        union = bounds[0].unionall(bounds[1:])
+        self.assertGreater(union.width, boss.size * 2.25)
+
+    def test_malady_final_survival_dance_opens_beyond_first_survival(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        widths = []
+        for phase in (4, 7):
+            boss = Malady(rect.x, rect.y, random.Random(5))
+            boss.debug_set_phase(phase)
+            boss.posX, boss.posY = 450-boss.size/2, 350-boss.size/2
+            boss.age = 140
+            surface = pygame.Surface((900, 700), pygame.SRCALPHA)
+            boss._draw_dream_body(surface)
+            rects = pygame.mask.from_surface(surface).get_bounding_rects()
+            widths.append(rects[0].unionall(rects[1:]).width)
+        self.assertGreater(widths[1], widths[0] * 1.12)
+
+    def test_malady_has_larger_court_anticipation_and_delayed_collapse(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        hypno = Hypno(rect.x, rect.y, random.Random(5))
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        self.assertAlmostEqual(boss.arenaRadius, hypno.arenaRadius * 1.25)
+
+        boss.debug_set_phase(3)
+        boss.entranceRemaining = 0
+        boss.actTransitionTimer = 0
+        boss.attackCooldown = vH.frameRate * .12
+        center = boss._center()
+        boss.updateEnemy(center[0]+100, center[1], [])
+        self.assertEqual(boss.attackPose, "laser")
+        self.assertGreater(boss.attackAnticipation, 0)
+
+        boss.debug_set_phase(10)
+        boss.phaseProtectionTimer = 0
+        boss.actTransitionTimer = 0
+        boss.hp = 10
+        result = boss.take_damage(100)
+        self.assertFalse(result.killed)
+        self.assertTrue(boss.collapsing)
+        self.assertEqual(boss.hp, 1)
+        boss.collapseRemaining = 0
+        boss.updateEnemy(*boss._center(), [])
+        self.assertTrue(boss.is_dead())
+
+    def test_every_path_boss_blacks_out_the_exterior_of_its_arena(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        for boss_type in (Sting, Chronos, Rot, Malady):
+            boss = boss_type(rect.x, rect.y, random.Random(7))
+            surface = pygame.Surface((1920, 1080))
+            surface.fill((73, 91, 109))
+            boss._draw_path_arena(surface)
+            center = bG.world_to_screen(*boss._arena_center())
+            corners = ((0, 0), (surface.get_width()-1, 0),
+                       (0, surface.get_height()-1),
+                       (surface.get_width()-1, surface.get_height()-1))
+            outside = max(corners, key=lambda point: hypot(
+                point[0]-center[0], point[1]-center[1]))
+            self.assertEqual(surface.get_at(outside)[:3], (0, 0, 0),
+                             boss_type.__name__)
+            if surface.get_rect().collidepoint(center):
+                center_pixel = (round(center[0]), round(center[1]))
+                self.assertNotEqual(surface.get_at(center_pixel)[:3], (0, 0, 0),
+                                    boss_type.__name__)
+
     def test_phantasia_illusions_are_harmless_and_truth_is_marked(self):
         rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
         boss = Malady(rect.x, rect.y, random.Random(5))
@@ -427,6 +562,23 @@ class GamePathTests(unittest.TestCase):
                                   constrained[1]+cS.playerSize/2)
             self.assertTrue(boss._point_in_polygon(constrained_center,
                                                    boss._arena_vertices()))
+
+    def test_atomic_arena_draw_avoids_giant_rotated_surfaces(self):
+        rect = bG.find_spawn_rect(vH.tileSizeGlobal * 2.4)
+        boss = Malady(rect.x, rect.y, random.Random(5))
+        surface = pygame.Surface((900, 700))
+        original_rotate = pygame.transform.rotate
+
+        def reject_giant_rotation(source, angle):
+            self.assertLess(source.get_width(), boss.arenaRadius)
+            return original_rotate(source, angle)
+
+        pygame.transform.rotate = reject_giant_rotation
+        try:
+            boss._draw_path_arena(surface)
+        finally:
+            pygame.transform.rotate = original_rotate
+        self.assertGreater(pygame.mask.from_surface(surface).count(), 100)
 
     def test_arena_containment_never_moves_interior_player_positions(self):
         center = (len(bG.currRoomRects[0])*vH.tileSizeGlobal/2,
