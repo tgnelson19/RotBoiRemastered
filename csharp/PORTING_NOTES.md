@@ -71,16 +71,15 @@ Dependency order roughly follows the Python import graph:
    `World/Battleground.cs`'s and `World/Camera.cs`'s doc comments.
 4. **`Entities/`** -- bullets, enemy projectiles/portals, the `Enemy` base
    class, XP bubbles, loot crates, damage text (plus `UI/ItemCards.cs`, its
-   natural companion), and then the full `enemyTypes.py` catalog (~20
-   archetypes, `RuntimeEncounter` squad coordination, `EnemyCatalog`'s
-   registry/spawn-rule engine). **Done. Deferred: `Player.cs`
-   (`character.py` + `characterStats.py`, the ~1550-line combined
-   player-entity/run-state/game-loop object) and `bossTypes.py` (~4750
-   lines)** -- see `Entities/README.md`'s "Explicitly deferred" section for
-   the reasoning on each. This pass also split every entity's combined
-   Python update-and-draw method into separate Update/Draw calls (Update
-   mutates state, Draw only reads it), so physics/collision/expiry logic is
-   unit testable without a GraphicsDevice; added `Core/Simulation.cs`
+   natural companion), the full `enemyTypes.py` catalog (~20 archetypes,
+   `RuntimeEncounter` squad coordination, `EnemyCatalog`'s registry/spawn-rule
+   engine), and finally `Entities/Player.cs` (the player entity itself --
+   world position, movement/dash, wall collision, drawing). **Done. Deferred:
+   `bossTypes.py` (~4750 lines)** -- see `Entities/README.md`'s "Explicitly
+   deferred" section. This pass also split every entity's combined Python
+   update-and-draw method into separate Update/Draw calls (Update mutates
+   state, Draw only reads it), so physics/collision/expiry logic is unit
+   testable without a GraphicsDevice; added `Core/Simulation.cs`
    (frame-scale/timer-step clock) and grew `Core/Primitives2D.cs` to cover
    circles/ellipses/arcs/filled polygons. The enemy-catalog half introduced
    `EnemyUpdateContext` (replacing two enemy types' direct reads of
@@ -92,15 +91,30 @@ Dependency order roughly follows the Python import graph:
    `UI/InformationSheet.cs`** (the sidebar HUD) -- it's far more deeply
    coupled to `characterStats.py` than the other two (dozens of fields
    across nearly the whole player/run state), enough that snapshotting it
-   cleanly is really the same design question as Player.cs's data model --
-   see `UI/README.md`'s "Explicitly deferred" section. Also confirmed
+   cleanly is really the same design question as `characterStats.py`'s data
+   model -- see `UI/README.md`'s "Explicitly deferred" section. Also confirmed
    `hpBar.py`/`levelBar.py`/`dashBar.py` as dead code (grepped, unreferenced
    anywhere) and skipped them rather than porting unused files. This pass
    introduced `LevelUpStatSnapshot`/`RunResultsSnapshot` (replacing direct
    `characterStats.py` reads, same pattern as `EnemyUpdateContext`) and a
    `MenuAction` enum (replacing direct `vH.state = ...` assignment) -- see
    `UI/README.md`'s "Cleanup vs. the Python original" section.
-6. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+6. **`Systems/RunState.cs` + `Systems/GameSession.cs`** -- the rest of
+   `characterStats.py` (run-scoped state) and `character.py` (the
+   non-boss gameplay loop: firing, enemy spawning/update, collision/damage,
+   XP and loot pickup, leveling handoff). **Done for the non-boss loop** --
+   see `Systems/README.md` and `GameSession.cs`'s doc comment for the full,
+   explicit list of deferred boss-specific and HUD-dependent branches.
+   Introduced `StatTrack.cs` (replacing three parallel dicts with one
+   tracker object per upgrade stat) and finally answered `characterStats.py`'s
+   "one god-object or split up?" open question from step 1: kept as one
+   `RunState` class (it's genuinely one bounded context) but with the
+   player-entity slice (world position, movement/drawing) broken out into
+   `Entities/Player.cs` in step 4, and the orchestration functions
+   (`character.py`'s "handling*"/"update*"/"draw*" free functions) moved onto
+   `GameSession`, which owns the player/run-state/battleground/camera/leveling
+   screen together as one run-in-progress object.
+7. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 
@@ -275,6 +289,43 @@ Dependency order roughly follows the Python import graph:
   takes mouse position/state as explicit parameters instead, matching
   `UiTheme.DrawButton`'s existing shape; only the eventual game-loop entry
   point touches `InputState` at all.
+- **`GameSession` owns the player, run state, battleground, camera, and
+  leveling screen together**, orchestrating them via instance methods --
+  replacing `character.py`'s free functions that each reached into
+  `characterStats.py`'s module globals directly. Every combined Python
+  update-and-draw function (`handlingEnemyUpdatesAndDrawing`,
+  `handlingEnemyProjectileUpdating`, `updateDamageTexts`,
+  `handleLevelingProcess`) is split into separate Update/Draw (or
+  Draw-then-HandleInput, matching `Menus.cs`'s shape) methods here, for the
+  same reason as every other entity in this port: Python interleaved them
+  only to share one loop, and the split makes the underlying
+  spawn/collision/pressure-budget logic unit testable without a
+  GraphicsDevice.
+- **`Player.cs` is deliberately thin.** Most player-facing stats (speed,
+  dash timers, health, invulnerability) live on `RunState` rather than
+  `Player` itself, since `Player.Move`/`Player.Draw` read and write them but
+  don't define their identity -- `Player` owns only world position and the
+  two methods that move/render it. `playerRect` (a screen-space rect at the
+  camera lock position, cached every frame purely so `drawPlayer` could
+  read it) is gone entirely; `Player.Draw` computes it fresh from
+  `camera.Lock` on demand.
+- **Every boss-specific branch in `Player.cs`/`GameSession.cs` is a
+  documented no-op without `bossTypes.py`**: movement obstacles/arena-radius
+  constraints in `Player.Move`, arena-radius projectile clipping and the
+  boss-spawn branch in `GameSession`, the boss debug hotkeys (not ported at
+  all), and portal-hit bullet routing (no current enemy type implements the
+  duck-typed `route_player_bullet` Python checked for). `gamePaths.py`'s
+  per-path enemy-identity/projectile-tuning wrapper is skipped the same way
+  it was in the enemy-catalog pass -- `GameSession` spawns enemies through
+  `EnemyCatalog.Shared` directly.
+- **Several `characterStats.py`/`character.py` fields were dropped as
+  confirmed dead** (assigned, never read anywhere in the repo, verified by
+  grep): `baseExpNeededForNextLevel`, `enemyOneInFramesChance` (divided into
+  itself every level-up but the result never consumed), `currTileX`/
+  `currTileY`, `autoFlop`, `lastUpgrade`/`lastUpgradeAt`. `bossDebugRequested`/
+  `bossDebugInvincible` are dropped for now specifically because they only
+  matter for the boss debug hotkeys, which have no boss to debug yet --
+  they're expected to come back with `bossTypes.py`, unlike the others.
 - **Test parallelism**: xUnit runs different test *classes* in parallel by
   default (Python's unittest runs everything sequentially, so this never came
   up there). Any test class touching `GameProfile.Profile`/`SavePath`

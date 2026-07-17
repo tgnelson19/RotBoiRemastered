@@ -82,16 +82,21 @@ multipliers and boss-catalog wiring on top of freshly created enemies --
 deferred alongside `GamePaths.cs`'s existing boss-content gap (see
 `World/README.md`).
 
+- **`Player.cs`** <- the player-entity slice of `character.py` +
+  `characterStats.py`. **Done** -- world position, movement/dash, wall
+  collision, drawing. Player is deliberately thin: most player-facing stats
+  (speed, dash timers, health) live on `Systems/RunState.cs` instead, since
+  Move/Draw read and write them but Player itself doesn't own their
+  identity. See `Systems/README.md` for `RunState.cs`/`GameSession.cs`,
+  which together with this file cover the rest of `character.py` +
+  `characterStats.py`'s non-boss gameplay loop.
+
 ## Explicitly deferred (not in Entities/ yet)
 
-- **`Player.cs`** <- `character.py` + `characterStats.py`. This is the
-  ~1550-line combined "player entity + entire run's mutable game state +
-  main gameplay loop" god object (see `Systems/README.md`'s note on
-  `characterStats.py`) -- porting it means also deciding how much of
-  `character.py`'s loop logic belongs on Player vs. `Core/RotBoiGame.cs`'s
-  state machine. Left for a dedicated pass once that architectural question
-  is worth answering; not something to decide as a side effect of porting
-  loot crates.
 - **Boss types** <- `bossTypes.py` (~4750 lines). Its own future module --
   every boss references `ProjectilePortal`/`EnemyProjectile`/`Enemy`, all of
-  which are now ported and ready for it to build on.
+  which are now ported and ready for it to build on. Until it exists, every
+  boss-specific branch in `Player.cs`/`GameSession.cs` (movement
+  obstacles/arena constraints, arena-radius projectile clipping, boss
+  spawning, boss debug hotkeys, portal-hit bullet routing) is a documented
+  no-op -- see those files' doc comments for the specifics.

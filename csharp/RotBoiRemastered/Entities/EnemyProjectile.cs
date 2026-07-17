@@ -68,7 +68,7 @@ public sealed class EnemyProjectile
     public bool Exploded { get; private set; }
     public float Age { get; private set; }
     public float Travelled { get; private set; }
-    public bool RemFlag { get; private set; }
+    public bool RemFlag { get; set; }
     public List<Vector2> Trail { get; } = new();
 
     public EnemyProjectile(

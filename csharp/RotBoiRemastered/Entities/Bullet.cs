@@ -29,7 +29,7 @@ public sealed class Bullet
     public int Pierce { get; set; }
     public float Damage { get; }
     public bool IsCritical { get; }
-    public bool RemFlag { get; private set; }
+    public bool RemFlag { get; set; }
     public float PortalCooldown { get; set; }
 
     public Bullet(float worldX, float worldY, float speed, float direction, float bulletRange,
