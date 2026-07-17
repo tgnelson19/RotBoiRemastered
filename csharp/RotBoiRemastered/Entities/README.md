@@ -22,14 +22,68 @@ without a GraphicsDevice. See each file's doc comment for entity-specific
 cleanup notes (dropped dead parameters, world-space vs. screen-space trail
 storage, etc.).
 
+- **`enemyTypes.py`'s full enemy catalog** -- ~20 archetypes, the
+  `RuntimeEncounter` squad coordinator, and the `EnemyCatalog`
+  registry/spawn-rule engine. **Done.** See "Enemy catalog" below for the
+  file breakdown and the cleanups this pass made.
+
+## Enemy catalog (enemyTypes.py)
+
+- `EnemyCatalogData.cs` <- `TIER_BALANCE`, `FAMILY_IDENTITIES`,
+  `MODIFIER_RULES`, `EncounterPackage`/`ENCOUNTER_PACKAGES`,
+  `BASE_ENEMY_SPEED_SCALE`, `_normalise`. Pure data, no rendering dependency.
+- `RuntimeEncounter.cs` <- `RuntimeEncounter`. Takes `screenHeight` as an
+  explicit constructor parameter instead of reading `vH.sH` (same cleanup as
+  `Enemy.AwarenessRange`).
+- `WanderingRangedEnemy.cs` + `ShotgunEnemy.cs`/`VolleyEnemy.cs`/
+  `LaserEnemy.cs`/`BombEnemy.cs` <- the kite-and-fire ranged family.
+- `ChildEnemy.cs`, `ParentEnemy.cs`, `PillarEnemy.cs`, `SnakeEnemy.cs`,
+  `BannerMinion.cs`, `BannerCaptain.cs`, `RammerEnemy.cs`, `WarderEnemy.cs`,
+  `SplitterEnemy.cs`, `CollectorEnemy.cs`, `ArsenalMiniBoss.cs` <- one file
+  each for the remaining named archetypes.
+- `EnemyDefinition.cs` + `EnemyCatalog.cs` <- `EnemyDefinition`,
+  `EnemyCatalog` (register/available/choose/create/apply_modifier/spawn/
+  spawn_encounter/spawn_patrol), `_tier_color`/`_tiered_family`/
+  `_register_defaults`.
+
+### Cleanup vs. the Python original
+
+- **`EnemyUpdateContext`** replaces loose `Update` parameters. Two enemy
+  types reached into `characterStats.py`'s module-level `enemyHolster`/
+  `experienceList` globals (`BannerCaptain` to command sibling minions,
+  `CollectorEnemy` to steal nearby XP bubbles) -- rather than adding those
+  as ignored parameters to the other ~18 overrides, every `Enemy.Update`
+  takes one context object carrying player position, the battleground, the
+  projectile sink, all live enemies, and all XP bubbles. See `Enemy.cs`'s
+  doc comment.
+- **`EnemyFactory` delegates replace `enemy_class: type` + an `options`
+  dict forwarded as `**kwargs`.** Python's `create()` built a kwargs dict
+  per definition and special-cased `definition.enemy_class is SnakeEnemy`
+  to inject `segment_count`. Each `EnemyDefinition` now carries a factory
+  closure built at registration time that already knows exactly which
+  constructor to call and with what tier string/phase order/segment-count
+  formula -- `create()` never branches on what concrete type it's building.
+- **`Update`/`Draw` are split on every subclass**, same as the base `Enemy`
+  cleanup -- see each file's doc comment for anything subclass-specific
+  (dropped redundant double-decremented timers in `WanderingRangedEnemy`/
+  `VolleyEnemy`/`BombEnemy`, `SnakeEnemy` segment ids as strings instead of
+  ints so `TakeDamage`'s `partId` stays one real type across every enemy,
+  etc).
+- **`EnemyCatalog.Shared`** replaces the Python module-level `ENEMY_CATALOG`
+  singleton (auto-populated as an import side effect) with an explicit
+  `CreateDefault()` factory; a plain `new EnemyCatalog()` still gives an
+  empty, unregistered catalog for tests that want an isolated roster.
+
+### Known gaps (not scope creep -- genuinely out of this pass)
+
+`gamePaths.py`'s `ApplyEnemyIdentity`/`ENCOUNTERS` (`_PathEnemyCatalog`)/
+`RegisterExclusiveEncounter`/`TuneNewProjectiles` still apply per-path stat
+multipliers and boss-catalog wiring on top of freshly created enemies --
+deferred alongside `GamePaths.cs`'s existing boss-content gap (see
+`World/README.md`).
+
 ## Explicitly deferred (not in Entities/ yet)
 
-- **`enemyTypes.py`'s enemy catalog and subclasses** (~1600 lines: tier
-  balance tables, family/modifier identities, `RuntimeEncounter`
-  coordination, and every named enemy archetype). `Enemy.cs` is ready to be
-  subclassed (`Update`/`Draw`/`TakeDamage`/hitbox methods are all
-  `virtual`), but the catalog itself is a large, mostly-independent unit of
-  work better done as its own pass.
 - **`Player.cs`** <- `character.py` + `characterStats.py`. This is the
   ~1550-line combined "player entity + entire run's mutable game state +
   main gameplay loop" god object (see `Systems/README.md`'s note on

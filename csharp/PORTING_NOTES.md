@@ -71,16 +71,22 @@ Dependency order roughly follows the Python import graph:
    `World/Battleground.cs`'s and `World/Camera.cs`'s doc comments.
 4. **`Entities/`** -- bullets, enemy projectiles/portals, the `Enemy` base
    class, XP bubbles, loot crates, damage text (plus `UI/ItemCards.cs`, its
-   natural companion). **Done for those; deferred: `enemyTypes.py`'s ~1600-line
-   subclass catalog, `Player.cs` (`character.py` + `characterStats.py`, the
-   ~1550-line combined player-entity/run-state/game-loop object), and
-   `bossTypes.py` (~4750 lines)** -- see `Entities/README.md`'s "Explicitly
-   deferred" section for the reasoning on each. This pass also split every
-   entity's combined Python update-and-draw method into separate
-   Update/Draw calls (Update mutates state, Draw only reads it), so physics/
-   collision/expiry logic is unit testable without a GraphicsDevice; added
-   `Core/Simulation.cs` (frame-scale/timer-step clock) and grew
-   `Core/Primitives2D.cs` to cover circles/ellipses/arcs/filled polygons.
+   natural companion), and then the full `enemyTypes.py` catalog (~20
+   archetypes, `RuntimeEncounter` squad coordination, `EnemyCatalog`'s
+   registry/spawn-rule engine). **Done. Deferred: `Player.cs`
+   (`character.py` + `characterStats.py`, the ~1550-line combined
+   player-entity/run-state/game-loop object) and `bossTypes.py` (~4750
+   lines)** -- see `Entities/README.md`'s "Explicitly deferred" section for
+   the reasoning on each. This pass also split every entity's combined
+   Python update-and-draw method into separate Update/Draw calls (Update
+   mutates state, Draw only reads it), so physics/collision/expiry logic is
+   unit testable without a GraphicsDevice; added `Core/Simulation.cs`
+   (frame-scale/timer-step clock) and grew `Core/Primitives2D.cs` to cover
+   circles/ellipses/arcs/filled polygons. The enemy-catalog half introduced
+   `EnemyUpdateContext` (replacing two enemy types' direct reads of
+   `characterStats.py` globals) and `EnemyFactory` delegates (replacing
+   `enemy_class: type` + a `**kwargs` options dict) -- see
+   `Entities/README.md`'s "Enemy catalog" section.
 5. **`UI/InformationSheet.cs`, `UI/Menus.cs`, `UI/LevelingHandler.cs`** -- the
    HUD and menu screens, once the systems and entities they display are in place.
 6. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
@@ -198,6 +204,47 @@ Dependency order roughly follows the Python import graph:
   pass. `ExperienceBubble`'s dead `frameRate` constructor slot was repurposed
   for an injectable `Random? rng`, matching this port's usual testability
   convention instead of adding a new unused parameter.
+- **`EnemyUpdateContext` replaces loose Update parameters for every enemy
+  type**, not just the two that need the extra fields. `BannerCaptain.
+  updateEnemy` read `characterStats.py`'s module-level `enemyHolster`
+  directly to find and command sibling minions; `CollectorEnemy.updateEnemy`
+  read `experienceList` directly to steal nearby XP bubbles. Rather than
+  adding `allEnemies`/`experienceBubbles` as ignored parameters to the other
+  ~18 overrides (or, worse, letting those two reach into some shared
+  static/global the way Python did), every `Enemy.Update` takes one context
+  object. See `Entities/Enemy.cs`'s and `EnemyUpdateContext`'s doc comments.
+- **`EnemyFactory` delegates replace `EnemyDefinition.enemy_class: type`
+  plus an `options: dict` forwarded as `**kwargs`** (with a
+  `definition.enemy_class is SnakeEnemy` identity check in `create()` to
+  inject `segment_count`). Each definition's factory closure, built once at
+  registration time, already knows which constructor to call and with what
+  tier string/phase order/segment-count formula baked in -- `EnemyCatalog.
+  Create()` never branches on what concrete type it's building. This is the
+  main new pattern introduced while porting `enemyTypes.py`'s ~20 enemy
+  subclasses and the `EnemyCatalog` registry.
+- **`SnakeEnemy` segment ids are strings ("0", "1", ...), not ints.** Python
+  identified segments by their `enumerate()` index and let
+  `take_damage(amount, part_id="head")` accept either that int or the
+  string "head"/"body" every other enemy uses, purely because Python never
+  checks parameter types. Every `Enemy.TakeDamage(double, string partId)`
+  now shares one real, statically-checked contract.
+- **`WanderingRangedEnemy`/`VolleyEnemy`/`BombEnemy` dropped a
+  double-decrement bug**: Python's `updateEnemy` decremented
+  `self.wanderTimer` itself *and* called the inherited `_wander(.2)`, which
+  decrements the same timer again internally -- harmless (just made
+  disengaged wander-direction changes happen roughly twice as often as
+  intended) but clearly unintentional, so the redundant top-level decrement
+  was dropped rather than ported faithfully.
+- **`RuntimeEncounter` takes `screenHeight` as an explicit constructor
+  parameter** instead of reading `vH.sH * (.48 + ...)` -- same cleanup as
+  `Enemy.AwarenessRange`, and for the same reason: no gameplay class should
+  have an implicit dependency on the real display resolution.
+- **`EnemyCatalog.Shared`** replaces the Python module-level `ENEMY_CATALOG`
+  singleton (auto-populated by `_register_defaults()` purely as an import
+  side effect) with an explicit `CreateDefault()` factory method. A plain
+  `new EnemyCatalog()` still gives an empty, unregistered catalog -- useful
+  for tests that want an isolated roster instead of the full ~20-definition
+  default one.
 - **Test parallelism**: xUnit runs different test *classes* in parallel by
   default (Python's unittest runs everything sequentially, so this never came
   up there). Any test class touching `GameProfile.Profile`/`SavePath`

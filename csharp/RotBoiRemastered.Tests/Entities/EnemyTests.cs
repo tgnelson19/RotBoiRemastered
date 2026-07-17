@@ -10,13 +10,16 @@ public class EnemyTests
         new(x, y, speed, size: 20, Color.Red, damage: 10, hp: 50, expValue: 5, difficulty: 1,
             awarenessRange: awarenessRange, rng: new Random(1));
 
+    private static EnemyUpdateContext MakeContext(float playerWorldX, float playerWorldY, RotBoiRemastered.World.Battleground battleground) =>
+        new() { PlayerWorldX = playerWorldX, PlayerWorldY = playerWorldY, Battleground = battleground };
+
     [Fact]
     public void Update_MovesToward_PlayerWithinAwarenessRange()
     {
         var battleground = EntityTestFixtures.SmallOpenRoom();
         var enemy = MakeEnemy(60, 125, awarenessRange: 300f);
         float startX = enemy.WorldX;
-        enemy.Update(playerWorldX: 190, playerWorldY: 125, battleground);
+        enemy.Update(MakeContext(190, 125, battleground));
         Assert.True(enemy.WorldX > startX);
         Assert.Equal("alerted", enemy.AwarenessState);
     }
@@ -26,7 +29,7 @@ public class EnemyTests
     {
         var battleground = EntityTestFixtures.SmallOpenRoom();
         var enemy = MakeEnemy(125, 125, awarenessRange: 10f);
-        enemy.Update(playerWorldX: 100000, playerWorldY: 100000, battleground);
+        enemy.Update(MakeContext(100000, 100000, battleground));
         Assert.Equal("wandering", enemy.AwarenessState);
     }
 
@@ -40,9 +43,9 @@ public class EnemyTests
         // Awareness range 20, disengage range 25 (1.25x) -- a distance of 22 should
         // read as "disengaging", not snap straight back to "wandering".
         var enemy = MakeEnemy(125, 125, awarenessRange: 20f, speed: 0f); // center at (135, 135)
-        enemy.Update(playerWorldX: 145, playerWorldY: 135, battleground); // distance 10 -> alerted
+        enemy.Update(MakeContext(145, 135, battleground)); // distance 10 -> alerted
         Assert.Equal("alerted", enemy.AwarenessState);
-        enemy.Update(playerWorldX: 157, playerWorldY: 135, battleground); // distance 22 -> disengaging
+        enemy.Update(MakeContext(157, 135, battleground)); // distance 22 -> disengaging
         Assert.Equal("disengaging", enemy.AwarenessState);
     }
 
@@ -52,7 +55,7 @@ public class EnemyTests
         var battleground = EntityTestFixtures.SmallOpenRoom();
         var enemy = MakeEnemy(60, 125, awarenessRange: 1000f, speed: 50f);
         for (int i = 0; i < 20; i++)
-            enemy.Update(playerWorldX: -1000, playerWorldY: 125, battleground); // player beyond the left wall
+            enemy.Update(MakeContext(-1000, 125, battleground)); // player beyond the left wall
         Assert.False(battleground.RectHitsWall(enemy.WorldRect()));
     }
 
@@ -62,7 +65,7 @@ public class EnemyTests
         var battleground = EntityTestFixtures.SmallOpenRoom();
         var enemy = MakeEnemy(125, 125, awarenessRange: 300f);
         enemy.EngagementAllowed = false;
-        enemy.Update(playerWorldX: 126, playerWorldY: 125, battleground);
+        enemy.Update(MakeContext(126, 125, battleground));
         Assert.Equal("wandering", enemy.AwarenessState);
     }
 
