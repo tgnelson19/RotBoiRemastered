@@ -216,6 +216,39 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void SelectBountyTarget_NoEnemies_ReturnsNull()
+    {
+        var session = MakeSession();
+        Assert.Null(session.SelectBountyTarget());
+    }
+
+    [Fact]
+    public void SelectBountyTarget_PicksHighestScoringLoneEnemy()
+    {
+        var session = MakeSession();
+        var weak = new Enemy(0, 0, speed: 0, size: 10, Color.Red, damage: 1, hp: 10, expValue: 1, difficulty: 1, awarenessRange: 100f);
+        var strong = new Enemy(100, 100, speed: 0, size: 10, Color.Red, damage: 1, hp: 10, expValue: 500, difficulty: 1, awarenessRange: 100f);
+        session.State.EnemyHolster.Add(weak);
+        session.State.EnemyHolster.Add(strong);
+
+        var bounty = session.SelectBountyTarget();
+
+        Assert.NotNull(bounty);
+        Assert.Same(strong, bounty!.Target);
+    }
+
+    [Fact]
+    public void SelectBountyTarget_IgnoresDeadEnemies()
+    {
+        var session = MakeSession();
+        var dead = new Enemy(0, 0, speed: 0, size: 10, Color.Red, damage: 1, hp: 10, expValue: 999, difficulty: 1, awarenessRange: 100f);
+        dead.TakeDamage(10, "body");
+        session.State.EnemyHolster.Add(dead);
+
+        Assert.Null(session.SelectBountyTarget());
+    }
+
+    [Fact]
     public void ResetAll_RestoresDefaultsAndRepositionsPlayer()
     {
         var session = MakeSession();

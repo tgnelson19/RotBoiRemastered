@@ -131,10 +131,11 @@ public sealed class BossAfflictions
 ///   `collectiveMultStats` dicts become one `Stats` dict of
 ///   <see cref="StatTrack"/> keyed by the same upgrade-stat names.
 /// - `nearby_crate`/`dragging_source` lived on `informationSheet.py`'s
-///   `InformationSheet` (not yet ported -- see UI/README.md). `NearbyCrate`
-///   lives directly on RunState instead, since it's genuinely run state
-///   (which crate the player is standing near), not a HUD concern; the drag
-///   UI itself stays deferred with InformationSheet.
+///   `InformationSheet` class. `NearbyCrate` lives directly on RunState
+///   instead, since it's genuinely run state (which crate the player is
+///   standing near), not a HUD concern; `dragging_source`/`dragging_item`
+///   stay on `UI/InformationSheet.cs` itself (see UI/README.md), since
+///   those are purely drag-gesture UI state.
 /// - Dropped fields that were assigned but never read anywhere in the repo
 ///   (verified by grep): `baseExpNeededForNextLevel`, `enemyOneInFramesChance`
 ///   (divided into itself every level-up but the result never consumed),

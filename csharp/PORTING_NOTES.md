@@ -87,34 +87,50 @@ Dependency order roughly follows the Python import graph:
    `enemy_class: type` + a `**kwargs` options dict) -- see
    `Entities/README.md`'s "Enemy catalog" section.
 5. **`UI/StatCards.cs`, `UI/LevelingHandler.cs`, `UI/Menus.cs`** -- the
-   upgrade-card draft screen and pause/results screens. **Done. Deferred:
-   `UI/InformationSheet.cs`** (the sidebar HUD) -- it's far more deeply
-   coupled to `characterStats.py` than the other two (dozens of fields
-   across nearly the whole player/run state), enough that snapshotting it
-   cleanly is really the same design question as `characterStats.py`'s data
-   model -- see `UI/README.md`'s "Explicitly deferred" section. Also confirmed
-   `hpBar.py`/`levelBar.py`/`dashBar.py` as dead code (grepped, unreferenced
-   anywhere) and skipped them rather than porting unused files. This pass
-   introduced `LevelUpStatSnapshot`/`RunResultsSnapshot` (replacing direct
-   `characterStats.py` reads, same pattern as `EnemyUpdateContext`) and a
-   `MenuAction` enum (replacing direct `vH.state = ...` assignment) -- see
-   `UI/README.md`'s "Cleanup vs. the Python original" section.
+   upgrade-card draft screen and pause/results screens. **Done.** Also
+   confirmed `hpBar.py`/`levelBar.py`/`dashBar.py` as dead code (grepped,
+   unreferenced anywhere) and skipped them rather than porting unused files.
+   This pass introduced `LevelUpStatSnapshot`/`RunResultsSnapshot`
+   (replacing direct `characterStats.py` reads, same pattern as
+   `EnemyUpdateContext`) and a `MenuAction` enum (replacing direct
+   `vH.state = ...` assignment) -- see `UI/README.md`'s "Cleanup vs. the
+   Python original" section. `UI/InformationSheet.cs` (the sidebar HUD) was
+   deferred at this point -- it reads dozens of fields across nearly the
+   whole player/run state, enough that snapshotting it cleanly was really
+   the same design question as `characterStats.py`'s data model; picked
+   back up in step 7 below once that model existed.
 6. **`Systems/RunState.cs` + `Systems/GameSession.cs`** -- the rest of
    `characterStats.py` (run-scoped state) and `character.py` (the
    non-boss gameplay loop: firing, enemy spawning/update, collision/damage,
    XP and loot pickup, leveling handoff). **Done for the non-boss loop** --
    see `Systems/README.md` and `GameSession.cs`'s doc comment for the full,
-   explicit list of deferred boss-specific and HUD-dependent branches.
-   Introduced `StatTrack.cs` (replacing three parallel dicts with one
-   tracker object per upgrade stat) and finally answered `characterStats.py`'s
-   "one god-object or split up?" open question from step 1: kept as one
+   explicit list of deferred boss-specific branches. Introduced
+   `StatTrack.cs` (replacing three parallel dicts with one tracker object
+   per upgrade stat) and finally answered `characterStats.py`'s "one
+   god-object or split up?" open question from step 1: kept as one
    `RunState` class (it's genuinely one bounded context) but with the
    player-entity slice (world position, movement/drawing) broken out into
    `Entities/Player.cs` in step 4, and the orchestration functions
    (`character.py`'s "handling*"/"update*"/"draw*" free functions) moved onto
    `GameSession`, which owns the player/run-state/battleground/camera/leveling
    screen together as one run-in-progress object.
-7. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+7. **`UI/InformationSheet.cs`** -- the sidebar HUD deferred in step 5,
+   picked back up now that `RunState`/`GameSession` exist: it takes
+   `RunState` directly rather than a snapshot type, since a snapshot would
+   just duplicate nearly all of it. **Done** -- equipment pentagon with
+   drag-and-drop (against `RunState.Equipment`/`NearbyCrate`/
+   `LootCrateList`), the loot panel, build identity, weapon stat rows,
+   objective/bounty panel, recent-picks table, tooltip. `GameSession` now
+   also owns `InformationSheet` (Camera re-centering against
+   `InformationSheet.ArenaWidth`) and a new `SelectBountyTarget()`/
+   `BountyInfo` (ported from character.py's `selectBountyTarget()`) --
+   see `UI/README.md`'s "InformationSheet.cs" section for the drag-gesture
+   split (`DrawSheet` then `HandleDrag`, matching
+   `LevelingHandler.DrawCards`/`PlayerClicked`) and everything else still
+   deferred alongside it (the bounty-arrow/boss-health-bar/tutorial-hint/
+   low-health-warning/run-complete-banner HUD overlays character.py layers
+   on top of the sheet, and the title screen).
+8. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 

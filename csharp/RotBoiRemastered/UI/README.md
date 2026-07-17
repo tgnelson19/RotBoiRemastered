@@ -17,7 +17,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment
-  panel, loot panel). **Deferred** -- see below.
+  panel, loot panel, build identity, weapon stats, objective/bounty panel,
+  recent-picks table, tooltip). **Done** -- see "InformationSheet.cs" below
+  for design notes.
 - ~~Bars (`HpBar.cs`, `LevelBar.cs`, `DashBar.cs`)~~ -- **not ported.**
   `hpBar.py`/`levelBar.py`/`dashBar.py` are confirmed dead code: grepped the
   whole repo, nothing constructs `HPBar`/`LevelBar`/`DashBar` or imports
@@ -60,13 +62,72 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   `_sync_legacy_fields` (a "keep old attribute names working while callers
   migrate" shim with nothing left in this codebase to migrate).
 
-## Explicitly deferred (not in UI/ yet)
+## InformationSheet.cs
 
-- **`InformationSheet.cs`** <- `informationSheet.py` (533 lines). Far more
-  deeply coupled to `characterStats.py` than `LevelingHandler`/`Menus` --
-  it reads dozens of `cS.*` fields across nearly the entire player/run
-  state (equipment, loot crates, combat stats, encounter pressure, bounty
-  tracking, build identity...). Snapshotting that much surface area
-  cleanly is really the same design question as "how does Player.cs's data
-  model work," so this is paired with that future pass rather than
-  guessed at now.
+- Takes `Systems.RunState` directly (see Systems/README.md) rather than a
+  purpose-built snapshot type like `LevelUpStatSnapshot`/`RunResultsSnapshot`
+  -- it reads nearly RunState's entire surface area (equipment, loot crates,
+  combat stats, encounter pressure, upgrade history...), so a snapshot would
+  just duplicate every field. This was the reason the file was deferred in
+  the first place (paired with "how does Player.cs's data model work");
+  now that `RunState`/`GameSession` exist, that pairing is resolved.
+- **Draw/hit-rects vs. drag-resolution split, same shape as
+  `LevelingHandler.DrawCards`/`PlayerClicked`.** Python's `drawSheet()` +
+  `_handle_equipment_drag()` combined drawing, hit-rect population,
+  drag-press capture, drag-release resolution, and the cursor-following
+  drag icon into one call. Split into `DrawSheet` (draws every panel,
+  refreshes this frame's equipment/loot-slot hit rects, draws the dragged
+  icon or the tooltip) and `HandleDrag` (press capture / release
+  resolution against those hit rects) -- call `DrawSheet` first every
+  frame, then `HandleDrag`, exactly like `LevelingHandler`. One accepted,
+  purely cosmetic difference from Python noted in the class doc comment:
+  on the exact frame a drag is captured, Python suppresses the tooltip and
+  starts drawing the dragged icon that same frame; here it lags by one
+  frame since `HandleDrag` hasn't run yet when `DrawSheet` checks.
+- **`DragSource` record hierarchy** (`EquipmentDragSource`/`CrateDragSource`)
+  replaces Python's tagged tuple (`("equipment", key)` /
+  `("crate", crate, index)`).
+- **Camera re-centering is `GameSession`'s job, not this class's.**
+  Python's `_sync_layout`/`toggle_mode` set `bG.lockX = self.arena_width / 2`
+  directly (informationSheet.py owning a background.py global). Camera
+  isn't visible from `InformationSheet`, and `GameSession` already owns it,
+  so `GameSession`'s constructor/`Resize`/`ResetAll`/`ToggleHudMode` do the
+  re-centering using `InformationSheet.ArenaWidth` instead.
+- **No implicit per-frame `_sync_layout()` self-check** -- `SyncLayout` is
+  called explicitly from `GameSession.Resize`, matching
+  `LevelingHandler.UpdateLayout`'s existing contract instead of re-deriving
+  screen size from a hidden global every frame.
+- **Pure derived-value helpers are `public static`** (`Rating`, `ShotText`,
+  `PierceText`, `Pressure`, `BuildIdentity`, `FamilyCounts`,
+  `BountyDetails`, `NextMilestone`), same reasoning as
+  `LevelingHandler.ProjectedValue`/`Recommendation` -- unit testable
+  without a `GraphicsDevice`. The rect-hit-testing drag paths still need a
+  prior `Draw` call against a real `GraphicsDevice` to populate
+  `_equipmentSlotRects`/`_lootPanelSlotRects`, so those are left to visual
+  smoke testing, same as `Menus.cs`/`LevelingHandler.cs`'s mouse-click paths.
+- **Bounty tracking** (`cS.currentBounty`/`selectBountyTarget()`) becomes
+  `GameSession.SelectBountyTarget()` (a `Systems.BountyInfo` record) --
+  it only reads `RunState`'s enemy/boss data, no HUD concern, so it lives
+  on `GameSession` and is passed into `DrawSheet` explicitly rather than
+  `InformationSheet` reaching into `GameSession` itself.
+- **`updateCurrLevel()` is dropped.** Its Python body was `return None` (a
+  no-op stub `character.py` called once per frame for no effect,
+  confirmed by reading informationSheet.py:513-514) -- nothing is lost by
+  omitting it.
+- `getattr(enemy, "storedExperience", 0)`/`getattr(enemy, "bossName", ...)`
+  in `selectBountyTarget()` are dropped too -- no current `Enemy` type sets
+  either (both were always their Python default), so
+  `GameSession.SelectBountyTarget` reads `ExpValue`/`Family` directly.
+- Known rendering gap shared with `ItemCards.cs`/`StatCards.cs`: pygame's
+  `border_radius` (rounded corners) has no `Primitives2D` equivalent yet,
+  so equipment/loot slot boxes render sharp-cornered instead of rounded.
+
+## Still not in UI/ (HUD-overlay functions layered on top of the sheet)
+
+`character.py` has several more HUD functions that draw *alongside*
+`informationSheet.py`'s sheet, not inside it -- these remain deferred, but
+for their own reasons now, not because `InformationSheet.arena_width` was
+missing: the bounty-arrow indicator (`drawBountyIndicator`'s polygon-on-the-
+viewport-edge rendering -- `GameSession.SelectBountyTarget` already exists
+for it to build on), the boss health bar, tutorial hints, the low-health
+warning, the run-complete banner, and the title screen.

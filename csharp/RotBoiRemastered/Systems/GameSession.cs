@@ -12,6 +12,14 @@ namespace RotBoiRemastered.Systems;
 public enum LevelUpOutcome { StillChoosing, ContinueLeveling, ReturnToGame }
 
 /// <summary>
+/// Ported from character.py's selectBountyTarget() return dict. `Target` is
+/// either an <see cref="Enemy"/> or a <see cref="RuntimeEncounter"/> (Python's
+/// heterogeneous dict value) -- InformationSheet.BountyDetails is the only
+/// place that needs to tell them apart.
+/// </summary>
+public sealed record BountyInfo(Vector2 World, double Score, string Label, object Target);
+
+/// <summary>
 /// One run in progress: owns the player, run state, battleground, camera,
 /// and leveling screen, and orchestrates them each frame. Ported from
 /// character.py's "handling*"/"update*"/"draw*" free functions plus
@@ -28,12 +36,15 @@ public enum LevelUpOutcome { StillChoosing, ContinueLeveling, ReturnToGame }
 /// per-path enemy identity/projectile tuning (`apply_enemy_identity`/
 /// `tune_new_projectiles`) -- enemies spawn via `EnemyCatalog.Shared`
 /// directly rather than gamePaths.py's thin per-path wrapper around it;
-/// portal-hit bullet routing (no current enemy type implements it); the
-/// HUD-overlay draw functions (bounty indicator, boss health bar, tutorial
-/// hints, low-health warning, run-complete banner) and the title screen,
-/// all of which need `InformationSheet.arena_width` (see UI/README.md's
-/// deferred `InformationSheet.cs`); and loot-crate viewport clipping
-/// against the HUD sidebar (crates draw across the full screen for now).
+/// portal-hit bullet routing (no current enemy type implements it); and the
+/// HUD-overlay draw functions character.py layers on top of the sidebar
+/// (bounty indicator *arrow* rendering, boss health bar, tutorial hints,
+/// low-health warning, run-complete banner) and the title screen -- these
+/// are separate character.py functions from `InformationSheet.cs` itself
+/// (now ported, see UI/README.md) and remain deferred for their own sake,
+/// not because `InformationSheet.arena_width` was missing. Loot-crate
+/// viewport clipping against the HUD sidebar is also still deferred
+/// (crates draw across the full screen for now).
 /// </summary>
 public sealed class GameSession
 {
@@ -47,6 +58,7 @@ public sealed class GameSession
     public Battleground Battleground { get; private set; }
     public Camera Camera { get; } = new();
     public LevelingHandler LevelingHandler { get; private set; }
+    public InformationSheet InformationSheet { get; private set; }
     public int ScreenWidth { get; private set; }
     public int ScreenHeight { get; private set; }
     public Vector2 ScreenShake { get; set; } = Vector2.Zero;
@@ -71,9 +83,8 @@ public sealed class GameSession
         ScreenHeight = screenHeight;
         Player = new Player(battleground.SpawnPosition.X, battleground.SpawnPosition.Y);
         LevelingHandler = new LevelingHandler(screenWidth, screenHeight, rng);
-        // TODO: Camera.Lock should be (InformationSheet.arena_width / 2, screenHeight / 2)
-        // once the HUD sidebar exists; screen-center is a placeholder until then.
-        Camera.Lock = new Vector2(screenWidth / 2f, screenHeight / 2f);
+        InformationSheet = new InformationSheet(screenWidth, screenHeight);
+        Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
     }
 
     /// <summary>Ported from character.py's resetAllStats() (the parts not already covered by RunState.Reset()).</summary>
@@ -85,6 +96,8 @@ public sealed class GameSession
         Camera.SetAngle(0);
         ScreenShake = Vector2.Zero;
         LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
+        InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
+        Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
     }
 
     public void Resize(int screenWidth, int screenHeight)
@@ -92,6 +105,15 @@ public sealed class GameSession
         ScreenWidth = screenWidth;
         ScreenHeight = screenHeight;
         LevelingHandler.UpdateLayout(screenWidth, screenHeight);
+        InformationSheet.SyncLayout(screenWidth, screenHeight);
+        Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
+    }
+
+    /// <summary>Ported from informationSheet.py's toggle_mode(), plus the Camera re-centering character.py's caller performs alongside it.</summary>
+    public void ToggleHudMode()
+    {
+        InformationSheet.ToggleMode();
+        Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
     }
 
     // ----- Player movement/combat -----
@@ -600,6 +622,77 @@ public sealed class GameSession
         }
         State.NearbyCrate = nearest;
     }
+
+    // ----- Bounty (InformationSheet's objective panel) -----
+
+    /// <summary>
+    /// Ported from character.py's selectBountyTarget(): the highest-value
+    /// live target or patrol, as a world-space bounty for
+    /// InformationSheet.DrawSheet's objective panel (the bounty-arrow HUD
+    /// overlay itself is a separate, still-deferred character.py function).
+    /// `getattr(enemy, "storedExperience", 0)`/`getattr(enemy, "bossName", ...)`
+    /// are dropped -- no current Enemy type sets either (both were always
+    /// their default), so the C# ports read `ExpValue`/`Family` directly.
+    /// </summary>
+    public BountyInfo? SelectBountyTarget()
+    {
+        if (State.ActiveBoss is Enemy boss && !boss.IsDead())
+        {
+            return new BountyInfo(
+                new Vector2(boss.WorldX + boss.Size / 2f, boss.WorldY + boss.Size / 2f),
+                double.PositiveInfinity, boss.Family, boss);
+        }
+
+        BountyInfo? best = null;
+        double bestScore = double.NegativeInfinity;
+        var seenEncounters = new HashSet<int>();
+        foreach (var enemy in State.EnemyHolster)
+        {
+            if (enemy.IsDead())
+                continue;
+            var encounter = enemy.Encounter;
+            if (encounter is not null)
+            {
+                if (!seenEncounters.Add(encounter.Id))
+                    continue;
+                var living = encounter.Members.Where(member => !member.IsDead()).ToList();
+                if (living.Count == 0)
+                    continue;
+                var world = new Vector2(
+                    living.Average(member => member.WorldX + member.Size / 2f),
+                    living.Average(member => member.WorldY + member.Size / 2f));
+                double reward = living.Sum(member => member.ExpValue);
+                double threat = living.Sum(member => member.ThreatCost);
+                double score = reward + threat * 4;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = new BountyInfo(world, score, encounter.Key.Replace("_", " ").ToUpperInvariant(), encounter);
+                }
+            }
+            else
+            {
+                double eliteBonus = enemy.CombatRole == "elite" ? 500 : 0;
+                double score = enemy.ExpValue + enemy.ThreatCost * 4 + eliteBonus;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = new BountyInfo(
+                        new Vector2(enemy.WorldX + enemy.Size / 2f, enemy.WorldY + enemy.Size / 2f),
+                        score, enemy.Family.Replace("_", " ").ToUpperInvariant(), enemy);
+                }
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Convenience wrapper matching MovePlayer/DrawPlayer's shape: call once per frame, before <see cref="HandleInformationSheetDrag"/>.</summary>
+    public void DrawInformationSheet(SpriteBatch spriteBatch, Point mousePosition) =>
+        InformationSheet.DrawSheet(spriteBatch, State, PlayerWorldPosition, SelectBountyTarget(), mousePosition);
+
+    /// <summary>Convenience wrapper: call once per frame, after <see cref="DrawInformationSheet"/>.</summary>
+    public void HandleInformationSheetDrag(Point mousePosition, bool mouseDown, bool mousePressed) =>
+        InformationSheet.HandleDrag(State, PlayerWorldPosition, mousePosition, mouseDown, mousePressed);
 
     // ----- Health -----
 
