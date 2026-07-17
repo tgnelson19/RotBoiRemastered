@@ -12,22 +12,20 @@ namespace RotBoiRemastered.Entities;
 /// and Draw are split, unlike Python's combined updateAndDrawBullet, so
 /// removal logic is unit testable without a GraphicsDevice.
 ///
-/// `PortalCooldown` is unused by anything ported so far -- it exists for
-/// bossTypes.py's projectile-portal interception (not yet ported), which
-/// reads/writes it directly. Kept as a public settable field for that
-/// future caller rather than re-deriving it later.
+/// `PortalCooldown` exists for `Dissonance.RoutePlayerBullet` (bossTypes.py's
+/// `route_player_bullet`), which reads/writes it directly.
 /// </summary>
 public sealed class Bullet
 {
     public float WorldX { get; private set; }
     public float WorldY { get; private set; }
     public float Speed { get; }
-    public float Direction { get; }
+    public float Direction { get; private set; }
     public float Size { get; }
     public Color Color { get; }
     public float Range { get; private set; }
     public int Pierce { get; set; }
-    public float Damage { get; }
+    public float Damage { get; private set; }
     public bool IsCritical { get; }
     public bool RemFlag { get; set; }
     public float PortalCooldown { get; set; }
@@ -48,6 +46,16 @@ public sealed class Bullet
     }
 
     public Rectangle WorldRect() => new((int)WorldX, (int)WorldY, (int)Size, (int)Size);
+
+    /// <summary>Ported from Dissonance.route_player_bullet's direct worldX/worldY/direc/damage/portalCooldown reassignment -- the sole external mutator of this bullet's position/direction/damage, so it's encapsulated as one method instead of exposing raw setters.</summary>
+    public void RouteThroughPortal(float worldX, float worldY, float direction, float damageMultiplier, float cooldownSeconds)
+    {
+        WorldX = worldX;
+        WorldY = worldY;
+        Direction = direction;
+        Damage *= damageMultiplier;
+        PortalCooldown = cooldownSeconds;
+    }
 
     public void Update(Battleground battleground)
     {

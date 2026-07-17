@@ -119,8 +119,30 @@ public sealed class GameSession
     // ----- Player movement/combat -----
 
     /// <summary>Ported from character.py's movePlayer().</summary>
-    public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed) =>
+    /// <summary>
+    /// Ported from character.py's movePlayer(). The `movement_obstacles`
+    /// branch (PathChaseBoss-family arena shapes) stays deferred with that
+    /// family; the `arenaRadius` branch is wired now that Dissonance exists
+    /// -- done here rather than inside Player.Move so Player.cs stays
+    /// boss-agnostic (see its own doc comment).
+    /// </summary>
+    public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed)
+    {
         Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed);
+        if (State.ActiveBoss is Dissonance dissonance)
+        {
+            float playerX = Player.WorldX + (float)State.PlayerSize / 2f, playerY = Player.WorldY + (float)State.PlayerSize / 2f;
+            float deltaX = playerX - dissonance.ArenaCenter.X, deltaY = playerY - dissonance.ArenaCenter.Y;
+            float distance = Math.Max(1f, MathF.Sqrt(deltaX * deltaX + deltaY * deltaY));
+            float limit = dissonance.ArenaRadius - (float)State.PlayerSize * .7f;
+            if (distance > limit)
+            {
+                Player.SetPosition(
+                    dissonance.ArenaCenter.X + deltaX / distance * limit - (float)State.PlayerSize / 2f,
+                    dissonance.ArenaCenter.Y + deltaY / distance * limit - (float)State.PlayerSize / 2f);
+            }
+        }
+    }
 
     public void DrawPlayer(SpriteBatch spriteBatch) => Player.Draw(spriteBatch, State, Camera);
 
@@ -196,14 +218,15 @@ public sealed class GameSession
 
     /// <summary>
     /// Ported from character.py's handlingEnemyCreation(). The natural
-    /// Beaudis trigger now really spawns one. Every other trigger reason
-    /// (a natural Dissonance request, or the hidden debug-summon hotkey)
-    /// resolves to gamePaths.py's *final*-boss content key in Python
-    /// (Dissonance on the default "sound" path, never Beaudis) -- not
-    /// ported yet, so those stay a documented no-op. `dissonanceEncounterStarted`/
-    /// `BossDebugRequested` are deliberately left unconsumed in that case so the
-    /// trigger keeps re-evaluating every frame instead of silently disabling
-    /// itself forever.
+    /// Beaudis/Dissonance triggers now really spawn (matching Python's
+    /// "else" branch resolving to the final-boss content key for every
+    /// trigger reason that isn't the natural Beaudis one -- including the
+    /// hidden debug-summon hotkey, which therefore also spawns Dissonance,
+    /// never Beaudis, exactly like Python). Simplified vs. Python:
+    /// gamePaths.py's path-based boss-content-key lookup isn't ported, so
+    /// this always resolves to the "sound" path's bosses directly rather
+    /// than asking gamePaths which boss counts as "the mid/final boss" on
+    /// the active path.
     /// </summary>
     public void HandleEnemyCreation(Random? rng = null)
     {
@@ -217,8 +240,22 @@ public sealed class GameSession
             {
                 State.BeaudisEncounterStarted = true;
                 SpawnBoss((x, y, r) => new Beaudis(x, y, AwarenessRange, r), rng);
-                State.BossDebugRequested = false;
             }
+            else
+            {
+                if (naturalDissonanceRequested && naturalEncounter)
+                    State.DissonanceEncounterStarted = true;
+                float arenaX = Battleground.Width * Simulation.TileSize / 2f;
+                float arenaY = Battleground.Height * Simulation.TileSize / 2f;
+                float size = Simulation.TileSize * 1.9f;
+                var forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
+                SpawnBoss((x, y, r) => new Dissonance(x, y, AwarenessRange, Battleground, r), rng, forcedRect);
+                var playerSpawn = Battleground.FindNearestOpenRect(new Rectangle(
+                    (int)(arenaX - State.PlayerSize / 2f), (int)(arenaY + Simulation.TileSize * 9.6f - State.PlayerSize / 2f),
+                    (int)State.PlayerSize, (int)State.PlayerSize));
+                Player.SetPosition(playerSpawn.X, playerSpawn.Y);
+            }
+            State.BossDebugRequested = false;
             return;
         }
 
@@ -297,7 +334,15 @@ public sealed class GameSession
     /// constructor already accepts worldX/Y directly, so there's no need for
     /// a reposition hook.
     /// </summary>
-    private void SpawnBoss(Func<float, float, Random, Enemy> factory, Random rng)
+    /// <summary>
+    /// `forcedSpawnRect` bypasses the open-space search for bosses that own
+    /// their entire arena and must land exactly at its center regardless of
+    /// nearby obstacles -- Dissonance's constructor call passes one (its
+    /// spawn position mirrors character.py's `if boss_key == "dissonance":`
+    /// special-case, which repositions the boss to the exact arena center
+    /// instead of BossCatalog.spawn's generic nearest-open-rect search).
+    /// </summary>
+    private void SpawnBoss(Func<float, float, Random, Enemy> factory, Random rng, Rectangle? forcedSpawnRect = null)
     {
         State.EnemyHolster.Clear();
         State.EnemyProjectileHolster.Clear();
@@ -306,11 +351,19 @@ public sealed class GameSession
         State.LootCrateList.Clear();
         State.NearbyCrate = null;
 
-        float footprint = Simulation.TileSize * 1.9f;
-        float centerX = Battleground.Width * Simulation.TileSize / 2f;
-        float centerY = Battleground.Height * Simulation.TileSize / 2f;
-        var requested = new Rectangle((int)(centerX - footprint / 2f), (int)(centerY - footprint / 2f), (int)footprint, (int)footprint);
-        var spawnRect = Battleground.FindNearestOpenRect(requested);
+        Rectangle spawnRect;
+        if (forcedSpawnRect.HasValue)
+        {
+            spawnRect = forcedSpawnRect.Value;
+        }
+        else
+        {
+            float footprint = Simulation.TileSize * 1.9f;
+            float centerX = Battleground.Width * Simulation.TileSize / 2f;
+            float centerY = Battleground.Height * Simulation.TileSize / 2f;
+            var requested = new Rectangle((int)(centerX - footprint / 2f), (int)(centerY - footprint / 2f), (int)footprint, (int)footprint);
+            spawnRect = Battleground.FindNearestOpenRect(requested);
+        }
 
         var boss = factory(spawnRect.X, spawnRect.Y, rng);
         State.EnemyHolster.Add(boss);
@@ -422,6 +475,12 @@ public sealed class GameSession
         if (rejectedAtomicOwners.Count > 0)
             State.EnemyHolster.RemoveAll(e => rejectedAtomicOwners.Contains(e));
         State.CurrEnemyCount = State.EnemyHolster.Count;
+
+        // Ported from Dissonance._update_visuals's `vH.screenShakeX/Y` global write --
+        // computed here instead and assigned to this session's own ScreenShake, matching
+        // this port's "explicit parameter over hidden global" convention (see Dissonance.cs).
+        if (State.ActiveBoss is Dissonance dissonance)
+            ScreenShake = dissonance.ComputeScreenShake(GameProfile.Profile.ScreenShake);
     }
 
     public void DrawEnemies(SpriteBatch spriteBatch)
@@ -489,6 +548,11 @@ public sealed class GameSession
                     continue;
                 if (enemy.CantTouchMeList.Contains(bullet))
                     continue;
+                if (collided.Part.StartsWith("portal:") && enemy is Dissonance dissonance
+                    && dissonance.RoutePlayerBullet(bullet, int.Parse(collided.Part["portal:".Length..])))
+                {
+                    continue;
+                }
 
                 enemy.CantTouchMeList.Add(bullet);
                 bullet.Pierce -= 1;
@@ -553,11 +617,18 @@ public sealed class GameSession
             {
                 // Ported from character.py's per-content-key outcome branch, simplified to a
                 // direct type check since gamePaths.py's path-based boss-content-key lookup
-                // (which boss variant counts as "the mid boss" on the active path) isn't
-                // ported. Dissonance/"final boss defeated -> GameCompleted" is still deferred
-                // alongside Dissonance itself (see Entities/README.md).
+                // (which boss variant counts as "the mid boss"/"the final boss" on the active
+                // path) isn't ported -- only the "sound" path's bosses (Beaudis/Dissonance) exist.
                 if (enemy is Beaudis)
+                {
                     State.BeaudisDefeated = true;
+                }
+                else if (enemy is Dissonance)
+                {
+                    State.GameCompleted = true;
+                    State.RunOutcome = "RUN COMPLETE";
+                    GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed: true);
+                }
                 State.ActiveBoss = null;
                 State.EnemySpawningEnabled = !State.GameCompleted;
                 ScreenShake = Vector2.Zero;
@@ -668,30 +739,57 @@ public sealed class GameSession
     /// </summary>
     public void HandleBossDebugControls(IReadOnlySet<Keys> keysPressed)
     {
-        if (State.ActiveBoss is not Beaudis boss)
-            return;
-        for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
+        if (State.ActiveBoss is Beaudis beaudis)
         {
-            if (keysPressed.Contains(BossDebugPhaseKeys[index]))
+            for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
             {
-                boss.DebugSetPhase(index + 1);
-                State.EnemyProjectileHolster.Clear();
-                return;
+                if (keysPressed.Contains(BossDebugPhaseKeys[index]))
+                {
+                    beaudis.DebugSetPhase(index + 1);
+                    State.EnemyProjectileHolster.Clear();
+                    return;
+                }
             }
+            if (keysPressed.Contains(Keys.R))
+            {
+                beaudis.DebugSetPhase(beaudis.Phase);
+                State.EnemyProjectileHolster.Clear();
+            }
+            if (keysPressed.Contains(Keys.L))
+                beaudis.DebugPhaseLocked = !beaudis.DebugPhaseLocked;
+            if (keysPressed.Contains(Keys.F) && !beaudis.IsStaggered)
+            {
+                beaudis.Stagger = beaudis.MaxStagger - beaudis.MinimumStaggerPerHit;
+                beaudis.TakeDamage(1);
+            }
+            // Keys.C (rune-cannon cooldown reset) is Dissonance-only; no-op for Beaudis.
         }
-        if (keysPressed.Contains(Keys.R))
+        else if (State.ActiveBoss is Dissonance dissonance)
         {
-            boss.DebugSetPhase(boss.Phase);
-            State.EnemyProjectileHolster.Clear();
+            for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
+            {
+                if (keysPressed.Contains(BossDebugPhaseKeys[index]))
+                {
+                    dissonance.DebugSetPhase(index + 1);
+                    State.EnemyProjectileHolster.Clear();
+                    return;
+                }
+            }
+            if (keysPressed.Contains(Keys.R))
+            {
+                dissonance.DebugSetPhase(dissonance.Phase);
+                State.EnemyProjectileHolster.Clear();
+            }
+            if (keysPressed.Contains(Keys.L))
+                dissonance.DebugPhaseLocked = !dissonance.DebugPhaseLocked;
+            if (keysPressed.Contains(Keys.F) && !dissonance.IsStaggered)
+            {
+                dissonance.Stagger = dissonance.MaxStagger - dissonance.MinimumStaggerPerHit;
+                dissonance.TakeDamage(1);
+            }
+            if (keysPressed.Contains(Keys.C))
+                dissonance.RuneCannonCooldown = 0;
         }
-        if (keysPressed.Contains(Keys.L))
-            boss.DebugPhaseLocked = !boss.DebugPhaseLocked;
-        if (keysPressed.Contains(Keys.F) && !boss.IsStaggered)
-        {
-            boss.Stagger = boss.MaxStagger - boss.MinimumStaggerPerHit;
-            boss.TakeDamage(1);
-        }
-        // Keys.C (rune-cannon cooldown reset) is Dissonance-only; deferred alongside it.
     }
 
     /// <summary>Ported from character.py's updateLootCrates(). Viewport clipping against the (not yet built) HUD sidebar is deferred.</summary>

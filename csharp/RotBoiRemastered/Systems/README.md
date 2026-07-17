@@ -44,16 +44,25 @@ port first since they were deliberately kept pygame-free in the Python original.
   `ToggleHudMode` -- see UI/README.md) and
   `SelectBountyTarget()`/`BountyInfo` (ported from
   character.py's `selectBountyTarget()`, feeds InformationSheet's
-  objective panel). Now that `Entities/Beaudis.cs` exists (see
-  Entities/README.md), the natural level-10 boss trigger really spawns one
-  (`SpawnBoss`, shared arena-clearing + placement-search prep mirroring
-  `BossCatalog.spawn`), boss defeat sets `RunState.BeaudisDefeated`, and
-  `HandleBossDebugControls` ports the boss-practice hotkeys
-  (phase-jump/relock/lock/force-stagger). The natural Dissonance trigger
-  and the "C" rune-cannon hotkey stay documented no-ops until Dissonance
-  exists (see Entities/README.md's "Explicitly deferred" section).
-  `RunState.BossDebugRequested`/`BossDebugInvincible` are back (dropped
-  since the Player.cs/GameSession pass, promised to return once a boss
-  existed) -- `BossDebugInvincible` is wired into `HurtPlayer`;
-  `BossDebugRequested`'s spawn branch stays unwired since Python's own
-  debug hotkey always summons the *final* boss, never Beaudis.
+  objective panel). Now that `Entities/Beaudis.cs`/`Entities/Dissonance.cs`
+  exist (see Entities/README.md), the natural level-10 and level-20 boss
+  triggers really spawn (`SpawnBoss`, shared arena-clearing + placement
+  prep mirroring `BossCatalog.spawn` -- with an optional forced spawn rect
+  for Dissonance, which owns its entire arena and must land exactly at its
+  center rather than going through the generic nearest-open-rect search),
+  boss defeat sets `RunState.BeaudisDefeated`/`GameCompleted` per boss
+  type, and `HandleBossDebugControls` ports the boss-practice hotkeys
+  (phase-jump/relock/lock/force-stagger, plus Dissonance's "C" rune-cannon
+  reset) for both boss types (duplicated per type rather than introducing
+  a shared interface for two implementors -- see the method's shape).
+  `MovePlayer` now also clamps the player inside `Dissonance.ArenaRadius`
+  (Python's `elif hasattr(boss, "arenaRadius")` branch; the
+  `constrain_player_position` branch stays deferred with the
+  `PathChaseBoss` family), and `HandleDamagingEnemies` routes portal-hit
+  player bullets through `Dissonance.RoutePlayerBullet` before normal
+  pierce/damage consumption. `RunState.BossDebugRequested`/
+  `BossDebugInvincible` are back (dropped since the Player.cs/GameSession
+  pass, promised to return once a boss existed) -- both are now fully
+  wired (`BossDebugInvincible` in `HurtPlayer`, `BossDebugRequested` now
+  spawns Dissonance, matching Python's debug hotkey always summoning the
+  *final* boss, never Beaudis).

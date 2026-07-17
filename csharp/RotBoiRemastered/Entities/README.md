@@ -113,35 +113,50 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   only with Dissonance, dropped until that boss and the still-deferred
   `drawBossHealthBar` HUD function actually need a shared contract for them.
 
+- **`Dissonance.cs`** <- `bossTypes.py`'s `Dissonance` (the run's level-20
+  final boss; ~1780 lines on its own, by far the most complex single class
+  in the codebase). **Done** -- the full nine-phase, three-act state
+  machine (rune cannon, portal relay, mirror-step teleport with landing
+  echoes, rotating diamond minefield, crossfire carousel, event horizon,
+  last-word callback cycling, health-gated survival phases per act,
+  cinematic phase transitions), stagger/fracture/rune-disruption gating on
+  `TakeDamage`, polarity-based player-bullet routing through its portals
+  (`RoutePlayerBullet`), and the full visual spectacle (rotating 3D-
+  projected cube with aura, motion trail, arena boundary/mask/rune
+  inscription, death spectacle, phase-announcement bubble, act-transition
+  veil, perfect-break flash). `GameSession.cs` now spawns it on the natural
+  level-20 trigger (and the hidden debug-summon hotkey, matching Python:
+  the debug key always resolves to the *final* boss, never Beaudis),
+  clamps player movement inside `ArenaRadius`, routes portal-hit player
+  bullets before normal pierce/damage consumption, computes screen shake
+  as an explicit per-frame value (`ComputeScreenShake`, see its doc
+  comment) instead of writing a global, sets `GameCompleted` on death, and
+  extended `HandleBossDebugControls` with the "C" rune-cannon-reset hotkey.
+  See `Dissonance.cs`'s doc comment for the full list of design decisions
+  (nearly every field is a public settable property, unlike `Beaudis.cs`'s
+  curated surface -- driven by how extensively the Python test oracle
+  manipulates this boss's state directly; `_arena_center()` becomes a
+  cached field from an explicit `Battleground` constructor parameter;
+  dead-in-this-class fields dropped).
+
 ## Explicitly deferred (not in Entities/ yet)
 
-- **The rest of `bossTypes.py`'s ~4750 lines** -- fourteen more boss
-  classes beyond `Beaudis.cs`. Scoped down deliberately this pass rather
-  than attempted in one shot:
-  - **`Dissonance`** (~1780 lines on its own) -- the run's level-20 final
-    boss. Nine phases across three "acts," each with bespoke attack
-    patterns (rune cannon, portal relay, mirror-step teleport, rotating
-    diamond field, crossfire carousel, event horizon, last-word callback
-    cycling...), cinematic phase transitions, arena-boundary/mask
-    rendering (a star-shaped exterior blackout), a death spectacle, and
-    polarity-based player-bullet routing through its portals. By far the
-    most complex single class in the codebase -- its own dedicated pass.
-  - **`PathChaseBoss`** and its eight subclasses/pairs (`TouchPortal`/
-    `PlagueTouchBoss`/`Bair`/`Sting`, `Ishe`/`Chronos`,
-    `SinChemesthesisBoss`/`Kage`/`Rot`, `PhantasiaBoss`/`Hypno`/`Malady`)
-    -- alternate mid/final bosses for non-"sound" content paths (see
-    `gamePaths.py`'s `boss_key()`), each with its own arena-constraint
-    shape and terrain/persistent-hazard mechanics. `Malady` alone
-    (~680 lines) has a fully custom procedural "puppet" body with jointed
-    limb rendering.
-  - **`BossDefinition`/`BossCatalog`** -- straightforward once every boss
-    behind them exists (same `register`/`spawn` shape as `EnemyCatalog`),
-    but genuinely blocked on the above, not worth stubbing early.
+- **The rest of `bossTypes.py`'s ~4750 lines** -- thirteen more boss
+  classes beyond `Beaudis.cs`/`Dissonance.cs`. **`PathChaseBoss`** and its
+  eight subclasses/pairs (`TouchPortal`/`PlagueTouchBoss`/`Bair`/`Sting`,
+  `Ishe`/`Chronos`, `SinChemesthesisBoss`/`Kage`/`Rot`,
+  `PhantasiaBoss`/`Hypno`/`Malady`) -- alternate mid/final bosses for
+  non-"sound" content paths (see `gamePaths.py`'s `boss_key()`), each with
+  its own arena-constraint shape and terrain/persistent-hazard mechanics.
+  `Malady` alone (~680 lines) has a fully custom procedural "puppet" body
+  with jointed limb rendering. **`BossDefinition`/`BossCatalog`** --
+  straightforward once every boss behind them exists (same
+  `register`/`spawn` shape as `EnemyCatalog`), but genuinely blocked on
+  the above, not worth stubbing early.
 
-  Until these exist, every boss-specific branch in
-  `Player.cs`/`GameSession.cs` for anything beyond Beaudis (boss movement
-  obstacles/arena constraints, arena-radius projectile clipping, the
-  natural Dissonance spawn trigger, the "C" rune-cannon debug hotkey,
-  portal-hit bullet routing, `gamePaths.py`'s per-path boss content-key
-  selection) is a documented no-op -- see those files' doc comments for
-  the specifics.
+  Until these exist, `Player.cs`/`GameSession.cs`'s boss-movement-obstacle
+  branch (`constrain_player_position`, the `PathChaseBoss`-family arena
+  shape) and `gamePaths.py`'s per-path boss content-key selection (which
+  boss variant counts as "the mid/final boss" on the active path -- always
+  the "sound" path's Beaudis/Dissonance here) stay documented no-ops -- see
+  those files' doc comments for the specifics.

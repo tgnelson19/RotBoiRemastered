@@ -30,28 +30,30 @@ public sealed class ProjectilePortal
     public Vector2 OrbitCenter { get; set; }
     public float Radius { get; set; }
     public float Angle { get; set; }
-    public float AngularSpeed { get; }
-    public float FireInterval { get; }
+    /// <summary>Settable: Dissonance reassigns these directly on a live portal to reshape an existing formation's orbit for a new phase (Python did the same -- no `_place`/orbit-restart call needed, just changed values the next natural Update tick reads).</summary>
+    public float AngularSpeed { get; set; }
+    public float FireInterval { get; set; }
     public float FireCooldown { get; set; }
     public int PelletCount { get; }
     public float Spread { get; }
     public string Owner { get; }
     public Color Color { get; }
     public int Polarity { get; }
-    public string MovementPath { get; }
+    public string MovementPath { get; set; }
     public float Size { get; } = Simulation.TileSize * .9f;
     public float MaxHp { get; } = 600f;
     public float Hp { get; private set; }
     public int HitsTaken { get; private set; }
-    public int HitsToDisable { get; } = 3;
+    public int HitsToDisable { get; set; } = 3;
     public bool PhaseDisabled { get; private set; }
     public IReadOnlyList<Vector2[]> RuneStrokes { get; private set; } = Array.Empty<Vector2[]>();
     public float DisabledRemaining { get; private set; }
     public float RegenerationTime { get; } = 5.0f;
     public List<Vector2> Trail { get; } = new();
-    public float TelegraphTimer { get; private set; }
-    public string TelegraphKind { get; private set; } = "inward";
-    public Vector2 TelegraphTarget { get; private set; }
+    /// <summary>Settable: Dissonance's rune cannon primes every active portal's telegraph directly ahead of a delayed shared payoff, rather than through a per-shot fire call.</summary>
+    public float TelegraphTimer { get; set; }
+    public string TelegraphKind { get; set; } = "inward";
+    public Vector2 TelegraphTarget { get; set; }
     public bool ShowTether { get; set; } = true;
     public float WorldX { get; private set; }
     public float WorldY { get; private set; }

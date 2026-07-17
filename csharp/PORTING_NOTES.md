@@ -148,7 +148,32 @@ Dependency order roughly follows the Python import graph:
    the base class so that cleanup works polymorphically for any boss/
    miniboss. `RunState.BossDebugRequested`/`BossDebugInvincible` are back,
    as promised when they were dropped in step 6.
-9. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+9. **`Entities/Dissonance.cs`** -- the run's level-20 final boss, ~1780
+   lines on its own and by far the most complex single class in the
+   codebase. **Done** -- the full nine-phase/three-act state machine (rune
+   cannon, portal relay, mirror-step teleport, rotating diamond minefield,
+   crossfire carousel, event horizon, last-word callback cycling,
+   health-gated survival phases, cinematic transitions), stagger/fracture/
+   rune-disruption gating, polarity-based player-bullet portal routing,
+   and the full visual spectacle (rotating 3D cube + aura, motion trail,
+   arena boundary/mask/rune inscription, death spectacle, phase
+   announcement, act transition, perfect-break flash). Nearly every field
+   is a public settable property, unlike `Beaudis.cs`'s curated surface --
+   driven directly by how extensively the Python test oracle
+   (`tests/test_beaudis_boss.py`, almost entirely about Dissonance despite
+   its name) manipulates this boss's state to reach specific attack
+   windows without waiting out real cooldowns; this port's own test suite
+   needs the same access. `GameSession` gained: the natural level-20 spawn
+   trigger and the hidden debug-summon hotkey (which, matching Python,
+   always resolves to Dissonance, never Beaudis), an arena-radius player-
+   movement clamp, portal-hit bullet routing ahead of normal bullet
+   consumption, a `ComputeScreenShake` call (screen shake became an
+   explicit per-frame value instead of a global write), `GameCompleted` on
+   defeat, and the "C" rune-cannon debug hotkey. The `PathChaseBoss` family
+   (eight more subclasses for non-"sound" content paths) and
+   `BossDefinition`/`BossCatalog` remain deferred -- see
+   `Entities/README.md`'s "Explicitly deferred" section.
+10. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 

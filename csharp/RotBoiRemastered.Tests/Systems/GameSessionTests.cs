@@ -348,6 +348,74 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void HandleEnemyCreation_NaturalDissonanceTrigger_SpawnsBossAtArenaCenter()
+    {
+        var session = MakeSession(level: 20); // Progression.FinalBossLevel
+        session.State.BeaudisEncounterStarted = true;
+        session.State.BeaudisDefeated = true;
+
+        session.HandleEnemyCreation(new Random(1));
+
+        var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
+        Assert.True(session.State.DissonanceEncounterStarted);
+        // Within a pixel: the shared SpawnBoss placement plumbing routes through an
+        // int-valued Rectangle, unlike Python's direct float assignment for this case.
+        Assert.True(Math.Abs(boss.ArenaCenter.X - boss.Size / 2f - boss.WorldX) < 1f);
+        Assert.True(Math.Abs(boss.ArenaCenter.Y - boss.Size / 2f - boss.WorldY) < 1f);
+    }
+
+    [Fact]
+    public void HandleDamagingEnemies_KillingDissonance_CompletesTheRun()
+    {
+        var session = MakeSession(level: 20);
+        session.State.BeaudisEncounterStarted = true;
+        session.State.BeaudisDefeated = true;
+        session.HandleEnemyCreation(new Random(1));
+        Assert.IsType<Dissonance>(session.State.ActiveBoss);
+        ((Enemy)session.State.ActiveBoss!).Hp = 0;
+
+        session.HandleDamagingEnemies(new Random(1));
+
+        Assert.True(session.State.GameCompleted);
+        Assert.Equal("RUN COMPLETE", session.State.RunOutcome);
+        Assert.Null(session.State.ActiveBoss);
+    }
+
+    [Fact]
+    public void MovePlayer_DissonanceActive_ClampsPlayerWithinArenaRadius()
+    {
+        var session = MakeSession(level: 20);
+        session.State.BeaudisEncounterStarted = true;
+        session.State.BeaudisDefeated = true;
+        session.HandleEnemyCreation(new Random(1));
+        var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
+        // Push the player far outside the arena before moving.
+        session.Player.SetPosition(boss.ArenaCenter.X + boss.ArenaRadius * 5, boss.ArenaCenter.Y);
+
+        session.MovePlayer(false, false, false, false, false);
+
+        float playerCenterX = session.Player.WorldX + (float)session.State.PlayerSize / 2f;
+        float playerCenterY = session.Player.WorldY + (float)session.State.PlayerSize / 2f;
+        float distance = Vector2.Distance(new Vector2(playerCenterX, playerCenterY), boss.ArenaCenter);
+        Assert.True(distance <= boss.ArenaRadius + 1f);
+    }
+
+    [Fact]
+    public void HandleBossDebugControls_DissonanceCKey_ResetsRuneCannonCooldown()
+    {
+        var session = MakeSession(level: 20);
+        session.State.BeaudisEncounterStarted = true;
+        session.State.BeaudisDefeated = true;
+        session.HandleEnemyCreation(new Random(1));
+        var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
+        boss.RuneCannonCooldown = 5.0;
+
+        session.HandleBossDebugControls(new HashSet<Keys> { Keys.C });
+
+        Assert.Equal(0, boss.RuneCannonCooldown);
+    }
+
+    [Fact]
     public void ResetAll_RestoresDefaultsAndRepositionsPlayer()
     {
         var session = MakeSession();
