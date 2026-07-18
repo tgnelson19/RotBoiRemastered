@@ -1,13 +1,27 @@
 # Boss encounters
 
 Bosses are registered through `BOSS_CATALOG`. A boss exposes the normal enemy
-combat contract plus phase metadata for the shared boss HUD. Natural progression
-uses two distinct encounters:
+combat contract plus phase metadata for the shared boss HUD. Every path has a
+level-10 lesson and a level-20 examination built from the same pacing grammar:
 
-| Level | Boss | Role | Arena | Phases | Reward XP |
-| --- | --- | --- | --- | ---: | ---: |
-| 10 | Beaudis | Midpoint warning | Ordinary world | 5 | 240 |
-| 20 | Dissonance | Final boss | Sealed boss arena | 9 | 900 |
+| Path | Level 10: HP / contact / phases | Its one survival | Level 20: HP / contact / phases | Survival phases |
+| --- | --- | --- | --- | --- |
+| Sound | Beaudis: 50,000 / 220 / 5 | Endure, 14s at 50% HP | Dissonance: 150,000 / 550 / 9 | 20s at 67%, 20s at 33%, Jera 30s at 0% |
+| Touch | Bair: 110,000 / 380 / 5 | Ruin, 14s at 50% HP | Rot: 330,000 / 980 / 7 | Burial, 30s at 0% |
+| Sight | Ishe: 80,000 / 300 / 4 | Flash, 12s at 50% HP | Chronos: 240,000 / 780 / 7 | Still Second 18s at 50%, Afterimage 30s at 0% |
+| Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 280,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 30s at 0% |
+| Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | The House 22s at 50%, Enough 32s at 0% |
+
+Each midpoint has almost exactly one third of its paired finale's raw health,
+less than half its contact pressure, fewer movements, and exactly one invulnerable
+survival lesson. That lesson always occurs at half health and returns to a final
+damage movement. A level-10 fight therefore never borrows the paired level-20
+zero-health survival surprise.
+
+Dissonance remains the true final boss rather than merely another health tier. Its
+45% normal-damage intake makes 150,000 HP behave like roughly 333,000 HP before
+stagger bonuses, and its three acts contain 70 total survival seconds, breakable
+portals, rune disruption, stagger/fracture play, and the longest pattern exam.
 
 ## Beaudis — level 10
 
@@ -15,22 +29,21 @@ Beaudis is a deliberately weaker echo of the final encounter. Reaching level 10
 clears active threats and pauses regular spawning, but does not create a boss arena,
 mask the world, constrain player movement, or reposition the player.
 
-Its first four phases are damage phases with slow, sparse patterns:
+Its four damage movements use slow, sparse patterns:
 
 1. One aimed shot.
 2. A three-shot fan.
 3. A six-shot radial pulse.
-4. A four-shot aimed fan.
+4. A four-shot aimed fan after the survival lesson.
 
-The fifth survival pattern occurs at two-thirds, one-third, and zero health and lasts
-14 seconds each time. Four slow portals appear for these intervals and take turns
-firing two-projectile volleys. Beaudis is invulnerable during survival. The first two
-completions return to a rotating damage-phase pool; after the final timer, Beaudis fades for
-three seconds. It has no finale-collapse animation; the italic line
+Endure occurs once at half health and lasts 14 seconds. Four slow portals appear and
+take turns firing two-projectile volleys while Beaudis is invulnerable. Completion
+opens Persist, the final damage movement. Reducing that remaining half to zero begins
+a three-second fade. It has no finale-collapse animation; the italic line
 *“You can't escape me...”* remains visible until the fade completes and the XP drop
 is released.
 
-Base balance: 260 HP, 2 contact damage, 0.38 movement speed, 90 stagger, and 240 XP.
+Base balance: 50,000 HP, 220 contact damage, 0.38 movement speed, 90 stagger, and 240 XP.
 Its rendering is intentionally rigid and blocky: no idle bob, no arena spectacle,
 and only coarse phase pips distinguish its state.
 
@@ -46,7 +59,7 @@ perspective cube, rune interpolation, orbiting shards, arena waves, particles, a
 cinematic transitions, it now leaves smoothly fading phase-colored motion echoes.
 This effect is not shared with mini-bosses or Beaudis.
 
-The final fight expects twenty drafted upgrades and is tuned to 1,350 HP, 5.2
+The final fight expects twenty drafted upgrades and is tuned to 150,000 HP, 550
 contact damage, 0.72 movement speed, 360 stagger, a 1.3x final-boss projectile
 damage modifier, and 900 reward XP. Sixty baseline
 stagger hits are required to force a break, while coherent damage, critical, volley,
@@ -80,106 +93,42 @@ complete and leaves ordinary spawning disabled. Player progression is capped at 
 Defense can never nullify hostile damage completely: enemy and boss hits retain the
 greater of 0.25 damage or 10% of their pre-defense value (before casual-mode scaling).
 
-## Kage and Rot — Path of Chemesthesis
+## Kage and Ache — Path of Chemesthesis
 
-Kage and Rot replace the Chemesthesis path's three-phase placeholders with a shared
-seven-sins projectile language. Their attacks favor long-lived mines, orbiting
-hazards, bombs, curved volleys, and telegraphed lasers so the path continues to feel
-like a durable organism contaminating the battlefield.
+Kage introduces Chemesthesis through four composite-sin patterns. Ache completes the
+path in a larger jagged arena as three orange cubes orbiting a split scarlet/blue core.
+The cubes depth-sort across the core, spread on attacks, jolt with movement, and open
+into a much wider, faster constellation during its survival spectacles.
 
-Kage has four composite phases:
+Kage has three damage movements around one midpoint survival:
 
 1. **Feast** combines Gluttony and Greed in a spreading mine meal.
 2. **Provocation** combines Wrath and Pride in an aimed volley and retaliatory beam.
-3. **Stagnant Mirror** combines Sloth and Envy in slow curved copies and lingering mines.
+3. **Stagnant Mirror** combines Sloth and Envy in a 14-second half-health survival.
 4. **Lure** combines Lust and Avarice in wide tempting lanes and a targeted bomb.
 
-Rot has seven phases, one per sin: **Crown** (Pride), **Hoard** (Greed), **Pull**
-(Lust), **Borrowed Shape** (Envy), **Consumption** (Gluttony), **Retort** (Wrath),
-and **The Rot** (Sloth). The final phase recalls simplified Pride, Gluttony, and Lust
-patterns over an expanding persistent mine field.
+Ache has six damage movements and two survival movements. **Pinprick**, **Crossed
+Nerves**, and **Misstep** lead into the 20-second **Reflex Storm** at half health;
+**Aftershock**, **Fracture**, and **White Ache** lead into the 30-second **Overload**
+at zero health. Completing Overload begins a 10-second constellation collapse.
 
-Both fights advance phases at evenly divided health thresholds. Number-key boss
-practice supports all four Kage phases and all seven Rot phases through the shared
-debug phase interface.
+Its small orange projectiles always launch as opposite-amplitude sinusoidal pairs,
+forming moving helixes. These deal only 105–130 base damage and are intended to be
+occasionally tanked. Straight laser walls and traveling lightning bolts deal 690–820
+base damage. Lightning telegraphs its complete multi-angle route before its active head
+travels through the bends, so large hits are avoidable but costly mistakes. Ache has
+280,000 health—less than Rot or Malady—but is invulnerable during both
+survival movements.
 
-Rot is stationary and divides its seven sins into three cinematic acts. Act I,
-**Appetite**, contains Pride and Greed. Act II, **Temptation**, contains Lust and
-Envy. Act III, **Saturation**, contains Gluttony, Wrath, and the Sloth finale. Each
-act transition clears the existing hazard field, briefly protects Rot, and announces
-the next terrain vocabulary. Health gates prevent burst-damage builds from skipping
-a sin or its transition.
-
-Chemesthesis hazards can apply **Exposure**, a temporary movement-pressure meter
-that decays after avoiding contaminated terrain. Pull hazards briefly draw the player
-toward Rot, while Sloth hazards apply a direct slow. These effects never reduce
-movement below 58%, and dashing overrides pull, preserving a difficult escape option.
-
-Rot's Envy phase reads an immutable snapshot of the current build. Critical builds
-receive a telegraphed beam imitation, tempo builds receive fast narrow volleys,
-precision builds receive compact high-speed lanes, and volley or power builds receive
-scaled projectile fans. The snapshot cannot alter the player's upgrades.
-
-The encounters use a restrained visual grammar intended to preserve bullet clarity:
-faint chemical diagrams identify each sin beneath the boss, sparse spores rise from
-the reaction field, phase-colored ampoules fill as health gates are crossed, and
-seven orbiting reaction vessels show Rot's progress. Exposure adds a dark red edge
-vignette rather than a center-screen filter, leaving precise terrain routes visible.
-
-Each phase also has a bespoke geometric sin sigil. Pride rises into a crown, Greed
-closes into a faceted vessel, Lust converges into a sharp heart, Envy duplicates,
-Gluttony opens into a maw, Wrath fractures into crossed bolts, and Sloth descends
-into an incomplete spiral. Kage's four sigils combine strokes from the paired sins.
-Symbols are supersampled for crisp edges, progressively draw their strokes on phase
-entry, rotate the previous mark away, and appear on the boss ampoule, field diagram,
-and cinematic act card.
-
-### Further Chemesthesis directions
-
-Four cleansing vents surround Rot. Entering a ready vent removes Exposure, puts that
-vent on a twelve-second cooldown, and crystallizes the corresponding inner route for
-seven seconds. Greed and Sloth also grow temporary solid crystal walls. These walls
-participate in player movement collision, are capped to prevent an unsolvable field,
-and are cleared at phase transitions.
-
-Pride and Wrath derive their cardinal lanes from the camera orientation, alternating
-screen-horizontal and screen-vertical pressure in world space. Rot reports three
-stable challenge hooks: `clean_traversal` for staying at or below 3 Exposure,
-`vent_discipline` for using at most one vent, and `uncontaminated` for effectively
-never accumulating Exposure.
-
-### Additional directions
-
-Crystals now have brittle and reinforced variants. Brittle walls are registered as
-targetable boss parts and break after sustained player fire; reinforced walls cannot
-be damaged and must expire. Gluttony consumes the oldest active wall when attacking,
-draining 25% of Rot's stagger meter and producing a visible absorption pulse.
-
-Act transitions draw a clean-route preview between ready vents. During Sloth,
-opposite reinforced walls appear beyond the active field, telegraph for 2.5 seconds,
-then become solid and compress inward at a fixed rate. Compression repeats every
-twelve seconds and stops before eliminating the central traversal channel.
-
-### New recommendations
-
-- Allow critical hits to fracture brittle walls into two short-lived shrapnel lanes,
-  making destruction powerful but not automatically safe.
-- Give vents one of two visible reagents per run: cooling reagent could grant brief
-  slow immunity, while caustic reagent could increase damage during Exposure.
-- Add an accessibility toggle that increases crystal-warning contrast and extends
-  compression telegraphs without changing projectile damage.
-- Record a route-efficiency result based on distance traveled versus phase duration,
-  rewarding deliberate navigation rather than constant perimeter circling.
-- Let Kage reveal dormant, nonfunctional versions of vents and crystals so players
-  learn their silhouettes before Rot makes them mechanically important.
-- Add act sound layers once the project has a shared audio mixer, volume preference,
-  and accessibility option. Suggested motifs remain glass resonance for Appetite,
-  breath/heartbeat for Temptation, and low bubbling pressure for Saturation.
+Chemesthesis hazards can apply **Exposure**, a temporary movement-pressure meter that
+decays after avoiding contaminated terrain. These effects never reduce movement below
+58%, and dashing remains a reliable escape option.
 
 ## Hypno and Malady — Path of Phantasia
 
 Hypno now teaches five paired commandment concepts through **Idol**, **Spoken Rule**,
-**Inheritance**, **Chosen**, and **Offering**. Malady expands that language into ten
+**Inheritance**, **Chosen**, and **Offering**. Chosen is its one 14-second half-health
+survival, and Offering returns control to a damage finish. Malady expands that language into ten
 health-gated phases: Authority, Image, Reverence, Rest, Lineage, Mercy, Fidelity,
 Ownership, Truth, and Contentment.
 
@@ -225,36 +174,70 @@ Each path also rotates between chase, static, and scripted-path locomotion. Touc
 slowly along the square, Sight changes direction quickly, Chemesthesis uses irregular
 offset paths, and Phantasia traces smooth ellipses and figure-eights.
 
-## Bair and Sting — Path of Touch
+Containment resolves all edges violated by one movement attempt before returning the
+player position. Pressing diagonally into a corner therefore produces one stable inset
+position instead of alternating between adjacent edges and vibrating the camera.
 
-Bair previews the ten plagues as five paired phases: **River**, **Swarm**, **Blight**,
-**Ruin**, and **Silence**. Sting separates them into ten health-gated phases:
+## Bair and Rot — Path of Touch
 
-1. **Blood — Corruption:** slow radial contamination.
-2. **Frogs — Overrun:** clustered heavy landing bombs.
-3. **Gnats — Infestation:** a dense but slow radial swarm.
-4. **Flies — Invasion:** broad heavy fans and square-gate crossfire.
-5. **Pestilence:** a deliberate expanding ring.
-6. **Boils — Affliction:** large targeted blast zones.
-7. **Hail — Impact:** descending heavy lanes and gate volleys.
-8. **Locusts — Devour:** a wide consuming projectile wall.
-9. **Darkness:** narrow, slow pressure with moving gates.
-10. **Firstborn — Severance:** radial closure plus a high-damage central judgment.
+Bair previews Touch through five paired phases: **River**, **Swarm**, **Blight**,
+**Ruin**, and **Silence**. Its square iron gates march around the arena boundary,
+require eight separate hits to disable, and fire paired slow heavy shots.
+Ruin is the single 14-second half-health survival; Silence is the damageable finish.
 
-Each plague has a geometric sigil derived from its defining word. Touch portals are
-square iron gates rather than Dissonance's fluid mouths. They march around the square
-arena boundary, require eight separate hits to disable, and fire paired slow heavy
-shots. Portal phases currently include Frogs, Flies, Hail, Darkness, and Firstborn.
+Rot is Touch's complete level-20 encounter. Its seven stages of accumulation are
+**Seep**, **Silt**, **Slump**, **Bloom**, **Sinkhole**, **Miasma**, and **Burial**.
+The fight uses only static and extremely slow pathed movement inside Touch's rigid
+square arena. Slow edge-reaching fronts, orbiting clots, long-lived sludge pools,
+spores, sweeps, and advancing mud banks progressively remove open ground.
 
-Sight now has meaningful **Glimpse**, **Blink**, and **Flash** symbols: an eye, a
-closing mirrored aperture, and a lightning stroke. These are a visual placeholder for
-a later full Sight phase expansion.
+Rot has 330,000 visible health, one body hitbox, no breakable appendages, no stagger
+damage multiplier, and no alternate weak point. Its body is a shadowed semicircle of
+vibrating cubes sinking through a mud shelf while detached cubes fall, shrink, and
+dissolve. There is deliberately no bright core that reads as a damage target.
+
+Mud banks are untargetable environmental geometry. They telegraph in cream for 1.8
+seconds, become solid, and in Sinkhole and Burial advance toward the arena center
+before stopping with a traversable channel. Active banks are capped at eight.
+
+The first six Rot stages are damage movements. Reaching zero health unlocks **Burial**
+as a 30-second invulnerable survival spectacle; completing it clears the mud and begins
+the ten-second collapse. Bair's Ruin teaches the square-lane pressure without reusing
+this finale.
+
+## Ishe and Chronos — Path of Sight
+
+Ishe introduces Sight's **Glimpse**, **Blink**, **Flash**, and **Afterglow** through
+four short, fast movements. Flash is its one 12-second half-health survival; Afterglow
+returns to a final aimed volley. Chronos completes the path as the smallest, fastest,
+and lowest-health final boss: a light-blue portal cube whose body gradient, idle orbit, movement
+trail, attack flare, and staggered afterimages are all made from square particles.
+
+Chronos has five mobile damage movements and two survival movements:
+
+1. **Tick** fires a narrow five-shot fan.
+2. **Crosscut** rotates a dense radial volley with a consistent two-shot opening.
+3. **Blink** overlaps two narrow fans while Chronos jumps between positions.
+4. **Still Second** is the fight's only static movement, an 18-second midpoint
+   survival built from rotating rings with visible openings.
+5. **Quicken** uses seven small alternating sine shots.
+6. **Parallax** crosses two predictions while leaving the exact aimed line open.
+7. **Afterimage** is a 30-second high-speed chase. Every new volley marks its old
+   firing origin and repeats the exact same angles 1.7 seconds later; the opening also
+   replays up to eight volleys previously seen during the fight.
+
+No Chronos attack creates a pool, wall, mine, laser, or other persistent field hazard.
+Its pressure comes entirely from small 96–145 damage projectiles, short firing
+intervals, pursuit, and readable gaps. At 240,000 health, it is deliberately more
+fragile than the other path finales. Completing Afterimage starts a ten-second portal
+collapse in which the cube shrinks while seventy-two bright square fragments spread
+outward before the reward is released.
 
 ### Recommended polish order
 
 1. Playtest arena dimensions and moving-boundary containment before tuning damage.
-2. Give Sight a full phase structure next; its current symbols and triangular arena
-   establish the language, but Chronos remains mechanically shallower than the others.
+2. Playtest Chronos's radial openings at low movement speed and without dash upgrades;
+   widen the gaps before reducing projectile density if baseline builds struggle.
 3. Add themed portal subclasses for Chemesthesis and Phantasia. Chemical vents should
    move unpredictably along the jagged edge; dream apertures should follow atomic
    ellipses and mix real and illusory volleys.
