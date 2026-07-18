@@ -28,13 +28,20 @@ public sealed class SoulHub
     public bool OverlayOpen => _overlay is not null;
     public void CloseOverlay() => _overlay = null;
 
+    /// <summary>
+    /// Hit rects for the Vault grid, refreshed each frame by DrawVault and fed into
+    /// GameSession.HandleCarriedLoadoutDrag -- the drag itself is owned by
+    /// InformationSheet (see its VaultDragSource), not this class, so the Vault shares
+    /// the exact same drag mechanic/feel as equipment/stash/crate dragging in a real run.
+    /// </summary>
+    private List<Rectangle> _vaultSlotRects = new();
+
     public void Enter(GameSession session)
     {
         session.State.EnemySpawningEnabled = false;
         session.State.AutoFire = false;
         session.State.EnemyHolster.Clear();
         session.State.EnemyProjectileHolster.Clear();
-        session.LoadPreviewEquipment();
         _dummyWorld = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 4, 0);
         _stationWorld.Clear();
         _stationWorld["storage"] = session.PlayerWorldCenter - new Vector2(Simulation.TileSize * 4, 0);
@@ -49,6 +56,7 @@ public sealed class SoulHub
         _sessionBest = 0;
         _lastRecordSave = 0;
         _overlay = null;
+        session.InformationSheet.CancelDrag();
     }
 
     public void Update(GameSession session, double elapsedSeconds)
@@ -86,7 +94,10 @@ public sealed class SoulHub
         session.UpdateDamageTexts();
     }
 
-    public void HandleInput(GameSession session, IReadOnlySet<Keys> keysPressed, Point mouse, bool mousePressed)
+    /// <summary>True while the carried-loadout sidebar (right side, same style/drag as gameplay) should be visible -- free-roam or the Vault open, not while browsing the other three stations.</summary>
+    private bool SidebarShown => _overlay is null || _overlay == "storage";
+
+    public void HandleInput(GameSession session, IReadOnlySet<Keys> keysPressed, Point mouse, bool mouseDown, bool mousePressed)
     {
         if (_overlay is not null)
         {
@@ -95,6 +106,7 @@ public sealed class SoulHub
             if (keysPressed.Contains(Keys.F) || walkedAway)
             {
                 _overlay = null;
+                session.InformationSheet.CancelDrag();
                 return;
             }
         }
@@ -104,19 +116,21 @@ public sealed class SoulHub
             if (nearby is not null)
                 _overlay = nearby;
         }
+        if (SidebarShown)
+        {
+            // _vaultSlotRects only gets refreshed while the Vault panel is actually drawn
+            // (DrawVault, gated on _overlay == "storage") -- pass an empty list otherwise,
+            // or a stale rect from a since-closed Vault could still register a pick-up in
+            // free-roam, over a spot nothing is being drawn anymore.
+            var vaultSlotRects = _overlay == "storage" ? _vaultSlotRects : (IReadOnlyList<Rectangle>)Array.Empty<Rectangle>();
+            session.HandleCarriedLoadoutDrag(mouse, mouseDown, mousePressed, vaultSlotRects);
+        }
         if (!mousePressed)
             return;
         foreach (var (key, rect) in _targets.ToArray())
         {
             if (!rect.Contains(mouse)) continue;
             if (key.StartsWith("skill:")) MetaProgression.PurchaseSkill(key[6..]);
-            else if (key.StartsWith("runitem:"))
-            {
-                var parts = key.Split(':');
-                MetaProgression.TransferRunItemToStorage(parts[1], int.Parse(parts[2]));
-            }
-            else if (key.StartsWith("stored:")) MetaProgression.SelectStorageItem(int.Parse(key[7..]));
-            else if (key.StartsWith("loadout:")) MetaProgression.ClearStartingLoadoutSlot(key[8..]);
             else if (key.StartsWith("cosmetic:"))
             {
                 var parts = key.Split(':');
@@ -159,14 +173,18 @@ public sealed class SoulHub
         UiTheme.DrawText(spriteBatch, "THE SOUL", 27, UiTheme.Text, new Vector2(22, 18));
         UiTheme.DrawText(spriteBatch, "SAFE GROUND  //  WALK TO A STATION  //  F INTERACT  //  ESC OPTIONS", 9, UiTheme.Muted, new Vector2(24, 54));
         DrawStations(spriteBatch, session);
-        if (_overlay is not null) DrawOverlay(spriteBatch, session.ScreenWidth, session.ScreenHeight, mouse);
+        if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
+        // Drawn last so the dragged-item icon (part of this call, see
+        // InformationSheet.DrawCarriedLoadout) always renders on top, wherever the
+        // cursor currently is -- including over the Vault panel drawn just above.
+        if (SidebarShown) session.DrawCarriedLoadout(spriteBatch, mouse);
     }
 
     private void DrawStations(SpriteBatch spriteBatch, GameSession session)
     {
         var labels = new Dictionary<string, (string Label, Color Accent)>
         {
-            ["storage"] = ("EXTRACTION CHEST", UiTheme.Gold),
+            ["storage"] = ("VAULT", UiTheme.Gold),
             ["quests"] = ("QUEST ALTAR", UiTheme.Green),
             ["skills"] = ("SOUL GRID", UiTheme.Purple),
             ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
@@ -188,14 +206,30 @@ public sealed class SoulHub
                 new Vector2(session.ScreenWidth / 2f, session.ScreenHeight - 42), "center");
     }
 
-    private void DrawOverlay(SpriteBatch spriteBatch, int screenWidth, int screenHeight, Point mouse)
+    private void DrawOverlay(SpriteBatch spriteBatch, GameSession session, Point mouse)
     {
         _tooltip = null;
+        int screenWidth = session.ScreenWidth, screenHeight = session.ScreenHeight;
+        if (_overlay == "storage")
+        {
+            // Bounded to the arena (left of the sidebar), a separate interface from the
+            // always-visible carried-loadout sidebar on the right -- see DrawWorld/
+            // SidebarShown. Doesn't darken/cover the sidebar, so it stays legible and
+            // draggable while the Vault is open.
+            int arenaWidth = session.InformationSheet.ArenaWidth;
+            Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, arenaWidth, screenHeight), UiTheme.Void * .94f);
+            var vaultPanel = new Rectangle((int)(arenaWidth * .07f), (int)(screenHeight * .12f),
+                (int)(arenaWidth * .55f), (int)(screenHeight * .72f));
+            UiTheme.DrawPanel(spriteBatch, vaultPanel, UiTheme.PanelRaised, UiTheme.Gold, shadow: 10);
+            DrawVault(spriteBatch, vaultPanel, mouse);
+            if (_tooltip is not null) DrawTooltip(spriteBatch, mouse, vaultPanel);
+            return;
+        }
+
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight), UiTheme.Void * .94f);
         var panel = new Rectangle((int)(screenWidth * .055f), (int)(screenHeight * .07f),
             (int)(screenWidth * .89f), (int)(screenHeight * .80f));
         UiTheme.DrawPanel(spriteBatch, panel, UiTheme.PanelRaised, UiTheme.Green, shadow: 10);
-        if (_overlay == "storage") DrawStorage(spriteBatch, panel, mouse);
         if (_overlay == "quests") DrawQuests(spriteBatch, panel, mouse);
         if (_overlay == "skills") DrawSkills(spriteBatch, panel, mouse);
         if (_overlay == "wardrobe") DrawWardrobe(spriteBatch, panel, mouse);
@@ -204,80 +238,63 @@ public sealed class SoulHub
 
     private static string TimeLabel(double seconds) => $"{(int)seconds / 60:00}:{(int)seconds % 60:00}";
 
-    private static readonly (string Label, string Slot)[] NextRunSlots =
+    /// <summary>
+    /// Safe, permanent, MetaProgression.StorageCapacity-limited -- a separate interface
+    /// from the carried-loadout sidebar (session.DrawCarriedLoadout, the same style/hub
+    /// layout as a real run's sidebar, drawn on the right by DrawWorld). Drag items
+    /// between the two; the drag itself lives in InformationSheet (see its
+    /// VaultDragSource), fed this panel's slot rects via
+    /// GameSession.HandleCarriedLoadoutDrag -- there's no click-to-stage step anymore,
+    /// what's in your sidebar *is* what you're bringing into your next run, live.
+    /// </summary>
+    private void DrawVault(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        ("WEAPON", "weapon"), ("ARMOR", "armor"), ("RING", "ring"), ("ACC 1", "accessory_1"), ("ACC 2", "accessory_2"),
-    };
+        UiTheme.DrawText(spriteBatch, "VAULT", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
+        UiTheme.DrawText(spriteBatch, "SAFE, PERMANENT  //  DRAG ITEMS TO AND FROM YOUR INVENTORY", 9, UiTheme.Gold,
+            new Vector2(panel.X + 26, panel.Y + 53));
 
-    private void DrawStorage(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
-    {
-        UiTheme.DrawText(spriteBatch, "EXTRACTION CHEST", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
-        UiTheme.DrawText(spriteBatch, $"PERMANENT STORAGE  {GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}  //  CLICK A STORED ITEM TO STAGE IT BELOW  //  CLICK A STAGED SLOT TO REMOVE IT",
-            9, UiTheme.Gold, new Vector2(panel.X + 26, panel.Y + 53));
         int slotSize = 44, gap = 8;
+        const int vaultColumns = 5;
+        int vaultLeft = panel.X + 26, vaultTop = panel.Y + 80;
+        _vaultSlotRects = new List<Rectangle>();
         for (int index = 0; index < MetaProgression.StorageCapacity; index++)
         {
-            var rect = new Rectangle(panel.X + 26 + index * (slotSize + gap), panel.Y + 76, slotSize, slotSize);
+            int column = index % vaultColumns, row = index / vaultColumns;
+            var rect = new Rectangle(vaultLeft + column * (slotSize + gap), vaultTop + row * (slotSize + gap), slotSize, slotSize);
+            _vaultSlotRects.Add(rect);
             Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
-            bool promised = index < GameProfile.Profile.Storage.Count
-                && GameProfile.Profile.StartingLoadout.Values.Contains(GameProfile.Profile.Storage[index]);
-            Primitives2D.RectOutline(spriteBatch, rect, promised ? UiTheme.Cream : UiTheme.Border, promised ? 3 : 2);
+            Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Border, 2);
             if (index >= GameProfile.Profile.Storage.Count) continue;
             var drop = Items.Deserialize(GameProfile.Profile.Storage[index]);
             if (drop is null) continue;
             ItemCards.DrawItemCard(spriteBatch, rect, drop, rect.Contains(mouse));
-            _targets[$"stored:{index}"] = rect;
-            if (rect.Contains(mouse))
-                _tooltip = promised
-                    ? $"{drop.Rarity} {drop.Name}  //  Staged for the next run."
-                    : $"{drop.Rarity} {drop.Name}  //  Click to prepare for the next run.";
+            if (rect.Contains(mouse)) _tooltip = $"{drop.Rarity} {drop.Name}  //  Drag to your inventory to carry it into a run.";
         }
+        int vaultRows = (MetaProgression.StorageCapacity + vaultColumns - 1) / vaultColumns;
+        UiTheme.DrawText(spriteBatch, $"{GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", 9, UiTheme.Muted,
+            new Vector2(vaultLeft, vaultTop + vaultRows * (slotSize + gap) + 4));
 
-        UiTheme.DrawText(spriteBatch, "NEXT RUN LOADOUT", 11, UiTheme.Cream, new Vector2(panel.X + 26, panel.Y + 132));
-        for (int index = 0; index < NextRunSlots.Length; index++)
-        {
-            var (label, slot) = NextRunSlots[index];
-            var rect = new Rectangle(panel.X + 26 + index * (slotSize + gap), panel.Y + 152, slotSize, slotSize);
-            Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
-            var stored = GameProfile.Profile.StartingLoadout.GetValueOrDefault(slot);
-            var staged = stored is null ? null : Items.Deserialize(stored);
-            Primitives2D.RectOutline(spriteBatch, rect, staged is not null ? UiTheme.Cream : UiTheme.Border, staged is not null ? 3 : 2);
-            UiTheme.DrawText(spriteBatch, label, 7, UiTheme.Muted, new Vector2(rect.Center.X, rect.Bottom + 3), "midtop");
-            if (staged is null) continue;
-            ItemCards.DrawItemCard(spriteBatch, rect, staged, rect.Contains(mouse));
-            _targets[$"loadout:{slot}"] = rect;
-            if (rect.Contains(mouse)) _tooltip = $"{staged.Rarity} {staged.Name}  //  Click to remove from the next run.";
-        }
-
-        int y = panel.Y + 204;
+        int y = vaultTop + vaultRows * (slotSize + gap) + 34;
+        UiTheme.DrawText(spriteBatch, "RUN HISTORY", 11, UiTheme.Muted, new Vector2(panel.X + 26, y));
+        y += 20;
         if (GameProfile.Profile.ExtractedRuns.Count == 0)
         {
-            UiTheme.DrawText(spriteBatch, "No extracted runs yet", 22, UiTheme.Muted, new Vector2(panel.Center.X, panel.Center.Y), "center");
-            UiTheme.DrawText(spriteBatch, "Reach a path ending or extract after the midpoint boss.", 10, UiTheme.Cream,
-                new Vector2(panel.Center.X, panel.Center.Y + 34), "center");
+            UiTheme.DrawText(spriteBatch, "No runs logged yet -- reach a path ending or extract after the midpoint boss.",
+                10, UiTheme.Cream, new Vector2(panel.X + 26, y));
             return;
         }
-        int columnGap = 14, runWidth = (panel.Width - 52 - columnGap) / 2;
-        int runHeight = Math.Max(64, (panel.Bottom - y - 18) / 5 - 6);
-        for (int index = 0; index < Math.Min(10, GameProfile.Profile.ExtractedRuns.Count); index++)
+        int runWidth = panel.Width - 52;
+        int shown = Math.Min(6, GameProfile.Profile.ExtractedRuns.Count);
+        int runHeight = Math.Max(26, (panel.Bottom - y - 18) / shown - 6);
+        for (int index = 0; index < shown; index++)
         {
             var run = GameProfile.Profile.ExtractedRuns[index];
-            int column = index / 5, rowIndex = index % 5;
-            var rect = new Rectangle(panel.X + 26 + column * (runWidth + columnGap), y + rowIndex * (runHeight + 6), runWidth, runHeight);
+            var rect = new Rectangle(panel.X + 26, y + index * (runHeight + 6), runWidth, runHeight);
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, UiTheme.Green);
             UiTheme.DrawText(spriteBatch, $"{index + 1:00}  {run.Path.ToUpperInvariant()}  //  {run.Outcome}", 9, UiTheme.Text,
-                new Vector2(rect.X + 9, rect.Y + 7));
+                new Vector2(rect.X + 9, rect.Center.Y), "midleft");
             UiTheme.DrawText(spriteBatch, $"LV {run.Level:00}  •  {run.Kills} KILLS  •  {TimeLabel(run.Seconds)}", 8, UiTheme.Muted,
-                new Vector2(rect.X + 9, rect.Y + 25));
-            for (int itemIndex = 0; itemIndex < run.Items.Count; itemIndex++)
-            {
-                var item = Items.Deserialize(run.Items[itemIndex]);
-                if (item is null) continue;
-                var itemRect = new Rectangle(rect.Right - 24 - itemIndex * 27, rect.Bottom - 28, 23, 23);
-                ItemCards.DrawItemCard(spriteBatch, itemRect, item, itemRect.Contains(mouse));
-                _targets[$"runitem:{run.Id}:{itemIndex}"] = itemRect;
-                if (itemRect.Contains(mouse)) _tooltip = $"SALVAGE {item.Rarity} {item.Name}  //  Click to move this item into permanent storage.";
-            }
+                new Vector2(rect.Right - 9, rect.Center.Y), "midright");
         }
     }
 

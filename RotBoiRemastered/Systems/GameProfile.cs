@@ -45,8 +45,22 @@ public sealed class GameProfileData
     public Dictionary<string, int> SkillLevels { get; set; } = new();
     public Dictionary<string, long> QuestProgress { get; set; } = new();
     public List<string> CompletedQuests { get; set; } = new();
+    /// <summary>The Vault -- safe, permanent storage. Capacity-limited (see MetaProgression.StorageCapacity).</summary>
     public List<StoredItemData> Storage { get; set; } = new();
-    public Dictionary<string, StoredItemData> StartingLoadout { get; set; } = new();
+    /// <summary>
+    /// What's currently carried into runs, mirroring RunState.Equipment (slot key -> item,
+    /// absence = empty). Synced from the live run whenever it ends without dying
+    /// (MetaProgression.SyncCarriedItems), cleared on death (ClearCarriedItems), and loaded
+    /// back into a fresh RunState by GameSession.LoadCarriedItems.
+    /// </summary>
+    public Dictionary<string, StoredItemData> CarriedEquipment { get; set; } = new();
+    /// <summary>
+    /// Mirrors RunState.Inventory (8 slots, nullable) the same way CarriedEquipment mirrors
+    /// Equipment. Pre-padded to 8 nulls here (matching RunState.Inventory's own Reset())
+    /// rather than relying solely on GameProfile.Normalize() to pad it, so a freshly
+    /// constructed GameProfileData is already index-safe without going through LoadProfile.
+    /// </summary>
+    public List<StoredItemData?> CarriedInventory { get; set; } = Enumerable.Repeat<StoredItemData?>(null, 8).ToList();
     public List<ExtractedRunData> ExtractedRuns { get; set; } = new();
     public List<string> DiscoveredItems { get; set; } = new();
     public Dictionary<string, int> PathMastery { get; set; } = new();
@@ -63,7 +77,6 @@ public sealed class ExtractedRunData
     public int Level { get; set; }
     public int Kills { get; set; }
     public double Seconds { get; set; }
-    public List<StoredItemData> Items { get; set; } = new();
 }
 
 /// <summary>
@@ -152,12 +165,21 @@ public static class GameProfile
         profile.QuestProgress ??= new();
         profile.CompletedQuests ??= new();
         profile.Storage ??= new();
-        profile.StartingLoadout ??= new();
+        profile.CarriedEquipment ??= new();
+        profile.CarriedInventory ??= new();
+        // GameSession.LoadCarriedItems indexes this by position up to InventorySlotCount,
+        // same as RunState.Inventory itself -- pad/truncate so a missing/short/corrupt
+        // save (or the very first launch, where it's just an empty list) can't index out
+        // of range.
+        if (profile.CarriedInventory.Count < InformationSheet.InventorySlotCount)
+            profile.CarriedInventory.AddRange(Enumerable.Repeat<StoredItemData?>(null,
+                InformationSheet.InventorySlotCount - profile.CarriedInventory.Count));
+        else if (profile.CarriedInventory.Count > InformationSheet.InventorySlotCount)
+            profile.CarriedInventory.RemoveRange(InformationSheet.InventorySlotCount,
+                profile.CarriedInventory.Count - InformationSheet.InventorySlotCount);
         profile.ExtractedRuns ??= new();
         profile.DiscoveredItems ??= new();
         profile.PathMastery ??= new();
-        foreach (var run in profile.ExtractedRuns)
-            run.Items ??= new();
     }
 
     public static bool SaveProfile(string? path = null)

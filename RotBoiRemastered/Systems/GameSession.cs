@@ -79,6 +79,7 @@ public sealed class GameSession
         LevelingHandler = new LevelingHandler(screenWidth, screenHeight, rng);
         InformationSheet = new InformationSheet(screenWidth, screenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
+        LoadCarriedItems();
     }
 
     /// <summary>Ported from character.py's resetAllStats() (the parts not already covered by RunState.Reset()).</summary>
@@ -94,6 +95,7 @@ public sealed class GameSession
         InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
         _activeBossKey = null;
+        LoadCarriedItems();
     }
 
     public void Resize(int screenWidth, int screenHeight)
@@ -113,9 +115,24 @@ public sealed class GameSession
     /// </summary>
     public void ToggleWeaponStats() => InformationSheet.ToggleWeaponStats();
 
-    public void LoadStartingEquipment() => State.SetEquipment(MetaProgression.BeginRun());
-
-    public void LoadPreviewEquipment() => State.SetEquipment(MetaProgression.PreviewLoadout());
+    /// <summary>
+    /// Loads whatever's currently carried (GameProfile.Profile.CarriedEquipment/
+    /// CarriedInventory) into this session -- called by the constructor and by
+    /// ResetAll, so every run/Soul-visit start picks up your persistent loadout
+    /// with no separate call needed at each call site. See
+    /// MetaProgression.SyncCarriedItems/ClearCarriedItems for the write side.
+    /// </summary>
+    public void LoadCarriedItems()
+    {
+        var equipment = new Dictionary<string, ItemDrop?>();
+        foreach (var (slot, stored) in GameProfile.Profile.CarriedEquipment)
+            equipment[slot] = Items.Deserialize(stored);
+        State.SetEquipment(equipment);
+        for (int index = 0; index < State.Inventory.Count; index++)
+            State.Inventory[index] = index < GameProfile.Profile.CarriedInventory.Count
+                ? Items.Deserialize(GameProfile.Profile.CarriedInventory[index])
+                : null;
+    }
 
     /// <summary>
     /// Ported from character.py's drawBackground(). Bakes/draws the arena's
@@ -732,6 +749,7 @@ public sealed class GameSession
                     State.GameCompleted = true;
                     State.RunOutcome = "RUN COMPLETE";
                     MetaProgression.RecordExtraction(State, GamePaths.Selected().Key, completed: true);
+                    MetaProgression.SyncCarriedItems(State);
                     GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed: true);
                 }
                 State.ActiveBoss = null;
@@ -1247,6 +1265,14 @@ public sealed class GameSession
     /// <summary>Convenience wrapper: call once per frame, after <see cref="DrawInformationSheet"/>.</summary>
     public void HandleInformationSheetDrag(Point mousePosition, bool mouseDown, bool mousePressed) =>
         InformationSheet.HandleDrag(State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed);
+
+    /// <summary>The Soul's counterpart to DrawInformationSheet/HandleInformationSheetDrag -- see InformationSheet.DrawCarriedLoadout's doc comment.</summary>
+    public void DrawCarriedLoadout(SpriteBatch spriteBatch, Point mousePosition) =>
+        InformationSheet.DrawCarriedLoadout(spriteBatch, State, mousePosition);
+
+    /// <summary>Call once per frame, after <see cref="DrawCarriedLoadout"/>, while in the Soul.</summary>
+    public void HandleCarriedLoadoutDrag(Point mousePosition, bool mouseDown, bool mousePressed, IReadOnlyList<Rectangle> vaultSlotRects) =>
+        InformationSheet.HandleDrag(State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed, vaultSlotRects, allowWorldDrop: false);
 
     // ----- Health -----
 

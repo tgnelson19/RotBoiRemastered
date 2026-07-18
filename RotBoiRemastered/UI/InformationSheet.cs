@@ -92,6 +92,13 @@ public sealed class InformationSheet
     private sealed record EquipmentDragSource(string Key) : DragSource;
     private sealed record CrateDragSource(LootCrate Crate, int Index) : DragSource;
     private sealed record InventoryDragSource(int Index) : DragSource;
+    /// <summary>
+    /// The Soul's Vault (GameProfile.Profile.Storage) -- only reachable when the caller
+    /// passes vaultSlotRects into HandleDrag (the Soul does; normal gameplay doesn't, so
+    /// this stays entirely inert during a real run). Lets the Vault share the exact same
+    /// drag mechanic/feel as equipment/stash/crate instead of a separate implementation.
+    /// </summary>
+    private sealed record VaultDragSource(int Index) : DragSource;
 
     private float _uiScale;
     private int _screenWidth;
@@ -108,6 +115,8 @@ public sealed class InformationSheet
     private Dictionary<string, Rectangle> _equipmentSlotRects = new();
     private List<Rectangle> _lootPanelSlotRects = new();
     private List<Rectangle> _inventorySlotRects = new();
+    private IReadOnlyList<Rectangle> _vaultSlotRects = Array.Empty<Rectangle>();
+    private bool _allowWorldDrop = true;
     private bool _weaponStatsOpen;
 
     public int ArenaWidth => _posX;
@@ -795,11 +804,52 @@ public sealed class InformationSheet
     }
 
     /// <summary>
-    /// Press-capture / release-resolution half of the drag gesture. Call
-    /// once per frame, after <see cref="DrawSheet"/>.
+    /// A lighter sidebar for the Soul: just the equipment hub and stash, no
+    /// health/status/loot/objective/recent-picks -- none of that means
+    /// anything outside a run. Same visual language and the same
+    /// DrawInventory/DrawStash this class already uses in DrawSheet, so the
+    /// Soul's "your inventory" panel looks and behaves identically to the
+    /// in-run sidebar. Call once per frame, before HandleDrag, same contract
+    /// as DrawSheet.
     /// </summary>
-    public void HandleDrag(RunState state, Vector2 playerWorldPosition, Point mousePosition, bool mouseDown, bool mousePressed)
+    public void DrawCarriedLoadout(SpriteBatch spriteBatch, RunState state, Point mousePosition)
     {
+        _tooltip = null;
+        _tooltipItem = null;
+        Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
+
+        int y = _padding;
+        y = DrawInventory(spriteBatch, state, mousePosition, y);
+        DrawStash(spriteBatch, state, mousePosition, y);
+
+        if (_draggingItem is not null)
+        {
+            int slotSize = Px(38);
+            var iconRect = new Rectangle(mousePosition.X - slotSize / 2, mousePosition.Y - slotSize / 2, slotSize, slotSize);
+            ItemCards.DrawItemCard(spriteBatch, iconRect, _draggingItem, hovered: true);
+        }
+        else
+        {
+            DrawTooltip(spriteBatch, mousePosition);
+        }
+    }
+
+    /// <summary>
+    /// Press-capture / release-resolution half of the drag gesture. Call once per frame,
+    /// after <see cref="DrawSheet"/> (or <see cref="DrawCarriedLoadout"/> in the Soul).
+    /// <paramref name="vaultSlotRects"/> is only ever non-null while in the Soul (see
+    /// SoulHub) -- a normal run leaves it null/empty, so the Vault-drag branches below
+    /// (and in ResolveDrop) never trigger during gameplay. <paramref name="allowWorldDrop"/>
+    /// is false only from the Soul too: the Soul never draws or lets you interact with
+    /// loot crates, so ejecting an invalid drop into one there would make the item
+    /// disappear for good -- cancel instead (see ResolveDrop's invalid-drop fallback).
+    /// </summary>
+    public void HandleDrag(RunState state, Vector2 playerWorldPosition, Point mousePosition, bool mouseDown, bool mousePressed,
+        IReadOnlyList<Rectangle>? vaultSlotRects = null, bool allowWorldDrop = true)
+    {
+        _vaultSlotRects = vaultSlotRects ?? Array.Empty<Rectangle>();
+        _allowWorldDrop = allowWorldDrop;
         if (_draggingItem is null)
         {
             if (!mousePressed)
@@ -831,6 +881,16 @@ public sealed class InformationSheet
                 {
                     _draggingItem = state.Inventory[index];
                     _draggingSource = new InventoryDragSource(index);
+                    DragInProgress = true;
+                    return;
+                }
+            }
+            for (int index = 0; index < _vaultSlotRects.Count; index++)
+            {
+                if (_vaultSlotRects[index].Contains(mousePosition) && index < GameProfile.Profile.Storage.Count)
+                {
+                    _draggingItem = Items.Deserialize(GameProfile.Profile.Storage[index]);
+                    _draggingSource = new VaultDragSource(index);
                     DragInProgress = true;
                     return;
                 }
@@ -886,6 +946,13 @@ public sealed class InformationSheet
                 (state.Inventory[equipFromStash.Index], state.Equipment[targetKey]) =
                     (state.Equipment[targetKey], state.Inventory[equipFromStash.Index]);
             }
+            else if (source is VaultDragSource equipFromVault)
+            {
+                var displaced = state.Equipment[targetKey];
+                state.Equipment[targetKey] = item;
+                PlaceInVault(equipFromVault.Index, displaced);
+                MetaProgression.SyncCarriedItems(state);
+            }
             return;
         }
 
@@ -921,8 +988,64 @@ public sealed class InformationSheet
                 GameProfile.DiscoverItem(item.Name);
                 ReturnDisplacedToCrate(state, crateSource, displaced);
             }
+            else if (source is VaultDragSource stashFromVault)
+            {
+                var displaced = state.Inventory[targetInventoryIndex];
+                state.Inventory[targetInventoryIndex] = item;
+                PlaceInVault(stashFromVault.Index, displaced);
+                MetaProgression.SyncCarriedItems(state);
+            }
             return;
         }
+
+        int targetVaultIndex = -1;
+        for (int index = 0; index < _vaultSlotRects.Count; index++)
+        {
+            if (_vaultSlotRects[index].Contains(mousePosition))
+            {
+                targetVaultIndex = index;
+                break;
+            }
+        }
+
+        if (targetVaultIndex >= 0)
+        {
+            var vault = GameProfile.Profile.Storage;
+            if (source is VaultDragSource selfVault)
+            {
+                if (selfVault.Index == targetVaultIndex)
+                    return; // released back over its own slot -- treat as a cancelled drag
+            }
+            if (targetVaultIndex >= vault.Count && vault.Count >= MetaProgression.StorageCapacity)
+                return; // vault full and this slot is past the current items -- cancel
+
+            ItemDrop? displaced = null;
+            if (targetVaultIndex < vault.Count)
+            {
+                displaced = Items.Deserialize(vault[targetVaultIndex]);
+                vault[targetVaultIndex] = Items.Serialize(item);
+            }
+            else
+            {
+                vault.Add(Items.Serialize(item));
+            }
+            if (source is EquipmentDragSource vaultFromEquipment) state.Equipment[vaultFromEquipment.Key] = displaced;
+            else if (source is InventoryDragSource vaultFromStash) state.Inventory[vaultFromStash.Index] = displaced;
+            else if (source is VaultDragSource vaultFromVault) PlaceInVault(vaultFromVault.Index, displaced);
+            else if (source is CrateDragSource vaultFromCrate)
+            {
+                // Not reachable today (no loot crates exist in the Soul, the only place
+                // vaultSlotRects is ever populated), but handled properly rather than left
+                // as a silent duplication bug if that ever changes.
+                GameProfile.DiscoverItem(item.Name);
+                ReturnDisplacedToCrate(state, vaultFromCrate, displaced);
+            }
+            MetaProgression.SyncCarriedItems(state);
+            return;
+        }
+
+        if (!_allowWorldDrop)
+            return; // the Soul has nowhere to eject an invalid drop to -- cancel, item stays put.
 
         if (source is EquipmentDragSource unequip)
         {
@@ -934,7 +1057,17 @@ public sealed class InformationSheet
             state.Inventory[unstash.Index] = null;
             DropIntoWorld(state, playerWorldPosition, item);
         }
-        // source is CrateDragSource and the drop target was invalid: no-op, item stays put.
+        // source is CrateDragSource or VaultDragSource and the drop target was invalid: no-op, item stays put.
+    }
+
+    /// <summary>Swaps the vault slot a drag came from back to `displaced`, or removes it if nothing displaced the dragged item.</summary>
+    private static void PlaceInVault(int index, ItemDrop? displaced)
+    {
+        var vault = GameProfile.Profile.Storage;
+        if (displaced is not null)
+            vault[index] = Items.Serialize(displaced);
+        else
+            vault.RemoveAt(index);
     }
 
     private static void ReturnDisplacedToCrate(RunState state, CrateDragSource crateSource, ItemDrop? displaced)

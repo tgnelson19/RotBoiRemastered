@@ -67,52 +67,28 @@ public class MetaProgressionTests : IDisposable
     }
 
     [Fact]
-    public void RecordExtraction_IncludesStashedItemsAlongsideEquipment()
+    public void SyncCarriedItems_RoundTripsEquipmentAndInventoryIntoProfile()
     {
         var state = new RunState();
-        state.Inventory[0] = Items.Deserialize(new StoredItemData("Iron Dagger", "Common"));
+        state.Equipment["weapon"] = Items.Deserialize(new StoredItemData("Iron Dagger", "Epic"));
+        state.Inventory[0] = Items.Deserialize(new StoredItemData("Rusty Sword", "Common"));
 
-        MetaProgression.RecordExtraction(state, "sound", completed: false);
+        MetaProgression.SyncCarriedItems(state);
 
-        Assert.Contains(GameProfile.Profile.ExtractedRuns[0].Items, item => item.Name == "Iron Dagger");
+        Assert.Equal("Iron Dagger", GameProfile.Profile.CarriedEquipment["weapon"].Name);
+        Assert.Equal("Rusty Sword", GameProfile.Profile.CarriedInventory[0]!.Name);
+        Assert.All(GameProfile.Profile.CarriedInventory.Skip(1), Assert.Null);
     }
 
     [Fact]
-    public void ClearStartingLoadoutSlot_RemovesAssignedSlot()
+    public void ClearCarriedItems_EmptiesEquipmentAndInventory()
     {
-        GameProfile.Profile.StartingLoadout["weapon"] = new StoredItemData("Iron Dagger", "Epic");
+        GameProfile.Profile.CarriedEquipment["weapon"] = new StoredItemData("Iron Dagger", "Epic");
+        GameProfile.Profile.CarriedInventory[0] = new StoredItemData("Rusty Sword", "Common");
 
-        MetaProgression.ClearStartingLoadoutSlot("weapon");
+        MetaProgression.ClearCarriedItems();
 
-        Assert.False(GameProfile.Profile.StartingLoadout.ContainsKey("weapon"));
-    }
-
-    [Fact]
-    public void TransferFromExtractedRun_RespectsTenSlotCapacity()
-    {
-        GameProfile.Profile.Storage.AddRange(Enumerable.Range(0, MetaProgression.StorageCapacity)
-            .Select(_ => new StoredItemData("Iron Dagger", "Common")));
-        GameProfile.Profile.ExtractedRuns.Add(new ExtractedRunData
-        {
-            Items = new List<StoredItemData> { new("Rusty Sword", "Rare") },
-        });
-
-        var run = GameProfile.Profile.ExtractedRuns[0];
-        Assert.False(MetaProgression.TransferRunItemToStorage(run.Id, 0));
-        Assert.Single(run.Items);
-    }
-
-    [Fact]
-    public void BeginRun_WithdrawsSelectedStoredCopy()
-    {
-        var stored = new StoredItemData("Iron Dagger", "Epic");
-        GameProfile.Profile.Storage.Add(stored);
-        GameProfile.Profile.StartingLoadout["weapon"] = stored;
-
-        var equipment = MetaProgression.BeginRun();
-
-        Assert.Equal("Iron Dagger", equipment["weapon"]!.Name);
-        Assert.Empty(GameProfile.Profile.Storage);
-        Assert.Empty(GameProfile.Profile.StartingLoadout);
+        Assert.Empty(GameProfile.Profile.CarriedEquipment);
+        Assert.All(GameProfile.Profile.CarriedInventory, Assert.Null);
     }
 }
