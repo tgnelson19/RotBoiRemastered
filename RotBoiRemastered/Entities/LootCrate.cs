@@ -38,12 +38,22 @@ public sealed class LootCrate
         return UiTheme.RarityColors.TryGetValue(best.Rarity, out var color) ? color : UiTheme.Border;
     }
 
+    /// <summary>
+    /// This draws in its own unscaled SpriteBatch pass (see
+    /// GameSession.DrawLootCrates's scissor-clipped Begin/End, which has no
+    /// zoom transform matrix like the main entity batch does) -- so unlike
+    /// bullets/enemies/the player, which get zoom for free from that matrix,
+    /// position and size both need Camera.ApplyZoom/Zoom applied by hand here,
+    /// or crates stay a fixed screen position/size while everything around
+    /// them zooms, reading as if they're floating independently of the world.
+    /// </summary>
     public void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        Vector2 screenPosition = camera.ApplyZoom(camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake));
+        float size = Size * camera.Zoom;
+        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)size, (int)size);
         Color accent = Tint();
-        int border = Math.Max(2, (int)(Size * 0.08f));
+        int border = Math.Max(2, (int)(size * 0.08f));
 
         var shadowRect = new Rectangle(rect.X + 4, (int)(rect.Bottom - rect.Height * 0.18f), rect.Width, (int)(rect.Height * 0.18f));
         Primitives2D.FillEllipse(spriteBatch, shadowRect, UiTheme.Shadow);
@@ -51,7 +61,7 @@ public sealed class LootCrate
         Primitives2D.RectOutline(spriteBatch, rect, accent, border);
 
         float lidY = rect.Y + rect.Height * 0.35f;
-        Primitives2D.Line(spriteBatch, new Vector2(rect.X, lidY), new Vector2(rect.Right, lidY), accent, Math.Max(2, (int)(Size * 0.06f)));
-        Primitives2D.Line(spriteBatch, new Vector2(rect.Center.X, rect.Y), new Vector2(rect.Center.X, rect.Bottom), accent, Math.Max(1, (int)(Size * 0.04f)));
+        Primitives2D.Line(spriteBatch, new Vector2(rect.X, lidY), new Vector2(rect.Right, lidY), accent, Math.Max(2, (int)(size * 0.06f)));
+        Primitives2D.Line(spriteBatch, new Vector2(rect.Center.X, rect.Y), new Vector2(rect.Center.X, rect.Bottom), accent, Math.Max(1, (int)(size * 0.04f)));
     }
 }

@@ -67,6 +67,27 @@ public class MetaProgressionTests : IDisposable
     }
 
     [Fact]
+    public void RecordExtraction_IncludesStashedItemsAlongsideEquipment()
+    {
+        var state = new RunState();
+        state.Inventory[0] = Items.Deserialize(new StoredItemData("Iron Dagger", "Common"));
+
+        MetaProgression.RecordExtraction(state, "sound", completed: false);
+
+        Assert.Contains(GameProfile.Profile.ExtractedRuns[0].Items, item => item.Name == "Iron Dagger");
+    }
+
+    [Fact]
+    public void ClearStartingLoadoutSlot_RemovesAssignedSlot()
+    {
+        GameProfile.Profile.StartingLoadout["weapon"] = new StoredItemData("Iron Dagger", "Epic");
+
+        MetaProgression.ClearStartingLoadoutSlot("weapon");
+
+        Assert.False(GameProfile.Profile.StartingLoadout.ContainsKey("weapon"));
+    }
+
+    [Fact]
     public void TransferFromExtractedRun_RespectsTenSlotCapacity()
     {
         GameProfile.Profile.Storage.AddRange(Enumerable.Range(0, MetaProgression.StorageCapacity)

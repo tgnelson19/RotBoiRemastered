@@ -954,7 +954,8 @@ public sealed class GameSession
         foreach (var crate in State.LootCrateList)
         {
             var screen = Camera.ApplyZoom(Camera.WorldToScreen(new Vector2(crate.WorldX, crate.WorldY), PlayerWorldCenter, ScreenShake));
-            var rect = new Rectangle((int)screen.X, (int)screen.Y, (int)crate.Size, (int)crate.Size);
+            int zoomedSize = (int)(crate.Size * Camera.Zoom);
+            var rect = new Rectangle((int)screen.X, (int)screen.Y, zoomedSize, zoomedSize);
             if (rect.Intersects(new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight)))
                 crate.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
         }
@@ -1088,17 +1089,23 @@ public sealed class GameSession
         UiTheme.DrawText(spriteBatch, "BOUNTY", 9, UiTheme.Red, labelPosition, "center");
     }
 
-    /// <summary>Draws the combat-only overlays layered above the arena and below the sidebar.</summary>
+    /// <summary>
+    /// Draws the combat-only overlays layered above the arena and below the
+    /// sidebar. The aim reticle is drawn separately (see
+    /// <see cref="DrawAimReticle"/>) and later in the frame -- it needs to sit
+    /// above the sidebar's weapon-stats popup (Tab), which otherwise painted
+    /// over the reticle since that popup is centered within the arena, right
+    /// where the reticle draws too.
+    /// </summary>
     public void DrawCombatOverlays(SpriteBatch spriteBatch, Point mousePosition)
     {
-        DrawAimReticle(spriteBatch, mousePosition);
         DrawBossHealthBar(spriteBatch);
         DrawLowHealthWarning(spriteBatch);
         DrawRunCompleteBanner(spriteBatch);
         DrawTutorialHint(spriteBatch);
     }
 
-    private void DrawAimReticle(SpriteBatch spriteBatch, Point mousePosition)
+    public void DrawAimReticle(SpriteBatch spriteBatch, Point mousePosition)
     {
         if (mousePosition.X < 0 || mousePosition.X >= InformationSheet.ArenaWidth
             || mousePosition.Y < 0 || mousePosition.Y >= ScreenHeight || InformationSheet.DragInProgress)

@@ -2,10 +2,27 @@ using RotBoiRemastered.Systems;
 
 namespace RotBoiRemastered.Tests.Systems;
 
-/// <summary>Ported from characterStats.py's default/reset values and combarinoPlayerStats' stat-combination math.</summary>
+/// <summary>
+/// Ported from characterStats.py's default/reset values and
+/// combarinoPlayerStats' stat-combination math.
+///
+/// RunState.Reset() calls MetaProgression.ApplySkills(this), which reads
+/// GameProfile.Profile.SkillLevels -- and GameProfile.Profile is process-wide
+/// static state seeded from whatever the developer's real %APPDATA% save
+/// happens to contain. Every test here asserts exact stat values assuming no
+/// purchased skills are in play, so this needs the same reset-to-defaults
+/// isolation as MetaProgressionTests/UiThemeTests, or these go flaky/fail
+/// outright the moment a live save has actually purchased a skill.
+/// </summary>
 [Collection("GameProfileState")]
-public class RunStateTests
+public class RunStateTests : IDisposable
 {
+    private readonly GameProfileData _originalProfile = GameProfile.Profile;
+
+    public RunStateTests() => GameProfile.Profile = new GameProfileData();
+
+    public void Dispose() => GameProfile.Profile = _originalProfile;
+
     [Fact]
     public void Reset_EstablishesExpectedDefaults()
     {
@@ -18,6 +35,8 @@ public class RunStateTests
         Assert.Empty(state.BulletHolster);
         Assert.Equal(5, state.Equipment.Count);
         Assert.All(state.Equipment.Values, Assert.Null);
+        Assert.Equal(8, state.Inventory.Count);
+        Assert.All(state.Inventory, Assert.Null);
     }
 
     [Fact]

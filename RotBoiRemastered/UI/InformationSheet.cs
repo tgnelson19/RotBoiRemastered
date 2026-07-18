@@ -86,9 +86,12 @@ public sealed class InformationSheet
 
     public const int CrateSlotCount = 4;
 
+    public const int InventorySlotCount = 8;
+
     private abstract record DragSource;
     private sealed record EquipmentDragSource(string Key) : DragSource;
     private sealed record CrateDragSource(LootCrate Crate, int Index) : DragSource;
+    private sealed record InventoryDragSource(int Index) : DragSource;
 
     private float _uiScale;
     private int _screenWidth;
@@ -104,6 +107,7 @@ public sealed class InformationSheet
     private DragSource? _draggingSource;
     private Dictionary<string, Rectangle> _equipmentSlotRects = new();
     private List<Rectangle> _lootPanelSlotRects = new();
+    private List<Rectangle> _inventorySlotRects = new();
     private bool _weaponStatsOpen;
 
     public int ArenaWidth => _posX;
@@ -402,6 +406,51 @@ public sealed class InformationSheet
                 Primitives2D.RectOutline(spriteBatch, slotRect, UiTheme.Border, Px(2));
             }
             DrawSheetText(spriteBatch, label, Px(8), UiTheme.Muted, new Vector2(center.X, slotRect.Bottom + Px(3)), "midtop");
+        }
+        return rect.Bottom + _padding;
+    }
+
+    /// <summary>
+    /// Eight general-purpose hoarding slots, directly below the equipment
+    /// hub. Unlike equipment, a stash slot accepts any item regardless of
+    /// SlotType (see ResolveDrop) and never contributes to stats (see
+    /// RunState.Inventory's doc comment) -- it's purely for carrying extra
+    /// loot toward extraction without committing to equip it.
+    /// </summary>
+    private int DrawStash(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
+    {
+        const int columns = 4;
+        int rows = (InventorySlotCount + columns - 1) / columns;
+        int headerHeight = Px(24);
+        int slotSize = Px(38);
+        int gap = Px(8);
+        int height = headerHeight + rows * slotSize + (rows - 1) * gap + Px(12);
+        var rect = Panel(spriteBatch, y, height, UiTheme.Border);
+        DrawSheetText(spriteBatch, "STASH", Px(10), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+
+        int totalWidth = columns * slotSize + (columns - 1) * gap;
+        float startX = rect.Center.X - totalWidth / 2f;
+        int startY = rect.Y + headerHeight;
+        _inventorySlotRects = new List<Rectangle>();
+        for (int index = 0; index < InventorySlotCount; index++)
+        {
+            int column = index % columns, row = index / columns;
+            var slotRect = new Rectangle((int)(startX + column * (slotSize + gap)), startY + row * (slotSize + gap), slotSize, slotSize);
+            _inventorySlotRects.Add(slotRect);
+            var item = state.Inventory[index];
+            bool draggingThis = _draggingSource is InventoryDragSource inv && inv.Index == index;
+            if (item is not null && !draggingThis)
+            {
+                bool hovered = slotRect.Contains(mousePosition);
+                ItemCards.DrawItemCard(spriteBatch, slotRect, item, hovered);
+                if (hovered)
+                    _tooltipItem = item;
+            }
+            else
+            {
+                Primitives2D.FillRect(spriteBatch, slotRect, UiTheme.Ink);
+                Primitives2D.RectOutline(spriteBatch, slotRect, UiTheme.Border, Px(2));
+            }
         }
         return rect.Bottom + _padding;
     }
@@ -724,6 +773,7 @@ public sealed class InformationSheet
         int y = DrawHeader(spriteBatch, state);
         y = DrawStatus(spriteBatch, state, y);
         y = DrawInventory(spriteBatch, state, mousePosition, y);
+        y = DrawStash(spriteBatch, state, mousePosition, y);
         if (state.NearbyCrate is not null && y + Px(70) < _totalHeight - Px(82))
             y = DrawLootPanel(spriteBatch, state, mousePosition, y);
         if (y + Px(90) < _totalHeight - Px(82))
@@ -775,6 +825,16 @@ public sealed class InformationSheet
                     return;
                 }
             }
+            for (int index = 0; index < _inventorySlotRects.Count; index++)
+            {
+                if (_inventorySlotRects[index].Contains(mousePosition) && state.Inventory[index] is not null)
+                {
+                    _draggingItem = state.Inventory[index];
+                    _draggingSource = new InventoryDragSource(index);
+                    DragInProgress = true;
+                    return;
+                }
+            }
             return;
         }
 
@@ -818,20 +878,48 @@ public sealed class InformationSheet
                 var displaced = state.Equipment[targetKey];
                 state.Equipment[targetKey] = item;
                 GameProfile.DiscoverItem(item.Name);
-                if (displaced is not null)
-                {
-                    crateSource.Crate.Items[crateSource.Index] = displaced;
-                }
-                else
-                {
-                    crateSource.Crate.Items.RemoveAt(crateSource.Index);
-                    if (crateSource.Crate.Items.Count == 0)
-                    {
-                        state.LootCrateList.Remove(crateSource.Crate);
-                        if (ReferenceEquals(state.NearbyCrate, crateSource.Crate))
-                            state.NearbyCrate = null;
-                    }
-                }
+                ReturnDisplacedToCrate(state, crateSource, displaced);
+            }
+            else if (source is InventoryDragSource equipFromStash)
+            {
+                // Swap: works whether the equipment slot is occupied or empty.
+                (state.Inventory[equipFromStash.Index], state.Equipment[targetKey]) =
+                    (state.Equipment[targetKey], state.Inventory[equipFromStash.Index]);
+            }
+            return;
+        }
+
+        int targetInventoryIndex = -1;
+        for (int index = 0; index < _inventorySlotRects.Count; index++)
+        {
+            if (_inventorySlotRects[index].Contains(mousePosition))
+            {
+                targetInventoryIndex = index;
+                break;
+            }
+        }
+
+        if (targetInventoryIndex >= 0)
+        {
+            // Unlike equipment slots, a stash slot has no SlotType restriction -- it can hold anything.
+            if (source is InventoryDragSource stashSource)
+            {
+                if (stashSource.Index == targetInventoryIndex)
+                    return; // released back over its own slot -- treat as a cancelled drag
+                (state.Inventory[stashSource.Index], state.Inventory[targetInventoryIndex]) =
+                    (state.Inventory[targetInventoryIndex], state.Inventory[stashSource.Index]);
+            }
+            else if (source is EquipmentDragSource stashFromEquipment)
+            {
+                (state.Equipment[stashFromEquipment.Key], state.Inventory[targetInventoryIndex]) =
+                    (state.Inventory[targetInventoryIndex], state.Equipment[stashFromEquipment.Key]);
+            }
+            else if (source is CrateDragSource crateSource)
+            {
+                var displaced = state.Inventory[targetInventoryIndex];
+                state.Inventory[targetInventoryIndex] = item;
+                GameProfile.DiscoverItem(item.Name);
+                ReturnDisplacedToCrate(state, crateSource, displaced);
             }
             return;
         }
@@ -839,12 +927,40 @@ public sealed class InformationSheet
         if (source is EquipmentDragSource unequip)
         {
             state.Equipment[unequip.Key] = null;
-            var crate = state.NearbyCrate;
-            if (crate is not null && crate.Items.Count < CrateSlotCount)
-                crate.Items.Add(item);
-            else
-                state.LootCrateList.Add(new LootCrate(playerWorldPosition.X, playerWorldPosition.Y, new[] { item }));
+            DropIntoWorld(state, playerWorldPosition, item);
+        }
+        else if (source is InventoryDragSource unstash)
+        {
+            state.Inventory[unstash.Index] = null;
+            DropIntoWorld(state, playerWorldPosition, item);
         }
         // source is CrateDragSource and the drop target was invalid: no-op, item stays put.
+    }
+
+    private static void ReturnDisplacedToCrate(RunState state, CrateDragSource crateSource, ItemDrop? displaced)
+    {
+        if (displaced is not null)
+        {
+            crateSource.Crate.Items[crateSource.Index] = displaced;
+        }
+        else
+        {
+            crateSource.Crate.Items.RemoveAt(crateSource.Index);
+            if (crateSource.Crate.Items.Count == 0)
+            {
+                state.LootCrateList.Remove(crateSource.Crate);
+                if (ReferenceEquals(state.NearbyCrate, crateSource.Crate))
+                    state.NearbyCrate = null;
+            }
+        }
+    }
+
+    private static void DropIntoWorld(RunState state, Vector2 playerWorldPosition, ItemDrop item)
+    {
+        var crate = state.NearbyCrate;
+        if (crate is not null && crate.Items.Count < CrateSlotCount)
+            crate.Items.Add(item);
+        else
+            state.LootCrateList.Add(new LootCrate(playerWorldPosition.X, playerWorldPosition.Y, new[] { item }));
     }
 }

@@ -116,6 +116,7 @@ public sealed class SoulHub
                 MetaProgression.TransferRunItemToStorage(parts[1], int.Parse(parts[2]));
             }
             else if (key.StartsWith("stored:")) MetaProgression.SelectStorageItem(int.Parse(key[7..]));
+            else if (key.StartsWith("loadout:")) MetaProgression.ClearStartingLoadoutSlot(key[8..]);
             else if (key.StartsWith("cosmetic:"))
             {
                 var parts = key.Split(':');
@@ -203,25 +204,52 @@ public sealed class SoulHub
 
     private static string TimeLabel(double seconds) => $"{(int)seconds / 60:00}:{(int)seconds % 60:00}";
 
+    private static readonly (string Label, string Slot)[] NextRunSlots =
+    {
+        ("WEAPON", "weapon"), ("ARMOR", "armor"), ("RING", "ring"), ("ACC 1", "accessory_1"), ("ACC 2", "accessory_2"),
+    };
+
     private void DrawStorage(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
         UiTheme.DrawText(spriteBatch, "EXTRACTION CHEST", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
-        UiTheme.DrawText(spriteBatch, $"PERMANENT STORAGE  {GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}  //  CLICK STORED ITEMS TO PREPARE NEXT RUN",
+        UiTheme.DrawText(spriteBatch, $"PERMANENT STORAGE  {GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}  //  CLICK A STORED ITEM TO STAGE IT BELOW  //  CLICK A STAGED SLOT TO REMOVE IT",
             9, UiTheme.Gold, new Vector2(panel.X + 26, panel.Y + 53));
         int slotSize = 44, gap = 8;
         for (int index = 0; index < MetaProgression.StorageCapacity; index++)
         {
             var rect = new Rectangle(panel.X + 26 + index * (slotSize + gap), panel.Y + 76, slotSize, slotSize);
             Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
-            Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Border, 2);
+            bool promised = index < GameProfile.Profile.Storage.Count
+                && GameProfile.Profile.StartingLoadout.Values.Contains(GameProfile.Profile.Storage[index]);
+            Primitives2D.RectOutline(spriteBatch, rect, promised ? UiTheme.Cream : UiTheme.Border, promised ? 3 : 2);
             if (index >= GameProfile.Profile.Storage.Count) continue;
             var drop = Items.Deserialize(GameProfile.Profile.Storage[index]);
             if (drop is null) continue;
             ItemCards.DrawItemCard(spriteBatch, rect, drop, rect.Contains(mouse));
             _targets[$"stored:{index}"] = rect;
-            if (rect.Contains(mouse)) _tooltip = $"{drop.Rarity} {drop.Name}  //  Click to prepare for the next run.";
+            if (rect.Contains(mouse))
+                _tooltip = promised
+                    ? $"{drop.Rarity} {drop.Name}  //  Staged for the next run."
+                    : $"{drop.Rarity} {drop.Name}  //  Click to prepare for the next run.";
         }
-        int y = panel.Y + 142;
+
+        UiTheme.DrawText(spriteBatch, "NEXT RUN LOADOUT", 11, UiTheme.Cream, new Vector2(panel.X + 26, panel.Y + 132));
+        for (int index = 0; index < NextRunSlots.Length; index++)
+        {
+            var (label, slot) = NextRunSlots[index];
+            var rect = new Rectangle(panel.X + 26 + index * (slotSize + gap), panel.Y + 152, slotSize, slotSize);
+            Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
+            var stored = GameProfile.Profile.StartingLoadout.GetValueOrDefault(slot);
+            var staged = stored is null ? null : Items.Deserialize(stored);
+            Primitives2D.RectOutline(spriteBatch, rect, staged is not null ? UiTheme.Cream : UiTheme.Border, staged is not null ? 3 : 2);
+            UiTheme.DrawText(spriteBatch, label, 7, UiTheme.Muted, new Vector2(rect.Center.X, rect.Bottom + 3), "midtop");
+            if (staged is null) continue;
+            ItemCards.DrawItemCard(spriteBatch, rect, staged, rect.Contains(mouse));
+            _targets[$"loadout:{slot}"] = rect;
+            if (rect.Contains(mouse)) _tooltip = $"{staged.Rarity} {staged.Name}  //  Click to remove from the next run.";
+        }
+
+        int y = panel.Y + 204;
         if (GameProfile.Profile.ExtractedRuns.Count == 0)
         {
             UiTheme.DrawText(spriteBatch, "No extracted runs yet", 22, UiTheme.Muted, new Vector2(panel.Center.X, panel.Center.Y), "center");
