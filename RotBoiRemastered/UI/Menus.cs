@@ -13,7 +13,7 @@ namespace RotBoiRemastered.UI;
 /// deferred Player.cs/main-loop state machine) is responsible for actually
 /// transitioning GameState and calling resetAllStats() for Restart.
 /// </summary>
-public enum MenuAction { None, Resume, Restart, Extract, ReturnToTitle }
+public enum MenuAction { None, Resume, Restart, Extract, ReturnToTitle, EnterSoul }
 
 /// <summary>
 /// Everything the results screen needs from the run's final state. Ported
@@ -60,12 +60,16 @@ public sealed class Menus
         ("gameplay", "GAMEPLAY"), ("options", "OPTIONS"), ("keybinds", "KEYBINDS"),
     };
 
+    /// <summary>Same contract as GameSession.LootCrateScissorRasterizerState -- clips the scrolled keybinds list to the settings panel.</summary>
+    private static readonly RasterizerState ScissorRasterizerState = new() { ScissorTestEnable = true, CullMode = CullMode.None };
+
     private readonly Dictionary<string, Rectangle> _buttons = new();
     private readonly Dictionary<string, (Rectangle Hit, Rectangle Track, double Min, double Max)> _sliders = new();
     private string _settingsTab = "gameplay";
     private string? _rebindingAction;
     private string? _activeSlider;
     private bool _sliderDirty;
+    private double _keybindScroll;
 
     private static bool GetGameplayToggle(string key) => key switch
     {
@@ -234,11 +238,43 @@ public sealed class Menus
         else
         {
             float rowH = 33 * scale;
+            // One extra row's worth of height for the non-rebindable "MOUSE" note
+            // drawn after the list. The list overflows the settings panel with as
+            // few as ~14 keybinds at default scale, and grows further with TEXT
+            // SIZE/GUI SCALE -- so this is scrolled (mouse wheel) rather than laid
+            // out at a fixed size, with only the rows actually inside the visible
+            // window drawn/hit-tested (skipped rows just don't get a `_buttons`
+            // entry for this frame, so a scrolled-away row can't be clicked).
+            float contentHeight = (Keybinds.Actions.Count + 1) * rowH;
+            float visibleBottom = settings.Bottom - 6 * scale;
+            float visibleHeight = Math.Max(0, visibleBottom - bodyTop);
+            double maxScroll = Math.Max(0, contentHeight - visibleHeight);
+            _keybindScroll = Math.Clamp(_keybindScroll, 0, maxScroll);
+            float scrollGutter = maxScroll > 0 ? 14 * scale : 0;
+
+            // A row that's only half-scrolled past the top/bottom edge still
+            // passes the "fully hidden" skip check below (it has to, for the
+            // scroll to look continuous rather than jumping a whole row at a
+            // time) -- without an actual clip, that half-row bled up into the
+            // tab bar above the panel, or down past its bottom border. Interrupt
+            // the caller's already-open batch for a scissor-scoped one here,
+            // same contract as GameSession.DrawLootCrates, then hand back an
+            // open default-state batch so the rest of this method (and the
+            // caller's own End() after it returns) still work unmodified.
+            var graphicsDevice = spriteBatch.GraphicsDevice;
+            var previousScissor = graphicsDevice.ScissorRectangle;
+            var clipRect = new Rectangle((int)settings.X, (int)bodyTop, (int)settings.Width, (int)visibleHeight);
+            spriteBatch.End();
+            graphicsDevice.ScissorRectangle = Rectangle.Intersect(clipRect, graphicsDevice.Viewport.Bounds);
+            spriteBatch.Begin(rasterizerState: ScissorRasterizerState);
+
             for (int index = 0; index < Keybinds.Actions.Count; index++)
             {
                 var (actionId, label, _) = Keybinds.Actions[index];
-                float y = bodyTop + index * rowH;
-                var rect = new Rectangle((int)(settings.X + 14 * scale), (int)y, (int)(settings.Width - 28 * scale), (int)(28 * scale));
+                float y = bodyTop + index * rowH - (float)_keybindScroll;
+                if (y + rowH < bodyTop || y > visibleBottom)
+                    continue;
+                var rect = new Rectangle((int)(settings.X + 14 * scale), (int)y, (int)(settings.Width - 28 * scale - scrollGutter), (int)(28 * scale));
                 if (_rebindingAction == actionId)
                 {
                     Button(spriteBatch, $"keybind_{actionId}", rect, $"{label}  //  PRESS A KEY (ESC CLEARS)",
@@ -252,9 +288,23 @@ public sealed class Menus
                         key is not null ? UiTheme.Blue : UiTheme.Border, textSize: 13 * scale);
                 }
             }
-            float mouseY = bodyTop + Keybinds.Actions.Count * rowH + 10 * scale;
-            UiTheme.DrawText(spriteBatch, "MOUSE  //  AIM / FIRE  (not rebindable)", 8 * scale, UiTheme.Muted,
-                new Vector2(settings.X + 14 * scale, mouseY));
+            float mouseY = bodyTop + Keybinds.Actions.Count * rowH + 10 * scale - (float)_keybindScroll;
+            if (mouseY >= bodyTop - 10 * scale && mouseY <= visibleBottom)
+                UiTheme.DrawText(spriteBatch, "MOUSE  //  AIM / FIRE  (not rebindable)", 8 * scale, UiTheme.Muted,
+                    new Vector2(settings.X + 14 * scale, mouseY));
+
+            spriteBatch.End();
+            graphicsDevice.ScissorRectangle = previousScissor;
+            spriteBatch.Begin();
+
+            if (maxScroll > 0)
+            {
+                var track = new Rectangle((int)(settings.Right - 10 * scale), (int)bodyTop, (int)(4 * scale), (int)visibleHeight);
+                Primitives2D.FillRect(spriteBatch, track, UiTheme.Ink);
+                float thumbHeight = Math.Max(20 * scale, visibleHeight * (visibleHeight / contentHeight));
+                float thumbY = bodyTop + (visibleHeight - thumbHeight) * (float)(_keybindScroll / maxScroll);
+                Primitives2D.FillRect(spriteBatch, new Rectangle(track.X, (int)thumbY, track.Width, (int)thumbHeight), UiTheme.Blue);
+            }
         }
 
         UiTheme.DrawText(spriteBatch, "TAB shows weapon stats during play", 9 * scale, UiTheme.Muted,
@@ -262,10 +312,15 @@ public sealed class Menus
     }
 
     public MenuAction HandlePause(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mouseDown, bool mousePressed,
-        bool canExtract = false, bool soulContext = false, bool settingsOnly = false)
+        bool canExtract = false, bool soulContext = false, bool settingsOnly = false, int scrollWheelDelta = 0)
     {
         if (!mouseDown && _activeSlider is not null)
             FinishSlider();
+        // Upper bound is re-clamped precisely against the actual content height every
+        // frame in DrawPause (which knows the row count/scale this method doesn't) --
+        // this only needs to keep it from going negative.
+        if (_settingsTab == "keybinds" && scrollWheelDelta != 0)
+            _keybindScroll = Math.Max(0, _keybindScroll - scrollWheelDelta * .35);
         if (_rebindingAction is not null)
         {
             if (keysPressed.Count > 0)
@@ -363,7 +418,8 @@ public sealed class Menus
     {
         bool completed = results.RunOutcome == "RUN COMPLETE";
         Color accent = completed ? UiTheme.Cream : UiTheme.Red;
-        float scale = Backdrop(spriteBatch, screenWidth, screenHeight, results.RunOutcome, "The build is saved to your run record.");
+        float scale = Backdrop(spriteBatch, screenWidth, screenHeight, results.RunOutcome,
+            "Your gear is waiting in the Soul -- claim it before you start again.");
         float width = Math.Min(screenWidth * .62f, 820 * scale);
         var panel = new Rectangle((int)((screenWidth - width) / 2f), (int)(screenHeight * .25f), (int)width, (int)(screenHeight * .38f));
         UiTheme.DrawPanel(spriteBatch, panel, UiTheme.PanelRaised, accent, shadow: 8);
@@ -396,15 +452,20 @@ public sealed class Menus
         UiTheme.DrawText(spriteBatch, $"RUN SHAPE  //  {shape}", 13 * scale, UiTheme.Purple,
             new Vector2(panel.Center.X, panel.Bottom - 50 * scale), "center");
 
-        Button(spriteBatch, "retry", new Rectangle(panel.X, (int)(panel.Bottom + 24 * scale), (int)(panel.Width * .48f), (int)(58 * scale)),
+        Button(spriteBatch, "results_soul", new Rectangle(panel.X, (int)(panel.Bottom + 24 * scale), panel.Width, (int)(50 * scale)),
+            "ENTER THE SOUL  //  CLAIM YOUR GEAR", mousePosition, mouseDown, UiTheme.Purple, "F");
+        float retryY = panel.Bottom + 24 * scale + 50 * scale + 14 * scale;
+        Button(spriteBatch, "retry", new Rectangle(panel.X, (int)retryY, (int)(panel.Width * .48f), (int)(58 * scale)),
             "PLAY AGAIN", mousePosition, mouseDown, UiTheme.Green, "ENTER");
         Button(spriteBatch, "results_title",
-            new Rectangle((int)(panel.Right - panel.Width * .48f), (int)(panel.Bottom + 24 * scale), (int)(panel.Width * .48f), (int)(58 * scale)),
+            new Rectangle((int)(panel.Right - panel.Width * .48f), (int)retryY, (int)(panel.Width * .48f), (int)(58 * scale)),
             "TITLE SCREEN", mousePosition, mouseDown, UiTheme.Red, "ESC");
     }
 
     public MenuAction HandleResults(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed)
     {
+        if (keysPressed.Contains(Keys.F) || Activated("results_soul", mousePosition, mousePressed))
+            return MenuAction.EnterSoul;
         if (keysPressed.Contains(Keys.Enter) || Activated("retry", mousePosition, mousePressed))
             return MenuAction.Restart;
         if (keysPressed.Contains(Keys.Escape) || Activated("results_title", mousePosition, mousePressed))

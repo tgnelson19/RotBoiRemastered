@@ -321,6 +321,7 @@ public class GameSessionTests
         var session = MakeSession(level: 10);
         session.HandleEnemyCreation(new Random(1));
         var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
+        session.State.BossDebugInvincible = true; // spawning the boss resets this; set it after
 
         session.HandleBossDebugControls(new HashSet<Keys> { Keys.D3 });
 
@@ -333,6 +334,7 @@ public class GameSessionTests
         var session = MakeSession(level: 10);
         session.HandleEnemyCreation(new Random(1));
         var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
+        session.State.BossDebugInvincible = true; // spawning the boss resets this; set it after
 
         session.HandleBossDebugControls(new HashSet<Keys> { Keys.F });
 
@@ -408,6 +410,7 @@ public class GameSessionTests
         session.State.BeaudisDefeated = true;
         session.HandleEnemyCreation(new Random(1));
         var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
+        session.State.BossDebugInvincible = true; // spawning the boss resets this; set it after
         boss.RuneCannonCooldown = 5.0;
 
         session.HandleBossDebugControls(new HashSet<Keys> { Keys.C });

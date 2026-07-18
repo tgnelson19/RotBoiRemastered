@@ -27,6 +27,9 @@ public static class InputState
     /// <summary>True on the frame the left mouse button was first pressed (edge-triggered).</summary>
     public static bool MousePressed { get; set; }
 
+    /// <summary>Change in the mouse's scroll wheel value this frame (positive = scrolled up/away from the user).</summary>
+    public static int ScrollWheelDelta { get; set; }
+
     public static Vector2 ControllerMove { get; set; }
     public static Vector2 ControllerAim { get; set; }
     public static bool ControllerDashPressed { get; set; }

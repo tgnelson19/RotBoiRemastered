@@ -40,6 +40,7 @@ public class RotBoiGame : Game
 
     private KeyboardState _previousKeyboardState;
     private ButtonState _previousMouseButtonState = ButtonState.Released;
+    private int _previousScrollWheelValue;
     private GamePadState _previousGamePadState;
     private int _windowedWidth = 1280;
     private int _windowedHeight = 720;
@@ -214,6 +215,8 @@ public class RotBoiGame : Game
         InputState.MouseDown = mouseState.LeftButton == ButtonState.Pressed;
         InputState.MousePressed = mouseState.LeftButton == ButtonState.Pressed && _previousMouseButtonState == ButtonState.Released;
         _previousMouseButtonState = mouseState.LeftButton;
+        InputState.ScrollWheelDelta = mouseState.ScrollWheelValue - _previousScrollWheelValue;
+        _previousScrollWheelValue = mouseState.ScrollWheelValue;
 
         var gamePadState = GamePad.GetState(PlayerIndex.One);
         var left = gamePadState.ThumbSticks.Left;
@@ -371,7 +374,7 @@ public class RotBoiGame : Game
         bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
         bool canExtract = _session is not null && !soulContext && _session.State.BeaudisDefeated && !_session.State.GameCompleted;
         var action = _menus.HandlePause(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown,
-            InputState.MousePressed, canExtract, soulContext, settingsOnly);
+            InputState.MousePressed, canExtract, soulContext, settingsOnly, InputState.ScrollWheelDelta);
         // Menus edits the persisted default; the live run keeps a cached copy.
         if (_session is not null)
         {
@@ -414,12 +417,21 @@ public class RotBoiGame : Game
         switch (action)
         {
             case MenuAction.Restart:
+                GameProfile.SaveProfile();
                 _session!.ResetAll(GamePaths.ActivateSelected());
                 State = GameState.GameRun;
                 break;
             case MenuAction.ReturnToTitle:
                 State = GameState.TitleScreen;
                 break;
+            case MenuAction.EnterSoul:
+            {
+                var battleground = GamePaths.ActivateSelected();
+                _session!.ResetAll(battleground);
+                _soulHub.Enter(_session);
+                State = GameState.Soul;
+                break;
+            }
         }
     }
 
