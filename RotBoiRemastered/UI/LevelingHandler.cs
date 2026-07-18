@@ -163,14 +163,15 @@ public sealed class LevelingHandler
             float rarityWidth = UiTheme.Font(_tileSize * .23).MeasureString(card.Rarity.ToUpperInvariant()).X;
             UiTheme.DrawTag(spriteBatch, card.Rarity,
                 new Vector2(visualRect.Right - Px(22) - rarityWidth, visualRect.Y + Px(29)), accent, _tileSize * .23);
+            float textWidth = visualRect.Width - Px(36);
             UiTheme.DrawText(spriteBatch, card.Definition.Category.ToUpperInvariant() + " CARD", _tileSize * 0.24, UiTheme.Muted,
                 new Vector2(visualRect.Center.X, visualRect.Y + _tileSize * 1.55f), "center");
-            UiTheme.DrawText(spriteBatch, card.Name, _tileSize * 0.58, UiTheme.Text,
-                new Vector2(visualRect.Center.X, visualRect.Y + _tileSize * 2.15f), "center");
+            UiTheme.DrawWrappedText(spriteBatch, card.Name, _tileSize * 0.58, UiTheme.Text,
+                new Vector2(visualRect.Center.X, visualRect.Y + _tileSize * 2.15f), textWidth);
             Primitives2D.Line(spriteBatch, new Vector2(visualRect.X + Px(28), visualRect.Y + _tileSize * 2.72f),
                 new Vector2(visualRect.Right - Px(28), visualRect.Y + _tileSize * 2.72f), accent, (int)Px(2));
-            UiTheme.DrawText(spriteBatch, card.Definition.Description, _tileSize * 0.38, UiTheme.Text,
-                new Vector2(visualRect.Center.X, visualRect.Center.Y - _tileSize * 0.2f), "center");
+            UiTheme.DrawWrappedText(spriteBatch, card.Definition.Description, _tileSize * 0.38, UiTheme.Text,
+                new Vector2(visualRect.Center.X, visualRect.Center.Y - _tileSize * 0.2f), textWidth);
 
             string mode = card.MathType == "additive" ? "Flat bonus" : "Scaling bonus";
             float modeWidth = UiTheme.Font(_tileSize * .2).MeasureString(mode.ToUpperInvariant()).X;

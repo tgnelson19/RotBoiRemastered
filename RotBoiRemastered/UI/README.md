@@ -103,8 +103,15 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   Python's `_sync_layout`/`toggle_mode` set `bG.lockX = self.arena_width / 2`
   directly (informationSheet.py owning a background.py global). Camera
   isn't visible from `InformationSheet`, and `GameSession` already owns it,
-  so `GameSession`'s constructor/`Resize`/`ResetAll`/`ToggleHudMode` do the
-  re-centering using `InformationSheet.ArenaWidth` instead.
+  so `GameSession`'s constructor/`Resize`/`ResetAll` do the re-centering
+  using `InformationSheet.ArenaWidth` instead.
+- **The old compact/expanded `HudMode` is gone.** The sidebar is a single
+  fixed width now; the build-identity panel moved to its own arena overlay
+  (`DrawBuildIdentityOverlay`) and the weapon-stats section moved into a
+  Tab-toggled popup (`DrawWeaponStatsPopup`/`ToggleWeaponStats`) instead of
+  always occupying sidebar space. `GameSession.ToggleWeaponStats` (renamed
+  from `ToggleHudMode`) just forwards to it now -- no more `ArenaWidth`
+  change to re-center the camera for.
 - **No implicit per-frame `_sync_layout()` self-check** -- `SyncLayout` is
   called explicitly from `GameSession.Resize`, matching
   `LevelingHandler.UpdateLayout`'s existing contract instead of re-deriving

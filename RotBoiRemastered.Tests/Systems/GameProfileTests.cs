@@ -24,7 +24,6 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.DamageNumbers, profile.DamageNumbers);
         Assert.Equal(defaults.AimGuide, profile.AimGuide);
         Assert.Equal(defaults.HighContrast, profile.HighContrast);
-        Assert.Equal(defaults.HudMode, profile.HudMode);
         Assert.Equal(defaults.TextSize, profile.TextSize);
         Assert.Equal(defaults.GuiScale, profile.GuiScale);
         Assert.Equal(defaults.DamageTextSize, profile.DamageTextSize);
@@ -91,9 +90,8 @@ public class GameProfileTests : IDisposable
                 BestLevel = 20,
                 BestKills = 193,
                 CompletedRuns = 2,
-                HudMode = "expanded",
-                TextSize = 1.3,
-                GuiScale = 1.4,
+                TextSize = 1.4,
+                GuiScale = 1.15,
                 DamageTextSize = .65,
                 Keybinds = new Dictionary<string, int?> { ["dash"] = 42, ["move_up"] = null },
             };
@@ -105,9 +103,8 @@ public class GameProfileTests : IDisposable
             Assert.Equal(20, reloaded.BestLevel);
             Assert.Equal(193, reloaded.BestKills);
             Assert.Equal(2, reloaded.CompletedRuns);
-            Assert.Equal("expanded", reloaded.HudMode);
-            Assert.Equal(1.3, reloaded.TextSize);
-            Assert.Equal(1.4, reloaded.GuiScale);
+            Assert.Equal(1.4, reloaded.TextSize);
+            Assert.Equal(1.15, reloaded.GuiScale);
             Assert.Equal(.65, reloaded.DamageTextSize);
             Assert.Equal(42, reloaded.Keybinds["dash"]);
             Assert.Null(reloaded.Keybinds["move_up"]);

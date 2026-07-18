@@ -24,7 +24,13 @@ namespace RotBoiRemastered.UI;
 /// - Camera re-centering (`bG.lockX = self.arena_width / 2`) is
 ///   GameSession's job, not this class's -- Camera isn't visible from here,
 ///   and GameSession already owns it. See GameSession.cs's constructor/
-///   Resize/ResetAll/ToggleHudMode.
+///   Resize/ResetAll.
+/// - The old compact/expanded HudMode is gone: the sidebar is a single
+///   fixed width now. The build-identity panel moved to its own arena
+///   overlay (<see cref="DrawBuildIdentityOverlay"/>) and the weapon-stats
+///   section moved into a Tab-toggled popup (<see cref="DrawWeaponStatsPopup"/>,
+///   <see cref="ToggleWeaponStats"/>) instead of always occupying sidebar
+///   space.
 /// - No implicit per-frame `_sync_layout()` self-check: <see cref="SyncLayout"/>
 ///   is called explicitly by GameSession.Resize, matching
 ///   <c>LevelingHandler.UpdateLayout</c>'s existing contract instead of
@@ -85,7 +91,6 @@ public sealed class InformationSheet
     private sealed record CrateDragSource(LootCrate Crate, int Index) : DragSource;
 
     private float _uiScale;
-    private string _mode;
     private int _screenWidth;
     private int _screenHeight;
     private int _totalLength;
@@ -99,6 +104,7 @@ public sealed class InformationSheet
     private DragSource? _draggingSource;
     private Dictionary<string, Rectangle> _equipmentSlotRects = new();
     private List<Rectangle> _lootPanelSlotRects = new();
+    private bool _weaponStatsOpen;
 
     public int ArenaWidth => _posX;
     public bool DragInProgress { get; private set; }
@@ -113,21 +119,50 @@ public sealed class InformationSheet
 
     public InformationSheet(int screenWidth, int screenHeight)
     {
-        _mode = GameProfile.Profile.HudMode;
         BuildLayout(screenWidth, screenHeight);
     }
 
     private int Px(double value) => Math.Max(1, (int)Math.Round(value * _uiScale));
+
+    /// <summary>
+    /// This sidebar is a fixed, tightly packed stack of roughly eight
+    /// panels, one of them (Recent Picks) anchored to the *bottom* of the
+    /// screen independently of how tall everything above it grows. Growing
+    /// row heights/panel heights to track TextSize was tried and made
+    /// things worse, not better: growth compounds across every stacked
+    /// panel, so even a modest setting pushed the total content well past
+    /// the screen height, and panels started colliding with *each other*
+    /// instead of just their own text overlapping. There's no room in this
+    /// specific layout to honor the full TextSize range without a much
+    /// larger reflow (variable-height rows, or making the sidebar
+    /// scrollable) -- capping the boost this sidebar's own text uses keeps
+    /// TextSize's benefit everywhere else in the game (title screen,
+    /// level-up cards, menus) while keeping this panel internally
+    /// consistent with itself. Set to UiTheme's own "LARGE" preset (one
+    /// step below "MAX") now that TextSize itself is capped at 2.0 and
+    /// preset-only -- this sidebar can absorb that much growth safely, just
+    /// not the full range.
+    /// </summary>
+    private const double MaxLocalTextBoost = 1.4;
+
+    private static double LocalTextScale() => Math.Min(UiTheme.TextScaleMultiplier(), MaxLocalTextBoost);
+
+    /// <summary>
+    /// Drop-in replacement for UiTheme.DrawText within this file: renders
+    /// through UiTheme.DrawRawText/RawFont, which skip UiTheme.Font's own
+    /// (uncapped) TextScaleMultiplier, applying LocalTextScale's capped
+    /// boost instead.
+    /// </summary>
+    private static Rectangle DrawSheetText(SpriteBatch spriteBatch, object value, double size, Color color,
+        Vector2 position, string anchor = "topleft")
+        => UiTheme.DrawRawText(spriteBatch, value, size * LocalTextScale(), color, position, anchor);
 
     private void BuildLayout(int screenWidth, int screenHeight)
     {
         _screenWidth = screenWidth;
         _screenHeight = screenHeight;
         _uiScale = UiTheme.DisplayScale(screenWidth, screenHeight);
-        double ratio = _mode == "compact" ? .15 : .24;
-        int minimum = Px(_mode == "compact" ? 220 : 300);
-        int maximum = Px(_mode == "compact" ? 320 : 440);
-        _totalLength = Math.Max(minimum, Math.Min(maximum, (int)(screenWidth * ratio)));
+        _totalLength = Math.Max(Px(220), Math.Min(Px(320), (int)(screenWidth * .15)));
         // Never consume more than 42% of a narrow display.
         _totalLength = Math.Min(_totalLength, (int)(screenWidth * .42));
         _totalHeight = screenHeight;
@@ -135,7 +170,7 @@ public sealed class InformationSheet
         _padding = Px(9);
     }
 
-    /// <summary>Call from GameSession.Resize whenever the window size changes.</summary>
+    /// <summary>Call from GameSession.Resize whenever the window size or GuiScale changes.</summary>
     public void SyncLayout(int screenWidth, int screenHeight)
     {
         float nextScale = UiTheme.DisplayScale(screenWidth, screenHeight);
@@ -143,13 +178,15 @@ public sealed class InformationSheet
             BuildLayout(screenWidth, screenHeight);
     }
 
-    public void ToggleMode()
-    {
-        _mode = _mode == "compact" ? "expanded" : "compact";
-        GameProfile.Profile.HudMode = _mode;
-        GameProfile.SaveProfile();
-        BuildLayout(_screenWidth, _screenHeight);
-    }
+    /// <summary>
+    /// TAB now opens/closes the weapon-stats popup (see DrawWeaponStatsPopup)
+    /// instead of switching the sidebar's own compact/expanded width -- the
+    /// sidebar is down to one fixed width now that the build-identity panel
+    /// moved to its own arena overlay and the weapon section moved into this
+    /// popup. Purely transient view state, not a persisted preference like
+    /// the old HudMode was, so nothing here touches GameProfile.
+    /// </summary>
+    public void ToggleWeaponStats() => _weaponStatsOpen = !_weaponStatsOpen;
 
     private Rectangle Panel(SpriteBatch spriteBatch, int y, int height, Color? accent = null, Color? fill = null)
     {
@@ -161,8 +198,8 @@ public sealed class InformationSheet
     private void Bar(SpriteBatch spriteBatch, Rectangle rect, int y, string label, double value, double maximum,
         Color color, string valueText)
     {
-        UiTheme.DrawText(spriteBatch, label, Px(9), UiTheme.Muted, new Vector2(rect.X + Px(11), y));
-        UiTheme.DrawText(spriteBatch, valueText, Px(9), UiTheme.Text, new Vector2(rect.Right - Px(11), y), "topright");
+        DrawSheetText(spriteBatch, label, Px(10), UiTheme.Muted, new Vector2(rect.X + Px(11), y));
+        DrawSheetText(spriteBatch, valueText, Px(10), UiTheme.Text, new Vector2(rect.Right - Px(11), y), "topright");
         double ratio = maximum != 0 ? value / maximum : 0;
         UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + Px(11), y + Px(14), rect.Width - Px(22), Px(11)),
             (float)ratio, color, 10);
@@ -292,12 +329,12 @@ public sealed class InformationSheet
     private int DrawHeader(SpriteBatch spriteBatch, RunState state)
     {
         var rect = Panel(spriteBatch, _padding, Px(62), UiTheme.Cream);
-        UiTheme.DrawText(spriteBatch, $"LEVEL {state.CurrentLevel:D2}", Px(17), UiTheme.Text,
+        DrawSheetText(spriteBatch, $"LEVEL {state.CurrentLevel:D2}", Px(18), UiTheme.Text,
             new Vector2(rect.X + Px(11), rect.Y + Px(9)));
         var (pressureLabel, color, _) = Pressure(state);
-        UiTheme.DrawText(spriteBatch, pressureLabel, Px(9), color,
+        DrawSheetText(spriteBatch, pressureLabel, Px(10), color,
             new Vector2(rect.Right - Px(11), rect.Y + Px(14)), "topright");
-        UiTheme.DrawText(spriteBatch, _mode == "compact" ? "Tab: build details" : "Tab: compact view", Px(8), UiTheme.Muted,
+        DrawSheetText(spriteBatch, _weaponStatsOpen ? "Tab: close weapon stats" : "Tab: weapon stats", Px(9), UiTheme.Muted,
             new Vector2(rect.X + Px(11), rect.Bottom - Px(15)));
         return rect.Bottom + _padding;
     }
@@ -315,7 +352,7 @@ public sealed class InformationSheet
         Bar(spriteBatch, rect, rect.Y + Px(69), "NEXT PICK", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
             $"{percent:F0}%");
         if (percent >= 82)
-            UiTheme.DrawText(spriteBatch, "Next pick soon", Px(8), UiTheme.Gold,
+            DrawSheetText(spriteBatch, "Next pick soon", Px(9), UiTheme.Gold,
                 new Vector2(rect.Right - Px(11), rect.Bottom - Px(11)), "bottomright");
         return rect.Bottom + _padding;
     }
@@ -326,7 +363,7 @@ public sealed class InformationSheet
         int hubHeight = Px(140);
         int height = headerHeight + hubHeight + Px(12);
         var rect = Panel(spriteBatch, y, height, UiTheme.Border);
-        UiTheme.DrawText(spriteBatch, "EQUIPMENT", Px(9), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+        DrawSheetText(spriteBatch, "EQUIPMENT", Px(10), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
 
         float hubX = rect.Center.X;
         float hubY = rect.Y + headerHeight + hubHeight / 2f;
@@ -364,7 +401,7 @@ public sealed class InformationSheet
                 Primitives2D.FillRect(spriteBatch, slotRect, UiTheme.Ink);
                 Primitives2D.RectOutline(spriteBatch, slotRect, UiTheme.Border, Px(2));
             }
-            UiTheme.DrawText(spriteBatch, label, Px(7), UiTheme.Muted, new Vector2(center.X, slotRect.Bottom + Px(3)), "midtop");
+            DrawSheetText(spriteBatch, label, Px(8), UiTheme.Muted, new Vector2(center.X, slotRect.Bottom + Px(3)), "midtop");
         }
         return rect.Bottom + _padding;
     }
@@ -378,7 +415,7 @@ public sealed class InformationSheet
         int slotSize = Px(38);
         int height = headerHeight + slotSize + Px(20);
         var rect = Panel(spriteBatch, y, height, UiTheme.Cream);
-        UiTheme.DrawText(spriteBatch, "NEARBY LOOT", Px(9), UiTheme.Cream, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+        DrawSheetText(spriteBatch, "NEARBY LOOT", Px(10), UiTheme.Cream, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
 
         int gap = Px(10);
         int totalWidth = CrateSlotCount * slotSize + (CrateSlotCount - 1) * gap;
@@ -414,24 +451,33 @@ public sealed class InformationSheet
         return rect.Bottom + _padding;
     }
 
-    private int DrawBuild(SpriteBatch spriteBatch, RunState state, int y)
+    /// <summary>
+    /// Floats at the top of the arena, immediately left of the sidebar,
+    /// rather than consuming vertical space among the sidebar's stacked
+    /// panels -- moved out per user request to declutter the sidebar.
+    /// Family rows shown is now always up to 4; there's no more compact/
+    /// expanded distinction to gate it at 2.
+    /// </summary>
+    public void DrawBuildIdentityOverlay(SpriteBatch spriteBatch, RunState state)
     {
-        int height = Px(_mode == "compact" ? 106 : 134);
-        var rect = Panel(spriteBatch, y, height, UiTheme.Purple);
+        int width = Math.Max(Px(220), Math.Min(Px(280), _posX - Px(24)));
+        int height = Px(134);
+        var rect = new Rectangle(_posX - _padding - width, _padding, width, height);
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Purple, shadow: 3);
         var (title, strength, caution) = BuildIdentity(state);
-        UiTheme.DrawText(spriteBatch, title, Px(14), UiTheme.Purple, new Vector2(rect.X + Px(11), rect.Y + Px(9)));
-        UiTheme.DrawText(spriteBatch, strength, Px(8), UiTheme.Text, new Vector2(rect.X + Px(11), rect.Y + Px(31)));
-        UiTheme.DrawText(spriteBatch, caution, Px(8), UiTheme.Muted, new Vector2(rect.X + Px(11), rect.Y + Px(49)));
+        DrawSheetText(spriteBatch, title, Px(15), UiTheme.Purple, new Vector2(rect.X + Px(11), rect.Y + Px(9)));
+        DrawSheetText(spriteBatch, strength, Px(9), UiTheme.Text, new Vector2(rect.X + Px(11), rect.Y + Px(31)));
+        DrawSheetText(spriteBatch, caution, Px(9), UiTheme.Muted, new Vector2(rect.X + Px(11), rect.Y + Px(49)));
         var families = FamilyCounts(state);
         if (families.Count > 0)
         {
             const int maxPips = 5;
-            int shown = Math.Min(families.Count, _mode == "compact" ? 2 : 4);
+            int shown = Math.Min(families.Count, 4);
             for (int index = 0; index < shown; index++)
             {
                 var (family, count) = families[index];
                 int rowY = rect.Y + Px(68 + index * 16);
-                UiTheme.DrawText(spriteBatch, ToTitleCase(family), Px(8), UiTheme.Muted, new Vector2(rect.X + Px(11), rowY));
+                DrawSheetText(spriteBatch, ToTitleCase(family), Px(9), UiTheme.Muted, new Vector2(rect.X + Px(11), rowY));
                 for (int pip = 0; pip < maxPips; pip++)
                 {
                     var pipRect = new Rectangle(rect.Right - Px(11 + (maxPips - pip) * 11), rowY + Px(1), Px(7), Px(7));
@@ -440,7 +486,6 @@ public sealed class InformationSheet
                 }
             }
         }
-        return rect.Bottom + _padding;
     }
 
     private static Rectangle Inflated(Rectangle rect, int dx, int dy)
@@ -455,18 +500,29 @@ public sealed class InformationSheet
         var iconRect = new Rectangle(rect.X + Px(10), y - Px(3), Px(24), Px(24));
         Primitives2D.FillRoundedRect(spriteBatch, iconRect, UiTheme.Ink, Px(3));
         StatCards.DrawStatSymbol(spriteBatch, symbol, Inflated(iconRect, -Px(4), -Px(4)), UiTheme.Cream);
-        var labelRect = UiTheme.DrawText(spriteBatch, label, Px(8), UiTheme.Muted, new Vector2(iconRect.Right + Px(7), y));
-        UiTheme.DrawText(spriteBatch, value, Px(9), UiTheme.Text, new Vector2(iconRect.Right + Px(7), y + Px(12)));
+        var labelRect = DrawSheetText(spriteBatch, label, Px(9), UiTheme.Muted, new Vector2(iconRect.Right + Px(7), y));
+        DrawSheetText(spriteBatch, value, Px(10), UiTheme.Text, new Vector2(iconRect.Right + Px(7), y + Px(12)));
         if (!string.IsNullOrEmpty(rating))
-            UiTheme.DrawText(spriteBatch, rating, Px(7), UiTheme.Green, new Vector2(rect.Right - Px(10), y + Px(1)), "topright");
+            DrawSheetText(spriteBatch, rating, Px(8), UiTheme.Green, new Vector2(rect.Right - Px(10), y + Px(1)), "topright");
         var hoverRect = new Rectangle(iconRect.X, y - Px(4), rect.Right - iconRect.X, Px(31));
         if (!string.IsNullOrEmpty(helpText) && hoverRect.Contains(mousePosition))
             _tooltip = helpText;
         return labelRect;
     }
 
-    private int DrawStats(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
+    /// <summary>
+    /// Replaces the old always-on "YOUR WEAPON" sidebar section: this is
+    /// now an on-demand popup toggled via Tab (see ToggleWeaponStats),
+    /// centered over the arena so it doesn't compete with the sidebar for
+    /// room. Always shows every stat row -- no more compact/expanded
+    /// row-count split, since it's a deliberate look rather than
+    /// always-on real estate.
+    /// </summary>
+    public void DrawWeaponStatsPopup(SpriteBatch spriteBatch, RunState state, Point mousePosition)
     {
+        if (!_weaponStatsOpen)
+            return;
+
         double attacksPerSecond = AttacksPerSecond(state);
         var rows = new List<(string Symbol, string Label, string Value, string? Rating, string HelpText)>
         {
@@ -478,27 +534,25 @@ public sealed class InformationSheet
                 "Fractional projectile count becomes a chance to fire one bonus shot."),
             ("Crit Chance", "Critical", $"{state.CritChance * 100:F0}% chance / +{Math.Max(0, (state.CritDamage - 1) * 100):F0}% damage", null,
                 "Critical chance and the bonus damage applied when it succeeds."),
+            ("Bullet Pierce", "Piercing", PierceText(state), null,
+                "How many enemies one projectile can damage before disappearing."),
+            ("Defense", "Defense", $"Blocks {state.Defense} damage", Rating(state.Defense, 100),
+                "Flat damage removed from every incoming hit."),
+            ("Vitality", "Vitality", $"{state.Vitality} HP / sec", Rating(state.Vitality, 25),
+                "Health recovered continuously each second."),
+            ("Bullet Range", "Range", $"{state.BulletRange / Simulation.TileSize:F1} tiles", Rating(state.BulletRange, 250),
+                "Approximate projectile travel distance."),
         };
-        if (_mode == "expanded")
-        {
-            rows.Add(("Bullet Pierce", "Piercing", PierceText(state), null,
-                "How many enemies one projectile can damage before disappearing."));
-            rows.Add(("Defense", "Defense", $"Blocks {state.Defense} damage", Rating(state.Defense, 100),
-                "Flat damage removed from every incoming hit."));
-            rows.Add(("Vitality", "Vitality", $"{state.Vitality} HP / sec", Rating(state.Vitality, 25),
-                "Health recovered continuously each second."));
-            rows.Add(("Bullet Range", "Range", $"{state.BulletRange / Simulation.TileSize:F1} tiles", Rating(state.BulletRange, 250),
-                "Approximate projectile travel distance."));
-        }
+        int width = Math.Min(Px(300), Math.Max(Px(220), _posX / 3));
         int height = Px(29 + rows.Count * 31);
-        var rect = Panel(spriteBatch, y, height, UiTheme.Blue);
-        UiTheme.DrawText(spriteBatch, "YOUR WEAPON", Px(9), UiTheme.Blue, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+        var rect = new Rectangle(_posX - _padding * 2 - width, (_totalHeight - height) / 2, width, height);
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Blue, shadow: 6);
+        DrawSheetText(spriteBatch, "YOUR WEAPON", Px(10), UiTheme.Blue, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
         for (int index = 0; index < rows.Count; index++)
         {
             var row = rows[index];
             StatRow(spriteBatch, rect, rect.Y + Px(29 + index * 31), row.Symbol, row.Label, row.Value, row.Rating, row.HelpText, mousePosition);
         }
-        return rect.Bottom + _padding;
     }
 
     private int DrawObjective(SpriteBatch spriteBatch, RunState state, BountyInfo? bounty, Vector2 playerWorldPosition, int y)
@@ -507,12 +561,12 @@ public sealed class InformationSheet
         var (_, color, ratio) = Pressure(state);
         var (name, detail) = BountyDetails(bounty, state, playerWorldPosition);
         string truncatedName = name.Length > 32 ? name[..32] : name;
-        UiTheme.DrawText(spriteBatch, truncatedName, Px(11), color, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
-        UiTheme.DrawText(spriteBatch, detail, Px(8), UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(29)));
+        DrawSheetText(spriteBatch, truncatedName, Px(12), color, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+        DrawSheetText(spriteBatch, detail, Px(9), UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(29)));
         UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + Px(10), rect.Y + Px(47), rect.Width - Px(20), Px(8)),
             (float)ratio, color, 8);
         var (level, milestone) = NextMilestone(state);
-        UiTheme.DrawText(spriteBatch, $"Next: level {level} • {milestone}", Px(7), UiTheme.Muted,
+        DrawSheetText(spriteBatch, $"Next: level {level} • {milestone}", Px(8), UiTheme.Muted,
             new Vector2(rect.X + Px(10), rect.Bottom - Px(9)), "bottomleft");
         return rect.Bottom + _padding;
     }
@@ -523,7 +577,7 @@ public sealed class InformationSheet
         int height = Math.Max(Px(76), Math.Min(Px(112), available));
         int y = _totalHeight - height - _padding;
         var rect = Panel(spriteBatch, y, height, UiTheme.Cream, UiTheme.Panel);
-        UiTheme.DrawText(spriteBatch, "RECENT PICKS", Px(8), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(7)));
+        DrawSheetText(spriteBatch, "RECENT PICKS", Px(9), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(7)));
         int tableY = rect.Y + Px(25);
         Primitives2D.FillRect(spriteBatch,
             new Rectangle(rect.X + Px(7), tableY, rect.Width - Px(14), rect.Bottom - tableY - Px(7)), UiTheme.Ink);
@@ -535,7 +589,7 @@ public sealed class InformationSheet
             : state.UpgradeHistory;
         if (history.Count == 0)
         {
-            UiTheme.DrawText(spriteBatch, "Your upgrade cards will collect here.", Px(7), UiTheme.Muted,
+            DrawSheetText(spriteBatch, "Your upgrade cards will collect here.", Px(8), UiTheme.Muted,
                 new Vector2(rect.Center.X, tableY + (rect.Bottom - tableY) / 2f), "center");
             return;
         }
@@ -576,7 +630,7 @@ public sealed class InformationSheet
         if (string.IsNullOrEmpty(_tooltip))
             return;
         int width = Math.Min(Px(250), (int)(_screenWidth * .24));
-        var font = UiTheme.Font(Px(8));
+        var font = UiTheme.RawFont(Px(9) * LocalTextScale());
         var words = _tooltip.Split(' ');
         var lines = new List<string>();
         string line = "";
@@ -594,12 +648,12 @@ public sealed class InformationSheet
             }
         }
         lines.Add(line);
-        var rect = new Rectangle(mousePosition.X - width - Px(10), mousePosition.Y + Px(10), width, Px(14 + lines.Count * 13));
+        var rect = new Rectangle(mousePosition.X - width - Px(10), mousePosition.Y + Px(10), width, Px(15 + lines.Count * 14));
         rect = ClampToBounds(rect, new Rectangle(_posX, 0, _totalLength, _totalHeight));
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Cream, shadow: 4);
         for (int index = 0; index < lines.Count; index++)
-            UiTheme.DrawText(spriteBatch, lines[index], Px(8), UiTheme.Text,
-                new Vector2(rect.X + Px(9), rect.Y + Px(7 + index * 13)));
+            DrawSheetText(spriteBatch, lines[index], Px(9), UiTheme.Text,
+                new Vector2(rect.X + Px(9), rect.Y + Px(8 + index * 14)));
     }
 
     private void DrawItemTooltip(SpriteBatch spriteBatch, Point mousePosition, ItemDrop item)
@@ -621,9 +675,9 @@ public sealed class InformationSheet
         var symbolInner = symbolRect;
         symbolInner.Inflate(-Px(7), -Px(7));
         ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, UiTheme.Ink, item.Definition.VisualKind);
-        UiTheme.DrawText(spriteBatch, item.Name.ToUpperInvariant(), Px(14), UiTheme.Text,
+        DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(15), UiTheme.Text,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(14)));
-        UiTheme.DrawText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.SlotType.ToUpperInvariant()}", Px(8), rarity,
+        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.SlotType.ToUpperInvariant()}", Px(9), rarity,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(40)));
 
         int y = rect.Y + headerHeight;
@@ -633,22 +687,22 @@ public sealed class InformationSheet
             Primitives2D.FillRect(spriteBatch, row, UiTheme.Panel);
             var icon = new Rectangle(row.X + Px(6), row.Y + Px(4), Px(27), Px(27));
             StatCards.DrawStatSymbol(spriteBatch, effect.Stat, icon, rarity);
-            UiTheme.DrawText(spriteBatch, effect.Stat.ToUpperInvariant(), Px(8), UiTheme.Muted,
+            DrawSheetText(spriteBatch, effect.Stat.ToUpperInvariant(), Px(9), UiTheme.Muted,
                 new Vector2(icon.Right + Px(8), row.Center.Y), "midleft");
             Color valueColor = effect.IsBeneficial ? UiTheme.Green : UiTheme.Red;
-            UiTheme.DrawText(spriteBatch, effect.DisplayValue, Px(15), valueColor,
+            DrawSheetText(spriteBatch, effect.DisplayValue, Px(16), valueColor,
                 new Vector2(row.Right - Px(8), row.Center.Y), "midright");
             y += rowHeight;
         }
         foreach (var (kind, chance) in statuses)
         {
             double scaled = chance * Items.RarityPower(item.Rarity) * 100;
-            UiTheme.DrawText(spriteBatch, $"✦  {kind.ToUpperInvariant()}  {scaled:0}% ON HIT", Px(10), UiTheme.Green,
+            DrawSheetText(spriteBatch, $"✦  {kind.ToUpperInvariant()}  {scaled:0}% ON HIT", Px(11), UiTheme.Green,
                 new Vector2(rect.X + Px(16), y + Px(5)));
             y += Px(30);
         }
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(12), y), new Vector2(rect.Right - Px(12), y), UiTheme.Border, 1);
-        UiTheme.DrawText(spriteBatch, $"“{item.Definition.Description}”", Px(9), UiTheme.Cream,
+        DrawSheetText(spriteBatch, $"“{item.Definition.Description}”", Px(10), UiTheme.Cream,
             new Vector2(rect.X + Px(15), y + Px(12)));
     }
 
@@ -665,16 +719,18 @@ public sealed class InformationSheet
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
 
+        DrawBuildIdentityOverlay(spriteBatch, state);
+
         int y = DrawHeader(spriteBatch, state);
         y = DrawStatus(spriteBatch, state, y);
         y = DrawInventory(spriteBatch, state, mousePosition, y);
         if (state.NearbyCrate is not null && y + Px(70) < _totalHeight - Px(82))
             y = DrawLootPanel(spriteBatch, state, mousePosition, y);
-        y = DrawBuild(spriteBatch, state, y);
-        y = DrawStats(spriteBatch, state, mousePosition, y);
-        if (_mode == "compact" && y + Px(90) < _totalHeight - Px(82))
+        if (y + Px(90) < _totalHeight - Px(82))
             y = DrawObjective(spriteBatch, state, currentBounty, playerWorldPosition, y);
         DrawRecentTable(spriteBatch, state, mousePosition, y);
+
+        DrawWeaponStatsPopup(spriteBatch, state, mousePosition);
 
         if (_draggingItem is not null)
         {
