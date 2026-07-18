@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RotBoiRemastered")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+277484262d752e3de09b4afd5ac96981b0e757ef")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+350dba45e0439d4db98a9925795615bb19adf10e")]
 [assembly: System.Reflection.AssemblyProductAttribute("RotBoiRemastered")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RotBoiRemastered")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
