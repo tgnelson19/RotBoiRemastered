@@ -222,6 +222,13 @@ public sealed class Menus
             var damageRect = new Rectangle(sliderX, guiRect.Bottom + rowGap, sliderWidth, rowHeight);
             Slider(spriteBatch, "damage_text_size", damageRect, "DAMAGE TEXT SIZE", $"{GameProfile.Profile.DamageTextSize * 100:0}%",
                 GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, mousePosition, UiTheme.Red);
+
+            var fullscreenRect = new Rectangle(sliderX, damageRect.Bottom + rowGap, sliderWidth, (int)(42 * scale));
+            bool fullscreen = GameProfile.Profile.Fullscreen;
+            Button(spriteBatch, "fullscreen", fullscreenRect, $"FULLSCREEN  //  {(fullscreen ? "ON" : "OFF")}",
+                mousePosition, mouseDown, fullscreen ? UiTheme.Green : UiTheme.Border);
+            UiTheme.DrawText(spriteBatch, "Native-resolution fullscreen (F11 also toggles this)", 8 * scale, UiTheme.Muted,
+                new Vector2(fullscreenRect.X + 10 * scale, fullscreenRect.Bottom - 4 * scale), "bottomleft");
         }
         else
         {
@@ -315,6 +322,8 @@ public sealed class Menus
                 GameProfile.Profile.ScreenShake = levels[(idx + 1) % levels.Length];
                 GameProfile.SaveProfile();
             }
+            if (Activated("fullscreen", mousePosition, mousePressed))
+                GameProfile.Toggle("Fullscreen");
             if (mouseDown)
             {
                 if (_activeSlider is null)

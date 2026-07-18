@@ -39,6 +39,52 @@ public static class Primitives2D
         FillRect(spriteBatch, new Rectangle(rect.Right - width, rect.Y, width, rect.Height), color); // right
     }
 
+    /// <summary>
+    /// Filled rectangle with rounded corners, matching pygame.draw.rect's
+    /// `border_radius` (ItemCards.cs/StatCards.cs/InformationSheet.cs icon
+    /// chrome previously rendered sharp-cornered for lack of this primitive).
+    /// Composed from a cross of two rects plus four filled corner circles --
+    /// correct for any convex axis-aligned rounded rect, which is everything
+    /// this codebase draws; not a true rounded-rect mesh (SpriteBatch has no
+    /// vertex renderer available here).
+    /// </summary>
+    public static void FillRoundedRect(SpriteBatch spriteBatch, Rectangle rect, Color color, int radius)
+    {
+        radius = Math.Max(0, Math.Min(radius, Math.Min(rect.Width, rect.Height) / 2));
+        if (radius <= 0)
+        {
+            FillRect(spriteBatch, rect, color);
+            return;
+        }
+        FillRect(spriteBatch, new Rectangle(rect.X + radius, rect.Y, rect.Width - radius * 2, rect.Height), color);
+        FillRect(spriteBatch, new Rectangle(rect.X, rect.Y + radius, radius, rect.Height - radius * 2), color);
+        FillRect(spriteBatch, new Rectangle(rect.Right - radius, rect.Y + radius, radius, rect.Height - radius * 2), color);
+        FillCircle(spriteBatch, new Vector2(rect.X + radius, rect.Y + radius), radius, color);
+        FillCircle(spriteBatch, new Vector2(rect.Right - radius, rect.Y + radius), radius, color);
+        FillCircle(spriteBatch, new Vector2(rect.X + radius, rect.Bottom - radius), radius, color);
+        FillCircle(spriteBatch, new Vector2(rect.Right - radius, rect.Bottom - radius), radius, color);
+    }
+
+    /// <summary>Border-only rounded rect, matching pygame.draw.rect(..., width>0, border_radius=...) -- four corner arcs plus four straight edges.</summary>
+    public static void RoundedRectOutline(SpriteBatch spriteBatch, Rectangle rect, Color color, int width, int radius)
+    {
+        radius = Math.Max(0, Math.Min(radius, Math.Min(rect.Width, rect.Height) / 2));
+        if (radius <= 0)
+        {
+            RectOutline(spriteBatch, rect, color, width);
+            return;
+        }
+        int diameter = radius * 2;
+        Arc(spriteBatch, new Rectangle(rect.X, rect.Y, diameter, diameter), MathF.PI, MathF.PI * 1.5f, color, width);
+        Arc(spriteBatch, new Rectangle(rect.Right - diameter, rect.Y, diameter, diameter), MathF.PI * 1.5f, MathF.Tau, color, width);
+        Arc(spriteBatch, new Rectangle(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter), 0, MathF.PI * .5f, color, width);
+        Arc(spriteBatch, new Rectangle(rect.X, rect.Bottom - diameter, diameter, diameter), MathF.PI * .5f, MathF.PI, color, width);
+        Line(spriteBatch, new Vector2(rect.X + radius, rect.Y), new Vector2(rect.Right - radius, rect.Y), color, width);
+        Line(spriteBatch, new Vector2(rect.X + radius, rect.Bottom), new Vector2(rect.Right - radius, rect.Bottom), color, width);
+        Line(spriteBatch, new Vector2(rect.X, rect.Y + radius), new Vector2(rect.X, rect.Bottom - radius), color, width);
+        Line(spriteBatch, new Vector2(rect.Right, rect.Y + radius), new Vector2(rect.Right, rect.Bottom - radius), color, width);
+    }
+
     public static void Line(SpriteBatch spriteBatch, Vector2 start, Vector2 end, Color color, int width)
     {
         Vector2 delta = end - start;

@@ -93,10 +93,13 @@ public static class UiTheme
     public static double TextScaleMultiplier() => GameProfile.Profile.TextSize;
 
     /// <summary>
-    /// Italic/bold are accepted for signature parity with uiTheme.py (used by
-    /// not-yet-ported bossTypes.py) but not yet implemented -- there's only
-    /// one font file and no synthetic style synthesis wired up yet. Both
-    /// currently render at regular weight/slant.
+    /// `italic` is accepted for signature parity with uiTheme.py's font()
+    /// but not implemented -- there's only one regular-weight font file and
+    /// no glyph-shear renderer available through FontStashSharp/SpriteBatch
+    /// to synthesize a slant safely. `bold` is real: DrawText below
+    /// synthesizes it with a 1px-offset double draw (a standard technique
+    /// for a single-weight font file), the same visual effect pygame's
+    /// `set_bold(True)` gives a boss's phase-announcement label.
     /// </summary>
     public static DynamicSpriteFont Font(double size, bool italic = false, bool bold = false)
     {
@@ -119,14 +122,17 @@ public static class UiTheme
     }
 
     public static Rectangle DrawText(SpriteBatch spriteBatch, object value, double size, Color? color = null,
-        Vector2? position = null, string anchor = "topleft")
+        Vector2? position = null, string anchor = "topleft", bool bold = false)
     {
         string text = value.ToString() ?? "";
         var font = Font(size);
         Vector2 pos = position ?? Vector2.Zero;
         Vector2 measured = font.MeasureString(text);
         var rect = AnchoredRect(pos, measured, anchor);
-        font.DrawText(spriteBatch, text, new Vector2(rect.X, rect.Y), color ?? Text);
+        Color drawColor = color ?? Text;
+        if (bold)
+            font.DrawText(spriteBatch, text, new Vector2(rect.X + 1, rect.Y), drawColor);
+        font.DrawText(spriteBatch, text, new Vector2(rect.X, rect.Y), drawColor);
         return rect;
     }
 

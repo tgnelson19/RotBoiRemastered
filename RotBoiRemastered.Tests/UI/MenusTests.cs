@@ -13,8 +13,44 @@ namespace RotBoiRemastered.Tests.UI;
 /// left to visual smoke testing, same as the rest of this port's UI layer.
 /// </summary>
 [Collection("GameProfileState")]
-public class MenusTests
+public class MenusTests : IDisposable
 {
+    private readonly Dictionary<string, Keys?> _originalBindings;
+    private readonly string _originalSavePath;
+    private readonly GameProfileData _originalProfile;
+    private readonly string _tempDir;
+
+    // GameProfile.SavePath now defaults to a real per-user AppData path
+    // (see GameProfile.cs) rather than a working-directory-relative one, so
+    // this class -- like KeybindsTests -- must redirect to a scratch file
+    // and reset Profile/Bindings to defaults before every test. Without
+    // this, a machine with a real saved profile.json (e.g. one where
+    // "restart" was ever explicitly unbound) would make
+    // HandlePause_RestartKeybind_ReturnsRestart fail by loading that real,
+    // non-default state instead of Keybinds.ActionDefaults.
+    public MenusTests()
+    {
+        _originalBindings = new Dictionary<string, Keys?>(Keybinds.Bindings);
+        _originalSavePath = GameProfile.SavePath;
+        _originalProfile = GameProfile.Profile;
+        _tempDir = Directory.CreateTempSubdirectory("rotboi-menus-tests-").FullName;
+        GameProfile.SavePath = Path.Combine(_tempDir, "profile.json");
+        GameProfile.Profile = new GameProfileData();
+        Keybinds.Bindings.Clear();
+        foreach (var (actionId, defaultKey) in Keybinds.ActionDefaults)
+            Keybinds.Bindings[actionId] = defaultKey;
+    }
+
+    public void Dispose()
+    {
+        Keybinds.Bindings.Clear();
+        foreach (var (key, value) in _originalBindings)
+            Keybinds.Bindings[key] = value;
+        GameProfile.SavePath = _originalSavePath;
+        GameProfile.Profile = _originalProfile;
+        Directory.Delete(_tempDir, recursive: true);
+    }
+
     [Fact]
     public void HandlePause_Escape_ReturnsResume()
     {

@@ -66,6 +66,8 @@ public class RotBoiGame : Game
         Window.ClientSizeChanged += (_, _) =>
             _session?.Resize(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
         base.Initialize();
+        if (GameProfile.Profile.Fullscreen)
+            ApplyFullscreen(true, persist: false);
     }
 
     protected override void LoadContent()
@@ -155,15 +157,21 @@ public class RotBoiGame : Game
         base.Update(gameTime);
     }
 
-    private void ToggleFullscreen()
+    private void ToggleFullscreen() => ApplyFullscreen(!_graphics.IsFullScreen, persist: true);
+
+    /// <summary>
+    /// Applies (and, once GraphicsDevice exists, persists) fullscreen state
+    /// directly rather than toggling blindly -- lets both the F11 hotkey and
+    /// the pause menu's OPTIONS-tab checkbox drive the same idempotent path,
+    /// and lets startup restore a saved preference without needing a spurious
+    /// toggle. `persist` is false on the very first call from Initialize
+    /// (before GraphicsDevice/GraphicsAdapter are guaranteed ready and before
+    /// there's anything new to save back to a profile that already has this
+    /// exact value).
+    /// </summary>
+    private void ApplyFullscreen(bool fullscreen, bool persist)
     {
-        if (_graphics.IsFullScreen)
-        {
-            _graphics.IsFullScreen = false;
-            _graphics.PreferredBackBufferWidth = _windowedWidth;
-            _graphics.PreferredBackBufferHeight = _windowedHeight;
-        }
-        else
+        if (fullscreen)
         {
             _windowedWidth = Math.Max(640, GraphicsDevice.Viewport.Width);
             _windowedHeight = Math.Max(360, GraphicsDevice.Viewport.Height);
@@ -173,8 +181,19 @@ public class RotBoiGame : Game
             _graphics.PreferredBackBufferHeight = mode.Height;
             _graphics.IsFullScreen = true;
         }
+        else
+        {
+            _graphics.IsFullScreen = false;
+            _graphics.PreferredBackBufferWidth = _windowedWidth;
+            _graphics.PreferredBackBufferHeight = _windowedHeight;
+        }
         _graphics.ApplyChanges();
         _session?.Resize(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        if (persist)
+        {
+            GameProfile.Profile.Fullscreen = fullscreen;
+            GameProfile.SaveProfile();
+        }
     }
 
     /// <summary>Ported from main.py's baseInputCollection()'s event-drain shape, using polled state diffs instead of a pygame event queue.</summary>
@@ -359,6 +378,11 @@ public class RotBoiGame : Game
             _session.State.AutoFire = GameProfile.Profile.AutoFire;
             _session.Resize(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
         }
+        // The OPTIONS-tab checkbox flips GameProfile.Profile.Fullscreen directly
+        // (same as any other GameplayOptions toggle); reconcile the actual
+        // window state against it here, same path F11's ToggleFullscreen uses.
+        if (GameProfile.Profile.Fullscreen != _graphics.IsFullScreen)
+            ApplyFullscreen(GameProfile.Profile.Fullscreen, persist: false);
         switch (action)
         {
             case MenuAction.Resume:
@@ -469,8 +493,8 @@ public class RotBoiGame : Game
         session.DrawEnemyProjectiles(_spriteBatch);
         session.DrawDamageTexts(_spriteBatch);
         session.DrawExperience(_spriteBatch);
-        session.DrawLootCrates(_spriteBatch);
         _spriteBatch.End();
+        session.DrawLootCrates(_spriteBatch, GraphicsDevice);
 
         _spriteBatch.Begin();
         session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);

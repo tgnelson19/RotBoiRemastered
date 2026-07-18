@@ -924,9 +924,23 @@ public sealed class GameSession
         }
     }
 
-    /// <summary>Ported from character.py's updateLootCrates(). Viewport clipping against the (not yet built) HUD sidebar is deferred.</summary>
-    public void DrawLootCrates(SpriteBatch spriteBatch)
+    private static readonly RasterizerState LootCrateScissorRasterizerState = new() { ScissorTestEnable = true, CullMode = CullMode.None };
+
+    /// <summary>
+    /// Ported from character.py's updateLootCrates(): clips crate drawing to
+    /// the arena viewport so a crate can't paint over the HUD sidebar. The
+    /// rect-intersects culling this used to rely on only skipped crates
+    /// whose bounding box missed the viewport entirely -- one straddling the
+    /// boundary still bled its far side into the sidebar, since culling
+    /// isn't clipping. Opens/closes its own scissor-scoped SpriteBatch pass,
+    /// same contract as DrawBackground/ArenaRenderer.Draw -- the caller must
+    /// not have a batch already open when calling this.
+    /// </summary>
+    public void DrawLootCrates(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
     {
+        var previousScissor = graphicsDevice.ScissorRectangle;
+        graphicsDevice.ScissorRectangle = new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight);
+        spriteBatch.Begin(rasterizerState: LootCrateScissorRasterizerState);
         foreach (var crate in State.LootCrateList)
         {
             var screen = Camera.ApplyZoom(Camera.WorldToScreen(new Vector2(crate.WorldX, crate.WorldY), PlayerWorldCenter, ScreenShake));
@@ -934,6 +948,8 @@ public sealed class GameSession
             if (rect.Intersects(new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight)))
                 crate.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
         }
+        spriteBatch.End();
+        graphicsDevice.ScissorRectangle = previousScissor;
     }
 
     /// <summary>Ported from character.py's crateInteractionForPlayer(). The drag-in-progress guard is dropped (InformationSheet's drag UI is deferred).</summary>

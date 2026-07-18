@@ -429,7 +429,7 @@ public sealed class Beaudis : Enemy
         else if (PhaseAnnouncementTimer > 0)
         {
             UiTheme.DrawText(spriteBatch, $"PHASE {Phase} // {PhaseLabel}", Math.Max(11, Size * .13), PhaseAccent,
-                new Vector2(rect.Center.X, screenPosition.Y - 10), "midbottom");
+                new Vector2(rect.Center.X, screenPosition.Y - 10), "midbottom", bold: true);
         }
     }
 }
