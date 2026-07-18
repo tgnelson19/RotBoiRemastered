@@ -10,6 +10,9 @@ namespace RotBoiRemastered.Entities;
 /// <summary>Ported from enemy.py's HitResult frozen dataclass.</summary>
 public sealed record HitResult(bool Applied, bool Killed, double Amount = 0, bool Blocked = false);
 
+/// <summary>Separates deliberate projectile impacts from periodic status damage.</summary>
+public enum DamageSource { Direct, DamageOverTime }
+
 /// <summary>
 /// Everything an Enemy subclass's Update might need beyond its own state and
 /// the player's position. Ported from enemyTypes.py's reliance on
@@ -134,6 +137,9 @@ public class Enemy
     public bool AtomicSpawnGroup { get; set; }
     public float? AttackCooldownMax { get; set; }
     public float? AttackCooldown { get; set; }
+    public Dictionary<string, StatusEffectState> StatusEffects { get; } = new();
+    public double StatusDotBuffer { get; set; }
+    public double StatusControlResistance { get; set; }
 
     /// <summary>
     /// Set by a boss/miniboss to request that GameSession purge live enemy
@@ -445,7 +451,7 @@ public class Enemy
         return new[] { ("body", new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size)) };
     }
 
-    public virtual HitResult TakeDamage(double amount, string partId = "body")
+    public virtual HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         int rounded = (int)Math.Round(amount);
         Hp -= rounded;

@@ -47,14 +47,14 @@ public class RunStateTests
     }
 
     [Fact]
-    public void CombinePlayerStats_ClampsAttackCooldownToAtLeastOne()
+    public void CombinePlayerStats_ClampsAttackCooldownToReadableFloor()
     {
         var state = new RunState();
         state.Stats["Attack Speed"].Additive.Add(-1000);
 
         state.CombinePlayerStats();
 
-        Assert.Equal(1, state.AttackCooldownStat);
+        Assert.Equal(5, state.AttackCooldownStat);
     }
 
     [Fact]

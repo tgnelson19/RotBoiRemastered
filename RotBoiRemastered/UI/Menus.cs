@@ -13,7 +13,7 @@ namespace RotBoiRemastered.UI;
 /// deferred Player.cs/main-loop state machine) is responsible for actually
 /// transitioning GameState and calling resetAllStats() for Restart.
 /// </summary>
-public enum MenuAction { None, Resume, Restart, ReturnToTitle }
+public enum MenuAction { None, Resume, Restart, Extract, ReturnToTitle }
 
 /// <summary>
 /// Everything the results screen needs from the run's final state. Ported
@@ -117,18 +117,29 @@ public sealed class Menus
     private bool Activated(string name, Point mousePosition, bool mousePressed) =>
         mousePressed && _buttons.TryGetValue(name, out var rect) && rect.Contains(mousePosition);
 
-    public void DrawPause(SpriteBatch spriteBatch, int screenWidth, int screenHeight, Point mousePosition, bool mouseDown)
+    public void DrawPause(SpriteBatch spriteBatch, int screenWidth, int screenHeight, Point mousePosition, bool mouseDown,
+        bool canExtract = false, bool soulContext = false, bool settingsOnly = false)
     {
-        float scale = Backdrop(spriteBatch, screenWidth, screenHeight, "RUN PAUSED", "Take a breath. Combat is fully stopped.");
+        _buttons.Clear();
+        string title = settingsOnly ? "SETTINGS" : soulContext ? "SOUL PAUSED" : "RUN PAUSED";
+        string subtitle = settingsOnly ? "Tune the game before entering the rot." : soulContext
+            ? "The sanctuary will wait for you." : "Take a breath. Combat is fully stopped.";
+        float scale = Backdrop(spriteBatch, screenWidth, screenHeight, title, subtitle);
         float width = Math.Min(screenWidth * .68f, 900 * scale);
         float left = (screenWidth - width) / 2f;
         float buttonW = width * .34f, buttonH = 58 * scale;
         Button(spriteBatch, "resume", new Rectangle((int)left, (int)(screenHeight * .25f), (int)buttonW, (int)buttonH),
-            "RESUME", mousePosition, mouseDown, UiTheme.Green, "ESC");
-        Button(spriteBatch, "restart", new Rectangle((int)left, (int)(screenHeight * .25f + 72 * scale), (int)buttonW, (int)buttonH),
-            "RESTART RUN", mousePosition, mouseDown, UiTheme.Gold, "R");
-        Button(spriteBatch, "title", new Rectangle((int)left, (int)(screenHeight * .25f + 144 * scale), (int)buttonW, (int)buttonH),
-            "RETURN TO TITLE", mousePosition, mouseDown, UiTheme.Red, "Q");
+            settingsOnly ? "BACK" : soulContext ? "RETURN TO SOUL" : "RESUME", mousePosition, mouseDown, UiTheme.Green, "ESC");
+        if (!soulContext && !settingsOnly)
+        {
+            Button(spriteBatch, "restart", new Rectangle((int)left, (int)(screenHeight * .25f + 72 * scale), (int)buttonW, (int)buttonH),
+                "RESTART RUN", mousePosition, mouseDown, UiTheme.Gold, "R");
+            Button(spriteBatch, "extract", new Rectangle((int)left, (int)(screenHeight * .25f + 216 * scale), (int)buttonW, (int)buttonH),
+                canExtract ? "EXTRACT EQUIPMENT" : "EXTRACTION LOCKED", mousePosition, mouseDown, UiTheme.Green, "X", canExtract);
+        }
+        if (!settingsOnly)
+            Button(spriteBatch, "title", new Rectangle((int)left, (int)(screenHeight * .25f + 144 * scale), (int)buttonW, (int)buttonH),
+                "RETURN TO TITLE", mousePosition, mouseDown, UiTheme.Red, "Q");
 
         var settings = new Rectangle((int)(left + width * .40f), (int)(screenHeight * .25f), (int)(width * .60f), (int)(screenHeight * .48f));
         UiTheme.DrawPanel(spriteBatch, settings, UiTheme.Panel, UiTheme.Blue, shadow: 6);
@@ -202,7 +213,8 @@ public sealed class Menus
             new Vector2(screenWidth / 2f, screenHeight * .82f), "center");
     }
 
-    public MenuAction HandlePause(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mouseDown, bool mousePressed)
+    public MenuAction HandlePause(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mouseDown, bool mousePressed,
+        bool canExtract = false, bool soulContext = false, bool settingsOnly = false)
     {
         if (_rebindingAction is not null)
         {
@@ -225,10 +237,12 @@ public sealed class Menus
         // the keysPressed passed in here instead keeps this method's input
         // fully explicit rather than depending on that global staying in sync.
         var restartKey = Keybinds.KeyFor("restart");
-        if ((restartKey.HasValue && keysPressed.Contains(restartKey.Value)) || Activated("restart", mousePosition, mousePressed))
+        if (!soulContext && !settingsOnly && ((restartKey.HasValue && keysPressed.Contains(restartKey.Value)) || Activated("restart", mousePosition, mousePressed)))
             return MenuAction.Restart;
-        if (keysPressed.Contains(Keys.Q) || Activated("title", mousePosition, mousePressed))
+        if (!settingsOnly && (keysPressed.Contains(Keys.Q) || Activated("title", mousePosition, mousePressed)))
             return MenuAction.ReturnToTitle;
+        if (!soulContext && !settingsOnly && canExtract && (keysPressed.Contains(Keys.X) || Activated("extract", mousePosition, mousePressed)))
+            return MenuAction.Extract;
 
         foreach (var (key, _) in Tabs)
         {

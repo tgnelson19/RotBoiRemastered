@@ -11,4 +11,5 @@ public enum GameState
     Leveling,
     Paused,
     Results,
+    Soul,
 }

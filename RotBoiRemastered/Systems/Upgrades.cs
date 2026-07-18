@@ -54,7 +54,7 @@ public static class Upgrades
 
     public static readonly IReadOnlyList<UpgradeDefinition> Definitions = new[]
     {
-        new UpgradeDefinition("Defense", "survival", 100, 0.12, "Reduce incoming damage"),
+        new UpgradeDefinition("Defense", "survival", 8, 0.10, "Reduce incoming damage (maximum 90)"),
         new UpgradeDefinition("Health", "survival", 100, 0.10, "Increase current and maximum health"),
         new UpgradeDefinition("Vitality", "survival", 5, 0.12, "Recover health continuously"),
         new UpgradeDefinition("Bullet Pierce", "volley", 0.25, 0.12, "Shots pass through more foes"),
@@ -67,7 +67,7 @@ public static class Upgrades
         new UpgradeDefinition("Bullet Size", "power", 4, 0.12, "Make shots easier to land"),
         new UpgradeDefinition("Player Speed", "survival", 0.2, 0.16, "Improve repositioning"),
         new UpgradeDefinition("Crit Chance", "critical", 0.08, 0.04, "Land critical hits more often"),
-        new UpgradeDefinition("Crit Damage", "critical", 40, 0.16, "Critical hits deal more damage"),
+        new UpgradeDefinition("Crit Damage", "critical", 0.25, 0.12, "Critical hits deal more damage"),
         new UpgradeDefinition("Aura Size", "harvest", 8, 0.14, "Collect experience from farther away"),
         new UpgradeDefinition("Aura Strength", "harvest", 0.8, 0.14, "Pull experience in faster"),
         new UpgradeDefinition("Exp Multiplier", "harvest", 0.2, 0.16, "Gain more experience per foe"),
@@ -151,12 +151,17 @@ public static class Upgrades
     public static string FormatCardValue(UpgradeCard card)
     {
         double modifier = CardModifier(card);
-        string formatted = modifier.ToString("G3", CultureInfo.InvariantCulture);
         if (card.MathType == "additive")
         {
+            if (card.Definition.Name == "Attack Speed")
+                modifier *= -1;
+            string formatted = modifier.ToString("G3", CultureInfo.InvariantCulture);
             string sign = modifier >= 0 ? "+" : "";
             return $"{sign}{formatted}";
         }
-        return $"x{formatted}";
+        double percent = (modifier - 1) * 100;
+        if (card.Definition.Name == "Attack Speed")
+            percent *= -1;
+        return $"{(percent >= 0 ? "+" : "")}{percent.ToString("0.##", CultureInfo.InvariantCulture)}%";
     }
 }

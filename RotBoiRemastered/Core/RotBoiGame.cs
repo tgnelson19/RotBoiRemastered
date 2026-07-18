@@ -34,6 +34,7 @@ public class RotBoiGame : Game
 
     private readonly Menus _menus = new();
     private readonly TitleScreen _titleScreen = new();
+    private readonly SoulHub _soulHub = new();
     private GameSession? _session;
     private GameState _pauseReturnState = GameState.GameRun;
 
@@ -98,9 +99,14 @@ public class RotBoiGame : Game
         bool enteredPause = false;
         if (InputState.KeysPressed.Contains(Keys.Escape) || InputState.ControllerPausePressed)
         {
-            if (State == GameState.GameRun)
+            if (State == GameState.Soul && _soulHub.OverlayOpen)
             {
-                _pauseReturnState = GameState.GameRun;
+                _soulHub.CloseOverlay();
+                enteredPause = true;
+            }
+            else if (State == GameState.GameRun || State == GameState.Soul)
+            {
+                _pauseReturnState = State;
                 State = GameState.Paused;
                 _session?.InformationSheet.CancelDrag();
                 enteredPause = true;
@@ -140,6 +146,9 @@ public class RotBoiGame : Game
                 break;
             case GameState.Results:
                 UpdateResults();
+                break;
+            case GameState.Soul:
+                UpdateSoul(gameTime);
                 break;
         }
 
@@ -224,8 +233,13 @@ public class RotBoiGame : Game
     /// <summary>Ported from main.py's update_camera_controls().</summary>
     private void UpdateCameraControls(GameTime gameTime)
     {
-        if (State != GameState.GameRun || _session is null)
+        if ((State != GameState.GameRun && State != GameState.Soul) || _session is null)
             return;
+        if (Keybinds.Pressed("camera_reset"))
+        {
+            _session.Camera.SetAngle(0);
+            return;
+        }
         int direction = (Keybinds.Held("rotate_right") ? 1 : 0) - (Keybinds.Held("rotate_left") ? 1 : 0);
         if (direction == 0)
             return;
@@ -245,10 +259,27 @@ public class RotBoiGame : Game
                     _session = new GameSession(battleground, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
                 else
                     _session.ResetAll(battleground);
+                _session.LoadStartingEquipment();
                 State = GameState.GameRun;
                 break;
             }
+            case TitleAction.EnterSoul:
+            {
+                var battleground = GamePaths.ActivateSelected();
+                if (_session is null)
+                    _session = new GameSession(battleground, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+                else
+                    _session.ResetAll(battleground);
+                _soulHub.Enter(_session);
+                State = GameState.Soul;
+                break;
+            }
+            case TitleAction.Settings:
+                _pauseReturnState = GameState.TitleScreen;
+                State = GameState.Paused;
+                break;
             case TitleAction.Quit:
+                GameProfile.SaveProfile();
                 Exit();
                 break;
         }
@@ -313,20 +344,35 @@ public class RotBoiGame : Game
 
     private void UpdatePaused()
     {
-        var action = _menus.HandlePause(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
+        bool soulContext = _pauseReturnState == GameState.Soul;
+        bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
+        bool canExtract = _session is not null && !soulContext && _session.State.BeaudisDefeated && !_session.State.GameCompleted;
+        var action = _menus.HandlePause(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown,
+            InputState.MousePressed, canExtract, soulContext, settingsOnly);
         // Menus edits the persisted default; the live run keeps a cached copy.
-        _session!.State.AutoFire = GameProfile.Profile.AutoFire;
+        if (_session is not null)
+            _session.State.AutoFire = GameProfile.Profile.AutoFire;
         switch (action)
         {
             case MenuAction.Resume:
                 State = _pauseReturnState;
                 break;
             case MenuAction.Restart:
-                _session!.ResetAll(GamePaths.ActivateSelected());
+                if (_session is null) break;
+                GameProfile.SaveProfile();
+                _session.ResetAll(GamePaths.ActivateSelected());
                 State = GameState.GameRun;
                 break;
             case MenuAction.ReturnToTitle:
+                GameProfile.SaveProfile();
                 State = GameState.TitleScreen;
+                break;
+            case MenuAction.Extract:
+                if (_session is null) break;
+                _session.State.RunOutcome = "EXTRACTED";
+                MetaProgression.RecordExtraction(_session.State, GamePaths.Selected().Key, completed: false);
+                GameProfile.RecordRun(_session.State.CurrentLevel, _session.State.NumOfEnemiesKilled);
+                State = GameState.Results;
                 break;
         }
     }
@@ -344,6 +390,23 @@ public class RotBoiGame : Game
                 State = GameState.TitleScreen;
                 break;
         }
+    }
+
+    private void UpdateSoul(GameTime gameTime)
+    {
+        var session = _session!;
+        _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
+        if (_soulHub.OverlayOpen)
+            return;
+        session.MovePlayer(Keybinds.Held("move_left"), Keybinds.Held("move_right"), Keybinds.Held("move_up"), Keybinds.Held("move_down"),
+            Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
+        var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
+        bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
+        if (controllerFiring)
+            aim = session.Camera.Lock + InputState.ControllerAim * GraphicsDevice.Viewport.Width;
+        session.HandleBulletCreation(aim, InputState.MouseDown, dragInProgress: false, controllerFiring: controllerFiring);
+        session.UpdateBullets();
+        _soulHub.Update(session, gameTime.ElapsedGameTime.TotalSeconds);
     }
 
     // ----- Draw -----
@@ -366,6 +429,9 @@ public class RotBoiGame : Game
                 break;
             case GameState.Results:
                 DrawResults();
+                break;
+            case GameState.Soul:
+                DrawSoul();
                 break;
         }
 
@@ -423,7 +489,11 @@ public class RotBoiGame : Game
     {
         GraphicsDevice.Clear(Color.Black);
         _spriteBatch.Begin();
-        _menus.DrawPause(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height, InputState.MousePosition, InputState.MouseDown);
+        bool soulContext = _pauseReturnState == GameState.Soul;
+        bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
+        bool canExtract = _session is not null && !soulContext && _session.State.BeaudisDefeated && !_session.State.GameCompleted;
+        _menus.DrawPause(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height,
+            InputState.MousePosition, InputState.MouseDown, canExtract, soulContext, settingsOnly);
         _spriteBatch.End();
     }
 
@@ -441,6 +511,19 @@ public class RotBoiGame : Game
         };
         _spriteBatch.Begin();
         _menus.DrawResults(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height, snapshot, InputState.MousePosition, InputState.MouseDown);
+        _spriteBatch.End();
+    }
+
+    private void DrawSoul()
+    {
+        var session = _session!;
+        GraphicsDevice.Clear(Color.Black);
+        session.DrawBackgroundFull(_spriteBatch, GraphicsDevice);
+        _spriteBatch.Begin();
+        session.DrawBullets(_spriteBatch);
+        session.DrawPlayer(_spriteBatch);
+        session.DrawDamageTexts(_spriteBatch);
+        _soulHub.DrawWorld(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
         _spriteBatch.End();
     }
 }

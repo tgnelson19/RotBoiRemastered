@@ -32,10 +32,10 @@ public sealed class ParentEnemy : Enemy
         AttackCooldown = Simulation.FrameRate * (float)(_rng.NextDouble() * (1.8 - 1.0) + 1.0);
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         double previousRatio = (double)Hp / MaxHp;
-        var result = base.TakeDamage(amount, partId);
+        var result = base.TakeDamage(amount, partId, source);
         double currentRatio = Math.Max(0, Hp) / (double)MaxHp;
         foreach (var threshold in Thresholds)
         {

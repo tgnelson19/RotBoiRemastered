@@ -42,6 +42,12 @@ public class KeybindsTests : IDisposable
     }
 
     [Fact]
+    public void CameraReset_DefaultsToX()
+    {
+        Assert.Equal(Keys.X, Keybinds.ActionDefaults["camera_reset"]);
+    }
+
+    [Fact]
     public void SetBinding_ClearsAnyOtherActionUsingThatKey()
     {
         Keybinds.SetBinding("move_up", Keys.Up);

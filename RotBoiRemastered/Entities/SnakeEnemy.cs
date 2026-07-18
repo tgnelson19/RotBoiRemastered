@@ -184,9 +184,14 @@ public sealed class SnakeEnemy : Enemy
         return hitboxes;
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "head")
+    public override HitResult TakeDamage(double amount, string partId = "head", DamageSource source = DamageSource.Direct)
     {
         int rounded = (int)Math.Round(amount);
+        if (source == DamageSource.DamageOverTime)
+        {
+            Hp -= rounded;
+            return new HitResult(true, Hp <= 0, rounded);
+        }
         if (partId == "head")
         {
             if (_segments.Count > 0)

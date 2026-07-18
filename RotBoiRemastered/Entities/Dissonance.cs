@@ -352,7 +352,7 @@ public sealed class Dissonance : Enemy
         (float)(Math.Sin(Age * .73) * ShakeStrength * shakeScale),
         (float)(Math.Cos(Age * .61) * ShakeStrength * .65 * shakeScale));
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (Dying)
             return new HitResult(false, false, 0, true);
@@ -381,7 +381,8 @@ public sealed class Dissonance : Enemy
             double multiplier = 1.35 + Fracture * .02;
             int applied = (int)Math.Round(amount * multiplier);
             Hp -= applied;
-            Fracture = Math.Min(MaxFracture, Fracture + amount * .0035);
+            if (source == DamageSource.Direct)
+                Fracture = Math.Min(MaxFracture, Fracture + amount * .0035);
             HitFlash = .12;
             var center = Center();
             BurstParticles(center.X, center.Y, UiTheme.Cream, 4, 1.0f);
@@ -391,9 +392,10 @@ public sealed class Dissonance : Enemy
         int normalApplied = (int)Math.Round(amount * .45);
         Hp -= normalApplied;
         HitFlash = .08;
-        double gained = Math.Max(MinimumStaggerPerHit, amount * StaggerPerDamage);
-        Stagger = Math.Min(MaxStagger, Stagger + gained);
-        if (Phase > 1 && PhaseElapsed <= .75)
+        double gained = source == DamageSource.Direct ? Math.Max(MinimumStaggerPerHit, amount * StaggerPerDamage) : 0;
+        if (source == DamageSource.Direct)
+            Stagger = Math.Min(MaxStagger, Stagger + gained);
+        if (source == DamageSource.Direct && Phase > 1 && PhaseElapsed <= .75)
         {
             RuneDisruption += gained;
             if (RuneDisruption >= RuneDisruptionNeeded)
@@ -408,8 +410,9 @@ public sealed class Dissonance : Enemy
                 }
             }
         }
-        StaggerDecayTimer = StaggerDecayDelay;
-        if (Stagger >= MaxStagger)
+        if (source == DamageSource.Direct)
+            StaggerDecayTimer = StaggerDecayDelay;
+        if (source == DamageSource.Direct && Stagger >= MaxStagger)
             TriggerStagger();
         Hp = Math.Max(0, Hp);
         return new HitResult(true, false, normalApplied);

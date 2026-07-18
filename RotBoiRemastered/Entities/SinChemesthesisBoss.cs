@@ -199,7 +199,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         }
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (PhaseProtectionTimer > 0 || ActTransitionTimer > 0)
             return new HitResult(false, false, 0, true);
@@ -207,8 +207,8 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             return DamageCrystal(partId, amount);
         int previousHp = Hp;
         double multiplier = IsStaggered ? 1.25 : 1.0;
-        var result = base.TakeDamage(amount * multiplier, partId);
-        if (!IsStaggered)
+        var result = base.TakeDamage(amount * multiplier, partId, source);
+        if (source == DamageSource.Direct && !IsStaggered)
         {
             Stagger = Math.Min(MaxStagger, Stagger + Math.Max(MinimumStaggerPerHit, amount * .012));
             if (Stagger >= MaxStagger)

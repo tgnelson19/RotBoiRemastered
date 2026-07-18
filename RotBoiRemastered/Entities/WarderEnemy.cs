@@ -73,14 +73,14 @@ public sealed class WarderEnemy : WanderingRangedEnemy
         return withShield;
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (partId == "shield" && ShieldHp > 0)
         {
             ShieldHp -= amount;
             return new HitResult(true, false, amount, true);
         }
-        return base.TakeDamage(amount, partId);
+        return base.TakeDamage(amount, partId, source);
     }
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)

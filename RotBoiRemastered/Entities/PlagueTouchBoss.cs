@@ -150,7 +150,7 @@ public class PlagueTouchBoss : PathChaseBoss
         AttackCooldown = 0f;
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (partId.StartsWith("portal:"))
         {
@@ -165,7 +165,7 @@ public class PlagueTouchBoss : PathChaseBoss
             }
         }
         int previousHp = Hp;
-        var result = base.TakeDamage(amount, partId);
+        var result = base.TakeDamage(amount, partId, source);
         if (!DebugPhaseLocked && Phase < Config.PhaseLabels.Count)
         {
             double gate = MaxHp * (double)(Config.PhaseLabels.Count - Phase) / Config.PhaseLabels.Count;

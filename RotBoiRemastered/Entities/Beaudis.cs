@@ -174,14 +174,15 @@ public sealed class Beaudis : Enemy
         return choices[_rng.Next(choices.Count)];
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (Dying || SurvivalActive || _phaseProtectionTimer > 0)
             return new HitResult(false, false, 0, true);
         double multiplier = IsStaggered ? 1.25 : 1.0;
         int applied = (int)Math.Round(amount * multiplier);
         Hp -= applied;
-        Stagger = Math.Min(MaxStagger, Stagger + Math.Max(MinimumStaggerPerHit, amount * .014));
+        if (source == DamageSource.Direct)
+            Stagger = Math.Min(MaxStagger, Stagger + Math.Max(MinimumStaggerPerHit, amount * .014));
         if (Stagger >= MaxStagger && !IsStaggered)
         {
             IsStaggered = true;

@@ -97,6 +97,7 @@ public sealed class InformationSheet
     private int _padding;
 
     private string? _tooltip;
+    private ItemDrop? _tooltipItem;
     private ItemDrop? _draggingItem;
     private DragSource? _draggingSource;
     private Dictionary<string, Rectangle> _equipmentSlotRects = new();
@@ -356,7 +357,10 @@ public sealed class InformationSheet
             bool draggingThis = _draggingSource is EquipmentDragSource eq && eq.Key == key;
             if (item is not null && !draggingThis)
             {
-                ItemCards.DrawItemCard(spriteBatch, slotRect, item.SlotType, item.Rarity, hovered: slotRect.Contains(mousePosition));
+                bool hovered = slotRect.Contains(mousePosition);
+                ItemCards.DrawItemCard(spriteBatch, slotRect, item, hovered);
+                if (hovered)
+                    _tooltipItem = item;
             }
             else
             {
@@ -399,7 +403,10 @@ public sealed class InformationSheet
                 && ReferenceEquals(crateSource.Crate, crate) && crateSource.Index == index;
             if (!draggingThis)
             {
-                ItemCards.DrawItemCard(spriteBatch, slotRect, item.SlotType, item.Rarity, hovered: slotRect.Contains(mousePosition));
+                bool hovered = slotRect.Contains(mousePosition);
+                ItemCards.DrawItemCard(spriteBatch, slotRect, item, hovered);
+                if (hovered)
+                    _tooltipItem = item;
             }
             else
             {
@@ -472,8 +479,8 @@ public sealed class InformationSheet
                 "The exact number of volleys fired each second."),
             ("Bullet Count", "Projectiles", ShotText(state), null,
                 "Fractional projectile count becomes a chance to fire one bonus shot."),
-            ("Crit Chance", "Critical", $"{state.CritChance * 100:F0}% for x{state.CritDamage:F1}", null,
-                "Critical chance and the damage multiplier applied when it succeeds."),
+            ("Crit Chance", "Critical", $"{state.CritChance * 100:F0}% chance / +{Math.Max(0, (state.CritDamage - 1) * 100):F0}% damage", null,
+                "Critical chance and the bonus damage applied when it succeeds."),
         };
         if (_mode == "expanded")
         {
@@ -564,6 +571,11 @@ public sealed class InformationSheet
 
     private void DrawTooltip(SpriteBatch spriteBatch, Point mousePosition)
     {
+        if (_tooltipItem is not null)
+        {
+            DrawItemTooltip(spriteBatch, mousePosition, _tooltipItem);
+            return;
+        }
         if (string.IsNullOrEmpty(_tooltip))
             return;
         int width = Math.Min(Px(250), (int)(_screenWidth * .24));
@@ -593,6 +605,56 @@ public sealed class InformationSheet
                 new Vector2(rect.X + Px(9), rect.Y + Px(7 + index * 13)));
     }
 
+    private void DrawItemTooltip(SpriteBatch spriteBatch, Point mousePosition, ItemDrop item)
+    {
+        var effects = Items.Effects(item);
+        var statuses = item.Definition.StatusChances ?? new Dictionary<string, double>();
+        int width = Math.Min(Px(320), (int)(_screenWidth * .34));
+        int headerHeight = Px(74);
+        int rowHeight = Px(38);
+        int height = headerHeight + effects.Count * rowHeight + statuses.Count * Px(30) + Px(48);
+        var rect = new Rectangle(mousePosition.X - width - Px(12), mousePosition.Y + Px(10), width, height);
+        rect = ClampToBounds(rect, new Rectangle(0, 0, _screenWidth, _totalHeight));
+        Color rarity = UiTheme.RarityColors.TryGetValue(item.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, rarity, shadow: 7);
+
+        var symbolRect = new Rectangle(rect.X + Px(12), rect.Y + Px(12), Px(50), Px(50));
+        Primitives2D.FillRect(spriteBatch, symbolRect, rarity);
+        Primitives2D.RectOutline(spriteBatch, symbolRect, UiTheme.Ink, Px(2));
+        var symbolInner = symbolRect;
+        symbolInner.Inflate(-Px(7), -Px(7));
+        ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, UiTheme.Ink, item.Definition.VisualKind);
+        UiTheme.DrawText(spriteBatch, item.Name.ToUpperInvariant(), Px(14), UiTheme.Text,
+            new Vector2(symbolRect.Right + Px(11), rect.Y + Px(14)));
+        UiTheme.DrawText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.SlotType.ToUpperInvariant()}", Px(8), rarity,
+            new Vector2(symbolRect.Right + Px(11), rect.Y + Px(40)));
+
+        int y = rect.Y + headerHeight;
+        foreach (var effect in effects)
+        {
+            var row = new Rectangle(rect.X + Px(10), y, rect.Width - Px(20), rowHeight - Px(4));
+            Primitives2D.FillRect(spriteBatch, row, UiTheme.Panel);
+            var icon = new Rectangle(row.X + Px(6), row.Y + Px(4), Px(27), Px(27));
+            StatCards.DrawStatSymbol(spriteBatch, effect.Stat, icon, rarity);
+            UiTheme.DrawText(spriteBatch, effect.Stat.ToUpperInvariant(), Px(8), UiTheme.Muted,
+                new Vector2(icon.Right + Px(8), row.Center.Y), "midleft");
+            Color valueColor = effect.IsBeneficial ? UiTheme.Green : UiTheme.Red;
+            UiTheme.DrawText(spriteBatch, effect.DisplayValue, Px(15), valueColor,
+                new Vector2(row.Right - Px(8), row.Center.Y), "midright");
+            y += rowHeight;
+        }
+        foreach (var (kind, chance) in statuses)
+        {
+            double scaled = chance * Items.RarityPower(item.Rarity) * 100;
+            UiTheme.DrawText(spriteBatch, $"✦  {kind.ToUpperInvariant()}  {scaled:0}% ON HIT", Px(10), UiTheme.Green,
+                new Vector2(rect.X + Px(16), y + Px(5)));
+            y += Px(30);
+        }
+        Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(12), y), new Vector2(rect.Right - Px(12), y), UiTheme.Border, 1);
+        UiTheme.DrawText(spriteBatch, $"“{item.Definition.Description}”", Px(9), UiTheme.Cream,
+            new Vector2(rect.X + Px(15), y + Px(12)));
+    }
+
     /// <summary>
     /// Draws the whole sidebar and refreshes every hit-test rect used by
     /// <see cref="HandleDrag"/>. Call once per frame, before HandleDrag --
@@ -602,6 +664,7 @@ public sealed class InformationSheet
         Point mousePosition)
     {
         _tooltip = null;
+        _tooltipItem = null;
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
 
@@ -620,7 +683,7 @@ public sealed class InformationSheet
         {
             int slotSize = Px(38);
             var iconRect = new Rectangle(mousePosition.X - slotSize / 2, mousePosition.Y - slotSize / 2, slotSize, slotSize);
-            ItemCards.DrawItemCard(spriteBatch, iconRect, _draggingItem.SlotType, _draggingItem.Rarity, hovered: true);
+            ItemCards.DrawItemCard(spriteBatch, iconRect, _draggingItem, hovered: true);
         }
         else
         {
@@ -666,6 +729,7 @@ public sealed class InformationSheet
             return;
 
         ResolveDrop(state, playerWorldPosition, mousePosition);
+        state.CombinePlayerStats();
         _draggingItem = null;
         _draggingSource = null;
         DragInProgress = false;
@@ -700,6 +764,7 @@ public sealed class InformationSheet
             {
                 var displaced = state.Equipment[targetKey];
                 state.Equipment[targetKey] = item;
+                GameProfile.DiscoverItem(item.Name);
                 if (displaced is not null)
                 {
                     crateSource.Crate.Items[crateSource.Index] = displaced;

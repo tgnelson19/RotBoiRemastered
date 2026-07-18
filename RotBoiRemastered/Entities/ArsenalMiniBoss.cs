@@ -33,12 +33,12 @@ public sealed class ArsenalMiniBoss : Enemy
         TransitionCleanupOwner = $"miniboss_{_nextInstanceId++}";
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (Invulnerable)
             return new HitResult(false, false, 0, true);
         int previousPhase = Phase;
-        var result = base.TakeDamage(amount, partId);
+        var result = base.TakeDamage(amount, partId, source);
         if (result.Killed)
             return result;
         double ratio = (double)Hp / MaxHp;

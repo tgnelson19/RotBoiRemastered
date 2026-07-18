@@ -183,7 +183,7 @@ public sealed class RunState
     public Color BulletColor { get; } = new(125, 125, 125);
     public double BulletPierce { get; private set; }
     public double CritChance { get; private set; }
-    public int CritDamage { get; private set; }
+    public double CritDamage { get; private set; }
 
     public double Aura { get; private set; }
     public double AuraSpeed { get; private set; }
@@ -375,6 +375,15 @@ public sealed class RunState
             ["Aura Strength"] = new(AuraSpeed),
             ["Exp Multiplier"] = new(XpMult),
         };
+        MetaProgression.ApplySkills(this);
+        CombinePlayerStats();
+    }
+
+    public void SetEquipment(Dictionary<string, ItemDrop?> equipment)
+    {
+        foreach (string slot in Equipment.Keys.ToArray())
+            Equipment[slot] = equipment.GetValueOrDefault(slot);
+        CombinePlayerStats();
     }
 
     public void ResetUpgradeTracking()
@@ -418,26 +427,26 @@ public sealed class RunState
     {
         int previousMaxHealth = MaxHealthPoints;
 
-        ProjectileCount = Stats["Bullet Count"].Combined;
+        double Equipped(string stat) => Items.AdjustStat(stat, Stats[stat].Combined, Equipment.Values);
+
+        ProjectileCount = Math.Clamp(Equipped("Bullet Count"), 1, 12);
         AzimuthalProjectileAngle = Stats["Spread Angle"].Combined;
-        PlayerSpeed = Stats["Player Speed"].Combined;
-        AttackCooldownStat = Stats["Attack Speed"].Combined;
-        if (AttackCooldownStat <= 1)
-            AttackCooldownStat = 1;
-        BulletSpeed = Stats["Bullet Speed"].Combined;
-        BulletRange = Stats["Bullet Range"].Combined;
-        BulletSize = Stats["Bullet Size"].Combined;
-        BulletDamage = (int)Math.Round(Stats["Bullet Damage"].Combined);
-        BulletPierce = Stats["Bullet Pierce"].Combined;
-        Defense = (int)Math.Round(Stats["Defense"].Combined);
-        MaxHealthPoints = Math.Max(1, (int)Math.Round(Stats["Health"].Combined));
+        PlayerSpeed = Equipped("Player Speed");
+        AttackCooldownStat = Equipped("Attack Speed");
+        BulletSpeed = Equipped("Bullet Speed");
+        BulletRange = Equipped("Bullet Range");
+        BulletSize = Math.Clamp(Equipped("Bullet Size"), 4, Simulation.TileSize * 2.5);
+        BulletDamage = (int)Math.Round(Equipped("Bullet Damage"));
+        BulletPierce = Math.Clamp(Equipped("Bullet Pierce"), 1, 8);
+        Defense = (int)Math.Round(Equipped("Defense"));
+        MaxHealthPoints = Math.Clamp((int)Math.Round(Equipped("Health")), 1, 5000);
         HealthPoints = Math.Min(MaxHealthPoints, HealthPoints + Math.Max(0, MaxHealthPoints - previousMaxHealth));
-        Vitality = Math.Max(0, (int)Math.Round(Stats["Vitality"].Combined));
-        CritChance = Stats["Crit Chance"].Combined;
-        CritDamage = (int)Math.Round(Stats["Crit Damage"].Combined);
-        Aura = Stats["Aura Size"].Combined;
-        AuraSpeed = Stats["Aura Strength"].Combined;
-        XpMult = Stats["Exp Multiplier"].Combined;
+        Vitality = Math.Clamp((int)Math.Round(Equipped("Vitality")), 0, 200);
+        CritChance = Math.Clamp(Equipped("Crit Chance"), 0, .85);
+        CritDamage = Math.Clamp(Equipped("Crit Damage"), 1, 5);
+        Aura = Math.Clamp(Equipped("Aura Size"), 20, 400);
+        AuraSpeed = Math.Clamp(Equipped("Aura Strength"), .5, 12);
+        XpMult = Math.Clamp(Equipped("Exp Multiplier"), .5, 4);
     }
 
     /// <summary>Ported from characterStats.py's player_build_snapshot(). Returns an immutable summary bosses may inspect without mutating the build (used by Rot's Envy phase).</summary>

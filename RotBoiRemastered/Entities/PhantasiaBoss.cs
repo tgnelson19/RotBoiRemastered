@@ -280,12 +280,12 @@ public abstract class PhantasiaBoss : PathChaseBoss
         sink.Add(laser);
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (ActTransitionTimer > 0 || PhaseProtectionTimer > 0)
             return new HitResult(false, false, 0, true);
         int previousHp = Hp;
-        var result = base.TakeDamage(amount, partId);
+        var result = base.TakeDamage(amount, partId, source);
         if (!DebugPhaseLocked && Phase < Config.PhaseLabels.Count)
         {
             double gate = MaxHp * (double)(Config.PhaseLabels.Count - Phase) / Config.PhaseLabels.Count;

@@ -8,7 +8,7 @@ using RotBoiRemastered.World;
 namespace RotBoiRemastered.UI;
 
 /// <summary>What HandleInput determined should happen, matching MenuAction's return-a-result shape.</summary>
-public enum TitleAction { None, StartRun, Quit }
+public enum TitleAction { None, StartRun, EnterSoul, Settings, Quit }
 
 /// <summary>
 /// The title screen: path selector, play button, field manual, best-run tag.
@@ -31,6 +31,8 @@ public sealed class TitleScreen
 {
     private readonly Dictionary<string, Rectangle> _pathButtons = new();
     private Rectangle _playButton;
+    private Rectangle _soulButton;
+    private Rectangle _settingsButton;
 
     private static void DrawGrid(SpriteBatch spriteBatch, int screenWidth, int screenHeight)
     {
@@ -79,7 +81,16 @@ public sealed class TitleScreen
         UiTheme.DrawButton(spriteBatch, _playButton, $"ENTER {selected.Title}", mousePosition, mouseDown, true,
             selected.Accent, "SPACE", (int)(scale * .019f));
 
-        var controlsRect = new Rectangle((int)left, (int)(screenHeight * .615f), (int)contentWidth,
+        _soulButton = new Rectangle((int)(left + contentWidth * .18f), (int)(screenHeight * .585f),
+            (int)(contentWidth * .30f), (int)Math.Max(42 * uiScale, scale * .052f));
+        UiTheme.DrawButton(spriteBatch, _soulButton, "ENTER THE SOUL", mousePosition, mouseDown, true,
+            UiTheme.Purple, "F", (int)(scale * .014f));
+        _settingsButton = new Rectangle((int)(left + contentWidth * .52f), _soulButton.Y,
+            (int)(contentWidth * .30f), _soulButton.Height);
+        UiTheme.DrawButton(spriteBatch, _settingsButton, "SETTINGS", mousePosition, mouseDown, true,
+            UiTheme.Blue, null, (int)(scale * .014f));
+
+        var controlsRect = new Rectangle((int)left, (int)(screenHeight * .665f), (int)contentWidth,
             (int)Math.Max(116 * uiScale, screenHeight * .15f));
         UiTheme.DrawPanel(spriteBatch, controlsRect, UiTheme.Panel, UiTheme.Border, shadow: 6);
         UiTheme.DrawText(spriteBatch, "FIELD MANUAL", scale * .018, UiTheme.Text,
@@ -100,9 +111,9 @@ public sealed class TitleScreen
 
         int bestLevel = GameProfile.Profile.BestLevel;
         string recordLabel = bestLevel <= 0 ? "NO RUNS LOGGED" : $"BEST RUN  //  LEVEL {bestLevel:D2}  //  {GameProfile.Profile.BestKills} KILLS";
-        UiTheme.DrawTag(spriteBatch, recordLabel, new Vector2(left, screenHeight * .81f), bestLevel > 0 ? UiTheme.Gold : UiTheme.Border, scale * .012);
+        UiTheme.DrawTag(spriteBatch, recordLabel, new Vector2(left, screenHeight * .87f), bestLevel > 0 ? UiTheme.Gold : UiTheme.Border, scale * .012);
         UiTheme.DrawText(spriteBatch, "A / D  SELECT PATH    ESC  QUIT", scale * .012, UiTheme.Muted,
-            new Vector2(left + contentWidth, screenHeight * .815f), "topright");
+            new Vector2(left + contentWidth, screenHeight * .875f), "topright");
     }
 
     /// <summary>
@@ -135,6 +146,10 @@ public sealed class TitleScreen
         bool playHovered = _playButton.Contains(mousePosition);
         if (keysPressed.Contains(Keys.Space) || (playHovered && mousePressed))
             return TitleAction.StartRun;
+        if (keysPressed.Contains(Keys.F) || (_soulButton.Contains(mousePosition) && mousePressed))
+            return TitleAction.EnterSoul;
+        if (_settingsButton.Contains(mousePosition) && mousePressed)
+            return TitleAction.Settings;
         if (keysPressed.Contains(Keys.Escape))
             return TitleAction.Quit;
         return TitleAction.None;

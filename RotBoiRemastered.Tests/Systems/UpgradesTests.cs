@@ -31,4 +31,14 @@ public class UpgradesTests
         var right = Upgrades.GenerateOffer(count: 3, rng: new Random(42));
         Assert.Equal(left, right);
     }
+
+    [Fact]
+    public void FormatCardValue_UsesPercentIncreaseInsteadOfMultiplierNotation()
+    {
+        var damage = new UpgradeCard(Upgrades.DefinitionsByName["Bullet Damage"], "Common", "multiplicative");
+        var attackSpeed = new UpgradeCard(Upgrades.DefinitionsByName["Attack Speed"], "Common", "multiplicative");
+
+        Assert.Equal("+16%", Upgrades.FormatCardValue(damage));
+        Assert.Equal("+4%", Upgrades.FormatCardValue(attackSpeed));
+    }
 }

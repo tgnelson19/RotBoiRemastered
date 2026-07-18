@@ -32,6 +32,30 @@ public sealed class GameProfileData
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();
+    public int SoulTokens { get; set; }
+    public double BestDummyDps { get; set; }
+    public Dictionary<string, int> SkillLevels { get; set; } = new();
+    public Dictionary<string, long> QuestProgress { get; set; } = new();
+    public List<string> CompletedQuests { get; set; } = new();
+    public List<StoredItemData> Storage { get; set; } = new();
+    public Dictionary<string, StoredItemData> StartingLoadout { get; set; } = new();
+    public List<ExtractedRunData> ExtractedRuns { get; set; } = new();
+    public List<string> DiscoveredItems { get; set; } = new();
+    public Dictionary<string, int> PathMastery { get; set; } = new();
+}
+
+public sealed record StoredItemData(string Name, string Rarity);
+
+public sealed class ExtractedRunData
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public DateTimeOffset ExtractedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string Path { get; set; } = "Unknown Path";
+    public string Outcome { get; set; } = "EXTRACTED";
+    public int Level { get; set; }
+    public int Kills { get; set; }
+    public double Seconds { get; set; }
+    public List<StoredItemData> Items { get; set; } = new();
 }
 
 /// <summary>
@@ -58,13 +82,31 @@ public static class GameProfile
             string text = File.ReadAllText(path);
             var loaded = JsonSerializer.Deserialize<GameProfileData>(text);
             if (loaded is not null)
+            {
+                Normalize(loaded);
                 return loaded;
+            }
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or NotSupportedException)
         {
             // Missing file, corrupt JSON, or an unreadable path -- fall back to defaults.
         }
         return new GameProfileData();
+    }
+
+    private static void Normalize(GameProfileData profile)
+    {
+        profile.Keybinds ??= new();
+        profile.SkillLevels ??= new();
+        profile.QuestProgress ??= new();
+        profile.CompletedQuests ??= new();
+        profile.Storage ??= new();
+        profile.StartingLoadout ??= new();
+        profile.ExtractedRuns ??= new();
+        profile.DiscoveredItems ??= new();
+        profile.PathMastery ??= new();
+        foreach (var run in profile.ExtractedRuns)
+            run.Items ??= new();
     }
 
     public static bool SaveProfile(string? path = null)
@@ -92,6 +134,28 @@ public static class GameProfile
         if (completed)
             Profile.CompletedRuns += 1;
         SaveProfile();
+    }
+
+    public static void IncrementQuest(string counter, long amount = 1)
+    {
+        Profile.QuestProgress[counter] = Math.Max(0, Profile.QuestProgress.GetValueOrDefault(counter) + amount);
+        MetaProgression.CompleteReadyQuests();
+    }
+
+    public static void RecordDummyDps(double dps)
+    {
+        if (dps <= Profile.BestDummyDps)
+            return;
+        Profile.BestDummyDps = dps;
+        SaveProfile();
+    }
+
+    public static void DiscoverItem(string name)
+    {
+        if (Profile.DiscoveredItems.Contains(name))
+            return;
+        Profile.DiscoveredItems.Add(name);
+        IncrementQuest("items_found");
     }
 
     /// <summary>

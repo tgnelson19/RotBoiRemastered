@@ -1,8 +1,8 @@
 # RotBoi Remastered
 
-A real-time strategy deckbuilding rogue-lite prototype built with Python and
-Pygame. Move through the arena, aim with the mouse, collect experience, and draft
-upgrade cards that shape each run into a focused build. The red edge-of-screen
+A 2D arena roguelite built with C#, MonoGame, and .NET 9. Move through the arena,
+aim with the mouse, collect experience, and draft upgrade cards that shape each
+run into a focused build. The red edge-of-screen
 bounty arrow points toward the highest-value living patrol or elite target.
 
 ## Controls
@@ -11,6 +11,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - Mouse / left click: aim and fire
 - `Space`: dash (briefly avoids contact damage)
 - Hold `Q` / `E`: smoothly rotate the arena clockwise / counter-clockwise
+- `X`: reset the camera to 0 degrees during play
 - `I`: toggle autofire
 - `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card
@@ -18,8 +19,10 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `A` / `D`, arrows, or click: select a content path on the title screen
 - `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
-- `F`: enter the Soul from the title screen; interact with Soul stations
-- `Escape`: pause during a run; quit from the title screen
+- `F`: enter the Soul from the title screen
+- `F` near a station in the Soul: open its extraction, quest, or skill menu
+- `X` while paused after the midpoint boss: extract the current run and equipment
+- `Escape`: pause during a run or in the Soul; quit from the title screen
 - `F11`: switch between windowed and borderless fullscreen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
 
@@ -42,34 +45,33 @@ sidebar; hover one when you want its name and bonus type.
 ## The Soul and permanent progression
 
 Choose **Enter Soul** from the title screen to visit a small walkable sanctuary.
-Its extraction chest prepares a starting equipment loadout, the DPS effigy records
-five-second damage output, and the archive holds bestiary research, discovered
-cards and items, path mastery, records, and museum relics. Quests and first clears
-of each path award Soul tokens for small permanent Soul-tree bonuses. Bosses become
-available at the memory station after they have been encountered.
+Its extraction chest keeps ten permanent item slots and statistics for the ten
+most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
+session best, and the all-time record. A 24-tile quest grid awards Soul tokens;
+the matching Soul grid spends those tokens on twelve simple, rankable permanent
+upgrades.
 
-After defeating a path's midpoint boss, the pause menu offers an extraction choice.
-Extracting ends the run safely and stores equipped items; completing the path does
-the same automatically. Selecting a chest item withdraws that specific stored copy
-when the next run begins. Dying, restarting, or abandoning the run destroys every
-carried item permanently, while Soul-tree bonuses and all other permanent progress
-remain intact. Equipment carries rarity-scaled stat tradeoffs, set
-bonuses, and occasional poison, bleed, slow, daze, or stun effects. Hover equipment
-or nearby loot in the information panel for its complete tooltip.
+After defeating a path's midpoint boss, the pause menu offers an extraction choice;
+completing a path extracts automatically. The chest keeps the run summary and lets
+the player salvage surviving equipment into permanent storage. Selecting a stored
+item prepares that copy for the next run; it leaves storage when the run begins.
+Dying, restarting, or abandoning the run destroys carried items, while Soul-grid
+bonuses and other permanent progress remain intact. Hover equipment or nearby loot
+for its symbolic stat card, rarity-scaled tradeoffs, status effects, and flavor text.
 
 ## Run locally
 
-Requires Python 3.11+ and Pygame 2.5+.
+Requires the .NET 9 SDK. Restore the pinned MonoGame content tool once, then run:
 
 ```powershell
-python -m pip install -r requirements.txt
-python main.py
+dotnet tool restore
+dotnet run --project RotBoiRemastered/RotBoiRemastered.csproj
 ```
 
 Run the tests with:
 
 ```powershell
-python -m unittest discover -s tests -v
+dotnet test RotBoiRemastered.Tests/RotBoiRemastered.Tests.csproj
 ```
 
 ## Design direction

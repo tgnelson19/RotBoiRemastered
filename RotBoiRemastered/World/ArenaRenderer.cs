@@ -282,7 +282,15 @@ public sealed class ArenaRenderer
         foreach (var (_, face) in VisibleWallFaces(camera, _bakedFor, tileX, tileY, ground, cap))
         {
             Primitives2D.FillPolygon(spriteBatch, face, palette.WallFace);
-            Primitives2D.PolygonOutline(spriteBatch, face, UiTheme.Ink, 2);
+            // A closed two-pixel outline put black strokes on both vertical
+            // sides of every projected face. At oblique camera angles those
+            // independently rounded strokes occasionally doubled into the
+            // conspicuous black bars seen between otherwise continuous walls.
+            // Keep the depth-defining horizontal seams, but let neighboring
+            // face fills meet without a black vertical strip between them.
+            var seam = palette.WallFace * .68f;
+            Primitives2D.Line(spriteBatch, face[0], face[1], seam, 1);
+            Primitives2D.Line(spriteBatch, face[3], face[2], seam, 1);
             var lowerLeft = face[3];
             var lowerRight = face[2];
             var accentLeft = new Vector2(lowerLeft.X * .82f + lowerRight.X * .18f, lowerLeft.Y * .82f + lowerRight.Y * .18f - 5);

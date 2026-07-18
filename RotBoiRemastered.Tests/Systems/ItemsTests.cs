@@ -52,4 +52,12 @@ public class ItemsTests
         var drops = Items.GenerateDrops(3, rng: new Random(5));
         Assert.Equal(3, drops.Count);
     }
+
+    [Fact]
+    public void AttackSpeedDisplay_TreatsShorterDelayAsPositive()
+    {
+        Assert.Equal("+4%", new ItemEffectView("Attack Speed", 0, .96).DisplayValue);
+        Assert.True(new ItemEffectView("Attack Speed", -3, 1).IsBeneficial);
+        Assert.Equal("-10%", new ItemEffectView("Attack Speed", 0, 1.10).DisplayValue);
+    }
 }

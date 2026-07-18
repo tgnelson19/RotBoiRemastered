@@ -100,11 +100,11 @@ public sealed class Malady : PhantasiaBoss
         SurvivalRemaining = duration;
     }
 
-    public override HitResult TakeDamage(double amount, string partId = "body")
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
         if (SurvivalActive || Collapsing)
             return new HitResult(false, false, 0, true);
-        var result = base.TakeDamage(amount, partId);
+        var result = base.TakeDamage(amount, partId, source);
         if (result.Killed)
         {
             Hp = 1;

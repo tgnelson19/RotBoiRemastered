@@ -54,7 +54,7 @@ public sealed class GameSession
     private readonly ArenaRenderer _arenaRenderer = new();
     private string? _activeBossKey;
 
-    private Vector2 PlayerWorldCenter => new(
+    public Vector2 PlayerWorldCenter => new(
         Player.WorldX + (float)State.PlayerSize / 2f,
         Player.WorldY + (float)State.PlayerSize / 2f);
 
@@ -110,6 +110,10 @@ public sealed class GameSession
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
     }
 
+    public void LoadStartingEquipment() => State.SetEquipment(MetaProgression.BeginRun());
+
+    public void LoadPreviewEquipment() => State.SetEquipment(MetaProgression.PreviewLoadout());
+
     /// <summary>
     /// Ported from character.py's drawBackground(). Bakes/draws the arena's
     /// floor plane and camera-facing walls/decorations via
@@ -127,6 +131,14 @@ public sealed class GameSession
             new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight));
     }
 
+    public void DrawBackgroundFull(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
+    {
+        Camera.Lock = new Vector2(ScreenWidth / 2f, ScreenHeight / 2f);
+        _arenaRenderer.EnsureBaked(graphicsDevice, spriteBatch, Battleground);
+        _arenaRenderer.Draw(spriteBatch, graphicsDevice, Camera, PlayerWorldCenter, ScreenShake,
+            new Rectangle(0, 0, ScreenWidth, ScreenHeight));
+    }
+
     // ----- Player movement/combat -----
 
     /// <summary>Ported from character.py's movePlayer().</summary>
@@ -136,6 +148,7 @@ public sealed class GameSession
     /// </summary>
     public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed, Vector2 controllerMove = default)
     {
+        var before = new Vector2(Player.WorldX, Player.WorldY);
         var obstacles = State.ActiveBoss is SinChemesthesisBoss chemicalBoss
             ? chemicalBoss.MovementObstacles()
             : null;
@@ -158,6 +171,9 @@ public sealed class GameSession
                     dissonance.ArenaCenter.Y + deltaY / distance * limit - (float)State.PlayerSize / 2f);
             }
         }
+        double traveled = Vector2.Distance(before, new Vector2(Player.WorldX, Player.WorldY));
+        if (traveled >= 1)
+            GameProfile.IncrementQuest("distance_traveled", (long)Math.Round(traveled));
     }
 
     public void DrawPlayer(SpriteBatch spriteBatch) => Player.Draw(spriteBatch, State, Camera);
@@ -210,6 +226,7 @@ public sealed class GameSession
                     (float)State.BulletSpeed, direction, (float)State.BulletRange, (float)State.BulletSize,
                     State.BulletColor, currPierce, (float)currDamage, currCrit));
             }
+            GameProfile.IncrementQuest("shots_fired", currProjectileCount);
         }
         else if (State.AttackCooldownTimer > 0)
         {
@@ -467,7 +484,15 @@ public sealed class GameSession
             enemy.SetCollisionCamera(Camera);
             enemy.EnsureCollisionSafePosition(Battleground);
             int projectileStart = State.EnemyProjectileHolster.Count;
-            enemy.Update(context);
+            double seconds = Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
+            var control = StatusEffects.Update(enemy, seconds);
+            float originalSpeed = enemy.Speed;
+            enemy.Speed *= (float)control.MovementMultiplier;
+            if (enemy.AttackCooldown is not null)
+                enemy.AttackCooldown += (float)(control.AttackDelay * seconds * Simulation.FrameRate);
+            if (!control.Stunned && enemy.Hp > 0)
+                enemy.Update(context);
+            enemy.Speed = originalSpeed;
             // A few authored attacks teleport directly rather than using
             // TryAxisMove; validate those destinations as well.
             enemy.EnsureCollisionSafePosition(Battleground);
@@ -617,7 +642,16 @@ public sealed class GameSession
                 bullet.Pierce -= 1;
                 if (bullet.Pierce <= 0)
                     bullet.RemFlag = true;
-                var result = enemy.TakeDamage(bullet.Damage, collided.Part);
+                double hitDamage = bullet.Damage * StatusEffects.DamageMultiplier(enemy, bullet);
+                var result = enemy.TakeDamage(hitDamage, collided.Part, DamageSource.Direct);
+                if (result.Applied && !result.Killed)
+                    StatusEffects.RollPlayerHit(enemy, bullet, State.Equipment.Values, State.ProjectileCount, rng);
+                if (result.Applied)
+                {
+                    GameProfile.IncrementQuest("damage_dealt", Math.Max(0, (long)Math.Round(result.Amount)));
+                    if (bullet.IsCritical)
+                        GameProfile.IncrementQuest("critical_hits");
+                }
                 if (enemy.TransitionCleanupRequested)
                 {
                     if (enemy.TransitionCleanupOwner is not null)
@@ -627,7 +661,7 @@ public sealed class GameSession
                     enemy.TransitionCleanupRequested = false;
                 }
                 Color currColor = bullet.IsCritical ? UiTheme.Purple : UiTheme.Gold;
-                object displayValue = result.Applied ? Math.Round(bullet.Damage) : "BLOCK";
+                object displayValue = result.Applied ? Math.Round(result.Amount) : "BLOCK";
                 var textWorld = Camera.ScreenToWorld(new Vector2(collided.Rect.X, collided.Rect.Y), PlayerWorldCenter, ScreenShake);
                 State.DamageTextList.Add(new DamageText(textWorld.X, textWorld.Y, currColor, displayValue, collided.Rect.Width, Simulation.FrameRate));
                 if (result.Killed)
@@ -642,6 +676,7 @@ public sealed class GameSession
         foreach (var enemy in deadEnemies)
         {
             State.NumOfEnemiesKilled += 1;
+            GameProfile.IncrementQuest("enemies_defeated");
             State.ExperienceList.Add(new ExperienceBubble(
                 enemy.WorldX, enemy.WorldY,
                 State.XpMult * (enemy.ExpValue * (State.CurrentStage * State.ExperienceStageMod)),
@@ -674,6 +709,7 @@ public sealed class GameSession
 
             if (ReferenceEquals(enemy, State.ActiveBoss))
             {
+                GameProfile.IncrementQuest("bosses_defeated");
                 string? defeatedBossKey = _activeBossKey ?? BossKeyFor(enemy);
                 if (defeatedBossKey == GamePaths.BossKey(midpoint: true))
                 {
@@ -683,6 +719,7 @@ public sealed class GameSession
                 {
                     State.GameCompleted = true;
                     State.RunOutcome = "RUN COMPLETE";
+                    MetaProgression.RecordExtraction(State, GamePaths.Selected().Key, completed: true);
                     GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed: true);
                 }
                 State.ActiveBoss = null;
@@ -756,6 +793,7 @@ public sealed class GameSession
                 {
                     State.CurrentLevel += 1;
                     State.PendingLevelUps += 1;
+                    GameProfile.IncrementQuest("levels_gained");
                     State.ExpCount -= State.ExpNeededForNextLevel;
                     State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
                     State.HealthPoints = State.MaxHealthPoints;
