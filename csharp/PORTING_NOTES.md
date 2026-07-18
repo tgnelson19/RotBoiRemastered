@@ -212,9 +212,28 @@ Dependency order roughly follows the Python import graph:
     Rot's Envy phase); and `EnemyUpdateContext` gained nullable
     `Camera`/`BossAfflictions`/`PlayerBuildSnapshot` fields, populated by
     `GameSession.UpdateEnemies`. `BossCatalog` now registers `kage`/`rot`.
-    Deferred: the `PhantasiaBoss` family (`Hypno`/`Malady`) -- see
-    `Entities/README.md`'s "Explicitly deferred" section.
-12. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+    Deferred at this point: the `PhantasiaBoss` family (`Hypno`/`Malady`).
+12. **`Entities/PhantasiaBoss.cs`/`Hypno.cs`/`Malady.cs`** -- the Phantasia
+    content path's mid/final bosses, the last of `bossTypes.py`'s five boss
+    families. **Done**: the commandment-sigil system (one shared 10-entry
+    stroke array every subclass indexes into by phase, unlike
+    `SinChemesthesisBoss`'s per-subclass sigil data), act transitions,
+    illusion-vs-truth-marked shots and direct `RunState.DreamState.AlterBelief`
+    calls (rule violations, offering pickups), and `Malady`'s
+    projectile-portal formation system (reusing `ProjectilePortal`), delay-
+    queued "flowing chain" shot sequence, survival phases, a post-lethal
+    "collapse" choreography instead of dying outright, and a fully custom
+    procedural puppet-body render (arms/torso/head with per-attack-pose
+    limb targeting, replacing the family's generic arena+ellipse+mask body
+    via a `HasCustomDreamBody`/`DrawDreamBody` hook pair -- ported from
+    Python's `getattr(self, "_draw_dream_body", None)` duck-typed dispatch).
+    Two confirmed-dead fields dropped from `Malady` (`vitalitySuppressed`,
+    `puppetFacing`). Required two small additions elsewhere:
+    `EnemyUpdateContext` gained nullable `PlayerBullets`/`DreamState`
+    fields, populated by `GameSession.UpdateEnemies`. `BossCatalog` now
+    registers `hypno`/`malady` -- `bossTypes.py`'s full ~4750-line, ten-boss,
+    five-family roster is fully ported as of this step.
+13. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 

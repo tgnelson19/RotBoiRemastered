@@ -70,7 +70,8 @@ public sealed class EnemyProjectile
     public int SplitCount { get; set; }
     public float? SplitAt { get; set; }
     public int SplitGeneration { get; set; }
-    public bool PersistentHazard { get; }
+    /// <summary>Settable: Malady's purple pool (bossTypes.py's _spawn_pool) overrides the path=="laser" default so its hazard lingers instead of being consumed on the player's first hit.</summary>
+    public bool PersistentHazard { get; set; }
     public bool Exploded { get; private set; }
     public float Age { get; private set; }
     public float Travelled { get; private set; }

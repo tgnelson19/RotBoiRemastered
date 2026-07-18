@@ -15,6 +15,8 @@ public class BossCatalogTests
     [InlineData("sting", typeof(Sting))]
     [InlineData("kage", typeof(Kage))]
     [InlineData("rot", typeof(Rot))]
+    [InlineData("hypno", typeof(Hypno))]
+    [InlineData("malady", typeof(Malady))]
     public void CreateDefault_RegistersEveryPortedBoss(string key, Type expectedType)
     {
         var catalog = BossCatalog.CreateDefault();
@@ -24,14 +26,6 @@ public class BossCatalogTests
         var boss = catalog.Spawn(key, Battleground.GenerateSound(), 400f, new Random(1));
 
         Assert.IsType(expectedType, boss);
-    }
-
-    [Fact]
-    public void CreateDefault_DoesNotRegisterUnportedBosses()
-    {
-        var catalog = BossCatalog.CreateDefault();
-        Assert.False(catalog.TryGet("hypno", out _));
-        Assert.False(catalog.TryGet("malady", out _));
     }
 
     [Fact]

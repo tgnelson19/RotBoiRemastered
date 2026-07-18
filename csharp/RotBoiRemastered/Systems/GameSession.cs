@@ -428,6 +428,7 @@ public sealed class GameSession
             PlayerWorldX = playerCenter.X, PlayerWorldY = playerCenter.Y, Battleground = Battleground,
             ProjectileSink = State.EnemyProjectileHolster, AllEnemies = State.EnemyHolster, ExperienceBubbles = State.ExperienceList,
             Camera = Camera, BossAfflictions = State.BossAfflictions, PlayerBuildSnapshot = State.BuildSnapshot(),
+            PlayerBullets = State.BulletHolster, DreamState = State.DreamState,
         };
         foreach (var enemy in State.EnemyHolster)
         {

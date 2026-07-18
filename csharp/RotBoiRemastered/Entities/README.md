@@ -92,8 +92,9 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   `characterStats.py`'s non-boss gameplay loop.
 
 - **`Beaudis.cs`** <- `bossTypes.py`'s `Beaudis` (the run's level-10
-  midpoint boss; one of fifteen boss classes in that ~4750-line file --
-  see "Explicitly deferred" below for the rest). **Done**, including its
+  midpoint boss; one of ten boss classes across five families in that
+  ~4750-line file -- all now ported, see the rest of this section).
+  **Done**, including its
   five-phase state machine (four damage phases + a finale survival phase
   with four orbiting `ProjectilePortal`s), stagger/phase-protection gating
   on `TakeDamage`, and the death fade. `GameSession.cs` now really spawns
@@ -213,9 +214,38 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     fields live on `EnemyUpdateContext` (`Camera`/`BossAfflictions`/
     `PlayerBuildSnapshot`, all nullable -- see that type's doc comment) and
     are populated by `GameSession.UpdateEnemies`.
+  - **`PhantasiaBoss.cs`/`Hypno.cs`/`Malady.cs`** -- the Phantasia content
+    path's mid/final bosses ("THE ORNATE SUGGESTION"/"THE DREAM MADE ILL"),
+    the last of `bossTypes.py`'s five boss families. Shares
+    `SinChemesthesisBoss`'s overall shape (per-family `Config`/`SigilConfig`
+    records, act transitions, phase-health floor, abstract
+    `FirePhantasiaPattern`) but with its own commandment-sigil system:
+    `PhantasiaBoss.CommandmentSigils` is one shared 10-entry stroke array
+    (ported from bossTypes.py's module-level `COMMANDMENT_SIGILS`), and each
+    subclass's `PhantasiaSigilConfig.PhaseSigils` is a list of *indices*
+    into it -- unlike `SinSigilConfig`, where each boss owns its own full
+    stroke data. Integrates with `RunState.DreamState`'s belief/truth
+    mechanics via illusion-vs-truth-marked shots (`ShotFrom`'s `illusion`
+    parameter) and direct `DreamState.AlterBelief` calls for rule
+    violations and offering pickups; `EnemyUpdateContext` gained a nullable
+    `DreamState` field for this and a nullable `PlayerBullets` list (for
+    the REST phase's "did the player fire" check). `_draw_dream_court`
+    reads `cS.dreamState["belief"]` directly inside a Python *draw* method
+    -- rather than give `Draw` an implicit `RunState` dependency,
+    `UpdateSpecialRules` caches belief into a `CurrentBelief` field each
+    Update tick and every Draw-side belief read uses that instead. Two
+    confirmed-dead fields dropped from `Malady` (`vitalitySuppressed`,
+    `puppetFacing` -- written throughout but never read by any method).
+    `Malady.cs` layers a projectile-portal formation system (reusing
+    `ProjectilePortal`), a delay-queued "flowing chain" shot sequence,
+    survival phases that block damage while a timer runs out, a post-lethal
+    "collapse" choreography instead of dying outright, and a fully custom
+    procedural puppet-body render (`HasCustomDreamBody`/`DrawDreamBody`
+    hooks on the base class -- ported from Python's
+    `getattr(self, "_draw_dream_body", None)` duck-typed dispatch).
 - **`BossCatalog.cs`** <- `BossDefinition`/`BossCatalog`/`BOSS_CATALOG`.
-  **Done** for the eight bosses ported so far (`beaudis`/`dissonance`/
-  `ishe`/`chronos`/`bair`/`sting`/`kage`/`rot`) -- same
+  **Done** for all ten bosses in `bossTypes.py` (`beaudis`/`dissonance`/
+  `ishe`/`chronos`/`bair`/`sting`/`kage`/`rot`/`hypno`/`malady`) -- same
   `EnemyFactory`-delegate/`CreateDefault()` cleanup as `EnemyCatalog.cs`.
   Not wired into `GameSession`'s actual spawn flow (which constructs
   `Beaudis`/`Dissonance` directly): `gamePaths.py`'s per-path boss-key
@@ -226,15 +256,8 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
 
 ## Explicitly deferred (not in Entities/ yet)
 
-- **The rest of `bossTypes.py`'s ~4750 lines** -- one more boss lineage,
-  deliberately not attempted yet:
-  - **`PhantasiaBoss`/`Hypno`/`Malady`** ("THE DREAM COURT"/final bosses) --
-    integrates with `RunState.DreamState`'s belief/truth mechanics (which
-    *does* already exist) via true/false "commandment" rules, but `Malady`
-    alone is ~680 lines of a fully custom procedural "puppet" body with
-    jointed limb rendering -- its own dedicated pass.
-
-  Until these exist, `gamePaths.py`'s per-path boss content-key selection
-  (which boss variant counts as "the mid/final boss" on the active path --
-  always the "sound" path's Beaudis/Dissonance here) stays a documented
-  no-op -- see `GamePaths.cs`'s doc comments for specifics.
+`bossTypes.py`'s ~4750 lines are now fully ported (all five boss families).
+What's left is `gamePaths.py`'s per-path boss content-key selection (which
+boss variant counts as "the mid/final boss" on the active path -- always
+the "sound" path's Beaudis/Dissonance here), which stays a documented
+no-op -- see `GamePaths.cs`'s doc comments for specifics.

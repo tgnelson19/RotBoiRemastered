@@ -82,3 +82,12 @@ port first since they were deliberately kept pygame-free in the Python original.
   boss may inspect without mutating the build) -- all three exist solely
   for `Rot`'s crystal-wall terrain and Envy-phase build-reading attack, but
   every `Enemy.Update` override still shares the one context shape.
+- Now that `Entities/Malady.cs` exists (see Entities/README.md), two more
+  `EnemyUpdateContext` fields are populated by `UpdateEnemies`:
+  `PlayerBullets` (`State.BulletHolster`, for the Sabbath/REST phase's "did
+  the player fire" check) and `DreamState` (`State.DreamState`, for a boss's
+  own direct `AlterBelief` calls on rule violations/offering pickups, and
+  for the dream-court field diagram's belief-driven intensity). Both are
+  read-only from the boss's perspective except `DreamState.AlterBelief`,
+  which the `PhantasiaBoss` family calls on itself exactly like Python's
+  `cS.alter_belief(...)`.

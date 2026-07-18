@@ -26,9 +26,17 @@ public sealed record HitResult(bool Applied, bool Killed, double Amount = 0, boo
 /// added for `Rot` (bossTypes.py's `SinChemesthesisBoss` family): Camera for
 /// `_camera_cardinal_angle`'s `bG.screen_vector_to_world` read, BossAfflictions
 /// for `characterStats.py`'s `bossAfflictions`/`reset_boss_afflictions`, and
-/// PlayerBuildSnapshot for `player_build_snapshot()`. Nothing else in this
-/// port needs them yet, but every Enemy still gets one uniform Update
-/// signature, same reasoning as the rest of this context object.
+/// PlayerBuildSnapshot for `player_build_snapshot()`.
+///
+/// `PlayerBullets`/`DreamState` are likewise nullable and added for
+/// `PhantasiaBoss` (bossTypes.py's `Hypno`/`Malady` family): PlayerBullets
+/// for the "did the player fire during REST" check
+/// (`cS.bulletHolster` truthiness), DreamState for direct
+/// `cS.alter_belief(...)` calls a boss makes on itself (Sabbath-phase
+/// violations, offering pickups) as well as the `cS.dreamState["belief"]`
+/// reads that drive the dream-court field diagram's intensity. Nothing else
+/// in this port needs them yet, but every Enemy still gets one uniform
+/// Update signature, same reasoning as the rest of this context object.
 /// </summary>
 public sealed class EnemyUpdateContext
 {
@@ -41,6 +49,8 @@ public sealed class EnemyUpdateContext
     public Camera? Camera { get; init; }
     public BossAfflictions? BossAfflictions { get; init; }
     public PlayerBuildSnapshot? PlayerBuildSnapshot { get; init; }
+    public IReadOnlyList<Bullet> PlayerBullets { get; init; } = Array.Empty<Bullet>();
+    public RotBoiRemastered.Systems.DreamState? DreamState { get; init; }
 }
 
 /// <summary>
