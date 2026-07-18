@@ -51,9 +51,12 @@ public static class UiTheme
     public const int ReferenceHeight = 1080;
     public const float MinDisplayScale = .6f;
     public const float MaxDisplayScale = 2.4f;
-
-    public static readonly IReadOnlyList<double> TextSizeLevels = new[] { 0.85, 1.0, 1.15, 1.3 };
-    public static readonly IReadOnlyList<string> TextSizeLabels = new[] { "SMALL", "NORMAL", "LARGE", "HUGE" };
+    public const double MinTextScale = .75;
+    public const double MaxTextScale = 3.0;
+    public const double MinGuiScale = .75;
+    public const double MaxGuiScale = 1.8;
+    public const double MinDamageTextScale = .45;
+    public const double MaxDamageTextScale = 2.0;
 
     private static FontSystem? _fontSystem;
 
@@ -67,6 +70,14 @@ public static class UiTheme
 
     /// <summary>Height-aware UI scale that remains stable across aspect ratios.</summary>
     public static float DisplayScale(int screenWidth, int screenHeight)
+    {
+        float scale = Math.Min((float)screenWidth / ReferenceWidth, (float)screenHeight / ReferenceHeight);
+        float resolutionScale = Math.Max(MinDisplayScale, Math.Min(MaxDisplayScale, scale));
+        return resolutionScale * (float)Math.Clamp(GameProfile.Profile.GuiScale, MinGuiScale, MaxGuiScale);
+    }
+
+    /// <summary>Resolution-only scale for elements with their own accessibility multiplier.</summary>
+    public static float ResolutionScale(int screenWidth, int screenHeight)
     {
         float scale = Math.Min((float)screenWidth / ReferenceWidth, (float)screenHeight / ReferenceHeight);
         return Math.Max(MinDisplayScale, Math.Min(MaxDisplayScale, scale));
@@ -91,6 +102,20 @@ public static class UiTheme
     {
         int pixelSize = Math.Max(9, (int)Math.Round(size * TextScaleMultiplier()));
         return _fontSystem!.GetFont(pixelSize);
+    }
+
+    public static DynamicSpriteFont RawFont(double pixelSize) =>
+        _fontSystem!.GetFont(Math.Max(8, (int)Math.Round(pixelSize)));
+
+    public static Rectangle DrawRawText(SpriteBatch spriteBatch, object value, double pixelSize, Color color,
+        Vector2 position, string anchor = "topleft")
+    {
+        string text = value.ToString() ?? "";
+        var font = RawFont(pixelSize);
+        Vector2 measured = font.MeasureString(text);
+        var rect = AnchoredRect(position, measured, anchor);
+        font.DrawText(spriteBatch, text, new Vector2(rect.X, rect.Y), color);
+        return rect;
     }
 
     public static Rectangle DrawText(SpriteBatch spriteBatch, object value, double size, Color? color = null,

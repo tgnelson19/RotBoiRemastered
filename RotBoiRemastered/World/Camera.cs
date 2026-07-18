@@ -18,7 +18,11 @@ namespace RotBoiRemastered.World;
 /// </summary>
 public sealed class Camera
 {
+    public const float MinZoom = .65f;
+    public const float MaxZoom = 1.75f;
+    public const float ZoomStep = .10f;
     public float AngleDegrees { get; private set; }
+    public float Zoom { get; private set; } = 1f;
 
     /// <summary>Screen-space center of the player and camera rotation pivot.</summary>
     public Vector2 Lock { get; set; }
@@ -40,6 +44,29 @@ public sealed class Camera
 
     /// <summary>Rotate the world counter-clockwise for positive degree values.</summary>
     public void Rotate(float degrees) => SetAngle(AngleDegrees + degrees);
+
+    public void SetZoom(float zoom) => Zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+    public void AdjustZoom(float amount) => SetZoom(Zoom + amount);
+
+    /// <summary>Uniform world-only zoom around the player/camera lock.</summary>
+    public Matrix WorldTransform =>
+        Matrix.CreateTranslation(-Lock.X, -Lock.Y, 0)
+        * Matrix.CreateScale(Zoom, Zoom, 1)
+        * Matrix.CreateTranslation(Lock.X, Lock.Y, 0);
+
+    public Vector2 ApplyZoom(Vector2 logicalScreenPosition) =>
+        Lock + (logicalScreenPosition - Lock) * Zoom;
+
+    public Vector2 RemoveZoom(Vector2 displayScreenPosition) =>
+        Lock + (displayScreenPosition - Lock) / Zoom;
+
+    public Rectangle LogicalViewport(Rectangle displayViewport)
+    {
+        Vector2 topLeft = RemoveZoom(new Vector2(displayViewport.Left, displayViewport.Top));
+        Vector2 bottomRight = RemoveZoom(new Vector2(displayViewport.Right, displayViewport.Bottom));
+        return new Rectangle((int)MathF.Floor(topLeft.X), (int)MathF.Floor(topLeft.Y),
+            (int)MathF.Ceiling(bottomRight.X - topLeft.X), (int)MathF.Ceiling(bottomRight.Y - topLeft.Y));
+    }
 
     private (float Cos, float Sin) CameraComponents()
     {

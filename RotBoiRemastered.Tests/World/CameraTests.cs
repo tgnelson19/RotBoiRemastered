@@ -108,4 +108,33 @@ public class CameraTests
         Assert.Equal(camera.Lock.X, projected.X, 4);
         Assert.Equal(camera.Lock.Y, projected.Y, 4);
     }
+
+    [Fact]
+    public void Zoom_ClampsAndTransformsAroundPlayerLock()
+    {
+        var camera = new Camera { Lock = new Vector2(400, 300) };
+        camera.SetZoom(99);
+        Assert.Equal(Camera.MaxZoom, camera.Zoom);
+        camera.SetZoom(1.5f);
+
+        var display = camera.ApplyZoom(new Vector2(500, 300));
+        Assert.Equal(new Vector2(550, 300), display);
+        Assert.Equal(new Vector2(500, 300), camera.RemoveZoom(display));
+
+        camera.SetZoom(0);
+        Assert.Equal(Camera.MinZoom, camera.Zoom);
+    }
+
+    [Fact]
+    public void ZoomingOut_ExpandsLogicalWorldViewport()
+    {
+        var camera = new Camera { Lock = new Vector2(400, 300) };
+        camera.SetZoom(.8f);
+
+        var logical = camera.LogicalViewport(new Rectangle(0, 0, 800, 600));
+
+        Assert.True(logical.Width > 800);
+        Assert.True(logical.Height > 600);
+        Assert.True(logical.Contains(camera.Lock.ToPoint()));
+    }
 }

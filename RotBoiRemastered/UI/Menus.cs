@@ -61,8 +61,11 @@ public sealed class Menus
     };
 
     private readonly Dictionary<string, Rectangle> _buttons = new();
+    private readonly Dictionary<string, (Rectangle Hit, Rectangle Track, double Min, double Max)> _sliders = new();
     private string _settingsTab = "gameplay";
     private string? _rebindingAction;
+    private string? _activeSlider;
+    private bool _sliderDirty;
 
     private static bool GetGameplayToggle(string key) => key switch
     {
@@ -117,10 +120,42 @@ public sealed class Menus
     private bool Activated(string name, Point mousePosition, bool mousePressed) =>
         mousePressed && _buttons.TryGetValue(name, out var rect) && rect.Contains(mousePosition);
 
+    private void Slider(SpriteBatch spriteBatch, string name, Rectangle rect, string label, string valueLabel,
+        double value, double min, double max, Point mousePosition, Color accent)
+    {
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, rect.Contains(mousePosition) ? accent : UiTheme.Border, shadow: 3);
+        UiTheme.DrawText(spriteBatch, label, 10 * UiTheme.DisplayScale(spriteBatch), UiTheme.Text,
+            new Vector2(rect.X + 10, rect.Y + 7));
+        UiTheme.DrawText(spriteBatch, valueLabel, 9 * UiTheme.DisplayScale(spriteBatch), accent,
+            new Vector2(rect.Right - 10, rect.Y + 8), "topright");
+        var track = new Rectangle(rect.X + 12, rect.Bottom - 15, rect.Width - 24, 7);
+        Primitives2D.FillRect(spriteBatch, track, UiTheme.Ink);
+        double ratio = Math.Clamp((value - min) / Math.Max(.0001, max - min), 0, 1);
+        var fill = new Rectangle(track.X, track.Y, (int)Math.Round(track.Width * ratio), track.Height);
+        Primitives2D.FillRect(spriteBatch, fill, accent);
+        int knobX = track.X + (int)Math.Round(track.Width * ratio);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(knobX - 3, track.Y - 4, 7, track.Height + 8), UiTheme.Cream);
+        _sliders[name] = (rect, track, min, max);
+    }
+
+    public static double SliderValue(Rectangle track, int mouseX, double min, double max)
+    {
+        double ratio = Math.Clamp((mouseX - track.Left) / (double)Math.Max(1, track.Width), 0, 1);
+        return min + (max - min) * ratio;
+    }
+
+    private void FinishSlider()
+    {
+        if (_sliderDirty) GameProfile.SaveProfile();
+        _activeSlider = null;
+        _sliderDirty = false;
+    }
+
     public void DrawPause(SpriteBatch spriteBatch, int screenWidth, int screenHeight, Point mousePosition, bool mouseDown,
         bool canExtract = false, bool soulContext = false, bool settingsOnly = false)
     {
         _buttons.Clear();
+        _sliders.Clear();
         string title = settingsOnly ? "SETTINGS" : soulContext ? "SOUL PAUSED" : "RUN PAUSED";
         string subtitle = settingsOnly ? "Tune the game before entering the rot." : soulContext
             ? "The sanctuary will wait for you." : "Take a breath. Combat is fully stopped.";
@@ -176,12 +211,17 @@ public sealed class Menus
             UiTheme.DrawText(spriteBatch, "How strongly hits rattle the camera", 8 * scale, UiTheme.Muted,
                 new Vector2(shakeRect.X + 10 * scale, shakeRect.Bottom - 4 * scale), "bottomleft");
 
-            var textSizeRect = new Rectangle((int)(settings.X + 14 * scale), (int)(bodyTop + 51 * scale),
-                (int)(settings.Width - 28 * scale), (int)(42 * scale));
-            int idx = ClosestIndex(UiTheme.TextSizeLevels, GameProfile.Profile.TextSize);
-            Button(spriteBatch, "text_size", textSizeRect, $"TEXT SIZE  //  {UiTheme.TextSizeLabels[idx]}", mousePosition, mouseDown, UiTheme.Gold);
-            UiTheme.DrawText(spriteBatch, "Scales all in-game text", 8 * scale, UiTheme.Muted,
-                new Vector2(textSizeRect.X + 10 * scale, textSizeRect.Bottom - 4 * scale), "bottomleft");
+            int rowHeight = (int)(48 * scale), rowGap = (int)(7 * scale);
+            int sliderX = (int)(settings.X + 14 * scale), sliderWidth = (int)(settings.Width - 28 * scale);
+            var textSizeRect = new Rectangle(sliderX, (int)(bodyTop + 51 * scale), sliderWidth, rowHeight);
+            Slider(spriteBatch, "text_size", textSizeRect, "TEXT SIZE", $"{GameProfile.Profile.TextSize * 100:0}%",
+                GameProfile.Profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale, mousePosition, UiTheme.Gold);
+            var guiRect = new Rectangle(sliderX, textSizeRect.Bottom + rowGap, sliderWidth, rowHeight);
+            Slider(spriteBatch, "gui_scale", guiRect, "GUI SCALE", $"{GameProfile.Profile.GuiScale * 100:0}%",
+                GameProfile.Profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale, mousePosition, UiTheme.Blue);
+            var damageRect = new Rectangle(sliderX, guiRect.Bottom + rowGap, sliderWidth, rowHeight);
+            Slider(spriteBatch, "damage_text_size", damageRect, "DAMAGE TEXT SIZE", $"{GameProfile.Profile.DamageTextSize * 100:0}%",
+                GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, mousePosition, UiTheme.Red);
         }
         else
         {
@@ -216,6 +256,8 @@ public sealed class Menus
     public MenuAction HandlePause(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mouseDown, bool mousePressed,
         bool canExtract = false, bool soulContext = false, bool settingsOnly = false)
     {
+        if (!mouseDown && _activeSlider is not null)
+            FinishSlider();
         if (_rebindingAction is not null)
         {
             if (keysPressed.Count > 0)
@@ -231,7 +273,10 @@ public sealed class Menus
         }
 
         if (keysPressed.Contains(Keys.Escape) || Activated("resume", mousePosition, mousePressed))
+        {
+            FinishSlider();
             return MenuAction.Resume;
+        }
         // Keybinds.Pressed reads InputState.KeysPressed directly rather than
         // taking a parameter (see Keybinds.cs); checking the bound key against
         // the keysPressed passed in here instead keeps this method's input
@@ -270,12 +315,18 @@ public sealed class Menus
                 GameProfile.Profile.ScreenShake = levels[(idx + 1) % levels.Length];
                 GameProfile.SaveProfile();
             }
-            if (Activated("text_size", mousePosition, mousePressed))
+            if (mouseDown)
             {
-                var levels = UiTheme.TextSizeLevels;
-                int idx = ClosestIndex(levels, GameProfile.Profile.TextSize);
-                GameProfile.Profile.TextSize = levels[(idx + 1) % levels.Count];
-                GameProfile.SaveProfile();
+                if (_activeSlider is null)
+                    _activeSlider = _sliders.FirstOrDefault(slider => slider.Value.Hit.Contains(mousePosition)).Key;
+                if (_activeSlider is not null && _sliders.TryGetValue(_activeSlider, out var slider))
+                {
+                    double value = SliderValue(slider.Track, mousePosition.X, slider.Min, slider.Max);
+                    if (_activeSlider == "text_size") GameProfile.Profile.TextSize = Math.Round(value, 2);
+                    if (_activeSlider == "gui_scale") GameProfile.Profile.GuiScale = Math.Round(value, 2);
+                    if (_activeSlider == "damage_text_size") GameProfile.Profile.DamageTextSize = Math.Round(value, 2);
+                    _sliderDirty = true;
+                }
             }
         }
         else

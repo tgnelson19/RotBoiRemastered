@@ -13,11 +13,12 @@ public class DamageTextTests
     [Fact]
     public void Update_FlagsForDeletion_OnceLifetimeExpires()
     {
-        // lifetimeFrames=4 -> Lifetime starts at 2; GetFrameScale() defaults to
-        // a fixed 2.0 before Simulation.SetDeltaTime is ever called.
         var text = new DamageText(0, 0, Color.White, 42, 20, lifetimeFrames: 4);
         Assert.False(text.DeleteMe);
         text.Update();
+        Assert.False(text.DeleteMe); // redesigned text intentionally lingers
+        for (int i = 0; i < 100 && !text.DeleteMe; i++)
+            text.Update();
         Assert.True(text.DeleteMe);
     }
 
@@ -27,5 +28,17 @@ public class DamageTextTests
         var text = new DamageText(0, 0, Color.White, "MISS", 20, lifetimeFrames: 20);
         text.Update();
         Assert.False(text.DeleteMe);
+    }
+
+    [Fact]
+    public void Update_RisesOnlyShortDistanceAndOscillatesSideways()
+    {
+        var text = new DamageText(0, 0, Color.White, 42, 40, lifetimeFrames: 60);
+        float firstX = text.VisualOffset.X;
+        for (int i = 0; i < 20; i++) text.Update();
+
+        Assert.InRange(text.VisualOffset.Y, -22f, -4f);
+        Assert.NotEqual(firstX, text.VisualOffset.X);
+        Assert.InRange(Math.Abs(text.VisualOffset.X), 0, 6f);
     }
 }

@@ -66,8 +66,9 @@ public sealed class GameSession
     /// </summary>
     public float AwarenessRange => ScreenHeight * .5f;
 
-    /// <summary>Matches variableHolster.py's damageTextSize, scaled the same way uiTheme.display_scale is.</summary>
-    public double DamageTextFontSize => Math.Max(9, Math.Round(40 * Math.Clamp(Math.Min(ScreenWidth / 1024.0, ScreenHeight / 768.0), .7, 3.2)));
+    /// <summary>Combat text has an independent accessibility scale and intentionally compact base size.</summary>
+    public double DamageTextFontSize => Math.Max(8, Math.Round(18 * UiTheme.ResolutionScale(ScreenWidth, ScreenHeight)
+        * Math.Clamp(GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale)));
 
     public GameSession(Battleground battleground, int screenWidth, int screenHeight, Random? rng = null)
     {
@@ -87,6 +88,7 @@ public sealed class GameSession
         Battleground = battleground;
         Player = new Player(battleground.SpawnPosition.X, battleground.SpawnPosition.Y);
         Camera.SetAngle(0);
+        Camera.SetZoom(1);
         ScreenShake = Vector2.Zero;
         LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
         InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
@@ -927,7 +929,7 @@ public sealed class GameSession
     {
         foreach (var crate in State.LootCrateList)
         {
-            var screen = Camera.WorldToScreen(new Vector2(crate.WorldX, crate.WorldY), PlayerWorldCenter, ScreenShake);
+            var screen = Camera.ApplyZoom(Camera.WorldToScreen(new Vector2(crate.WorldX, crate.WorldY), PlayerWorldCenter, ScreenShake));
             var rect = new Rectangle((int)screen.X, (int)screen.Y, (int)crate.Size, (int)crate.Size);
             if (rect.Intersects(new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight)))
                 crate.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
@@ -1037,7 +1039,7 @@ public sealed class GameSession
         var bounty = SelectBountyTarget();
         if (bounty is null)
             return;
-        var targetScreen = Camera.WorldToScreen(bounty.World, PlayerWorldCenter, ScreenShake);
+        var targetScreen = Camera.ApplyZoom(Camera.WorldToScreen(bounty.World, PlayerWorldCenter, ScreenShake));
         int arenaWidth = InformationSheet.ArenaWidth;
         // The marker is navigation for off-screen targets only -- once the target's
         // center enters the playable view, the enemy itself is the clearer cue.

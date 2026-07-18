@@ -235,6 +235,10 @@ public class RotBoiGame : Game
     {
         if ((State != GameState.GameRun && State != GameState.Soul) || _session is null)
             return;
+        if (State == GameState.GameRun && Keybinds.Pressed("zoom_out"))
+            _session.Camera.AdjustZoom(-Camera.ZoomStep);
+        if (State == GameState.GameRun && Keybinds.Pressed("zoom_in"))
+            _session.Camera.AdjustZoom(Camera.ZoomStep);
         if (Keybinds.Pressed("camera_reset"))
         {
             _session.Camera.SetAngle(0);
@@ -351,7 +355,10 @@ public class RotBoiGame : Game
             InputState.MousePressed, canExtract, soulContext, settingsOnly);
         // Menus edits the persisted default; the live run keeps a cached copy.
         if (_session is not null)
+        {
             _session.State.AutoFire = GameProfile.Profile.AutoFire;
+            _session.Resize(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        }
         switch (action)
         {
             case MenuAction.Resume:
@@ -451,7 +458,7 @@ public class RotBoiGame : Game
         GraphicsDevice.Clear(Color.Black);
         session.DrawBackground(_spriteBatch, GraphicsDevice);
 
-        _spriteBatch.Begin();
+        _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawGroundEnemyProjectiles(_spriteBatch);
         session.DrawBullets(_spriteBatch);
         session.DrawEnemies(_spriteBatch);
@@ -463,6 +470,9 @@ public class RotBoiGame : Game
         session.DrawDamageTexts(_spriteBatch);
         session.DrawExperience(_spriteBatch);
         session.DrawLootCrates(_spriteBatch);
+        _spriteBatch.End();
+
+        _spriteBatch.Begin();
         session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);
         session.DrawBountyIndicator(_spriteBatch);
         session.DrawInformationSheet(_spriteBatch, InputState.MousePosition);

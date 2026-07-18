@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using RotBoiRemastered.UI;
 
 namespace RotBoiRemastered.Systems;
 
@@ -29,6 +30,8 @@ public sealed class GameProfileData
     public bool HighContrast { get; set; }
     public string HudMode { get; set; } = "compact";
     public double TextSize { get; set; } = 1.0;
+    public double GuiScale { get; set; } = 1.0;
+    public double DamageTextSize { get; set; } = 0.8;
     public string PlayerCoreColor { get; set; } = "midnight";
     public string PlayerEdgeColor { get; set; } = "ink";
     public string ProjectileColor { get; set; } = "reference";
@@ -100,6 +103,9 @@ public static class GameProfile
 
     private static void Normalize(GameProfileData profile)
     {
+        profile.TextSize = Math.Clamp(profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale);
+        profile.GuiScale = Math.Clamp(profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
+        profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         profile.Keybinds ??= new();
         profile.SkillLevels ??= new();
         profile.QuestProgress ??= new();

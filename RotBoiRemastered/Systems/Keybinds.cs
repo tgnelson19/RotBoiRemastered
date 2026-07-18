@@ -26,6 +26,8 @@ public static class Keybinds
         ("rotate_left", "Rotate Camera Left", Keys.Q),
         ("rotate_right", "Rotate Camera Right", Keys.E),
         ("camera_reset", "Reset Camera", Keys.X),
+        ("zoom_out", "Zoom Camera Out", Keys.O),
+        ("zoom_in", "Zoom Camera In", Keys.P),
         ("autofire", "Toggle Autofire", Keys.I),
         ("hud_toggle", "Toggle HUD Detail", Keys.Tab),
         ("restart", "Restart Run (while paused)", Keys.R),

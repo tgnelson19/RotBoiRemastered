@@ -182,12 +182,12 @@ public sealed class ArenaRenderer
 
         var previousScissor = graphicsDevice.ScissorRectangle;
         graphicsDevice.ScissorRectangle = viewport;
-        spriteBatch.Begin(rasterizerState: ScissorRasterizerState);
+        spriteBatch.Begin(rasterizerState: ScissorRasterizerState, transformMatrix: camera.WorldTransform);
 
         float rotation = -MathHelper.ToRadians(camera.AngleDegrees);
         spriteBatch.Draw(_bakedGround, camera.Lock + screenShake, null, Color.White, rotation, playerWorldPosition, 1f, SpriteEffects.None, 0f);
 
-        var visibility = viewport;
+        var visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
         float halfTile = Battleground.TileSize / 2f;
 

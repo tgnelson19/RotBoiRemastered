@@ -1,0 +1,49 @@
+{
+  "BestLevel": 0,
+  "BestKills": 0,
+  "CompletedRuns": 0,
+  "AutoFire": true,
+  "CasualMode": true,
+  "TutorialHints": true,
+  "ScreenShake": 0.65,
+  "DamageNumbers": true,
+  "AimGuide": false,
+  "HighContrast": false,
+  "HudMode": "compact",
+  "TextSize": 1.36,
+  "GuiScale": 1.19,
+  "DamageTextSize": 1,
+  "PlayerCoreColor": "midnight",
+  "PlayerEdgeColor": "ink",
+  "ProjectileColor": "reference",
+  "ProjectileDesign": "bulb",
+  "Keybinds": {},
+  "SoulTokens": 1,
+  "BestDummyDps": 0,
+  "SkillLevels": {},
+  "QuestProgress": {
+    "shots_fired": 251,
+    "distance_traveled": 17017,
+    "damage_dealt": 7968,
+    "critical_hits": 4,
+    "enemies_defeated": 20,
+    "items_found": 6,
+    "statuses_applied": 7,
+    "levels_gained": 2
+  },
+  "CompletedQuests": [
+    "long_walk"
+  ],
+  "Storage": [],
+  "StartingLoadout": {},
+  "ExtractedRuns": [],
+  "DiscoveredItems": [
+    "Frost Bell",
+    "Bloodstained Garb",
+    "Traveler\u0027s Badge",
+    "Bone Spear",
+    "Bloody Dagger",
+    "Copper Ring"
+  ],
+  "PathMastery": {}
+}

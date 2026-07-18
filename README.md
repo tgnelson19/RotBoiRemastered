@@ -12,6 +12,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Space`: dash (briefly avoids contact damage)
 - Hold `Q` / `E`: smoothly rotate the arena clockwise / counter-clockwise
 - `X`: reset the camera to 0 degrees during play
+- `O` / `P`: zoom the world camera out / in around the player
 - `I`: toggle autofire
 - `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card

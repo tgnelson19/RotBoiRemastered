@@ -48,6 +48,13 @@ public class KeybindsTests : IDisposable
     }
 
     [Fact]
+    public void CameraZoom_DefaultsToOAndP()
+    {
+        Assert.Equal(Keys.O, Keybinds.ActionDefaults["zoom_out"]);
+        Assert.Equal(Keys.P, Keybinds.ActionDefaults["zoom_in"]);
+    }
+
+    [Fact]
     public void SetBinding_ClearsAnyOtherActionUsingThatKey()
     {
         Keybinds.SetBinding("move_up", Keys.Up);

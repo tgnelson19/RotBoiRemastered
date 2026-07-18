@@ -1,4 +1,5 @@
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.UI;
 
 namespace RotBoiRemastered.Tests.Systems;
 
@@ -25,6 +26,8 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.HighContrast, profile.HighContrast);
         Assert.Equal(defaults.HudMode, profile.HudMode);
         Assert.Equal(defaults.TextSize, profile.TextSize);
+        Assert.Equal(defaults.GuiScale, profile.GuiScale);
+        Assert.Equal(defaults.DamageTextSize, profile.DamageTextSize);
         Assert.Equal(defaults.PlayerCoreColor, profile.PlayerCoreColor);
         Assert.Equal(defaults.PlayerEdgeColor, profile.PlayerEdgeColor);
         Assert.Equal(defaults.ProjectileColor, profile.ProjectileColor);
@@ -49,6 +52,19 @@ public class GameProfileTests : IDisposable
 
         Assert.Equal(12, profile.BestLevel);
         Assert.True(profile.CasualMode); // untouched fields keep their default
+    }
+
+    [Fact]
+    public void AccessibilityScales_AreNormalizedToSafeSliderLimits()
+    {
+        string path = Path.Combine(_tempDir, "scales.json");
+        File.WriteAllText(path, """{"TextSize":99,"GuiScale":0.1,"DamageTextSize":50}""");
+
+        var profile = GameProfile.LoadProfile(path);
+
+        Assert.Equal(UiTheme.MaxTextScale, profile.TextSize);
+        Assert.Equal(UiTheme.MinGuiScale, profile.GuiScale);
+        Assert.Equal(UiTheme.MaxDamageTextScale, profile.DamageTextSize);
     }
 
     [Fact]
@@ -77,6 +93,8 @@ public class GameProfileTests : IDisposable
                 CompletedRuns = 2,
                 HudMode = "expanded",
                 TextSize = 1.3,
+                GuiScale = 1.4,
+                DamageTextSize = .65,
                 Keybinds = new Dictionary<string, int?> { ["dash"] = 42, ["move_up"] = null },
             };
             GameProfile.SavePath = path;
@@ -89,6 +107,8 @@ public class GameProfileTests : IDisposable
             Assert.Equal(2, reloaded.CompletedRuns);
             Assert.Equal("expanded", reloaded.HudMode);
             Assert.Equal(1.3, reloaded.TextSize);
+            Assert.Equal(1.4, reloaded.GuiScale);
+            Assert.Equal(.65, reloaded.DamageTextSize);
             Assert.Equal(42, reloaded.Keybinds["dash"]);
             Assert.Null(reloaded.Keybinds["move_up"]);
         }

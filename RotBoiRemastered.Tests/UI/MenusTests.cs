@@ -74,4 +74,14 @@ public class MenusTests
         var result = menus.HandleResults(new HashSet<Keys>(), Point.Zero, false);
         Assert.Equal(MenuAction.None, result);
     }
+
+    [Theory]
+    [InlineData(-20, 0.75)]
+    [InlineData(50, 1.875)]
+    [InlineData(120, 3.0)]
+    public void SliderValue_ClampsAndInterpolates(int mouseX, double expected)
+    {
+        double value = Menus.SliderValue(new Rectangle(0, 0, 100, 8), mouseX, .75, 3.0);
+        Assert.Equal(expected, value, precision: 3);
+    }
 }

@@ -29,7 +29,9 @@ public sealed class DamageText
     public float ObjSize { get; }
     public float Lifetime { get; private set; }
     public bool DeleteMe { get; private set; }
-    private float _deltaVal = 10f;
+    private readonly float _initialLifetime;
+    private float _age;
+    private float _rise = 4f;
 
     public DamageText(float worldX, float worldY, Color color, object value, float objSize, float lifetimeFrames)
     {
@@ -38,19 +40,24 @@ public sealed class DamageText
         Color = color;
         Value = value;
         ObjSize = objSize;
-        Lifetime = lifetimeFrames / 2f;
+        Lifetime = lifetimeFrames * 1.35f;
+        _initialLifetime = Lifetime;
     }
 
     public void Update()
     {
         if (Lifetime > 0)
         {
-            Lifetime -= (float)Simulation.GetFrameScale() * 2f;
-            _deltaVal += (float)Simulation.GetFrameScale();
+            float step = (float)Simulation.GetFrameScale();
+            Lifetime -= step;
+            _age += step;
+            _rise = Math.Min(22f, _rise + step * .20f);
         }
         if (Lifetime <= 0)
             DeleteMe = true;
     }
+
+    public Vector2 VisualOffset => new(MathF.Sin(_age * .10f) * Math.Min(6f, ObjSize * .14f), -_rise);
 
     public void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake, double fontSize)
     {
@@ -58,8 +65,18 @@ public sealed class DamageText
         string label = Value is double or float or int
             ? Math.Round(Convert.ToDouble(Value)).ToString("0")
             : Value.ToString() ?? "";
-        var center = new Vector2(screenPosition.X + ObjSize / 2f, screenPosition.Y - _deltaVal);
-        UiTheme.DrawText(spriteBatch, label, fontSize, UiTheme.Ink, center + new Vector2(3, 3), "center");
-        UiTheme.DrawText(spriteBatch, label, fontSize, Color, center, "center");
+        var center = new Vector2(screenPosition.X + ObjSize / 2f, screenPosition.Y) + VisualOffset;
+        float fade = Math.Clamp(Lifetime / Math.Max(1f, _initialLifetime * .28f), 0f, 1f);
+        var textColor = Color * fade;
+        var ink = UiTheme.Ink * fade;
+        var font = UiTheme.RawFont(fontSize);
+        Vector2 measured = font.MeasureString(label);
+        var plate = new Rectangle((int)(center.X - measured.X / 2f - 4), (int)(center.Y - measured.Y / 2f - 2),
+            (int)Math.Ceiling(measured.X + 8), (int)Math.Ceiling(measured.Y + 4));
+        Primitives2D.FillRect(spriteBatch, new Rectangle(plate.X + 2, plate.Y + 2, plate.Width, plate.Height),
+            Color.Black * (fade * .55f));
+        Primitives2D.FillRect(spriteBatch, plate, ink);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(plate.X, plate.Bottom - 2, plate.Width, 2), textColor);
+        UiTheme.DrawRawText(spriteBatch, label, fontSize, textColor, center, "center");
     }
 }
