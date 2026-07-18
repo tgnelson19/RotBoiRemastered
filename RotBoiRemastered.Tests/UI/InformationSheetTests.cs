@@ -18,35 +18,23 @@ namespace RotBoiRemastered.Tests.UI;
 public class InformationSheetTests
 {
     [Fact]
-    public void Constructor_CompactMode_NarrowerThanExpanded()
-    {
-        GameProfile.Profile.HudMode = "compact";
-        var compact = new InformationSheet(1920, 1080);
-        GameProfile.Profile.HudMode = "expanded";
-        var expanded = new InformationSheet(1920, 1080);
-
-        Assert.True(compact.ArenaWidth > expanded.ArenaWidth);
-    }
-
-    [Fact]
     public void ArenaWidth_NeverExceeds42PercentOfScreen()
     {
-        GameProfile.Profile.HudMode = "expanded";
         var sheet = new InformationSheet(800, 600);
         Assert.True(800 - sheet.ArenaWidth <= 800 * .42);
     }
 
     [Fact]
-    public void ToggleMode_PersistsToProfileAndChangesArenaWidth()
+    public void ToggleWeaponStats_DoesNotChangeArenaWidthOrTouchProfile()
     {
-        GameProfile.Profile.HudMode = "compact";
         var sheet = new InformationSheet(1920, 1080);
         int before = sheet.ArenaWidth;
+        var profileBefore = GameProfile.Profile;
 
-        sheet.ToggleMode();
+        sheet.ToggleWeaponStats();
 
-        Assert.Equal("expanded", GameProfile.Profile.HudMode);
-        Assert.NotEqual(before, sheet.ArenaWidth);
+        Assert.Equal(before, sheet.ArenaWidth);
+        Assert.Same(profileBefore, GameProfile.Profile);
     }
 
     [Fact]

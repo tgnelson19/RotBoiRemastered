@@ -51,12 +51,27 @@ public static class UiTheme
     public const int ReferenceHeight = 1080;
     public const float MinDisplayScale = .6f;
     public const float MaxDisplayScale = 2.4f;
-    public const double MinTextScale = .75;
-    public const double MaxTextScale = 3.0;
-    public const double MinGuiScale = .75;
-    public const double MaxGuiScale = 1.8;
+    public const double MinTextScale = .85;
+    public const double MaxTextScale = 2.0;
+    public const double MinGuiScale = .85;
+    public const double MaxGuiScale = 1.3;
     public const double MinDamageTextScale = .45;
     public const double MaxDamageTextScale = 2.0;
+
+    /// <summary>
+    /// Fixed presets rather than a free-form slider for GuiScale -- see
+    /// Menus.cs's OPTIONS tab. It used to be a continuous slider up to
+    /// 1.8x; at that extreme the pause/title screens' fixed-pixel button
+    /// offsets started running off-screen or overlapping themselves.
+    /// Capping the range and only exposing a handful of pre-checked steps
+    /// keeps every screen usable at every selectable value, at the cost of
+    /// not being able to dial in an arbitrary in-between percentage.
+    /// TextSize stays a plain slider (capped at MaxTextScale) -- its sidebar
+    /// overlap problem was solved instead by InformationSheet's own capped
+    /// local text scale (see DrawSheetText/MaxLocalTextBoost there).
+    /// </summary>
+    public static readonly IReadOnlyList<double> GuiScaleLevels = new[] { .85, 1.0, 1.15, 1.3 };
+    public static readonly IReadOnlyList<string> GuiScaleLabels = new[] { "SMALL", "NORMAL", "LARGE", "MAX" };
 
     private static FontSystem? _fontSystem;
 
@@ -134,6 +149,56 @@ public static class UiTheme
             font.DrawText(spriteBatch, text, new Vector2(rect.X + 1, rect.Y), drawColor);
         font.DrawText(spriteBatch, text, new Vector2(rect.X, rect.Y), drawColor);
         return rect;
+    }
+
+    /// <summary>
+    /// Greedy word-wrap at the given font size: the fewest lines whose
+    /// measured width all fit within maxWidth. A single word wider than
+    /// maxWidth on its own still gets its own (overflowing) line rather than
+    /// being split mid-word. Text-size-aware callers (card names/
+    /// descriptions) need this because a fixed-width container plus a
+    /// user-adjustable TextSize multiplier means the same string can outgrow
+    /// its box at any font size, not just a handful of unusually long ones.
+    /// </summary>
+    public static List<string> WrapLines(string text, double fontSize, float maxWidth)
+    {
+        var font = Font(fontSize);
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var lines = new List<string>();
+        string current = "";
+        foreach (var word in words)
+        {
+            string candidate = current.Length == 0 ? word : $"{current} {word}";
+            if (current.Length > 0 && font.MeasureString(candidate).X > maxWidth)
+            {
+                lines.Add(current);
+                current = word;
+            }
+            else
+            {
+                current = candidate;
+            }
+        }
+        if (current.Length > 0 || lines.Count == 0)
+            lines.Add(current);
+        return lines;
+    }
+
+    /// <summary>
+    /// Draws WrapLines' output centered horizontally on `center.X`, stacked
+    /// vertically so the whole block stays centered on `center.Y` -- a
+    /// single-line result lands at exactly `center`, matching plain
+    /// DrawText's anchor: "center" behavior so wrapping never shifts
+    /// already-short text that never needed it.
+    /// </summary>
+    public static void DrawWrappedText(SpriteBatch spriteBatch, string text, double fontSize, Color color,
+        Vector2 center, float maxWidth, bool bold = false)
+    {
+        var lines = WrapLines(text, fontSize, maxWidth);
+        float lineHeight = Font(fontSize).MeasureString("Ag").Y;
+        float startY = center.Y - lineHeight * lines.Count / 2f + lineHeight / 2f;
+        for (int index = 0; index < lines.Count; index++)
+            DrawText(spriteBatch, lines[index], fontSize, color, new Vector2(center.X, startY + index * lineHeight), "center", bold);
     }
 
     /// <summary>

@@ -50,23 +50,52 @@ public sealed class TitleScreen
         DrawGrid(spriteBatch, screenWidth, screenHeight);
 
         float scale = Math.Min(screenWidth, screenHeight);
-        float uiScale = UiTheme.DisplayScale(screenWidth, screenHeight);
+        // Text sizes below (scale * .095, etc.) already pick up TextSize
+        // through UiTheme.Font internally. Layout (button/panel widths,
+        // heights, gaps) only ever scaled with GuiScale via uiScale --
+        // DrawButton's own shrink-to-fit loop has a floor (raw size 9) that
+        // still renders far too wide once a high TextSize multiplies it, so
+        // without growing the boxes too, the five path buttons overlapped
+        // each other well before any single label's text could shrink
+        // enough to fit. uiScale now folds in the same growth-only factor
+        // InformationSheet.TextGrowthFactor uses, so layout keeps pace with
+        // whatever TextSize the text itself is already rendering at. The
+        // extra headroom factor is capped well below MaxTextScale (2.0) --
+        // DisplayScale already folds in GuiScale (up to 1.3x), and at max
+        // GuiScale *and* max TextSize the two multiplied together (2.6x)
+        // pushed the whole stack past the bottom of the screen. Capping
+        // the headroom side of that product keeps both sliders maxed out
+        // simultaneously from overflowing.
+        float uiScale = UiTheme.DisplayScale(screenWidth, screenHeight) * (float)Math.Max(1.0, Math.Min(1.3, UiTheme.TextScaleMultiplier()));
         float contentWidth = Math.Min(screenWidth * .68f, 980 * uiScale);
         float left = (screenWidth - contentWidth) / 2f;
-        UiTheme.DrawText(spriteBatch, "ROTBOI", scale * .095, UiTheme.Text, new Vector2(screenWidth / 2f, screenHeight * .12f), "midtop");
-        UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", scale * .026, UiTheme.Cream, new Vector2(screenWidth / 2f, screenHeight * .245f), "midtop");
-        UiTheme.DrawText(spriteBatch, "CHOOSE WHAT THE ROT REMEMBERS.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, screenHeight * .305f), "midtop");
+        // Free-floating title/subtitle/tagline text has no container to grow
+        // with it, so a high TextSize can make one line's rendered height
+        // alone exceed the fixed gap to the next fraction-of-screen-height
+        // anchor below it. Math.Max(originalFraction, previousBottom + gap)
+        // falls back to that measured bottom only once it would actually
+        // overlap -- at default TextSize this is always the original
+        // fraction (unchanged from before), so nothing shifts for anyone
+        // who hasn't touched the slider. Capped on the high end too (at
+        // roughly double its floor) so the cascade itself can't compound
+        // into an overflow no matter how large uiScale gets.
+        float gap = Math.Min(8 * uiScale, screenHeight * .018f);
+        var titleRect = UiTheme.DrawText(spriteBatch, "ROTBOI", scale * .095, UiTheme.Text, new Vector2(screenWidth / 2f, screenHeight * .12f), "midtop");
+        float subtitleY = Math.Max(screenHeight * .245f, titleRect.Bottom + gap);
+        var subtitleRect = UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", scale * .026, UiTheme.Cream, new Vector2(screenWidth / 2f, subtitleY), "midtop");
+        float taglineY = Math.Max(screenHeight * .305f, subtitleRect.Bottom + gap);
+        var taglineRect = UiTheme.DrawText(spriteBatch, "CHOOSE WHAT THE ROT REMEMBERS.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, taglineY), "midtop");
 
-        float selectorY = screenHeight * .365f;
-        float gap = 8 * uiScale;
+        float selectorY = Math.Max(screenHeight * .365f, taglineRect.Bottom + gap * 2);
         var paths = GamePaths.Paths;
         float selectorWidth = (contentWidth - gap * (paths.Count - 1)) / paths.Count;
+        float selectorHeight = Math.Min(Math.Max(50 * uiScale, scale * .058f), scale * .085f);
         _pathButtons.Clear();
         for (int index = 0; index < paths.Count; index++)
         {
             var path = paths[index];
             var rect = new Rectangle((int)(left + index * (selectorWidth + gap)), (int)selectorY,
-                (int)selectorWidth, (int)Math.Max(50 * uiScale, scale * .058f));
+                (int)selectorWidth, (int)selectorHeight);
             bool isSelected = path.Key == GamePaths.Selected().Key;
             UiTheme.DrawButton(spriteBatch, rect, path.Title, mousePosition, mouseDown, true,
                 isSelected ? path.Accent : UiTheme.Border, null, (int)(scale * .014f));
@@ -74,15 +103,19 @@ public sealed class TitleScreen
         }
 
         var selected = GamePaths.Selected();
-        UiTheme.DrawText(spriteBatch, $"{selected.Subtitle}  //  {selected.Description}", scale * .013, selected.Accent,
-            new Vector2(screenWidth / 2f, screenHeight * .455f), "midtop");
-        _playButton = new Rectangle((int)(left + contentWidth * .27f), (int)(screenHeight * .495f),
-            (int)(contentWidth * .46f), (int)Math.Max(54 * uiScale, scale * .064f));
+        float descriptionY = Math.Max(screenHeight * .455f, selectorY + selectorHeight + gap * 2);
+        var descriptionRect = UiTheme.DrawText(spriteBatch, $"{selected.Subtitle}  //  {selected.Description}", scale * .013, selected.Accent,
+            new Vector2(screenWidth / 2f, descriptionY), "midtop");
+        float playButtonY = Math.Max(screenHeight * .495f, descriptionRect.Bottom + gap * 2);
+        float playButtonHeight = Math.Min(Math.Max(54 * uiScale, scale * .064f), scale * .095f);
+        _playButton = new Rectangle((int)(left + contentWidth * .27f), (int)playButtonY,
+            (int)(contentWidth * .46f), (int)playButtonHeight);
         UiTheme.DrawButton(spriteBatch, _playButton, $"ENTER {selected.Title}", mousePosition, mouseDown, true,
             selected.Accent, "SPACE", (int)(scale * .019f));
 
-        _soulButton = new Rectangle((int)(left + contentWidth * .18f), (int)(screenHeight * .585f),
-            (int)(contentWidth * .30f), (int)Math.Max(42 * uiScale, scale * .052f));
+        float soulButtonY = Math.Max(screenHeight * .585f, playButtonY + playButtonHeight + gap * 2);
+        _soulButton = new Rectangle((int)(left + contentWidth * .18f), (int)soulButtonY,
+            (int)(contentWidth * .30f), (int)Math.Min(Math.Max(42 * uiScale, scale * .052f), scale * .078f));
         UiTheme.DrawButton(spriteBatch, _soulButton, "ENTER THE SOUL", mousePosition, mouseDown, true,
             UiTheme.Purple, "F", (int)(scale * .014f));
         _settingsButton = new Rectangle((int)(left + contentWidth * .52f), _soulButton.Y,
@@ -90,8 +123,9 @@ public sealed class TitleScreen
         UiTheme.DrawButton(spriteBatch, _settingsButton, "SETTINGS", mousePosition, mouseDown, true,
             UiTheme.Blue, null, (int)(scale * .014f));
 
-        var controlsRect = new Rectangle((int)left, (int)(screenHeight * .665f), (int)contentWidth,
-            (int)Math.Max(116 * uiScale, screenHeight * .15f));
+        float controlsY = Math.Max(screenHeight * .665f, _soulButton.Bottom + gap * 2);
+        var controlsRect = new Rectangle((int)left, (int)controlsY, (int)contentWidth,
+            (int)Math.Min(Math.Max(116 * uiScale, screenHeight * .15f), screenHeight * .21f));
         UiTheme.DrawPanel(spriteBatch, controlsRect, UiTheme.Panel, UiTheme.Border, shadow: 6);
         UiTheme.DrawText(spriteBatch, "FIELD MANUAL", scale * .018, UiTheme.Text,
             new Vector2(controlsRect.X + 18 * uiScale, controlsRect.Y + 14 * uiScale));

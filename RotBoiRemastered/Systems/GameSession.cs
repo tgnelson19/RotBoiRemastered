@@ -105,12 +105,13 @@ public sealed class GameSession
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
     }
 
-    /// <summary>Ported from informationSheet.py's toggle_mode(), plus the Camera re-centering character.py's caller performs alongside it.</summary>
-    public void ToggleHudMode()
-    {
-        InformationSheet.ToggleMode();
-        Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
-    }
+    /// <summary>
+    /// Tab now opens/closes the weapon-stats popup instead of toggling the
+    /// sidebar's own width -- the sidebar is a single fixed width now, so
+    /// there's no ArenaWidth change here to re-center the camera for
+    /// (unlike the old HudMode toggle this replaced).
+    /// </summary>
+    public void ToggleWeaponStats() => InformationSheet.ToggleWeaponStats();
 
     public void LoadStartingEquipment() => State.SetEquipment(MetaProgression.BeginRun());
 

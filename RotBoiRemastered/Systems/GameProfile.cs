@@ -28,7 +28,6 @@ public sealed class GameProfileData
     public bool DamageNumbers { get; set; } = true;
     public bool AimGuide { get; set; }
     public bool HighContrast { get; set; }
-    public string HudMode { get; set; } = "compact";
     public double TextSize { get; set; } = 1.0;
     public double GuiScale { get; set; } = 1.0;
     public double DamageTextSize { get; set; } = 0.8;
@@ -118,10 +117,35 @@ public static class GameProfile
         return new GameProfileData();
     }
 
+    /// <summary>
+    /// GuiScale is preset-only (see UiTheme.GuiScaleLevels' doc comment) --
+    /// snap rather than clamp, so a profile.json saved by an older build
+    /// with a continuous in-between value (or the old, wider slider range)
+    /// lands on the closest still-valid preset instead of an unreachable-
+    /// through-the-UI value that happened to also be in-range. TextSize is
+    /// back to being a plain slider (see Menus.cs's "text_size" control),
+    /// so it's clamped rather than snapped -- see Normalize() below.
+    /// </summary>
+    private static double SnapToNearest(IReadOnlyList<double> levels, double value)
+    {
+        double closest = levels[0];
+        double bestDiff = Math.Abs(value - closest);
+        foreach (double level in levels)
+        {
+            double diff = Math.Abs(value - level);
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                closest = level;
+            }
+        }
+        return closest;
+    }
+
     private static void Normalize(GameProfileData profile)
     {
         profile.TextSize = Math.Clamp(profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale);
-        profile.GuiScale = Math.Clamp(profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
+        profile.GuiScale = SnapToNearest(UiTheme.GuiScaleLevels, profile.GuiScale);
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         profile.Keybinds ??= new();
         profile.SkillLevels ??= new();

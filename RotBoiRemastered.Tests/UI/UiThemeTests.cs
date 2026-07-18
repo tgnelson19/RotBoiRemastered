@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 
 namespace RotBoiRemastered.Tests.UI;
@@ -8,9 +9,24 @@ namespace RotBoiRemastered.Tests.UI;
 /// Python test (test_sidebar_remains_bounded_across_common_aspect_ratios)
 /// depends on InformationSheet, which isn't ported yet -- port it alongside
 /// UI/InformationSheet.cs.
+///
+/// DisplayScale reads GameProfile.Profile.GuiScale, and GameProfile.Profile
+/// is process-wide static state seeded from whatever the developer's real
+/// %APPDATA% save file happens to contain -- so this needs the same
+/// GameProfileState collection (serializes against GameProfileTests/
+/// InformationSheetTests) plus its own reset-to-defaults, or these
+/// assertions (written assuming GuiScale's 1.0 default) go flaky the moment
+/// a live save has a non-default GuiScale on disk.
 /// </summary>
-public class UiThemeTests
+[Collection("GameProfileState")]
+public class UiThemeTests : IDisposable
 {
+    private readonly GameProfileData _originalProfile = GameProfile.Profile;
+
+    public UiThemeTests() => GameProfile.Profile = new GameProfileData();
+
+    public void Dispose() => GameProfile.Profile = _originalProfile;
+
     [Fact]
     public void ReferenceResolution_UsesOneToOneUiScale()
     {

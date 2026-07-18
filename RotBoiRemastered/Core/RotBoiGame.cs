@@ -242,7 +242,7 @@ public class RotBoiGame : Game
             GameProfile.SaveProfile();
         }
         if (Keybinds.Pressed("hud_toggle") && State == GameState.GameRun)
-            _session!.ToggleHudMode();
+            _session!.ToggleWeaponStats();
         if (Keybinds.Pressed("dev_invincible") && _session is not null)
             _session.State.BossDebugInvincible = !_session.State.BossDebugInvincible;
         if (Keybinds.Pressed("dev_level_up") && State == GameState.GameRun)

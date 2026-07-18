@@ -42,8 +42,8 @@ port first since they were deliberately kept pygame-free in the Python original.
   semantically significant, so splitting makes the spawn/collision/
   pressure-budget logic unit testable without a GraphicsDevice.
   `GameSession` also owns Camera re-centering against
-  `InformationSheet.ArenaWidth` (constructor/`Resize`/`ResetAll`/
-  `ToggleHudMode` -- see UI/README.md) and
+  `InformationSheet.ArenaWidth` (constructor/`Resize`/`ResetAll` --
+  see UI/README.md) and
   `SelectBountyTarget()`/`BountyInfo` (ported from
   character.py's `selectBountyTarget()`, feeds InformationSheet's
   objective panel). Now that `Entities/Beaudis.cs`/`Entities/Dissonance.cs`
