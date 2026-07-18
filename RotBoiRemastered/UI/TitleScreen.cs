@@ -1,0 +1,142 @@
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
+
+namespace RotBoiRemastered.UI;
+
+/// <summary>What HandleInput determined should happen, matching MenuAction's return-a-result shape.</summary>
+public enum TitleAction { None, StartRun, Quit }
+
+/// <summary>
+/// The title screen: path selector, play button, field manual, best-run tag.
+/// Ported from character.py's runTheTitleScreen() (one big function in
+/// Python too -- no separate helpers to extract). Follows Menus.cs's shape
+/// (Draw/HandleInput pair, no module globals) rather than mutating state
+/// directly -- the caller (Core/RotBoiGame.cs) is responsible for actually
+/// activating the selected path and constructing/resetting a GameSession on
+/// TitleAction.StartRun, matching Menus's established return-a-result
+/// contract.
+///
+/// Dropped vs. Python: the best-run tag reads GameProfile.Profile.BestLevel/
+/// BestKills directly rather than `max(cS.highestLevel, profile["best_level"])`
+/// -- GameProfile.RecordRun already updates BestLevel synchronously on every
+/// defeat/completion, so the profile value is never stale by the time this
+/// screen is shown again; there's no live "current session" value that could
+/// ever exceed it here.
+/// </summary>
+public sealed class TitleScreen
+{
+    private readonly Dictionary<string, Rectangle> _pathButtons = new();
+    private Rectangle _playButton;
+
+    private static void DrawGrid(SpriteBatch spriteBatch, int screenWidth, int screenHeight)
+    {
+        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight), UiTheme.Void);
+        int grid = Math.Max(28, Math.Min(screenWidth, screenHeight) / 28);
+        var gridColor = new Color(23, 27, 35);
+        for (int x = 0; x < screenWidth; x += grid)
+            Primitives2D.Line(spriteBatch, new Vector2(x, 0), new Vector2(x, screenHeight), gridColor, 1);
+        for (int y = 0; y < screenHeight; y += grid)
+            Primitives2D.Line(spriteBatch, new Vector2(0, y), new Vector2(screenWidth, y), gridColor, 1);
+    }
+
+    public void Draw(SpriteBatch spriteBatch, int screenWidth, int screenHeight, Point mousePosition, bool mouseDown)
+    {
+        DrawGrid(spriteBatch, screenWidth, screenHeight);
+
+        float scale = Math.Min(screenWidth, screenHeight);
+        float uiScale = UiTheme.DisplayScale(screenWidth, screenHeight);
+        float contentWidth = Math.Min(screenWidth * .68f, 980 * uiScale);
+        float left = (screenWidth - contentWidth) / 2f;
+        UiTheme.DrawText(spriteBatch, "ROTBOI", scale * .095, UiTheme.Text, new Vector2(screenWidth / 2f, screenHeight * .12f), "midtop");
+        UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", scale * .026, UiTheme.Cream, new Vector2(screenWidth / 2f, screenHeight * .245f), "midtop");
+        UiTheme.DrawText(spriteBatch, "CHOOSE WHAT THE ROT REMEMBERS.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, screenHeight * .305f), "midtop");
+
+        float selectorY = screenHeight * .365f;
+        float gap = 8 * uiScale;
+        var paths = GamePaths.Paths;
+        float selectorWidth = (contentWidth - gap * (paths.Count - 1)) / paths.Count;
+        _pathButtons.Clear();
+        for (int index = 0; index < paths.Count; index++)
+        {
+            var path = paths[index];
+            var rect = new Rectangle((int)(left + index * (selectorWidth + gap)), (int)selectorY,
+                (int)selectorWidth, (int)Math.Max(50 * uiScale, scale * .058f));
+            bool isSelected = path.Key == GamePaths.Selected().Key;
+            UiTheme.DrawButton(spriteBatch, rect, path.Title, mousePosition, mouseDown, true,
+                isSelected ? path.Accent : UiTheme.Border, null, (int)(scale * .014f));
+            _pathButtons[path.Key] = rect;
+        }
+
+        var selected = GamePaths.Selected();
+        UiTheme.DrawText(spriteBatch, $"{selected.Subtitle}  //  {selected.Description}", scale * .013, selected.Accent,
+            new Vector2(screenWidth / 2f, screenHeight * .455f), "midtop");
+        _playButton = new Rectangle((int)(left + contentWidth * .27f), (int)(screenHeight * .495f),
+            (int)(contentWidth * .46f), (int)Math.Max(54 * uiScale, scale * .064f));
+        UiTheme.DrawButton(spriteBatch, _playButton, $"ENTER {selected.Title}", mousePosition, mouseDown, true,
+            selected.Accent, "SPACE", (int)(scale * .019f));
+
+        var controlsRect = new Rectangle((int)left, (int)(screenHeight * .615f), (int)contentWidth,
+            (int)Math.Max(116 * uiScale, screenHeight * .15f));
+        UiTheme.DrawPanel(spriteBatch, controlsRect, UiTheme.Panel, UiTheme.Border, shadow: 6);
+        UiTheme.DrawText(spriteBatch, "FIELD MANUAL", scale * .018, UiTheme.Text,
+            new Vector2(controlsRect.X + 18 * uiScale, controlsRect.Y + 14 * uiScale));
+        var controls = new[] { ("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"), ("SPACE", "DASH"), ("Q / E", "ROTATE"), ("I", "AUTOFIRE") };
+        float cellWidth = (controlsRect.Width - 36 * uiScale) / controls.Length;
+        for (int index = 0; index < controls.Length; index++)
+        {
+            var (key, action) = controls[index];
+            float centerX = controlsRect.X + 18 * uiScale + cellWidth * (index + .5f);
+            int keyWidth = (int)Math.Min(82 * uiScale, cellWidth - 12 * uiScale);
+            var keyRect = new Rectangle((int)(centerX - keyWidth / 2f), (int)(controlsRect.Center.Y - 3 - 17 * uiScale), keyWidth, (int)(34 * uiScale));
+            Primitives2D.FillRect(spriteBatch, keyRect, UiTheme.Ink);
+            Primitives2D.RectOutline(spriteBatch, keyRect, UiTheme.Blue, 2);
+            UiTheme.DrawText(spriteBatch, key, scale * .014, UiTheme.Blue, new Vector2(keyRect.Center.X, keyRect.Center.Y), "center");
+            UiTheme.DrawText(spriteBatch, action, scale * .011, UiTheme.Muted, new Vector2(centerX, keyRect.Bottom + 11 * uiScale), "midtop");
+        }
+
+        int bestLevel = GameProfile.Profile.BestLevel;
+        string recordLabel = bestLevel <= 0 ? "NO RUNS LOGGED" : $"BEST RUN  //  LEVEL {bestLevel:D2}  //  {GameProfile.Profile.BestKills} KILLS";
+        UiTheme.DrawTag(spriteBatch, recordLabel, new Vector2(left, screenHeight * .81f), bestLevel > 0 ? UiTheme.Gold : UiTheme.Border, scale * .012);
+        UiTheme.DrawText(spriteBatch, "A / D  SELECT PATH    ESC  QUIT", scale * .012, UiTheme.Muted,
+            new Vector2(left + contentWidth, screenHeight * .815f), "topright");
+    }
+
+    /// <summary>
+    /// LEFT/A and RIGHT/D are hardcoded, not routed through Keybinds --
+    /// matching Python's own title screen (`pg.K_LEFT in vH.keyPressed or
+    /// pg.K_a in vH.keyPressed`), which never made these rebindable either.
+    /// </summary>
+    public TitleAction HandleInput(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed)
+    {
+        if (keysPressed.Contains(Keys.Left) || keysPressed.Contains(Keys.A))
+        {
+            GamePaths.Cycle(-1);
+        }
+        else if (keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D))
+        {
+            GamePaths.Cycle(1);
+        }
+        else if (mousePressed)
+        {
+            foreach (var (key, rect) in _pathButtons)
+            {
+                if (rect.Contains(mousePosition))
+                {
+                    GamePaths.Select(key);
+                    break;
+                }
+            }
+        }
+
+        bool playHovered = _playButton.Contains(mousePosition);
+        if (keysPressed.Contains(Keys.Space) || (playHovered && mousePressed))
+            return TitleAction.StartRun;
+        if (keysPressed.Contains(Keys.Escape))
+            return TitleAction.Quit;
+        return TitleAction.None;
+    }
+}
