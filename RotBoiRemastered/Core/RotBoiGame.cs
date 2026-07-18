@@ -452,6 +452,7 @@ public class RotBoiGame : Game
         session.DrawBackground(_spriteBatch, GraphicsDevice);
 
         _spriteBatch.Begin();
+        session.DrawGroundEnemyProjectiles(_spriteBatch);
         session.DrawBullets(_spriteBatch);
         session.DrawEnemies(_spriteBatch);
         // Keep the player readable above enemy bodies while hostile projectiles

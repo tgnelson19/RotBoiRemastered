@@ -594,10 +594,19 @@ public sealed class GameSession
             State.EnemyProjectileHolster.RemoveRange(0, State.EnemyProjectileHolster.Count - 150);
     }
 
+    /// <summary>Persistent pools are ground hazards and render below every combat actor.</summary>
+    public void DrawGroundEnemyProjectiles(SpriteBatch spriteBatch)
+    {
+        bool highContrast = GameProfile.Profile.HighContrast;
+        foreach (var projectile in State.EnemyProjectileHolster.Where(projectile => projectile.Path == "pool"))
+            projectile.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake, highContrast);
+    }
+
+    /// <summary>Airborne hostile shots and telegraphs render above combat actors.</summary>
     public void DrawEnemyProjectiles(SpriteBatch spriteBatch)
     {
         bool highContrast = GameProfile.Profile.HighContrast;
-        foreach (var projectile in State.EnemyProjectileHolster)
+        foreach (var projectile in State.EnemyProjectileHolster.Where(projectile => projectile.Path != "pool"))
             projectile.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake, highContrast);
     }
 
