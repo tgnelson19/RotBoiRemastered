@@ -68,15 +68,10 @@ public sealed class DamageText
         var center = new Vector2(screenPosition.X + ObjSize / 2f, screenPosition.Y) + VisualOffset;
         float fade = Math.Clamp(Lifetime / Math.Max(1f, _initialLifetime * .28f), 0f, 1f);
         var textColor = Color * fade;
-        var ink = UiTheme.Ink * fade;
-        var font = UiTheme.RawFont(fontSize);
-        Vector2 measured = font.MeasureString(label);
-        var plate = new Rectangle((int)(center.X - measured.X / 2f - 4), (int)(center.Y - measured.Y / 2f - 2),
-            (int)Math.Ceiling(measured.X + 8), (int)Math.Ceiling(measured.Y + 4));
-        Primitives2D.FillRect(spriteBatch, new Rectangle(plate.X + 2, plate.Y + 2, plate.Width, plate.Height),
-            Color.Black * (fade * .55f));
-        Primitives2D.FillRect(spriteBatch, plate, ink);
-        Primitives2D.FillRect(spriteBatch, new Rectangle(plate.X, plate.Bottom - 2, plate.Width, 2), textColor);
+        var shadowColor = Color.Black * (fade * .6f);
+        // No background plate -- just a 1px drop shadow so the number stays
+        // readable against arbitrary backgrounds without a solid box behind it.
+        UiTheme.DrawRawText(spriteBatch, label, fontSize, shadowColor, center + new Vector2(1, 1), "center");
         UiTheme.DrawRawText(spriteBatch, label, fontSize, textColor, center, "center");
     }
 }

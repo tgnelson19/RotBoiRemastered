@@ -850,9 +850,18 @@ public sealed class GameSession
     /// here since `ActiveBoss` is untyped and it's the only boss ported so
     /// far, so the "C" rune-cannon hotkey (Dissonance-only in Python) is a
     /// no-op until that boss exists.
+    ///
+    /// Gated behind BossDebugInvincible (the "Y" dev-toggle, see RunState's
+    /// "Hidden debug hotkey state" doc comment) -- unlike Python, these raw
+    /// 1-9/R/L/F/C key checks never went through Keybinds, so without this
+    /// gate they fired on every real bossfight regardless of what the player
+    /// had "restart" (also R by default) bound to, silently resetting the
+    /// boss's phase.
     /// </summary>
     public void HandleBossDebugControls(IReadOnlySet<Keys> keysPressed)
     {
+        if (!State.BossDebugInvincible)
+            return;
         if (State.ActiveBoss is Beaudis beaudis)
         {
             for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
