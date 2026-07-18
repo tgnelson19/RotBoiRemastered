@@ -333,7 +333,7 @@ public class RotBoiGame : Game
             controllerFiring: controllerFiring);
         session.UpdateBullets();
 
-        session.HandleEnemyCreation();
+        session.HandleEnemyCreation(interactPressed: Keybinds.Pressed("interact"));
         session.HandleBossDebugControls(InputState.KeysPressed);
         session.UpdateEnemies();
         session.UpdateEnemyProjectiles();
@@ -511,10 +511,12 @@ public class RotBoiGame : Game
         session.DrawExperience(_spriteBatch);
         _spriteBatch.End();
         session.DrawLootCrates(_spriteBatch, GraphicsDevice);
+        session.DrawBossPortal(_spriteBatch, GraphicsDevice);
 
         _spriteBatch.Begin();
         session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);
         session.DrawBountyIndicator(_spriteBatch);
+        session.DrawBossPortalIndicator(_spriteBatch);
         session.DrawInformationSheet(_spriteBatch, InputState.MousePosition);
         session.HandleInformationSheetDrag(InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
         session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
