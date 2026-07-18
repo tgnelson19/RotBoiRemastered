@@ -49,7 +49,8 @@ Its extraction chest keeps ten permanent item slots and statistics for the ten
 most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
 session best, and the all-time record. A 24-tile quest grid awards Soul tokens;
 the matching Soul grid spends those tokens on twelve simple, rankable permanent
-upgrades.
+upgrades. The physical wardrobe station offers persistent player Core and Edge
+colors plus two-tone projectile palettes and projectile silhouettes.
 
 After defeating a path's midpoint boss, the pause menu offers an extraction choice;
 completing a path extracts automatically. The chest keeps the run summary and lets

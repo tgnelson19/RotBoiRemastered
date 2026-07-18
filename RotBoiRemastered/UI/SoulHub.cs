@@ -10,6 +10,8 @@ namespace RotBoiRemastered.UI;
 /// <summary>Safe firing range and tile-based permanent progression sanctuary.</summary>
 public sealed class SoulHub
 {
+    private const float StationOpenRadiusTiles = 1.45f;
+    private const float StationCloseRadiusTiles = 1.85f;
     private sealed record DummyHit(double Time, double Damage);
     private readonly Queue<DummyHit> _dummyHits = new();
     private readonly Dictionary<string, Rectangle> _targets = new();
@@ -38,6 +40,7 @@ public sealed class SoulHub
         _stationWorld["storage"] = session.PlayerWorldCenter - new Vector2(Simulation.TileSize * 4, 0);
         _stationWorld["quests"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 4);
         _stationWorld["skills"] = session.PlayerWorldCenter + new Vector2(0, Simulation.TileSize * 4);
+        _stationWorld["wardrobe"] = session.PlayerWorldCenter + new Vector2(-Simulation.TileSize * 4, Simulation.TileSize * 4);
         _dummyHits.Clear();
         _seconds = 0;
         _measurementStart = 0;
@@ -85,7 +88,17 @@ public sealed class SoulHub
 
     public void HandleInput(GameSession session, IReadOnlySet<Keys> keysPressed, Point mouse, bool mousePressed)
     {
-        if (_overlay is null && keysPressed.Contains(Keys.F))
+        if (_overlay is not null)
+        {
+            bool walkedAway = !_stationWorld.TryGetValue(_overlay, out var station)
+                || !WithinStationRadius(session.PlayerWorldCenter, station, StationCloseRadiusTiles);
+            if (keysPressed.Contains(Keys.F) || walkedAway)
+            {
+                _overlay = null;
+                return;
+            }
+        }
+        else if (keysPressed.Contains(Keys.F))
         {
             var nearby = NearbyStation(session);
             if (nearby is not null)
@@ -103,15 +116,24 @@ public sealed class SoulHub
                 MetaProgression.TransferRunItemToStorage(parts[1], int.Parse(parts[2]));
             }
             else if (key.StartsWith("stored:")) MetaProgression.SelectStorageItem(int.Parse(key[7..]));
+            else if (key.StartsWith("cosmetic:"))
+            {
+                var parts = key.Split(':');
+                if (parts.Length == 3 && Cosmetics.Select(parts[1], parts[2]))
+                    session.State.ApplyCosmetics();
+            }
             break;
         }
     }
 
     private string? NearbyStation(GameSession session) => _stationWorld
-        .Where(station => Vector2.DistanceSquared(station.Value, session.PlayerWorldCenter) <= Math.Pow(Simulation.TileSize * 1.45f, 2))
+        .Where(station => WithinStationRadius(session.PlayerWorldCenter, station.Value, StationOpenRadiusTiles))
         .OrderBy(station => Vector2.DistanceSquared(station.Value, session.PlayerWorldCenter))
         .Select(station => station.Key)
         .FirstOrDefault();
+
+    public static bool WithinStationRadius(Vector2 player, Vector2 station, float radiusTiles) =>
+        Vector2.DistanceSquared(player, station) <= MathF.Pow(Simulation.TileSize * radiusTiles, 2);
 
     public void DrawWorld(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
@@ -146,6 +168,7 @@ public sealed class SoulHub
             ["storage"] = ("EXTRACTION CHEST", UiTheme.Gold),
             ["quests"] = ("QUEST ALTAR", UiTheme.Green),
             ["skills"] = ("SOUL GRID", UiTheme.Purple),
+            ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
         };
         foreach (var (key, world) in _stationWorld)
         {
@@ -174,6 +197,7 @@ public sealed class SoulHub
         if (_overlay == "storage") DrawStorage(spriteBatch, panel, mouse);
         if (_overlay == "quests") DrawQuests(spriteBatch, panel, mouse);
         if (_overlay == "skills") DrawSkills(spriteBatch, panel, mouse);
+        if (_overlay == "wardrobe") DrawWardrobe(spriteBatch, panel, mouse);
         if (_tooltip is not null) DrawTooltip(spriteBatch, mouse, panel);
     }
 
@@ -335,6 +359,90 @@ public sealed class SoulHub
                 (float)level / node.MaxLevel, UiTheme.Green, segments: node.MaxLevel);
             _targets[$"skill:{node.Key}"] = rect;
             if (rect.Contains(mouse)) _tooltip = $"{node.Description}  Rank {level}/{node.MaxLevel}.";
+        }
+    }
+
+    private void DrawWardrobe(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
+    {
+        UiTheme.DrawText(spriteBatch, "THE WARDROBE", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
+        UiTheme.DrawText(spriteBatch, "COSMETIC ONLY  //  CORE FILLS THE BODY, EDGE FRAMES IT, SHOTS USE A TWO-TONE PALETTE",
+            9, UiTheme.Blue, new Vector2(panel.X + 26, panel.Y + 53));
+
+        int gap = 12;
+        int columnWidth = (panel.Width - 52 - gap * 3) / 4;
+        int top = panel.Y + 84;
+        DrawColorColumn(spriteBatch, new Rectangle(panel.X + 26, top, columnWidth, panel.Height - 104),
+            "CORE COLOR", "core", Cosmetics.CoreColors, GameProfile.Profile.PlayerCoreColor, mouse);
+        DrawColorColumn(spriteBatch, new Rectangle(panel.X + 26 + columnWidth + gap, top, columnWidth, panel.Height - 104),
+            "EDGE COLOR", "edge", Cosmetics.EdgeColors, GameProfile.Profile.PlayerEdgeColor, mouse);
+        DrawProjectileColorColumn(spriteBatch, new Rectangle(panel.X + 26 + 2 * (columnWidth + gap), top, columnWidth, panel.Height - 104), mouse);
+        DrawProjectileDesignColumn(spriteBatch, new Rectangle(panel.X + 26 + 3 * (columnWidth + gap), top, columnWidth, panel.Height - 104), mouse);
+
+        var preview = new Rectangle(panel.Center.X - 65, panel.Bottom - 150, 130, 112);
+        UiTheme.DrawPanel(spriteBatch, preview, UiTheme.Panel, UiTheme.Blue, shadow: 5);
+        var body = new Rectangle(preview.X + 18, preview.Y + 25, 42, 42);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(body.X + 4, body.Y + 5, body.Width, body.Height), UiTheme.Shadow);
+        Primitives2D.FillRect(spriteBatch, body, Cosmetics.SelectedCore.Color);
+        Primitives2D.RectOutline(spriteBatch, body, Cosmetics.SelectedEdge.Color, 4);
+        ProjectileVisuals.Draw(spriteBatch, new Vector2(preview.X + 94, preview.Y + 46), Vector2.UnitX, 27,
+            Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, Cosmetics.SelectedDesign.Id);
+        UiTheme.DrawText(spriteBatch, "LIVE PREVIEW", 8, UiTheme.Muted, new Vector2(preview.Center.X, preview.Bottom - 18), "center");
+    }
+
+    private void DrawColorColumn(SpriteBatch spriteBatch, Rectangle column, string title, string category,
+        IReadOnlyList<CosmeticColor> colors, string selected, Point mouse)
+    {
+        UiTheme.DrawText(spriteBatch, title, 12, UiTheme.Text, new Vector2(column.X, column.Y));
+        int tile = Math.Min(48, (column.Width - 12) / 3), gap = 6;
+        int startY = column.Y + 30;
+        for (int index = 0; index < colors.Count; index++)
+        {
+            var option = colors[index];
+            int row = index / 3, col = index % 3;
+            var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
+            Primitives2D.FillRect(spriteBatch, rect, option.Color);
+            Primitives2D.RectOutline(spriteBatch, rect, option.Id == selected ? UiTheme.Cream : UiTheme.Ink, option.Id == selected ? 4 : 2);
+            _targets[$"cosmetic:{category}:{option.Id}"] = rect;
+            if (rect.Contains(mouse)) _tooltip = $"{option.Name} {title.ToLowerInvariant()}.";
+        }
+    }
+
+    private void DrawProjectileColorColumn(SpriteBatch spriteBatch, Rectangle column, Point mouse)
+    {
+        UiTheme.DrawText(spriteBatch, "SHOT COLOR", 12, UiTheme.Text, new Vector2(column.X, column.Y));
+        int tile = Math.Min(48, (column.Width - 12) / 3), gap = 6;
+        int startY = column.Y + 30;
+        for (int index = 0; index < Cosmetics.ProjectileColors.Count; index++)
+        {
+            var option = Cosmetics.ProjectileColors[index];
+            int row = index / 3, col = index % 3;
+            var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
+            Primitives2D.FillRect(spriteBatch, rect, option.Edge);
+            var inner = rect;
+            inner.Inflate(-Math.Max(5, tile / 5), -Math.Max(5, tile / 5));
+            Primitives2D.FillRect(spriteBatch, inner, option.Core);
+            bool selected = option.Id == GameProfile.Profile.ProjectileColor;
+            Primitives2D.RectOutline(spriteBatch, rect, selected ? UiTheme.Cream : UiTheme.Ink, selected ? 4 : 2);
+            _targets[$"cosmetic:projectile:{option.Id}"] = rect;
+            if (rect.Contains(mouse)) _tooltip = $"{option.Name} projectile palette.";
+        }
+    }
+
+    private void DrawProjectileDesignColumn(SpriteBatch spriteBatch, Rectangle column, Point mouse)
+    {
+        UiTheme.DrawText(spriteBatch, "SHOT DESIGN", 12, UiTheme.Text, new Vector2(column.X, column.Y));
+        int y = column.Y + 30;
+        foreach (var option in Cosmetics.ProjectileDesigns)
+        {
+            var rect = new Rectangle(column.X, y, column.Width, 58);
+            bool selected = option.Id == GameProfile.Profile.ProjectileDesign;
+            UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, selected ? UiTheme.Cream : UiTheme.Border, hovered: rect.Contains(mouse));
+            ProjectileVisuals.Draw(spriteBatch, new Vector2(rect.X + 38, rect.Center.Y), Vector2.UnitX, 25,
+                Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, option.Id);
+            UiTheme.DrawText(spriteBatch, option.Name.ToUpperInvariant(), 9, UiTheme.Text, new Vector2(rect.X + 72, rect.Center.Y), "midleft");
+            _targets[$"cosmetic:design:{option.Id}"] = rect;
+            if (rect.Contains(mouse)) _tooltip = option.Description;
+            y += 65;
         }
     }
 

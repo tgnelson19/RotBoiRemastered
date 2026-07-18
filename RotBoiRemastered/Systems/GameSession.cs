@@ -224,7 +224,7 @@ public sealed class GameSession
                     Player.WorldX + (float)State.PlayerSize / 2f - (float)State.BulletSize / 2f,
                     Player.WorldY + (float)State.PlayerSize / 2f - (float)State.BulletSize / 2f,
                     (float)State.BulletSpeed, direction, (float)State.BulletRange, (float)State.BulletSize,
-                    State.BulletColor, currPierce, (float)currDamage, currCrit));
+                    State.BulletColor, currPierce, (float)currDamage, currCrit, State.BulletEdgeColor, State.BulletDesign));
             }
             GameProfile.IncrementQuest("shots_fired", currProjectileCount);
         }

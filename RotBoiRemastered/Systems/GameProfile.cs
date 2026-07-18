@@ -29,6 +29,10 @@ public sealed class GameProfileData
     public bool HighContrast { get; set; }
     public string HudMode { get; set; } = "compact";
     public double TextSize { get; set; } = 1.0;
+    public string PlayerCoreColor { get; set; } = "midnight";
+    public string PlayerEdgeColor { get; set; } = "ink";
+    public string ProjectileColor { get; set; } = "reference";
+    public string ProjectileDesign { get; set; } = "bulb";
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();

@@ -25,6 +25,10 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.HighContrast, profile.HighContrast);
         Assert.Equal(defaults.HudMode, profile.HudMode);
         Assert.Equal(defaults.TextSize, profile.TextSize);
+        Assert.Equal(defaults.PlayerCoreColor, profile.PlayerCoreColor);
+        Assert.Equal(defaults.PlayerEdgeColor, profile.PlayerEdgeColor);
+        Assert.Equal(defaults.ProjectileColor, profile.ProjectileColor);
+        Assert.Equal(defaults.ProjectileDesign, profile.ProjectileDesign);
         Assert.Empty(profile.Keybinds);
     }
 

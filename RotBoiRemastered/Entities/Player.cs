@@ -161,7 +161,7 @@ public sealed class Player
 
         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 4, rect.Y + 4, rect.Width, rect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, rect, color);
-        Primitives2D.RectOutline(spriteBatch, rect, state.Dashing ? UiTheme.Cream : UiTheme.Ink, 3);
+        Primitives2D.RectOutline(spriteBatch, rect, state.Dashing ? UiTheme.Cream : state.PlayerEdgeColor, 3);
         var inset = rect;
         inset.Inflate(-(int)(state.PlayerSize * .42f), -(int)(state.PlayerSize * .42f));
         Primitives2D.FillRect(spriteBatch, inset, UiTheme.Lighten(color, 45));

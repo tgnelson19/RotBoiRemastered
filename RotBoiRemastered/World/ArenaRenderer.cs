@@ -39,7 +39,6 @@ public sealed class ArenaRenderer
 {
     private static readonly Color VoidColor = new(15, 18, 25);
     private static readonly Color GridLineColor = new(48, 51, 60);
-    private static readonly Color ShadowColor = new(18, 20, 27);
     private static readonly Color RoadEdgeDark = new(28, 30, 37);
     private static readonly Color RoadEdgeLight = new(67, 65, 72);
     private static readonly Color BuildingInset = new(24, 27, 35);
@@ -275,9 +274,6 @@ public sealed class ArenaRenderer
     {
         int height = _bakedFor!.WallHeight + (tile == TileType.ArenaWall ? 2 : 0);
         var (ground, cap) = WallScreenGeometry(camera, playerWorldPosition, screenShake, tileX, tileY, height);
-
-        var shadow = ground.Select(p => p + new Vector2(6, 7)).ToArray();
-        Primitives2D.FillPolygon(spriteBatch, shadow, ShadowColor);
 
         foreach (var (_, face) in VisibleWallFaces(camera, _bakedFor, tileX, tileY, ground, cap))
         {

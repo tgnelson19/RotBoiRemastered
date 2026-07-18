@@ -23,6 +23,8 @@ public sealed class Bullet
     public float Direction { get; private set; }
     public float Size { get; }
     public Color Color { get; }
+    public Color EdgeColor { get; }
+    public string Design { get; }
     public float Range { get; private set; }
     public int Pierce { get; set; }
     public float Damage { get; private set; }
@@ -31,7 +33,7 @@ public sealed class Bullet
     public float PortalCooldown { get; set; }
 
     public Bullet(float worldX, float worldY, float speed, float direction, float bulletRange,
-        float size, Color color, int pierce, float damage, bool isCritical)
+        float size, Color color, int pierce, float damage, bool isCritical, Color? edgeColor = null, string design = "bulb")
     {
         WorldX = worldX;
         WorldY = worldY;
@@ -39,6 +41,8 @@ public sealed class Bullet
         Direction = direction;
         Size = size;
         Color = color;
+        EdgeColor = edgeColor ?? UiTheme.Ink;
+        Design = design;
         Range = bulletRange;
         Pierce = pierce;
         Damage = damage;
@@ -72,14 +76,10 @@ public sealed class Bullet
 
     public void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        rect.Inflate(4, 4);
-        Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
-        rect.Inflate(-4, -4);
-        Primitives2D.FillRect(spriteBatch, rect, IsCritical ? UiTheme.Purple : UiTheme.Cream);
-        var inner = rect;
-        inner.Inflate(-(int)(Size * 0.5f), -(int)(Size * 0.5f));
-        Primitives2D.FillRect(spriteBatch, inner, UiTheme.Text);
+        Vector2 centerWorld = new(WorldX + Size / 2f, WorldY + Size / 2f);
+        Vector2 center = camera.WorldToScreen(centerWorld, playerWorldPosition, screenShake);
+        Vector2 movement = new(MathF.Cos(Direction), -MathF.Sin(Direction));
+        Vector2 forward = camera.WorldVectorToScreen(movement);
+        ProjectileVisuals.Draw(spriteBatch, center, forward, Size, Color, EdgeColor, Design, IsCritical);
     }
 }

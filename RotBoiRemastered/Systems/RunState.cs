@@ -170,6 +170,7 @@ public sealed class RunState
     public double PlayerSpeed { get; private set; }
     public float PlayerSize { get; private set; }
     public Color PlayerColor { get; private set; }
+    public Color PlayerEdgeColor { get; private set; }
 
     public double ProjectileCount { get; private set; }
     public double AzimuthalProjectileAngle { get; private set; }
@@ -180,7 +181,9 @@ public sealed class RunState
     public double BulletSpeed { get; private set; }
     public double BulletRange { get; private set; }
     public double BulletSize { get; private set; }
-    public Color BulletColor { get; } = new(125, 125, 125);
+    public Color BulletColor { get; private set; }
+    public Color BulletEdgeColor { get; private set; }
+    public string BulletDesign { get; private set; } = "bulb";
     public double BulletPierce { get; private set; }
     public double CritChance { get; private set; }
     public double CritDamage { get; private set; }
@@ -271,7 +274,7 @@ public sealed class RunState
     {
         PlayerSpeed = 2.1;
         PlayerSize = Simulation.TileSize * .75f;
-        PlayerColor = new Color(0, 0, 120);
+        ApplyCosmetics();
 
         ProjectileCount = 1;
         AzimuthalProjectileAngle = Math.PI / 8;
@@ -377,6 +380,16 @@ public sealed class RunState
         };
         MetaProgression.ApplySkills(this);
         CombinePlayerStats();
+    }
+
+    /// <summary>Refresh gameplay-neutral wardrobe selections without resetting the run.</summary>
+    public void ApplyCosmetics()
+    {
+        PlayerColor = Cosmetics.SelectedCore.Color;
+        PlayerEdgeColor = Cosmetics.SelectedEdge.Color;
+        BulletColor = Cosmetics.SelectedProjectile.Core;
+        BulletEdgeColor = Cosmetics.SelectedProjectile.Edge;
+        BulletDesign = Cosmetics.SelectedDesign.Id;
     }
 
     public void SetEquipment(Dictionary<string, ItemDrop?> equipment)

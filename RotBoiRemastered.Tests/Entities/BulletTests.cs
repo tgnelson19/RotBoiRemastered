@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.UI;
 
 namespace RotBoiRemastered.Tests.Entities;
 
@@ -38,5 +39,15 @@ public class BulletTests
         for (int i = 0; i < 5 && !bullet.RemFlag; i++)
             bullet.Update(battleground);
         Assert.True(bullet.RemFlag);
+    }
+
+    [Fact]
+    public void ProjectileAxis_PlacesBulbFrontAlongTravelDirection()
+    {
+        var (tail, front) = ProjectileVisuals.AxisEndpoints(new Vector2(50, 50), Vector2.UnitX, 20);
+
+        Assert.True(front.X > 50);
+        Assert.True(tail.X < 50);
+        Assert.Equal(50, front.Y, precision: 3);
     }
 }

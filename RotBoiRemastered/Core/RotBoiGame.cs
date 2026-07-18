@@ -395,11 +395,11 @@ public class RotBoiGame : Game
     private void UpdateSoul(GameTime gameTime)
     {
         var session = _session!;
+        session.MovePlayer(Keybinds.Held("move_left"), Keybinds.Held("move_right"), Keybinds.Held("move_up"), Keybinds.Held("move_down"),
+            Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
         _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
         if (_soulHub.OverlayOpen)
             return;
-        session.MovePlayer(Keybinds.Held("move_left"), Keybinds.Held("move_right"), Keybinds.Held("move_up"), Keybinds.Held("move_down"),
-            Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
         var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
         bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
         if (controllerFiring)
