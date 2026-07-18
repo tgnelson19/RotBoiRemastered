@@ -36,6 +36,7 @@ public sealed class GameSession
 {
     private const int CrateInteractRadius = 24;
     private const int MaxLootCrates = 40;
+    private const int BossPortalInteractRadius = 40;
     private const double HostileMinDamage = 25;
     private const double HostileDamageFloorRatio = .1;
 
@@ -269,24 +270,88 @@ public sealed class GameSession
 
     // ----- Enemies -----
 
+    /// <summary>Level threshold reached, boss not yet fought or fighting -- see <see cref="BossPortalOpen"/>'s doc comment.</summary>
+    private bool NaturalMidBossRequested => State.CurrentLevel >= Progression.MidBossLevel && !State.BeaudisEncounterStarted && State.ActiveBoss is null;
+
+    /// <summary>Level threshold reached, Beaudis already down, Dissonance not yet fought or fighting -- see <see cref="BossPortalOpen"/>'s doc comment.</summary>
+    private bool NaturalFinalBossRequested => State.CurrentLevel >= Progression.FinalBossLevel && State.BeaudisDefeated && !State.DissonanceEncounterStarted && State.ActiveBoss is null;
+
+    /// <summary>
+    /// True whenever a boss fight is "available" but not yet entered -- the
+    /// swirling portal (<see cref="DrawBossPortal"/>) is visible at
+    /// <see cref="ArenaCenterWorld"/> under exactly this condition, and
+    /// <see cref="HandleEnemyCreation"/> only actually starts the fight once
+    /// the player has walked into it (<see cref="PlayerAtBossPortal"/>).
+    /// Purely derived from existing RunState -- no separate "portal open"
+    /// flag to keep in sync.
+    /// </summary>
+    private bool BossPortalOpen => NaturalMidBossRequested || NaturalFinalBossRequested;
+
+    /// <summary>
+    /// Where a natural boss fight always happens -- Dissonance's forced
+    /// spawn rect and SpawnBoss's own default (non-forced) search both
+    /// already centered on this same point, so the portal, the touch
+    /// check, and the eventual spawn position all share one formula.
+    /// </summary>
+    private Vector2 ArenaCenterWorld => new(Battleground.Width * Simulation.TileSize / 2f, Battleground.Height * Simulation.TileSize / 2f);
+
+    private bool PlayerAtBossPortal()
+    {
+        int radius = BossPortalInteractRadius;
+        var portalRect = new Rectangle((int)(ArenaCenterWorld.X - radius), (int)(ArenaCenterWorld.Y - radius), radius * 2, radius * 2);
+        return Player.WorldRect(State).Intersects(portalRect);
+    }
+
+    /// <summary>
+    /// Moves the player straight down from the arena center by `distance`,
+    /// snapped to the nearest open tile -- entering the portal used to leave
+    /// the player exactly where they walked in (i.e. on top of the boss);
+    /// this keeps them a step away instead. Shared by every boss spawn
+    /// (Dissonance passes its own much larger distance to match its bigger
+    /// ArenaRadius; every other boss uses a small generic step-back).
+    /// </summary>
+    private void StepPlayerBackFromArenaCenter(float distance)
+    {
+        var center = ArenaCenterWorld;
+        var playerSpawn = Battleground.FindNearestOpenRect(new Rectangle(
+            (int)(center.X - State.PlayerSize / 2f), (int)(center.Y + distance - State.PlayerSize / 2f),
+            (int)State.PlayerSize, (int)State.PlayerSize));
+        Player.SetPosition(playerSpawn.X, playerSpawn.Y);
+    }
+
     /// <summary>
     /// Ported from character.py's handlingEnemyCreation(). The natural
-    /// Beaudis/Dissonance triggers now really spawn (matching Python's
-    /// "else" branch resolving to the final-boss content key for every
-    /// trigger reason that isn't the natural Beaudis one -- including the
-    /// hidden debug-summon hotkey, which therefore also spawns Dissonance,
-    /// never Beaudis, exactly like Python). Simplified vs. Python:
-    /// gamePaths.py's path-based boss-content-key lookup isn't ported, so
-    /// this always resolves to the "sound" path's bosses directly rather
-    /// than asking gamePaths which boss counts as "the mid/final boss" on
-    /// the active path.
+    /// Beaudis/Dissonance triggers now really spawn -- including the hidden
+    /// debug-summon hotkey, which resolves through GamePaths.BossKey the
+    /// same as a natural trigger would, so it summons whichever path is
+    /// currently active/selected, not always Dissonance.
+    ///
+    /// Unlike the original automatic trigger, a natural encounter no longer
+    /// starts the instant the level threshold is reached -- the portal that
+    /// opens at <see cref="ArenaCenterWorld"/> (see
+    /// <see cref="BossPortalOpen"/>/<see cref="DrawBossPortal"/>) only
+    /// actually starts the fight once the player is standing on it
+    /// (<see cref="PlayerAtBossPortal"/>) *and* presses the "interact"
+    /// keybind -- walking up to it alone no longer commits you. Ordinary
+    /// enemy spawning below pauses for as long as the portal is up (entered
+    /// or not) -- existing enemies aren't cleared, just no new ones join
+    /// while a boss fight is pending. The debug hotkey still bypasses the
+    /// portal (both the position and the button-press requirement) entirely.
+    ///
+    /// Every boss except Dissonance (GamePaths' "sound" path) spawns via the
+    /// generic non-forced search in SpawnBoss and gets a small, generic
+    /// step-back afterward so the player doesn't land on top of it -- this
+    /// applies uniformly across every path's mid/final boss, not just one.
+    /// Dissonance keeps its own bespoke forced-arena-center spawn and
+    /// larger repositioning (mirroring its much bigger ArenaRadius), same
+    /// as before this portal existed.
     /// </summary>
-    public void HandleEnemyCreation(Random? rng = null)
+    public void HandleEnemyCreation(Random? rng = null, bool interactPressed = false)
     {
         rng ??= Random.Shared;
-        bool naturalMidBossRequested = State.CurrentLevel >= Progression.MidBossLevel && !State.BeaudisEncounterStarted && State.ActiveBoss is null;
-        bool naturalFinalBossRequested = State.CurrentLevel >= Progression.FinalBossLevel && State.BeaudisDefeated && !State.DissonanceEncounterStarted && State.ActiveBoss is null;
-        if (State.BossDebugRequested || naturalMidBossRequested || naturalFinalBossRequested)
+        bool naturalMidBossRequested = NaturalMidBossRequested;
+        bool naturalFinalBossRequested = NaturalFinalBossRequested;
+        if (State.BossDebugRequested || ((naturalMidBossRequested || naturalFinalBossRequested) && PlayerAtBossPortal() && interactPressed))
         {
             bool naturalEncounter = !State.BossDebugRequested;
             bool midpoint = naturalMidBossRequested && naturalEncounter;
@@ -305,23 +370,23 @@ public sealed class GameSession
             Rectangle? forcedRect = null;
             if (bossKey == "dissonance")
             {
-                float arenaX = Battleground.Width * Simulation.TileSize / 2f;
-                float arenaY = Battleground.Height * Simulation.TileSize / 2f;
+                float arenaX = ArenaCenterWorld.X, arenaY = ArenaCenterWorld.Y;
                 float size = Simulation.TileSize * 1.9f;
                 forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
                 SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, forcedRect, bossKey);
-                var playerSpawn = Battleground.FindNearestOpenRect(new Rectangle(
-                    (int)(arenaX - State.PlayerSize / 2f), (int)(arenaY + Simulation.TileSize * 9.6f - State.PlayerSize / 2f),
-                    (int)State.PlayerSize, (int)State.PlayerSize));
-                Player.SetPosition(playerSpawn.X, playerSpawn.Y);
+                StepPlayerBackFromArenaCenter(Simulation.TileSize * 9.6f);
             }
             else
             {
                 SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, bossKey: bossKey);
+                StepPlayerBackFromArenaCenter(Simulation.TileSize * 2.5f);
             }
             State.BossDebugRequested = false;
             return;
         }
+
+        if (naturalMidBossRequested || naturalFinalBossRequested)
+            return; // portal is open but not yet entered -- pause ordinary spawning while it's up.
 
         if (!State.EnemySpawningEnabled)
             return;
@@ -428,9 +493,8 @@ public sealed class GameSession
         else
         {
             float footprint = Simulation.TileSize * 1.9f;
-            float centerX = Battleground.Width * Simulation.TileSize / 2f;
-            float centerY = Battleground.Height * Simulation.TileSize / 2f;
-            var requested = new Rectangle((int)(centerX - footprint / 2f), (int)(centerY - footprint / 2f), (int)footprint, (int)footprint);
+            var center = ArenaCenterWorld;
+            var requested = new Rectangle((int)(center.X - footprint / 2f), (int)(center.Y - footprint / 2f), (int)footprint, (int)footprint);
             spawnRect = Battleground.FindNearestOpenRect(requested);
         }
 
@@ -981,6 +1045,54 @@ public sealed class GameSession
         graphicsDevice.ScissorRectangle = previousScissor;
     }
 
+    /// <summary>
+    /// A stationary swirl at <see cref="ArenaCenterWorld"/>, visible exactly
+    /// while <see cref="BossPortalOpen"/> -- walking into it (see
+    /// <see cref="PlayerAtBossPortal"/>, checked by
+    /// <see cref="HandleEnemyCreation"/>) is what actually starts the fight.
+    /// No sprite asset: built from Primitives2D like the Soul's DPS
+    /// dummy/stations, animated off State.RunTimeSeconds rather than a
+    /// dedicated timer field. Same scissor-clipped-batch contract as
+    /// <see cref="DrawLootCrates"/> -- call with no batch already open.
+    /// </summary>
+    public void DrawBossPortal(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
+    {
+        if (!BossPortalOpen)
+            return;
+
+        var screen = Camera.ApplyZoom(Camera.WorldToScreen(ArenaCenterWorld, PlayerWorldCenter, ScreenShake));
+        float radius = Simulation.TileSize * 1.1f * Camera.Zoom;
+        var bounds = new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight);
+        if (!new Rectangle((int)(screen.X - radius), (int)(screen.Y - radius), (int)(radius * 2), (int)(radius * 2)).Intersects(bounds))
+            return;
+
+        var previousScissor = graphicsDevice.ScissorRectangle;
+        graphicsDevice.ScissorRectangle = bounds;
+        spriteBatch.Begin(rasterizerState: LootCrateScissorRasterizerState);
+
+        float t = (float)State.RunTimeSeconds;
+        float pulse = 1f + .06f * MathF.Sin(t * 2.2f);
+        Primitives2D.FillCircle(spriteBatch, screen, radius * .78f * pulse, UiTheme.Ink);
+        Primitives2D.CircleOutline(spriteBatch, screen, radius, UiTheme.Purple, 3);
+        for (int index = 0; index < 3; index++)
+        {
+            float speed = 1.4f + index * .55f;
+            float phase = t * speed + index * (MathF.PI * 2f / 3f);
+            float ringRadius = radius * (.55f + index * .18f);
+            var arcRect = new Rectangle((int)(screen.X - ringRadius), (int)(screen.Y - ringRadius), (int)(ringRadius * 2), (int)(ringRadius * 2));
+            Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .62f, UiTheme.Purple, 2);
+        }
+        if (PlayerAtBossPortal())
+        {
+            string keyLabel = Keybinds.LabelForKey(Keybinds.KeyFor("interact"));
+            UiTheme.DrawText(spriteBatch, $"{keyLabel}  //  ENTER", 9, UiTheme.Purple,
+                new Vector2(screen.X, screen.Y + radius + 12), "midtop");
+        }
+
+        spriteBatch.End();
+        graphicsDevice.ScissorRectangle = previousScissor;
+    }
+
     /// <summary>Ported from character.py's crateInteractionForPlayer(). The drag-in-progress guard is dropped (InformationSheet's drag UI is deferred).</summary>
     public void UpdateCrateInteraction()
     {
@@ -1105,6 +1217,37 @@ public sealed class GameSession
         // A compact inward label gives the marker meaning without covering the biome.
         var labelPosition = tip - direction * 52f;
         UiTheme.DrawText(spriteBatch, "BOUNTY", 9, UiTheme.Red, labelPosition, "center");
+    }
+
+    /// <summary>
+    /// Same shape as <see cref="DrawBountyIndicator"/> (reusing
+    /// <see cref="BountyArrowGeometry"/> directly) but pointed at the boss
+    /// portal instead of the current bounty -- visible for as long as
+    /// <see cref="BossPortalOpen"/> is, independent of whatever the bounty
+    /// arrow is doing.
+    /// </summary>
+    public void DrawBossPortalIndicator(SpriteBatch spriteBatch)
+    {
+        if (!BossPortalOpen)
+            return;
+        var targetScreen = Camera.ApplyZoom(Camera.WorldToScreen(ArenaCenterWorld, PlayerWorldCenter, ScreenShake));
+        int arenaWidth = InformationSheet.ArenaWidth;
+        if (new Rectangle(0, 0, arenaWidth, ScreenHeight).Contains(targetScreen.ToPoint()))
+            return;
+
+        int topMargin = State.ActiveBoss is not null ? 112 : 44;
+        var viewport = new Rectangle(34, topMargin, Math.Max(1, arenaWidth - 68), Math.Max(1, ScreenHeight - topMargin - 42));
+        var geometry = BountyArrowGeometry(Camera.Lock, targetScreen, viewport);
+        if (geometry is null)
+            return;
+        var (points, tip, direction) = geometry.Value;
+
+        var shadow = points.Select(p => p + new Vector2(4, 5)).ToArray();
+        Primitives2D.FillPolygon(spriteBatch, shadow, UiTheme.Shadow);
+        Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Purple);
+        Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, 4);
+        var labelPosition = tip - direction * 52f;
+        UiTheme.DrawText(spriteBatch, "PORTAL", 9, UiTheme.Purple, labelPosition, "center");
     }
 
     /// <summary>

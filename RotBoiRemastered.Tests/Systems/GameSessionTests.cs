@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
@@ -21,6 +22,23 @@ public class GameSessionTests
         session.State.CurrentLevel = level;
         return session;
     }
+
+    /// <summary>
+    /// A natural boss encounter no longer starts the instant the level
+    /// threshold is reached -- HandleEnemyCreation only spawns the boss once
+    /// the player has walked into the portal at the map's center (see
+    /// GameSession.PlayerAtBossPortal/ArenaCenterWorld). Tests that want
+    /// "the natural trigger fires" call this first to simulate walking in.
+    /// </summary>
+    private static void MoveToArenaCenter(GameSession session)
+    {
+        float x = session.Battleground.Width * Simulation.TileSize / 2f;
+        float y = session.Battleground.Height * Simulation.TileSize / 2f;
+        session.Player.SetPosition(x, y);
+    }
+
+    /// <summary>The default spawn position (Battleground.SpawnPosition) *is* the map center, so tests wanting "not at the portal" need to explicitly move away from it rather than just leaving the player at their starting position.</summary>
+    private static void MoveAwayFromArenaCenter(GameSession session) => session.Player.SetPosition(0, 0);
 
     [Fact]
     public void Constructor_PositionsPlayerAtBattlegroundSpawn()
@@ -269,13 +287,52 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void HandleEnemyCreation_LevelThresholdReached_OpensPortalWithoutSpawning()
+    {
+        var session = MakeSession(level: 10); // Progression.MidBossLevel
+        // Reaching the level threshold should only make the portal available,
+        // not spawn Beaudis, unless the player is standing on it.
+        MoveAwayFromArenaCenter(session);
+
+        session.HandleEnemyCreation(new Random(1));
+
+        Assert.Null(session.State.ActiveBoss);
+        Assert.False(session.State.BeaudisEncounterStarted);
+    }
+
+    [Fact]
+    public void HandleEnemyCreation_PortalOpen_PausesOrdinaryEnemySpawning()
+    {
+        var session = MakeSession(level: 10); // Progression.MidBossLevel, also past the level-5 arsenal miniboss gate
+        MoveAwayFromArenaCenter(session);
+
+        session.HandleEnemyCreation(new Random(1));
+
+        Assert.Empty(session.State.EnemyHolster);
+        Assert.DoesNotContain("miniboss_arsenal", session.State.GuaranteedMiniBossesSpawned);
+    }
+
+    [Fact]
+    public void HandleEnemyCreation_AtPortalWithoutInteracting_DoesNotSpawn()
+    {
+        var session = MakeSession(level: 10); // Progression.MidBossLevel
+        MoveToArenaCenter(session); // standing on the portal...
+
+        session.HandleEnemyCreation(new Random(1)); // ...but not pressing interact
+
+        Assert.Null(session.State.ActiveBoss);
+        Assert.False(session.State.BeaudisEncounterStarted);
+    }
+
+    [Fact]
     public void HandleEnemyCreation_NaturalBeaudisTrigger_SpawnsBossAndClearsArena()
     {
         var session = MakeSession(level: 10); // Progression.MidBossLevel
         session.State.EnemyHolster.Add(new Enemy(0, 0, speed: 0, size: 10, Color.Red, damage: 1, hp: 10, expValue: 1, difficulty: 1, awarenessRange: 100f));
         session.State.LootCrateList.Add(new LootCrate(0, 0, Array.Empty<ItemDrop>()));
+        MoveToArenaCenter(session);
 
-        session.HandleEnemyCreation(new Random(1));
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
 
         Assert.True(session.State.BeaudisEncounterStarted);
         Assert.IsType<Beaudis>(session.State.ActiveBoss);
@@ -285,10 +342,27 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void HandleEnemyCreation_NaturalBeaudisTrigger_StepsPlayerBackFromArenaCenter()
+    {
+        var session = MakeSession(level: 10);
+        MoveToArenaCenter(session);
+        var center = new Vector2(
+            session.Battleground.Width * Simulation.TileSize / 2f, session.Battleground.Height * Simulation.TileSize / 2f);
+
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
+
+        // The player shouldn't still be standing exactly on the arena center (i.e. on
+        // top of the boss) once the fight actually starts.
+        float distance = Vector2.Distance(new Vector2(session.Player.WorldX, session.Player.WorldY), center);
+        Assert.True(distance > Simulation.TileSize);
+    }
+
+    [Fact]
     public void HandleEnemyCreation_BeaudisAlreadyActive_DoesNotSpawnAnother()
     {
         var session = MakeSession(level: 10);
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         int countAfterFirst = session.State.EnemyHolster.Count;
 
         session.HandleEnemyCreation(new Random(1));
@@ -300,7 +374,8 @@ public class GameSessionTests
     public void HandleDamagingEnemies_KillingBeaudis_MarksDefeatedAndClearsActiveBoss()
     {
         var session = MakeSession(level: 10);
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
         // Beaudis only ever reaches 0 HP via its own choreographed survival/death
         // countdown (a huge single hit instead pins it to the next survival gate --
@@ -338,7 +413,8 @@ public class GameSessionTests
     public void HandleBossDebugControls_NumberKey_JumpsBossToThatPhase()
     {
         var session = MakeSession(level: 10);
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
         session.State.BossDebugInvincible = true; // spawning the boss resets this; set it after
 
@@ -351,7 +427,8 @@ public class GameSessionTests
     public void HandleBossDebugControls_FKey_ForcesBossToTheBrinkOfStagger()
     {
         var session = MakeSession(level: 10);
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
         session.State.BossDebugInvincible = true; // spawning the boss resets this; set it after
 
@@ -369,13 +446,28 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void HandleEnemyCreation_FinalBossThresholdReached_OpensPortalWithoutSpawning()
+    {
+        var session = MakeSession(level: 20); // Progression.FinalBossLevel
+        session.State.BeaudisEncounterStarted = true;
+        session.State.BeaudisDefeated = true;
+        MoveAwayFromArenaCenter(session);
+
+        session.HandleEnemyCreation(new Random(1));
+
+        Assert.Null(session.State.ActiveBoss);
+        Assert.False(session.State.DissonanceEncounterStarted);
+    }
+
+    [Fact]
     public void HandleEnemyCreation_NaturalDissonanceTrigger_SpawnsBossAtArenaCenter()
     {
         var session = MakeSession(level: 20); // Progression.FinalBossLevel
         session.State.BeaudisEncounterStarted = true;
         session.State.BeaudisDefeated = true;
+        MoveToArenaCenter(session);
 
-        session.HandleEnemyCreation(new Random(1));
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
 
         var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
         Assert.True(session.State.DissonanceEncounterStarted);
@@ -391,7 +483,8 @@ public class GameSessionTests
         var session = MakeSession(level: 20);
         session.State.BeaudisEncounterStarted = true;
         session.State.BeaudisDefeated = true;
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         Assert.IsType<Dissonance>(session.State.ActiveBoss);
         ((Enemy)session.State.ActiveBoss!).Hp = 0;
 
@@ -408,7 +501,8 @@ public class GameSessionTests
         var session = MakeSession(level: 20);
         session.State.BeaudisEncounterStarted = true;
         session.State.BeaudisDefeated = true;
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
         // Push the player far outside the arena before moving.
         session.Player.SetPosition(boss.ArenaCenter.X + boss.ArenaRadius * 5, boss.ArenaCenter.Y);
@@ -427,7 +521,8 @@ public class GameSessionTests
         var session = MakeSession(level: 20);
         session.State.BeaudisEncounterStarted = true;
         session.State.BeaudisDefeated = true;
-        session.HandleEnemyCreation(new Random(1));
+        MoveToArenaCenter(session);
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
         var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
         session.State.BossDebugInvincible = true; // spawning the boss resets this; set it after
         boss.RuneCannonCooldown = 5.0;
