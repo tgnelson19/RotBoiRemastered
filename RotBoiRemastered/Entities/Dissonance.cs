@@ -2137,7 +2137,7 @@ public sealed class Dissonance : Enemy
         bubble.Y = Math.Clamp(bubble.Y, bounds.Y, Math.Max(bounds.Y, bounds.Bottom - bubble.Height));
 
         UiTheme.DrawPanel(spriteBatch, bubble, UiTheme.PanelRaised, PhaseAccent, shadow: 4);
-        UiTheme.DrawText(spriteBatch, runeName, 13, UiTheme.Cream, new Vector2(bubble.Center.X - phaseFont.MeasureString($"  {PhaseLabel}").X / 2f, bubble.Y + 7), "midtop");
+        UiTheme.DrawText(spriteBatch, runeName, 13, UiTheme.Cream, new Vector2(bubble.Center.X - phaseFont.MeasureString($"  {PhaseLabel}").X / 2f, bubble.Y + 7), "midtop", bold: true);
         UiTheme.DrawText(spriteBatch, $"  {PhaseLabel}", 13, UiTheme.Cream, new Vector2(bubble.Center.X + runeFont.MeasureString(runeName).X / 2f, bubble.Y + 7), "midtop");
         float flavorY = bubble.Bottom - 7 - flavorHeight;
         foreach (var line in lines)

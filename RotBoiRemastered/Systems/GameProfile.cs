@@ -36,6 +36,8 @@ public sealed class GameProfileData
     public string PlayerEdgeColor { get; set; } = "ink";
     public string ProjectileColor { get; set; } = "reference";
     public string ProjectileDesign { get; set; } = "bulb";
+    /// <summary>Native-resolution fullscreen, toggled via F11 or the pause menu's OPTIONS tab (RotBoiGame.ApplyFullscreen). Defaults off -- windowed is friendlier for a desktop app that hasn't asked first.</summary>
+    public bool Fullscreen { get; set; }
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();
@@ -77,7 +79,22 @@ public static class GameProfile
     /// mock.patch.object(gameProfile, "save_profile", ...), but here it
     /// actually exercises a real save/load round trip against a scratch file.
     /// </summary>
-    public static string SavePath { get; set; } = "data/profile.json";
+    public static string SavePath { get; set; } = DefaultSavePath();
+
+    /// <summary>
+    /// A per-user AppData folder (`%APPDATA%\RotBoiRemastered\profile.json`
+    /// on Windows; `Environment.SpecialFolder.ApplicationData` resolves to
+    /// the platform-appropriate equivalent elsewhere) rather than a path
+    /// relative to the working directory -- a real installed build's working
+    /// directory isn't guaranteed writable or even stable (e.g. Program
+    /// Files), unlike a `dotnet run` dev invocation where the project folder
+    /// always is.
+    /// </summary>
+    private static string DefaultSavePath()
+    {
+        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return Path.Combine(appData, "RotBoiRemastered", "profile.json");
+    }
 
     public static GameProfileData Profile { get; set; } = LoadProfile();
 

@@ -5,16 +5,7 @@ using RotBoiRemastered.Systems;
 
 namespace RotBoiRemastered.UI;
 
-/// <summary>
-/// Resolution-independent icons and mini cards for equippable loot items.
-/// Ported from itemCards.py.
-///
-/// Known difference from the Python original: pygame.draw.rect's
-/// `border_radius` (rounded corners on the armor icon body and the card
-/// chrome) has no Primitives2D equivalent (no rounded-rect primitive exists
-/// yet) -- both render as sharp-cornered rects instead. Purely cosmetic;
-/// revisit if a rounded-rect primitive gets added for some other module.
-/// </summary>
+/// <summary>Resolution-independent icons and mini cards for equippable loot items. Ported from itemCards.py.</summary>
 public static class ItemCards
 {
     private static void DrawLine(SpriteBatch spriteBatch, Color color, Vector2 start, Vector2 end, float width)
@@ -84,7 +75,7 @@ public static class ItemCards
                 var body = new Rectangle(0, 0, (int)(13 * unit), (int)(15 * unit));
                 body.X = (int)(cx - body.Width / 2f);
                 body.Y = (int)(cy + 1 * unit - body.Height / 2f);
-                Primitives2D.RectOutline(spriteBatch, body, drawColor, (int)stroke);
+                Primitives2D.RoundedRectOutline(spriteBatch, body, drawColor, (int)stroke, (int)MathF.Round(3 * unit));
                 DrawLine(spriteBatch, drawColor, new Vector2(cx, cy - 6 * unit), new Vector2(cx - 3 * unit, cy - 1 * unit), Math.Max(1f, stroke * .7f));
                 DrawLine(spriteBatch, drawColor, new Vector2(cx, cy - 6 * unit), new Vector2(cx + 3 * unit, cy - 1 * unit), Math.Max(1f, stroke * .7f));
                 if (visualKind == "chain")
@@ -164,11 +155,12 @@ public static class ItemCards
     public static Rectangle DrawItemCard(SpriteBatch spriteBatch, Rectangle rect, string slotType, string rarity, bool hovered = false)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(rarity, out var color) ? color : UiTheme.Border;
+        int cornerRadius = Math.Max(2, rect.Width / 8);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
-        Primitives2D.FillRect(spriteBatch, shadow, UiTheme.Shadow);
+        Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
         Color fill = hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor;
-        Primitives2D.FillRect(spriteBatch, rect, fill);
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14));
+        Primitives2D.FillRoundedRect(spriteBatch, rect, fill, cornerRadius);
+        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14), cornerRadius);
         var inner = rect;
         inner.Inflate((int)(-rect.Width * .18f), (int)(-rect.Height * .22f));
         DrawItemSymbol(spriteBatch, slotType, inner, UiTheme.Ink);
@@ -178,10 +170,11 @@ public static class ItemCards
     public static Rectangle DrawItemCard(SpriteBatch spriteBatch, Rectangle rect, ItemDrop item, bool hovered = false)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(item.Rarity, out var color) ? color : UiTheme.Border;
+        int cornerRadius = Math.Max(2, rect.Width / 8);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
-        Primitives2D.FillRect(spriteBatch, shadow, UiTheme.Shadow);
-        Primitives2D.FillRect(spriteBatch, rect, hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor);
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14));
+        Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
+        Primitives2D.FillRoundedRect(spriteBatch, rect, hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor, cornerRadius);
+        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14), cornerRadius);
         var inner = rect;
         inner.Inflate((int)(-rect.Width * .15f), (int)(-rect.Height * .18f));
         DrawItemSymbol(spriteBatch, item.SlotType, inner, UiTheme.Ink, item.Definition.VisualKind);

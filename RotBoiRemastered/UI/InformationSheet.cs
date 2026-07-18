@@ -54,9 +54,6 @@ namespace RotBoiRemastered.UI;
 ///   RunState's enemy/boss data, no HUD concern) and passed into
 ///   <see cref="DrawSheet"/> explicitly, rather than this class reaching
 ///   into GameSession itself.
-/// - Known rendering gap shared with ItemCards.cs/StatCards.cs: pygame's
-///   `border_radius` (rounded corners) has no `Primitives2D` equivalent yet,
-///   so equipment/loot slot boxes render sharp-cornered instead of rounded.
 /// </summary>
 public sealed class InformationSheet
 {
@@ -456,7 +453,7 @@ public sealed class InformationSheet
         string? rating, string? helpText, Point mousePosition)
     {
         var iconRect = new Rectangle(rect.X + Px(10), y - Px(3), Px(24), Px(24));
-        Primitives2D.FillRect(spriteBatch, iconRect, UiTheme.Ink);
+        Primitives2D.FillRoundedRect(spriteBatch, iconRect, UiTheme.Ink, Px(3));
         StatCards.DrawStatSymbol(spriteBatch, symbol, Inflated(iconRect, -Px(4), -Px(4)), UiTheme.Cream);
         var labelRect = UiTheme.DrawText(spriteBatch, label, Px(8), UiTheme.Muted, new Vector2(iconRect.Right + Px(7), y));
         UiTheme.DrawText(spriteBatch, value, Px(9), UiTheme.Text, new Vector2(iconRect.Right + Px(7), y + Px(12)));

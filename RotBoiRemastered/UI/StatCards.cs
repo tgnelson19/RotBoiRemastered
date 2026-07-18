@@ -4,15 +4,7 @@ using RotBoiRemastered.Core;
 
 namespace RotBoiRemastered.UI;
 
-/// <summary>
-/// Resolution-independent stat symbols and collectible mini upgrade cards.
-/// Ported from statCards.py.
-///
-/// Known difference: pygame's `border_radius` (rounded corners on the
-/// bullet-icon body and the card chrome) has no `Primitives2D` equivalent
-/// yet, so both render with sharp corners instead -- same documented gap as
-/// `ItemCards.cs`.
-/// </summary>
+/// <summary>Resolution-independent stat symbols and collectible mini upgrade cards. Ported from statCards.py.</summary>
 public static class StatCards
 {
     private static void DrawLine(SpriteBatch spriteBatch, Color color, Vector2 start, Vector2 end, float width)
@@ -38,7 +30,7 @@ public static class StatCards
         {
             float length = 10 * unit * scale, radius = 3.5f * unit * scale;
             var body = new Rectangle((int)(x - length * .45f), (int)(y - radius), (int)(length * .65f), (int)(radius * 2));
-            Primitives2D.FillRect(spriteBatch, body, drawColor);
+            Primitives2D.FillRoundedRect(spriteBatch, body, drawColor, Math.Max(1, (int)MathF.Round(radius)));
             var tip = new[]
             {
                 new Vector2(body.Right - unit, body.Top),
@@ -191,11 +183,12 @@ public static class StatCards
         string mathType, bool hovered = false)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(rarity, out var color) ? color : UiTheme.Border;
+        int cornerRadius = Math.Max(2, rect.Width / 8);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
-        Primitives2D.FillRect(spriteBatch, shadow, UiTheme.Shadow);
+        Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
         Color fill = hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor;
-        Primitives2D.FillRect(spriteBatch, rect, fill);
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14));
+        Primitives2D.FillRoundedRect(spriteBatch, rect, fill, cornerRadius);
+        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14), cornerRadius);
         var inner = rect;
         inner.Inflate((int)(-rect.Width * .18f), (int)(-rect.Height * .22f));
         DrawStatSymbol(spriteBatch, statName, inner, UiTheme.Ink);
