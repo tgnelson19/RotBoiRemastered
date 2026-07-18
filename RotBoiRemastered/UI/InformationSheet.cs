@@ -257,12 +257,12 @@ public sealed class InformationSheet
         return ("ACTIVE", UiTheme.Gold, ratio);
     }
 
-    public static (string Name, string Detail) BountyDetails(BountyInfo? bounty, RunState state, Vector2 playerWorldPosition)
+    public static (string Name, string Detail) BountyDetails(BountyInfo? bounty, RunState state, Vector2 playerWorldCenter)
     {
         if (bounty is null)
             return ("Explore the arena", "No active target");
-        double dx = bounty.World.X - (playerWorldPosition.X + state.PlayerSize / 2);
-        double dy = bounty.World.Y - (playerWorldPosition.Y + state.PlayerSize / 2);
+        double dx = bounty.World.X - playerWorldCenter.X;
+        double dy = bounty.World.Y - playerWorldCenter.Y;
         double tiles = Math.Sqrt(dx * dx + dy * dy) / Math.Max(1, Simulation.TileSize);
         int count = bounty.Target is RuntimeEncounter encounter
             ? encounter.Members.Count(member => !member.IsDead())

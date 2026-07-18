@@ -91,4 +91,21 @@ public class CameraTests
         camera.SetAngle(-10);
         Assert.Equal(350.0, (double)camera.AngleDegrees, precision: 4);
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(45)]
+    [InlineData(137)]
+    [InlineData(270)]
+    public void PlayerWorldCenter_AlwaysMapsToCameraLock(float angle)
+    {
+        var camera = new Camera { Lock = new Vector2(400, 300) };
+        camera.SetAngle(angle);
+        var playerCenter = new Vector2(725, 525);
+
+        var projected = camera.WorldToScreen(playerCenter, playerCenter, Vector2.Zero);
+
+        Assert.Equal(camera.Lock.X, projected.X, 4);
+        Assert.Equal(camera.Lock.Y, projected.Y, 4);
+    }
 }

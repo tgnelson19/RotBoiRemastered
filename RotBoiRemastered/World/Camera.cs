@@ -20,7 +20,7 @@ public sealed class Camera
 {
     public float AngleDegrees { get; private set; }
 
-    /// <summary>Screen-space anchor point the player is drawn at (was lockX/lockY).</summary>
+    /// <summary>Screen-space center of the player and camera rotation pivot.</summary>
     public Vector2 Lock { get; set; }
 
     /// <summary>Set continuous camera yaw in degrees, normalized to one revolution.</summary>

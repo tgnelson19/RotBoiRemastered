@@ -48,6 +48,22 @@ public class LevelingHandlerTests
         Assert.True(handler.MidCard.Right <= handler.RightCard.Left);
     }
 
+    [Theory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    [InlineData(2560, 1440)]
+    public void UpdateLayout_WindowedAndFullscreenSizesKeepAllControlsWithinViewport(int width, int height)
+    {
+        var handler = new LevelingHandler(width, height, new Random(1));
+
+        foreach (var rect in handler.CardRects.Append(handler.RerollButton))
+        {
+            Assert.True(rect.Width > 0 && rect.Height > 0);
+            Assert.True(rect.X >= 0 && rect.Y >= 0);
+            Assert.True(rect.Right <= width && rect.Bottom <= height);
+        }
+    }
+
     [Fact]
     public void Constructor_GeneratesThreeCards()
     {

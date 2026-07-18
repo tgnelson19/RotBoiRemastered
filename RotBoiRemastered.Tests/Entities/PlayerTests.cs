@@ -122,6 +122,27 @@ public class PlayerTests
     }
 
     [Fact]
+    public void CollisionPolygon_ProjectsAroundCameraLockCenter()
+    {
+        var player = new Player(100, 100);
+        var state = MakeState();
+        var camera = new Camera { Lock = new Microsoft.Xna.Framework.Vector2(400, 300) };
+        camera.SetAngle(45);
+        var playerCenter = new Microsoft.Xna.Framework.Vector2(
+            player.WorldX + state.PlayerSize / 2f, player.WorldY + state.PlayerSize / 2f);
+
+        var projected = player.WorldCollisionPolygon(state, camera)
+            .Select(point => camera.WorldToScreen(point, playerCenter, Microsoft.Xna.Framework.Vector2.Zero))
+            .ToArray();
+        float half = state.PlayerSize / 2f;
+
+        Assert.Equal(camera.Lock.X - half, projected.Min(point => point.X), 3);
+        Assert.Equal(camera.Lock.X + half, projected.Max(point => point.X), 3);
+        Assert.Equal(camera.Lock.Y - half, projected.Min(point => point.Y), 3);
+        Assert.Equal(camera.Lock.Y + half, projected.Max(point => point.Y), 3);
+    }
+
+    [Fact]
     public void WorldRect_MatchesPositionAndPlayerSize()
     {
         var player = new Player(100, 200);

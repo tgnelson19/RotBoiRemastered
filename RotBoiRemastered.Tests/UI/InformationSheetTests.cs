@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
@@ -184,6 +185,19 @@ public class InformationSheetTests
         Assert.Equal("Test Target", name);
         Assert.Contains("1 hostile", detail);
         Assert.Contains("Target nearby", detail);
+    }
+
+    [Fact]
+    public void BountyDetails_UsesPlayerCenterWithoutAddingAnotherHalfSizeOffset()
+    {
+        var state = MakeState();
+        var enemy = new Enemy(0, 0, speed: 0, size: 10, Color.Red, damage: 1, hp: 10, expValue: 1, difficulty: 1, awarenessRange: 100f);
+        var playerCenter = new Vector2(100, 100);
+        var bounty = new BountyInfo(new Vector2(100 + Simulation.TileSize * 10, 100), 10, "TEST TARGET", enemy);
+
+        var (_, detail) = InformationSheet.BountyDetails(bounty, state, playerCenter);
+
+        Assert.Contains("About 10 tiles away", detail);
     }
 
     [Fact]

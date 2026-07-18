@@ -269,7 +269,7 @@ public class RotBoiGame : Game
         bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
         if (controllerFiring)
         {
-            var origin = session.Camera.Lock + new Vector2((float)session.State.PlayerSize / 2f);
+            var origin = session.Camera.Lock;
             mouseScreen = origin + new Vector2(InputState.ControllerAim.X * GraphicsDevice.Viewport.Width,
                 InputState.ControllerAim.Y * GraphicsDevice.Viewport.Height);
         }

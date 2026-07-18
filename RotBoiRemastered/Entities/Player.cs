@@ -51,17 +51,14 @@ public sealed class Player
     public Vector2[] WorldCollisionPolygon(RunState state, Camera camera, float? worldX = null, float? worldY = null)
     {
         float x = worldX ?? WorldX, y = worldY ?? WorldY;
-        float size = (float)state.PlayerSize;
-        var anchor = new Vector2(x, y);
-        // Camera.WorldToScreen maps the player's world position to Camera.Lock,
-        // which is the drawn rectangle's top-left. Invert offsets from that
-        // anchor directly so these are exactly the four visible corners.
+        float half = (float)state.PlayerSize / 2f;
+        var center = new Vector2(x + half, y + half);
         var screenOffsets = new[]
         {
-            Vector2.Zero, new Vector2(size, 0),
-            new Vector2(size, size), new Vector2(0, size),
+            new Vector2(-half, -half), new Vector2(half, -half),
+            new Vector2(half, half), new Vector2(-half, half),
         };
-        return screenOffsets.Select(offset => anchor + camera.ScreenVectorToWorld(offset)).ToArray();
+        return screenOffsets.Select(offset => center + camera.ScreenVectorToWorld(offset)).ToArray();
     }
 
     /// <summary>Ported from character.py's movePlayer().</summary>
@@ -158,7 +155,9 @@ public sealed class Player
     {
         bool flashOn = state.PlayerInvulnerabilityTimer > 0 && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
         Color color = flashOn ? new Color(235, 245, 255) : state.PlayerColor;
-        var rect = new Rectangle((int)camera.Lock.X, (int)camera.Lock.Y, (int)state.PlayerSize, (int)state.PlayerSize);
+        int half = (int)Math.Round(state.PlayerSize / 2f);
+        var rect = new Rectangle((int)camera.Lock.X - half, (int)camera.Lock.Y - half,
+            (int)state.PlayerSize, (int)state.PlayerSize);
 
         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 4, rect.Y + 4, rect.Width, rect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, rect, color);

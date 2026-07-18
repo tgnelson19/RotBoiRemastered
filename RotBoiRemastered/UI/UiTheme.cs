@@ -202,16 +202,14 @@ public static class UiTheme
     public static void DrawProgress(SpriteBatch spriteBatch, Rectangle rect, float ratio, Color color, int segments = 10)
     {
         float scale = DisplayScale(spriteBatch);
-        ratio = Math.Clamp(ratio, 0f, 1f);
         Primitives2D.FillRect(spriteBatch, rect, Ink);
-        int borderWidth = Math.Max(2, (int)MathF.Round(2 * scale));
+        int borderWidth = ProgressBorderWidth(rect, scale);
         Primitives2D.RectOutline(spriteBatch, rect, Border, borderWidth);
-        var inner = rect;
-        inner.Inflate(-borderWidth * 2, -borderWidth * 2);
-        int fillWidth = (int)(inner.Width * ratio);
-        if (fillWidth > 0)
-            Primitives2D.FillRect(spriteBatch, new Rectangle(inner.X, inner.Y, fillWidth, inner.Height), color);
-        if (segments > 1)
+
+        var (inner, fill) = ProgressGeometry(rect, ratio, scale);
+        if (fill.Width > 0 && fill.Height > 0)
+            Primitives2D.FillRect(spriteBatch, fill, color);
+        if (segments > 1 && inner.Width > 0 && inner.Height > 0)
         {
             for (int index = 1; index < segments; index++)
             {
@@ -219,6 +217,28 @@ public static class UiTheme
                 Primitives2D.Line(spriteBatch, new Vector2(x, inner.Y), new Vector2(x, inner.Bottom - 1), Ink, 1);
             }
         }
+    }
+
+    /// <summary>
+    /// Returns the drawable interior and fill rectangles used by <see cref="DrawProgress"/>.
+    /// Kept independent of GraphicsDevice so resolution-sensitive UI geometry can be tested.
+    /// </summary>
+    public static (Rectangle Inner, Rectangle Fill) ProgressGeometry(Rectangle rect, float ratio, float displayScale)
+    {
+        int borderWidth = ProgressBorderWidth(rect, displayScale);
+        int innerWidth = Math.Max(0, rect.Width - borderWidth * 2);
+        int innerHeight = Math.Max(0, rect.Height - borderWidth * 2);
+        var inner = new Rectangle(rect.X + borderWidth, rect.Y + borderWidth, innerWidth, innerHeight);
+        int fillWidth = Math.Clamp((int)MathF.Round(innerWidth * Math.Clamp(ratio, 0f, 1f)), 0, innerWidth);
+        var fill = new Rectangle(inner.X, inner.Y, fillWidth, innerHeight);
+        return (inner, fill);
+    }
+
+    private static int ProgressBorderWidth(Rectangle rect, float displayScale)
+    {
+        int requested = Math.Max(2, (int)MathF.Round(2 * displayScale));
+        int maximum = Math.Max(1, Math.Min(rect.Width, rect.Height) / 2);
+        return Math.Min(requested, maximum);
     }
 
     public static Rectangle DrawTag(SpriteBatch spriteBatch, object text, Vector2 position, Color? color = null,
