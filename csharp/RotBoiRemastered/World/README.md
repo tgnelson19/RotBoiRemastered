@@ -21,22 +21,32 @@ the Python source:
   strings).
 - `GamePaths.cs` <- `gamePaths.py`. **Done, data/selection portion only**:
   `EnemyStyle`, `GamePath`, the `Paths` table, `Select`/`Cycle`/
-  `ActivateSelected`/`BossKey`/`IsTouch`. Deferred: `ApplyEnemyIdentity`,
-  `ENCOUNTERS` (`_PathEnemyCatalog`), `RegisterExclusiveEncounter`, and
-  `TuneNewProjectiles` all operate directly on `Enemy`/`EnemyProjectile`/
-  `EnemyCatalog` instances, none of which exist yet -- port them alongside
-  `Entities/`.
-
-## Explicitly deferred (not in World/ yet)
-
-The actual pixel rendering of tiles, raised walls, and decorations
-(`background.py`'s `drawRepasteableBackground`, `_draw_floor_detail`,
-`_draw_raised_decoration`, `_draw_camera_facing_wall`,
-`moveAndDisplayBackground`, `drawRaisedScenery`, `_wall_screen_geometry`,
-`_decoration_screen_rect`) is *not* ported yet. `Battleground`/`Camera` give
-everything needed to place and collide with the world; drawing it is a
-separate pass, more naturally paired with `Entities/` once there's something
-to look at the arena *for*. Verified in the meantime with a temporary
-diagnostic render (flat per-tile colors, no camera rotation/3D walls) that
-confirmed all five generators produce the correct shapes -- see the git
-history for this commit if you want to regenerate that check.
+  `ActivateSelected`/`BossKey`/`IsTouch` -- all wired into
+  `Core/RotBoiGame.cs`'s title screen and run-start/restart flow. Still
+  deferred: `ApplyEnemyIdentity`, `ENCOUNTERS` (`_PathEnemyCatalog`),
+  `RegisterExclusiveEncounter`, and `TuneNewProjectiles` (per-path enemy
+  stat reskinning/spawn tables) and per-path boss selection
+  (`GameSession.HandleEnemyCreation` still hardcodes `Beaudis`/`Dissonance`
+  regardless of the active path) -- `Entities/` exists now, so nothing
+  structural blocks these anymore, they just weren't in scope for the
+  game-loop wiring pass; see `Systems/README.md`.
+- `ArenaRenderer.cs` <- `background.py`'s pixel rendering:
+  `drawRepasteableBackground`/`_draw_floor_detail`/`_raised_scenery`/
+  `moveAndDisplayBackground`/`drawRaisedScenery`/`_wall_screen_geometry`/
+  `_draw_camera_facing_wall`/`_decoration_screen_rect`/
+  `_draw_raised_decoration`. **Done** -- see its own doc comment for the one
+  real design decision: the floor plane is still baked once per
+  `Battleground` into a `RenderTarget2D` (Python bakes for the same reason
+  `Core/Primitives2D.cs`'s `FillPolygon` stays per-frame-only for walls/
+  decorations -- one `SpriteBatch.Draw` call per scanline row is far too
+  many draw calls for thousands of floor tiles every frame), but Python's
+  elaborate downsample/cache/rotate/rescale pipeline on top of that bake is
+  dropped entirely: MonoGame's `SpriteBatch.Draw` rotation is a single
+  hardware-accelerated call regardless of source texture size, so the baked
+  texture is just drawn rotated directly, every frame, no caching needed.
+  Viewport clipping uses `GraphicsDevice.ScissorRectangle` in place of
+  pygame's `screen.set_clip`/restore. `ComputeRaisedScenery`/
+  `WallScreenGeometry`/`VisibleWallFaces` are public static pure functions
+  (no `GraphicsDevice` needed) specifically so the wall-face-culling/
+  decoration-selection logic has direct unit test coverage --
+  `RotBoiRemastered.Tests/World/ArenaRendererTests.cs`.

@@ -63,6 +63,10 @@ public sealed class GameSession
     public int ScreenHeight { get; private set; }
     public Vector2 ScreenShake { get; set; } = Vector2.Zero;
 
+    // Survives ResetAll -- it re-bakes lazily against the new Battleground
+    // reference on the next DrawBackground call, no explicit reset needed.
+    private readonly ArenaRenderer _arenaRenderer = new();
+
     private Vector2 PlayerWorldPosition => new(Player.WorldX, Player.WorldY);
 
     /// <summary>
@@ -114,6 +118,23 @@ public sealed class GameSession
     {
         InformationSheet.ToggleMode();
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
+    }
+
+    /// <summary>
+    /// Ported from character.py's drawBackground(). Bakes/draws the arena's
+    /// floor plane and camera-facing walls/decorations via
+    /// <see cref="ArenaRenderer"/> -- see that class's doc comment for why
+    /// baking still happens despite this port dropping Python's rotate/cache
+    /// pipeline. Manages its own SpriteBatch.Begin/End pair (both for the
+    /// lazy render-target bake and the scissor-clipped per-frame draw), so
+    /// callers must invoke this *before* starting the frame's own
+    /// SpriteBatch.Begin() -- MonoGame doesn't allow nested Begin calls.
+    /// </summary>
+    public void DrawBackground(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
+    {
+        _arenaRenderer.EnsureBaked(graphicsDevice, spriteBatch, Battleground);
+        _arenaRenderer.Draw(spriteBatch, graphicsDevice, Camera, PlayerWorldPosition, ScreenShake,
+            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight));
     }
 
     // ----- Player movement/combat -----
@@ -890,6 +911,83 @@ public sealed class GameSession
         return best;
     }
 
+    /// <summary>
+    /// Ported from character.py's drawBountyIndicator() + its
+    /// _bounty_arrow_geometry helper. Calls SelectBountyTarget() directly
+    /// each time rather than reusing a cached value -- DrawInformationSheet
+    /// already calls it fresh every frame too (no caching anywhere else in
+    /// this port for this same lookup), so this matches existing precedent
+    /// rather than reproducing Python's stale-cache-then-recompute quirk.
+    /// </summary>
+    public void DrawBountyIndicator(SpriteBatch spriteBatch)
+    {
+        var bounty = SelectBountyTarget();
+        if (bounty is null)
+            return;
+        var targetScreen = Camera.WorldToScreen(bounty.World, PlayerWorldPosition, ScreenShake);
+        int arenaWidth = InformationSheet.ArenaWidth;
+        // The marker is navigation for off-screen targets only -- once the target's
+        // center enters the playable view, the enemy itself is the clearer cue.
+        if (new Rectangle(0, 0, arenaWidth, ScreenHeight).Contains(targetScreen.ToPoint()))
+            return;
+
+        int topMargin = State.ActiveBoss is not null ? 112 : 44;
+        var viewport = new Rectangle(34, topMargin, Math.Max(1, arenaWidth - 68), Math.Max(1, ScreenHeight - topMargin - 42));
+        var geometry = BountyArrowGeometry(Camera.Lock, targetScreen, viewport);
+        if (geometry is null)
+            return;
+        var (points, tip, direction) = geometry.Value;
+
+        var shadow = points.Select(p => p + new Vector2(4, 5)).ToArray();
+        Primitives2D.FillPolygon(spriteBatch, shadow, UiTheme.Shadow);
+        Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Red);
+        Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, 4);
+        // A compact inward label gives the marker meaning without covering the biome.
+        var labelPosition = tip - direction * 52f;
+        UiTheme.DrawText(spriteBatch, "BOUNTY", 9, UiTheme.Red, labelPosition, "center");
+    }
+
+    /// <summary>
+    /// Ported from character.py's _bounty_arrow_geometry: a short, fat arrow
+    /// polygon clamped to the viewport edge, pointing at an off-screen
+    /// target. Public/static (pure geometry, no rendering) so it's directly
+    /// unit testable, matching this port's established pattern of promoting
+    /// pure geometry helpers to public rather than reaching for
+    /// `internal`+`InternalsVisibleTo`.
+    /// </summary>
+    public static (Vector2[] Points, Vector2 Tip, Vector2 Direction)? BountyArrowGeometry(Vector2 origin, Vector2 targetScreen, Rectangle viewport)
+    {
+        var delta = targetScreen - origin;
+        float distance = delta.Length();
+        if (distance < 1)
+            return null;
+        var direction = delta / distance;
+        var intersections = new List<float>();
+        if (direction.X > 0)
+            intersections.Add((viewport.Right - origin.X) / direction.X);
+        else if (direction.X < 0)
+            intersections.Add((viewport.Left - origin.X) / direction.X);
+        if (direction.Y > 0)
+            intersections.Add((viewport.Bottom - origin.Y) / direction.Y);
+        else if (direction.Y < 0)
+            intersections.Add((viewport.Top - origin.Y) / direction.Y);
+        var positive = intersections.Where(value => value > 0).ToList();
+        if (positive.Count == 0)
+            return null;
+        float edgeDistance = positive.Min();
+        var tip = origin + direction * edgeDistance;
+        var perpendicular = new Vector2(-direction.Y, direction.X);
+        const float length = 38, headLength = 17, shaftHalf = 6, headHalf = 13;
+        var tail = tip - direction * length;
+        var neck = tip - direction * headLength;
+        var points = new[]
+        {
+            tail + perpendicular * shaftHalf, neck + perpendicular * shaftHalf, neck + perpendicular * headHalf,
+            tip, neck - perpendicular * headHalf, neck - perpendicular * shaftHalf, tail - perpendicular * shaftHalf,
+        };
+        return (points, tip, direction);
+    }
+
     /// <summary>Convenience wrapper matching MovePlayer/DrawPlayer's shape: call once per frame, before <see cref="HandleInformationSheetDrag"/>.</summary>
     public void DrawInformationSheet(SpriteBatch spriteBatch, Point mousePosition) =>
         InformationSheet.DrawSheet(spriteBatch, State, PlayerWorldPosition, SelectBountyTarget(), mousePosition);
@@ -899,6 +997,9 @@ public sealed class GameSession
         InformationSheet.HandleDrag(State, PlayerWorldPosition, mousePosition, mouseDown, mousePressed);
 
     // ----- Health -----
+
+    /// <summary>Ported from character.py's recoverPlayerHealth(). RunState.RecoverHealth() already carries the full port -- this is just the per-frame call site.</summary>
+    public void RecoverPlayerHealth() => State.RecoverHealth();
 
     private static double HostileDamageAfterDefense(double rawDamage, double defense)
     {

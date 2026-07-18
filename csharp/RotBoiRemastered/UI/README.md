@@ -20,6 +20,18 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   panel, loot panel, build identity, weapon stats, objective/bounty panel,
   recent-picks table, tooltip). **Done** -- see "InformationSheet.cs" below
   for design notes.
+- `TitleScreen.cs` <- `character.py`'s `runTheTitleScreen()`. **Done** --
+  ROTBOI header, the five-path selector (`World/GamePaths.cs`), subtitle/
+  description in the selected path's accent color, the play button, the
+  static Field Manual control-legend panel, and the best-run tag. Follows
+  `Menus.cs`'s `Draw`/`HandleInput` shape (a `TitleAction` enum --
+  `None`/`StartRun`/`Quit` -- instead of mutating state directly) rather
+  than folding into `Core/RotBoiGame.cs`, matching every other screen.
+  Dropped vs. Python: the best-run tag reads `GameProfile.Profile.BestLevel`/
+  `BestKills` directly instead of `max(cS.highestLevel, profile["best_level"])`
+  -- `GameProfile.RecordRun` already updates `BestLevel` synchronously on
+  every defeat/completion, so the profile value is never stale by the time
+  this screen is shown again.
 - ~~Bars (`HpBar.cs`, `LevelBar.cs`, `DashBar.cs`)~~ -- **not ported.**
   `hpBar.py`/`levelBar.py`/`dashBar.py` are confirmed dead code: grepped the
   whole repo, nothing constructs `HPBar`/`LevelBar`/`DashBar` or imports
@@ -125,9 +137,11 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
 ## Still not in UI/ (HUD-overlay functions layered on top of the sheet)
 
 `character.py` has several more HUD functions that draw *alongside*
-`informationSheet.py`'s sheet, not inside it -- these remain deferred, but
-for their own reasons now, not because `InformationSheet.arena_width` was
-missing: the bounty-arrow indicator (`drawBountyIndicator`'s polygon-on-the-
-viewport-edge rendering -- `GameSession.SelectBountyTarget` already exists
-for it to build on), the boss health bar, tutorial hints, the low-health
-warning, the run-complete banner, and the title screen.
+`informationSheet.py`'s sheet, not inside it. The bounty-arrow indicator
+(`drawBountyIndicator`'s polygon-on-the-viewport-edge rendering) and the
+title screen are now both done (see `Systems/GameSession.DrawBountyIndicator`
+and `TitleScreen.cs` above -- the indicator lives on `GameSession` rather
+than here since it's a thin wrapper around `SelectBountyTarget`, not a panel
+of the sheet itself). Still deferred: the boss health bar, tutorial hints,
+the low-health warning, and the run-complete banner -- polish overlays, not
+required for the game loop to run, left for their own pass.

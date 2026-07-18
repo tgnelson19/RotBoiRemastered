@@ -233,7 +233,29 @@ Dependency order roughly follows the Python import graph:
     fields, populated by `GameSession.UpdateEnemies`. `BossCatalog` now
     registers `hypno`/`malady` -- `bossTypes.py`'s full ~4750-line, ten-boss,
     five-family roster is fully ported as of this step.
-13. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+13. **`Core/RotBoiGame.cs` + `World/ArenaRenderer.cs` + `UI/TitleScreen.cs`**
+    -- wire everything above into one actually-playable game loop. **Done**:
+    `RotBoiGame`'s `GameState` switch (previously five `// TODO` cases) now
+    really drives `GameSession`/`Menus`/`LevelingHandler`/`TitleScreen`
+    together, with real per-frame timing (`Simulation.SetDeltaTime`, never
+    called before this step) and edge-triggered input derived by diffing
+    polled MonoGame keyboard/mouse state (no pygame event queue here).
+    `ArenaRenderer` ports `background.py`'s tile/wall/decoration rendering,
+    deferred until now specifically to pair with a finished `Entities/` --
+    keeps Python's baked-ground-plane strategy (still necessary: filling
+    thousands of tiles per frame via `Primitives2D.FillPolygon`'s
+    one-draw-call-per-scanline-row cost would be far too many draw calls)
+    but drops its elaborate downsample/cache/rotate/rescale pipeline
+    entirely, since MonoGame's `SpriteBatch.Draw` rotation is one
+    hardware-accelerated call regardless of source texture size. `TitleScreen`
+    ports `runTheTitleScreen()`'s path-selector UI in full. Explicitly still
+    deferred: the custom in-arena aiming reticle (OS cursor stays visible
+    everywhere instead), the boss health bar/tutorial hints/low-health
+    warning/run-complete banner HUD overlays, and gamePaths.py's per-path
+    enemy reskinning + per-path boss selection (`HandleEnemyCreation` still
+    hardcodes Beaudis/Dissonance) -- none of these block play, all documented
+    in the relevant README (Core/, World/, UI/, Systems/) rather than
+    silently dropped.
 
 ## Known differences from the Python version
 

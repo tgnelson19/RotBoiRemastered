@@ -430,4 +430,50 @@ public class GameSessionTests
         Assert.Equal(newBattleground.SpawnPosition.X, session.Player.WorldX);
         Assert.Equal(newBattleground.SpawnPosition.Y, session.Player.WorldY);
     }
+
+    [Fact]
+    public void RecoverPlayerHealth_BelowMaxWithVitality_GraduallyRestoresHealth()
+    {
+        var session = MakeSession();
+        session.State.HealthPoints = 1;
+
+        for (int i = 0; i < 200 && session.State.HealthPoints <= 1; i++)
+            session.RecoverPlayerHealth();
+
+        Assert.True(session.State.HealthPoints > 1);
+    }
+
+    [Fact]
+    public void BountyArrowGeometry_TargetJustOffOrigin_StillProducesAnArrow()
+    {
+        // Whether the target is inside the arena viewport is DrawBountyIndicator's own
+        // check (it skips calling this helper at all in that case) -- this pure helper
+        // always projects an edge intersection as long as direction is well-defined.
+        var viewport = new Rectangle(0, 0, 800, 600);
+        var geometry = GameSession.BountyArrowGeometry(new Vector2(400, 300), new Vector2(410, 310), viewport);
+        Assert.NotNull(geometry);
+    }
+
+    [Fact]
+    public void BountyArrowGeometry_TargetPastRightEdge_PointsRightAndClampsToViewport()
+    {
+        var viewport = new Rectangle(0, 0, 800, 600);
+        var origin = new Vector2(400, 300);
+        var geometry = GameSession.BountyArrowGeometry(origin, new Vector2(5000, 300), viewport);
+
+        Assert.NotNull(geometry);
+        var (points, tip, direction) = geometry!.Value;
+        Assert.Equal(7, points.Length);
+        Assert.True(direction.X > .99f); // pointing directly right
+        Assert.Equal(viewport.Right, tip.X, 1);
+    }
+
+    [Fact]
+    public void BountyArrowGeometry_TargetAtOrigin_ReturnsNull()
+    {
+        var viewport = new Rectangle(0, 0, 800, 600);
+        var origin = new Vector2(400, 300);
+        var geometry = GameSession.BountyArrowGeometry(origin, origin, viewport);
+        Assert.Null(geometry);
+    }
 }

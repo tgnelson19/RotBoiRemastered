@@ -91,3 +91,19 @@ port first since they were deliberately kept pygame-free in the Python original.
   read-only from the boss's perspective except `DreamState.AlterBelief`,
   which the `PhantasiaBoss` family calls on itself exactly like Python's
   `cS.alter_belief(...)`.
+- Now that `Core/RotBoiGame.cs` actually drives the game loop (see
+  Core/README.md), `GameSession` gained the last few per-frame wrappers it
+  needed: `DrawBackground` (owns a `World/ArenaRenderer.cs` instance,
+  self-manages its own scissor-clipped `SpriteBatch.Begin`/`End` pair --
+  see that class's doc comment), `RecoverPlayerHealth` (a one-line wrapper
+  around `RunState.RecoverHealth()`, which already existed fully ported but
+  had no per-frame caller until now), and `DrawBountyIndicator` + a public
+  static `BountyArrowGeometry` helper (ported from character.py's
+  `drawBountyIndicator`/`_bounty_arrow_geometry` -- calls
+  `SelectBountyTarget()` fresh each time rather than caching, matching
+  `DrawInformationSheet`'s existing no-caching precedent for the same
+  lookup). This closes out the "explicitly deferred" list in this class's
+  own doc comment except for gamePaths.py's per-path enemy
+  identity/projectile tuning and per-path boss selection, which stay
+  deferred for their own sake (scope, not a blocker) -- see
+  `World/README.md`'s `GamePaths.cs` entry.
