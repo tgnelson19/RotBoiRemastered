@@ -285,7 +285,6 @@ public class RotBoiGame : Game
                     _session = new GameSession(battleground, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
                 else
                     _session.ResetAll(battleground);
-                _session.LoadStartingEquipment();
                 State = GameState.GameRun;
                 break;
             }
@@ -349,6 +348,7 @@ public class RotBoiGame : Game
         bool fatalHit = session.HurtPlayer();
         if (fatalHit)
         {
+            MetaProgression.ClearCarriedItems();
             State = GameState.Results;
             return;
         }
@@ -393,6 +393,9 @@ public class RotBoiGame : Game
                 break;
             case MenuAction.Restart:
                 if (_session is null) break;
+                // A plain restart didn't kill the player, so under "persist unless you
+                // die" it carries the loadout forward same as extracting/completing would.
+                MetaProgression.SyncCarriedItems(_session.State);
                 GameProfile.SaveProfile();
                 _session.ResetAll(GamePaths.ActivateSelected());
                 State = GameState.GameRun;
@@ -405,6 +408,7 @@ public class RotBoiGame : Game
                 if (_session is null) break;
                 _session.State.RunOutcome = "EXTRACTED";
                 MetaProgression.RecordExtraction(_session.State, GamePaths.Selected().Key, completed: false);
+                MetaProgression.SyncCarriedItems(_session.State);
                 GameProfile.RecordRun(_session.State.CurrentLevel, _session.State.NumOfEnemiesKilled);
                 State = GameState.Results;
                 break;
@@ -440,14 +444,14 @@ public class RotBoiGame : Game
         var session = _session!;
         session.MovePlayer(Keybinds.Held("move_left"), Keybinds.Held("move_right"), Keybinds.Held("move_up"), Keybinds.Held("move_down"),
             Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
-        _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
+        _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
         if (_soulHub.OverlayOpen)
             return;
         var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
         bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
         if (controllerFiring)
             aim = session.Camera.Lock + InputState.ControllerAim * GraphicsDevice.Viewport.Width;
-        session.HandleBulletCreation(aim, InputState.MouseDown, dragInProgress: false, controllerFiring: controllerFiring);
+        session.HandleBulletCreation(aim, InputState.MouseDown, session.InformationSheet.DragInProgress, controllerFiring: controllerFiring);
         session.UpdateBullets();
         _soulHub.Update(session, gameTime.ElapsedGameTime.TotalSeconds);
     }

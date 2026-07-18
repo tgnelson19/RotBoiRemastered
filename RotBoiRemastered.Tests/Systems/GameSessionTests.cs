@@ -32,6 +32,25 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void Constructor_LoadsCarriedEquipmentFromProfile()
+    {
+        var original = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.Profile.CarriedEquipment["weapon"] = new StoredItemData("Iron Dagger", "Epic");
+
+            var session = new GameSession(Battleground.GenerateSound(), 1280, 720);
+
+            Assert.Equal("Iron Dagger", session.State.Equipment["weapon"]!.Name);
+        }
+        finally
+        {
+            GameProfile.Profile = original;
+        }
+    }
+
+    [Fact]
     public void HandleBulletCreation_FiresWhenAutoFireAndCooldownReady()
     {
         var session = MakeSession();

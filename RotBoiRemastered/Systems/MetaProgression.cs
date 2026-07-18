@@ -104,34 +104,32 @@ public static class MetaProgression
         }
     }
 
-    public static Dictionary<string, ItemDrop?> EmptyEquipment() => new()
+    /// <summary>
+    /// Writes the currently carried loadout (Equipment + Inventory) back to the
+    /// profile so it survives past this run -- call whenever a run ends
+    /// *without* dying (extract, complete, or a plain restart from the pause
+    /// menu). GameSession.LoadCarriedItems is the inverse, reading this back
+    /// into a fresh RunState.
+    /// </summary>
+    public static void SyncCarriedItems(RunState state)
     {
-        ["weapon"] = null, ["armor"] = null, ["ring"] = null, ["accessory_1"] = null, ["accessory_2"] = null,
-    };
-
-    public static Dictionary<string, ItemDrop?> BeginRun()
-    {
-        var equipment = EmptyEquipment();
-        foreach (var (slot, serialized) in GameProfile.Profile.StartingLoadout.ToArray())
-        {
-            int index = GameProfile.Profile.Storage.FindIndex(stored => stored == serialized);
-            if (!equipment.ContainsKey(slot) || index < 0)
-                continue;
-            equipment[slot] = Items.Deserialize(GameProfile.Profile.Storage[index]);
-            GameProfile.Profile.Storage.RemoveAt(index);
-        }
-        GameProfile.Profile.StartingLoadout.Clear();
+        GameProfile.Profile.CarriedEquipment = state.Equipment
+            .Where(pair => pair.Value is not null)
+            .ToDictionary(pair => pair.Key, pair => Items.Serialize(pair.Value!));
+        GameProfile.Profile.CarriedInventory = state.Inventory
+            .Select(item => item is null ? null : Items.Serialize(item))
+            .ToList();
         GameProfile.SaveProfile();
-        return equipment;
     }
 
-    public static Dictionary<string, ItemDrop?> PreviewLoadout()
+    /// <summary>The one and only "you died" path -- everything carried (not vaulted) is lost.</summary>
+    public static void ClearCarriedItems()
     {
-        var equipment = EmptyEquipment();
-        foreach (var (slot, serialized) in GameProfile.Profile.StartingLoadout)
-            if (equipment.ContainsKey(slot))
-                equipment[slot] = Items.Deserialize(serialized);
-        return equipment;
+        GameProfile.Profile.CarriedEquipment.Clear();
+        // Matches RunState.Inventory's fixed 8 slots (see its Reset()) -- kept as a literal
+        // here too rather than a cross-layer reference to the UI's InventorySlotCount const.
+        GameProfile.Profile.CarriedInventory = Enumerable.Repeat<StoredItemData?>(null, 8).ToList();
+        GameProfile.SaveProfile();
     }
 
     public static void RecordExtraction(RunState state, string path, bool completed)
@@ -143,8 +141,6 @@ public static class MetaProgression
             Level = state.CurrentLevel,
             Kills = state.NumOfEnemiesKilled,
             Seconds = state.RunTimeSeconds,
-            Items = state.Equipment.Values.Concat(state.Inventory)
-                .Where(item => item is not null).Cast<ItemDrop>().Select(Items.Serialize).ToList(),
         };
         GameProfile.Profile.ExtractedRuns.Insert(0, run);
         if (GameProfile.Profile.ExtractedRuns.Count > 10)
@@ -155,47 +151,6 @@ public static class MetaProgression
             GameProfile.IncrementQuest("path_clears");
             GameProfile.Profile.PathMastery[path] = GameProfile.Profile.PathMastery.GetValueOrDefault(path) + 1;
         }
-        GameProfile.SaveProfile();
-    }
-
-    public static bool TransferRunItemToStorage(string runId, int itemIndex)
-    {
-        if (GameProfile.Profile.Storage.Count >= StorageCapacity)
-            return false;
-        var run = GameProfile.Profile.ExtractedRuns.FirstOrDefault(item => item.Id == runId);
-        if (run is null || itemIndex < 0 || itemIndex >= run.Items.Count)
-            return false;
-        var item = run.Items[itemIndex];
-        run.Items.RemoveAt(itemIndex);
-        GameProfile.Profile.Storage.Add(item);
-        GameProfile.DiscoverItem(item.Name);
-        GameProfile.SaveProfile();
-        return true;
-    }
-
-    public static bool SelectStorageItem(int storageIndex)
-    {
-        if (storageIndex < 0 || storageIndex >= GameProfile.Profile.Storage.Count)
-            return false;
-        var stored = GameProfile.Profile.Storage[storageIndex];
-        var drop = Items.Deserialize(stored);
-        if (drop is null)
-            return false;
-        string[] compatible = drop.SlotType == "accessory" ? new[] { "accessory_1", "accessory_2" } : new[] { drop.SlotType };
-        string target = compatible.FirstOrDefault(slot => !GameProfile.Profile.StartingLoadout.ContainsKey(slot)) ?? compatible[0];
-        int promisedElsewhere = GameProfile.Profile.StartingLoadout.Count(pair => pair.Key != target && pair.Value == stored);
-        int ownedCopies = GameProfile.Profile.Storage.Count(item => item == stored);
-        if (promisedElsewhere >= ownedCopies)
-            return false;
-        GameProfile.Profile.StartingLoadout[target] = stored;
-        GameProfile.SaveProfile();
-        return true;
-    }
-
-    /// <summary>Un-assigns a slot from the next run's loadout -- the Soul's "NEXT RUN" preview strip's click-to-remove.</summary>
-    public static void ClearStartingLoadoutSlot(string slot)
-    {
-        GameProfile.Profile.StartingLoadout.Remove(slot);
         GameProfile.SaveProfile();
     }
 }
