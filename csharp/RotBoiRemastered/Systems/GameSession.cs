@@ -28,23 +28,9 @@ public sealed record BountyInfo(Vector2 World, double Score, string Label, objec
 /// instance methods on one session object, same cleanup as every other
 /// stateful module in this port.
 ///
-/// Explicitly deferred (all documented per-method below, not silently
-/// dropped): every boss-specific branch (bossTypes.py doesn't exist yet --
-/// natural Beaudis/Dissonance triggers are detected but don't spawn
-/// anything; boss arena constraints, arena-radius projectile clipping, and
-/// the debug phase-control hotkeys are all absent); gamePaths.py's
-/// per-path enemy identity/projectile tuning (`apply_enemy_identity`/
-/// `tune_new_projectiles`) -- enemies spawn via `EnemyCatalog.Shared`
-/// directly rather than gamePaths.py's thin per-path wrapper around it;
-/// portal-hit bullet routing (no current enemy type implements it); and the
-/// HUD-overlay draw functions character.py layers on top of the sidebar
-/// (bounty indicator *arrow* rendering, boss health bar, tutorial hints,
-/// low-health warning, run-complete banner) and the title screen -- these
-/// are separate character.py functions from `InformationSheet.cs` itself
-/// (now ported, see UI/README.md) and remain deferred for their own sake,
-/// not because `InformationSheet.arena_width` was missing. Loot-crate
-/// viewport clipping against the HUD sidebar is also still deferred
-/// (crates draw across the full screen for now).
+/// The complete boss roster, path-specific boss selection/enemy identity,
+/// arena constraints, projectile containment, portal routing, bounty and
+/// combat HUD overlays are all orchestrated here.
 /// </summary>
 public sealed class GameSession
 {
@@ -66,6 +52,7 @@ public sealed class GameSession
     // Survives ResetAll -- it re-bakes lazily against the new Battleground
     // reference on the next DrawBackground call, no explicit reset needed.
     private readonly ArenaRenderer _arenaRenderer = new();
+    private string? _activeBossKey;
 
     private Vector2 PlayerWorldPosition => new(Player.WorldX, Player.WorldY);
 
@@ -102,6 +89,7 @@ public sealed class GameSession
         LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
         InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
+        _activeBossKey = null;
     }
 
     public void Resize(int screenWidth, int screenHeight)
@@ -141,17 +129,21 @@ public sealed class GameSession
 
     /// <summary>Ported from character.py's movePlayer().</summary>
     /// <summary>
-    /// Ported from character.py's movePlayer(). The `movement_obstacles`
-    /// branch (PathChaseBoss-family arena shapes) stays deferred with that
-    /// family; the `arenaRadius` branch is wired now that Dissonance exists
-    /// -- done here rather than inside Player.Move so Player.cs stays
-    /// boss-agnostic (see its own doc comment).
+    /// Ported from character.py's movePlayer(), including boss obstacles,
+    /// polygonal path-boss arenas, Dissonance's circular arena, and analog input.
     /// </summary>
-    public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed)
+    public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed, Vector2 controllerMove = default)
     {
-        var obstacles = State.ActiveBoss is Rot rot ? rot.MovementObstacles() : null;
-        Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed, obstacles);
-        if (State.ActiveBoss is Dissonance dissonance)
+        var obstacles = State.ActiveBoss is SinChemesthesisBoss chemicalBoss
+            ? chemicalBoss.MovementObstacles()
+            : null;
+        Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed, obstacles, controllerMove);
+        if (State.ActiveBoss is PathChaseBoss pathBoss)
+        {
+            var constrained = pathBoss.ConstrainPlayerPosition(Player.WorldX, Player.WorldY, (float)State.PlayerSize);
+            Player.SetPosition(constrained.X, constrained.Y);
+        }
+        else if (State.ActiveBoss is Dissonance dissonance)
         {
             float playerX = Player.WorldX + (float)State.PlayerSize / 2f, playerY = Player.WorldY + (float)State.PlayerSize / 2f;
             float deltaX = playerX - dissonance.ArenaCenter.X, deltaY = playerY - dissonance.ArenaCenter.Y;
@@ -168,11 +160,11 @@ public sealed class GameSession
 
     public void DrawPlayer(SpriteBatch spriteBatch) => Player.Draw(spriteBatch, State, Camera);
 
-    /// <summary>Ported from character.py's handlingBulletCreation(). Controller aiming isn't wired up yet -- mouse aim only.</summary>
-    public void HandleBulletCreation(Vector2 mouseScreenPosition, bool mouseDown, bool dragInProgress, Random? rng = null)
+    /// <summary>Ported from character.py's handlingBulletCreation() for mouse and controller aiming.</summary>
+    public void HandleBulletCreation(Vector2 mouseScreenPosition, bool mouseDown, bool dragInProgress, Random? rng = null, bool controllerFiring = false)
     {
         rng ??= Random.Shared;
-        if (State.AttackCooldownTimer <= 0 && !dragInProgress && (State.AutoFire || mouseDown))
+        if (State.AttackCooldownTimer <= 0 && !dragInProgress && (State.AutoFire || mouseDown || controllerFiring))
         {
             State.AttackCooldownTimer = State.AttackCooldownStat;
             bool currCrit = false;
@@ -253,29 +245,40 @@ public sealed class GameSession
     public void HandleEnemyCreation(Random? rng = null)
     {
         rng ??= Random.Shared;
-        bool naturalBeaudisRequested = State.CurrentLevel >= Progression.MidBossLevel && !State.BeaudisEncounterStarted && State.ActiveBoss is null;
-        bool naturalDissonanceRequested = State.CurrentLevel >= Progression.FinalBossLevel && State.BeaudisDefeated && !State.DissonanceEncounterStarted && State.ActiveBoss is null;
-        if (State.BossDebugRequested || naturalBeaudisRequested || naturalDissonanceRequested)
+        bool naturalMidBossRequested = State.CurrentLevel >= Progression.MidBossLevel && !State.BeaudisEncounterStarted && State.ActiveBoss is null;
+        bool naturalFinalBossRequested = State.CurrentLevel >= Progression.FinalBossLevel && State.BeaudisDefeated && !State.DissonanceEncounterStarted && State.ActiveBoss is null;
+        if (State.BossDebugRequested || naturalMidBossRequested || naturalFinalBossRequested)
         {
             bool naturalEncounter = !State.BossDebugRequested;
-            if (naturalBeaudisRequested && naturalEncounter)
-            {
+            bool midpoint = naturalMidBossRequested && naturalEncounter;
+            string bossKey = midpoint ? GamePaths.BossKey(midpoint: true) : GamePaths.BossKey(midpoint: false);
+            if (midpoint)
                 State.BeaudisEncounterStarted = true;
-                SpawnBoss((x, y, r) => new Beaudis(x, y, AwarenessRange, r), rng);
-            }
             else
             {
-                if (naturalDissonanceRequested && naturalEncounter)
+                if (naturalFinalBossRequested && naturalEncounter)
                     State.DissonanceEncounterStarted = true;
+            }
+
+            if (!BossCatalog.Shared.TryGet(bossKey, out var definition) || definition is null)
+                throw new InvalidOperationException($"Boss '{bossKey}' is not registered.");
+
+            Rectangle? forcedRect = null;
+            if (bossKey == "dissonance")
+            {
                 float arenaX = Battleground.Width * Simulation.TileSize / 2f;
                 float arenaY = Battleground.Height * Simulation.TileSize / 2f;
                 float size = Simulation.TileSize * 1.9f;
-                var forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
-                SpawnBoss((x, y, r) => new Dissonance(x, y, AwarenessRange, Battleground, r), rng, forcedRect);
+                forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
+                SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, forcedRect, bossKey);
                 var playerSpawn = Battleground.FindNearestOpenRect(new Rectangle(
                     (int)(arenaX - State.PlayerSize / 2f), (int)(arenaY + Simulation.TileSize * 9.6f - State.PlayerSize / 2f),
                     (int)State.PlayerSize, (int)State.PlayerSize));
                 Player.SetPosition(playerSpawn.X, playerSpawn.Y);
+            }
+            else
+            {
+                SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, bossKey: bossKey);
             }
             State.BossDebugRequested = false;
             return;
@@ -298,7 +301,10 @@ public sealed class GameSession
                 var miniboss = EnemyCatalog.Shared.Spawn(State.CurrentLevel, Battleground, PlayerWorldPosition, AwarenessRange,
                     rng, key: key, minDistanceTiles: outsideAwarenessTiles);
                 if (miniboss is not null)
+                {
+                    GamePaths.ApplyEnemyIdentity(miniboss);
                     State.EnemyHolster.Add(miniboss);
+                }
                 State.GuaranteedMiniBossesSpawned.Add(key);
             }
         }
@@ -333,6 +339,8 @@ public sealed class GameSession
             if (encounterResult.HasValue)
             {
                 var (key, group) = encounterResult.Value;
+                foreach (var enemy in group)
+                    GamePaths.ApplyEnemyIdentity(enemy);
                 double groupThreat = group.Sum(e => e.ThreatCost);
                 if (State.EnemyHolster.Count + group.Count <= State.EnemyCap && currentThreat + groupThreat <= State.EnemyPopulationThreatCap)
                 {
@@ -364,7 +372,7 @@ public sealed class GameSession
     /// special-case, which repositions the boss to the exact arena center
     /// instead of BossCatalog.spawn's generic nearest-open-rect search).
     /// </summary>
-    private void SpawnBoss(Func<float, float, Random, Enemy> factory, Random rng, Rectangle? forcedSpawnRect = null)
+    private void SpawnBoss(Func<float, float, Random, Enemy> factory, Random rng, Rectangle? forcedSpawnRect = null, string? bossKey = null)
     {
         State.EnemyHolster.Clear();
         State.EnemyProjectileHolster.Clear();
@@ -390,6 +398,7 @@ public sealed class GameSession
         var boss = factory(spawnRect.X, spawnRect.Y, rng);
         State.EnemyHolster.Add(boss);
         State.ActiveBoss = boss;
+        _activeBossKey = bossKey;
         State.BossDebugInvincible = false;
         State.CurrEnemyCount = 1;
         State.EnemySpawningEnabled = false;
@@ -453,8 +462,14 @@ public sealed class GameSession
         };
         foreach (var enemy in State.EnemyHolster)
         {
+            enemy.SetCollisionCamera(Camera);
+            enemy.EnsureCollisionSafePosition(Battleground);
+            int projectileStart = State.EnemyProjectileHolster.Count;
             enemy.Update(context);
-            // gamePaths.py's tune_new_projectiles (per-path projectile tuning) is deferred.
+            // A few authored attacks teleport directly rather than using
+            // TryAxisMove; validate those destinations as well.
+            enemy.EnsureCollisionSafePosition(Battleground);
+            GamePaths.TuneNewProjectiles(State.EnemyProjectileHolster.Skip(projectileStart));
             if (enemy.TransitionCleanupRequested)
             {
                 if (enemy.TransitionCleanupOwner is not null)
@@ -480,7 +495,7 @@ public sealed class GameSession
             }
             foreach (var enemy in group)
             {
-                // gamePaths.py's apply_enemy_identity (per-path flavor) is deferred.
+                GamePaths.ApplyEnemyIdentity(enemy);
                 currentThreat = State.EnemyHolster.Sum(e => e.ThreatCost);
                 if (State.EnemyHolster.Count >= State.EnemyCap)
                     break;
@@ -519,19 +534,37 @@ public sealed class GameSession
         }
     }
 
-    /// <summary>Ported from character.py's handlingEnemyProjectileUpdating(). Boss arena-radius clipping and the >150 overflow trim are boss-only, deferred.</summary>
+    /// <summary>Ported from character.py's handlingEnemyProjectileUpdating(), including boss-arena containment and overflow trimming.</summary>
     public void UpdateEnemyProjectiles()
     {
         var spawnedProjectiles = new List<EnemyProjectile>();
         bool casualMode = GameProfile.Profile.CasualMode;
+        (Vector2 Center, float Radius)? arena = State.ActiveBoss switch
+        {
+            Dissonance dissonance => (dissonance.ArenaCenter, dissonance.ArenaRadius),
+            PathChaseBoss pathBoss => (pathBoss.ArenaCenter, pathBoss.ArenaRadius),
+            _ => null,
+        };
+        bool bossDying = State.ActiveBoss is Beaudis { Dying: true } or Dissonance { Dying: true };
         foreach (var projectile in State.EnemyProjectileHolster)
         {
+            if (arena.HasValue)
+            {
+                var center = new Vector2(projectile.WorldX + projectile.Size / 2f, projectile.WorldY + projectile.Size / 2f);
+                if (Vector2.Distance(center, arena.Value.Center) > arena.Value.Radius * 1.04f)
+                    projectile.RemFlag = true;
+            }
+            if (bossDying)
+                projectile.RemFlag = true;
             projectile.Update(Battleground, casualMode);
             spawnedProjectiles.AddRange(projectile.SpawnedProjectiles);
             projectile.SpawnedProjectiles.Clear();
         }
         State.EnemyProjectileHolster.RemoveAll(p => p.RemFlag);
+        GamePaths.TuneNewProjectiles(spawnedProjectiles);
         State.EnemyProjectileHolster.AddRange(spawnedProjectiles);
+        if (State.ActiveBoss is not null && State.EnemyProjectileHolster.Count > 150)
+            State.EnemyProjectileHolster.RemoveRange(0, State.EnemyProjectileHolster.Count - 150);
     }
 
     public void DrawEnemyProjectiles(SpriteBatch spriteBatch)
@@ -639,21 +672,19 @@ public sealed class GameSession
 
             if (ReferenceEquals(enemy, State.ActiveBoss))
             {
-                // Ported from character.py's per-content-key outcome branch, simplified to a
-                // direct type check since gamePaths.py's path-based boss-content-key lookup
-                // (which boss variant counts as "the mid boss"/"the final boss" on the active
-                // path) isn't ported -- only the "sound" path's bosses (Beaudis/Dissonance) exist.
-                if (enemy is Beaudis)
+                string? defeatedBossKey = _activeBossKey ?? BossKeyFor(enemy);
+                if (defeatedBossKey == GamePaths.BossKey(midpoint: true))
                 {
                     State.BeaudisDefeated = true;
                 }
-                else if (enemy is Dissonance)
+                else if (defeatedBossKey == GamePaths.BossKey(midpoint: false))
                 {
                     State.GameCompleted = true;
                     State.RunOutcome = "RUN COMPLETE";
                     GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed: true);
                 }
                 State.ActiveBoss = null;
+                _activeBossKey = null;
                 State.EnemySpawningEnabled = !State.GameCompleted;
                 ScreenShake = Vector2.Zero;
                 State.EnemyProjectileHolster.Clear();
@@ -666,6 +697,13 @@ public sealed class GameSession
         }
         State.BulletHolster.RemoveAll(b => b.RemFlag);
     }
+
+    private static string? BossKeyFor(Enemy enemy) => enemy switch
+    {
+        Beaudis => "beaudis", Dissonance => "dissonance", Chronos => "chronos", Ishe => "ishe",
+        Bair => "bair", Sting => "sting", Rot => "rot", Kage => "kage", Hypno => "hypno", Malady => "malady",
+        _ => null,
+    };
 
     // ----- Damage text / experience / loot -----
 
@@ -814,18 +852,44 @@ public sealed class GameSession
             if (keysPressed.Contains(Keys.C))
                 dissonance.RuneCannonCooldown = 0;
         }
+        else if (State.ActiveBoss is PathChaseBoss pathBoss)
+        {
+            for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
+            {
+                if (keysPressed.Contains(BossDebugPhaseKeys[index]))
+                {
+                    pathBoss.DebugSetPhase(index + 1);
+                    State.EnemyProjectileHolster.Clear();
+                    return;
+                }
+            }
+            if (keysPressed.Contains(Keys.R))
+            {
+                pathBoss.DebugSetPhase(pathBoss.Phase);
+                State.EnemyProjectileHolster.Clear();
+            }
+            if (keysPressed.Contains(Keys.L))
+                pathBoss.DebugPhaseLocked = !pathBoss.DebugPhaseLocked;
+        }
     }
 
     /// <summary>Ported from character.py's updateLootCrates(). Viewport clipping against the (not yet built) HUD sidebar is deferred.</summary>
     public void DrawLootCrates(SpriteBatch spriteBatch)
     {
         foreach (var crate in State.LootCrateList)
-            crate.Draw(spriteBatch, Camera, PlayerWorldPosition, ScreenShake);
+        {
+            var screen = Camera.WorldToScreen(new Vector2(crate.WorldX, crate.WorldY), PlayerWorldPosition, ScreenShake);
+            var rect = new Rectangle((int)screen.X, (int)screen.Y, (int)crate.Size, (int)crate.Size);
+            if (rect.Intersects(new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight)))
+                crate.Draw(spriteBatch, Camera, PlayerWorldPosition, ScreenShake);
+        }
     }
 
     /// <summary>Ported from character.py's crateInteractionForPlayer(). The drag-in-progress guard is dropped (InformationSheet's drag UI is deferred).</summary>
     public void UpdateCrateInteraction()
     {
+        if (InformationSheet.DragInProgress)
+            return;
         var playerRect = Player.WorldRect(State);
         LootCrate? nearest = null;
         double? nearestDistance = null;
@@ -945,6 +1009,110 @@ public sealed class GameSession
         // A compact inward label gives the marker meaning without covering the biome.
         var labelPosition = tip - direction * 52f;
         UiTheme.DrawText(spriteBatch, "BOUNTY", 9, UiTheme.Red, labelPosition, "center");
+    }
+
+    /// <summary>Draws the combat-only overlays layered above the arena and below the sidebar.</summary>
+    public void DrawCombatOverlays(SpriteBatch spriteBatch, Point mousePosition)
+    {
+        DrawAimReticle(spriteBatch, mousePosition);
+        DrawBossHealthBar(spriteBatch);
+        DrawLowHealthWarning(spriteBatch);
+        DrawRunCompleteBanner(spriteBatch);
+        DrawTutorialHint(spriteBatch);
+    }
+
+    private void DrawAimReticle(SpriteBatch spriteBatch, Point mousePosition)
+    {
+        if (mousePosition.X < 0 || mousePosition.X >= InformationSheet.ArenaWidth
+            || mousePosition.Y < 0 || mousePosition.Y >= ScreenHeight || InformationSheet.DragInProgress)
+            return;
+        var center = mousePosition.ToVector2();
+        Color color = State.AutoFire || InputState.MouseDown ? UiTheme.Cream : UiTheme.Text;
+        Primitives2D.FillRect(spriteBatch, new Rectangle(mousePosition.X - 3, mousePosition.Y - 3, 6, 6), UiTheme.Ink);
+        Primitives2D.RectOutline(spriteBatch, new Rectangle(mousePosition.X - 3, mousePosition.Y - 3, 6, 6), color, 1);
+        const int gap = 7, length = 8;
+        Primitives2D.Line(spriteBatch, center + new Vector2(-gap - length, 0), center + new Vector2(-gap, 0), color, 2);
+        Primitives2D.Line(spriteBatch, center + new Vector2(gap, 0), center + new Vector2(gap + length, 0), color, 2);
+        Primitives2D.Line(spriteBatch, center + new Vector2(0, -gap - length), center + new Vector2(0, -gap), color, 2);
+        Primitives2D.Line(spriteBatch, center + new Vector2(0, gap), center + new Vector2(0, gap + length), color, 2);
+        if (GameProfile.Profile.AimGuide)
+        {
+            var origin = Camera.Lock + new Vector2((float)State.PlayerSize / 2f);
+            var delta = center - origin;
+            float distance = Math.Max(1f, delta.Length());
+            Primitives2D.Line(spriteBatch, origin, origin + delta / distance * Math.Min(distance, Simulation.TileSize * 3f), UiTheme.Cream, 1);
+        }
+    }
+
+    private void DrawBossHealthBar(SpriteBatch spriteBatch)
+    {
+        if (State.ActiveBoss is not Enemy boss || boss.Hp <= 0)
+            return;
+        var phase = State.ActiveBoss switch
+        {
+            Beaudis b => (b.Phase, b.PhaseLabel, b.PhaseAccent, b.EntranceRemaining),
+            Dissonance d => (d.Phase, d.PhaseLabel, d.PhaseAccent, d.EntranceRemaining),
+            PathChaseBoss p => (p.Phase, p.PhaseLabel, p.PhaseAccent, p.EntranceRemaining),
+            _ => (1, "ENGAGED", UiTheme.Red, 0.0),
+        };
+        if (phase.Item4 > 1.0)
+            return;
+        float scale = UiTheme.DisplayScale(spriteBatch);
+        int width = (int)Math.Min(InformationSheet.ArenaWidth * .62f, 720 * scale);
+        var rect = new Rectangle((InformationSheet.ArenaWidth - width) / 2, (int)(16 * scale), width, (int)(70 * scale));
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, phase.Item3, shadow: 6);
+        string name = (_activeBossKey ?? BossKeyFor(boss) ?? boss.Family).Replace('_', ' ').ToUpperInvariant();
+        UiTheme.DrawText(spriteBatch, name, 20 * scale, UiTheme.Text, new Vector2(rect.X + 14 * scale, rect.Y + 8 * scale));
+        UiTheme.DrawText(spriteBatch, $"PHASE {phase.Item1} // {phase.Item2}", 10 * scale, phase.Item3,
+            new Vector2(rect.Right - 14 * scale, rect.Y + 13 * scale), "topright");
+        var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + 43 * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
+        UiTheme.DrawProgress(spriteBatch, hpRect, Math.Clamp((float)boss.Hp / Math.Max(1, boss.MaxHp), 0f, 1f), phase.Item3, 18);
+    }
+
+    private void DrawLowHealthWarning(SpriteBatch spriteBatch)
+    {
+        double ratio = State.HealthPoints / Math.Max(1.0, State.MaxHealthPoints);
+        if (ratio > .3)
+            return;
+        int alpha = Math.Clamp((int)(35 + (1 - ratio / .3) * 65), 0, 255);
+        int border = Math.Max(8, (int)(22 * UiTheme.DisplayScale(spriteBatch)));
+        var color = new Color(UiTheme.Red.R, UiTheme.Red.G, UiTheme.Red.B, (byte)alpha);
+        Primitives2D.RectOutline(spriteBatch, new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight), color, border);
+    }
+
+    private void DrawRunCompleteBanner(SpriteBatch spriteBatch)
+    {
+        if (!State.GameCompleted)
+            return;
+        float scale = UiTheme.DisplayScale(spriteBatch);
+        int width = (int)Math.Min(InformationSheet.ArenaWidth * .58f, 680 * scale);
+        var rect = new Rectangle((InformationSheet.ArenaWidth - width) / 2, (int)(22 * scale), width, (int)(76 * scale));
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Cream, shadow: 7);
+        UiTheme.DrawText(spriteBatch, $"{GamePaths.BossKey(false).ToUpperInvariant()} ENDED", 24 * scale, UiTheme.Cream,
+            new Vector2(rect.Center.X, rect.Y + 10 * scale), "midtop");
+        UiTheme.DrawText(spriteBatch, "LEVEL 20 // RUN COMPLETE", 11 * scale, UiTheme.Purple,
+            new Vector2(rect.Center.X, rect.Bottom - 12 * scale), "midbottom");
+        UiTheme.DrawText(spriteBatch, "ENTER  VIEW RESULTS", 9 * scale, UiTheme.Text,
+            new Vector2(rect.Center.X, rect.Bottom + 12 * scale), "midtop");
+    }
+
+    private void DrawTutorialHint(SpriteBatch spriteBatch)
+    {
+        if (!GameProfile.Profile.TutorialHints || State.RunTimeSeconds >= 42 || State.GameCompleted)
+            return;
+        string text = State.RunTimeSeconds switch
+        {
+            < 8 => "WASD MOVE  //  MOUSE AIM  //  PRESS I FOR AUTOFIRE",
+            < 16 => "SPACE DASHES IN YOUR MOVEMENT DIRECTION AND BRIEFLY AVOIDS DAMAGE",
+            < 25 => "FOLLOW THE RED BOUNTY ARROW TO HIGH-VALUE PATROLS",
+            < 34 => "Q / E ROTATE THE ARENA  //  MOVEMENT STAYS SCREEN-RELATIVE",
+            _ => "TAB OPENS DETAILS  //  ESC PAUSES AND OPENS COMFORT SETTINGS",
+        };
+        float scale = UiTheme.DisplayScale(spriteBatch);
+        int width = (int)Math.Min(InformationSheet.ArenaWidth * .72f, 760 * scale);
+        var rect = new Rectangle((InformationSheet.ArenaWidth - width) / 2, (int)(ScreenHeight - 58 * scale), width, (int)(38 * scale));
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Blue, shadow: 4);
+        UiTheme.DrawText(spriteBatch, text, 9 * scale, UiTheme.Text, rect.Center.ToVector2(), "center");
     }
 
     /// <summary>

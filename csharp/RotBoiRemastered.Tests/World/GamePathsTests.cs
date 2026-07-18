@@ -1,3 +1,5 @@
+using Microsoft.Xna.Framework;
+using RotBoiRemastered.Entities;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.World;
@@ -79,5 +81,41 @@ public class GamePathsTests
         GamePaths.Select("touch");
         GamePaths.ActivateSelected();
         Assert.True(GamePaths.IsTouch());
+    }
+
+    [Fact]
+    public void ApplyEnemyIdentity_AppliesActivePathOnce()
+    {
+        GamePaths.Select("touch");
+        GamePaths.ActivateSelected();
+        var enemy = new Enemy(0, 0, 10, 20, Color.White, 10, 100, 5, 1, 100);
+
+        GamePaths.ApplyEnemyIdentity(enemy);
+        GamePaths.ApplyEnemyIdentity(enemy);
+
+        Assert.Equal("touch", enemy.ContentPath);
+        Assert.Equal(7, enemy.Speed, 3);
+        Assert.Equal(24.4, enemy.Size, 3);
+        Assert.Equal(165, enemy.MaxHp);
+        Assert.Equal(13, enemy.Damage);
+        Assert.Equal(6.1, enemy.ExpValue, 3);
+        Assert.Contains("heavy", enemy.InteractionTags);
+    }
+
+    [Fact]
+    public void TuneNewProjectiles_AppliesActivePathOnce()
+    {
+        GamePaths.Select("sight");
+        GamePaths.ActivateSelected();
+        var projectile = new EnemyProjectile(0, 0, 0, 10, 10, 10, travelRange: 100);
+
+        GamePaths.TuneNewProjectiles(new[] { projectile });
+        GamePaths.TuneNewProjectiles(new[] { projectile });
+
+        Assert.Equal("sight", projectile.ContentPath);
+        Assert.Equal(15.5, projectile.Speed, 3);
+        Assert.Equal(7.2, projectile.Size, 3);
+        Assert.Equal(8, projectile.Damage);
+        Assert.Equal(48, projectile.RemainingRange, 3);
     }
 }

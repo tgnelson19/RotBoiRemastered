@@ -1,3 +1,4 @@
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
@@ -36,6 +37,22 @@ public class PlayerTests
         player.Move(state, battleground, camera, moveLeft: false, moveRight: true, moveUp: false, moveDown: false, dashPressed: false);
 
         Assert.True(player.WorldX > startX);
+    }
+
+    [Fact]
+    public void Move_DiagonalUsesInverseSquareRootScale()
+    {
+        var player = new Player(125, 125);
+        var state = MakeState();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var camera = new Camera();
+
+        player.Move(state, battleground, camera, moveLeft: true, moveRight: false,
+            moveUp: true, moveDown: false, dashPressed: false);
+
+        float expectedAxisDelta = (float)(state.PlayerSpeed * Simulation.GetFrameScale() * 0.70710678);
+        Assert.Equal(expectedAxisDelta, Math.Abs(state.DX), 3);
+        Assert.Equal(expectedAxisDelta, Math.Abs(state.DY), 3);
     }
 
     [Fact]
@@ -80,6 +97,28 @@ public class PlayerTests
             player.Move(state, battleground, camera, moveLeft: true, moveRight: false, moveUp: false, moveDown: false, dashPressed: false);
 
         Assert.False(battleground.RectHitsWall(player.WorldRect(state)));
+    }
+
+    [Fact]
+    public void Move_RotatedCamera_NeverLetsVisibleCornersEnterWall()
+    {
+        Simulation.ResetForTests();
+        var player = new Player(90, 125);
+        var state = MakeState();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var camera = new Camera();
+        camera.SetAngle(45);
+
+        // At 45 degrees, screen-left + screen-down resolves to world-left.
+        for (int i = 0; i < 60; i++)
+        {
+            player.Move(state, battleground, camera, moveLeft: true, moveRight: false,
+                moveUp: false, moveDown: true, dashPressed: false);
+            Assert.False(battleground.ConvexPolygonHitsWall(player.WorldCollisionPolygon(state, camera)));
+        }
+
+        // The rotated square must stop before its left visual corner crosses x=50.
+        Assert.True(player.WorldX > Battleground.TileSize);
     }
 
     [Fact]

@@ -105,8 +105,8 @@ public class Enemy
     public int TierRank { get; }
     public float Age { get; private set; }
     public string AwarenessState { get; set; } = "wandering";
-    public float AwarenessRange { get; }
-    public float DisengageRange { get; }
+    public float AwarenessRange { get; set; }
+    public float DisengageRange { get; set; }
     public float WanderAngle { get; protected set; }
     public float WanderTimer { get; protected set; }
     public double ThreatCost { get; set; } = 1.0;
@@ -128,6 +128,7 @@ public class Enemy
     public Vector2? EncounterCombatTarget { get; set; }
     public int CombatSide { get; set; }
     public string Family { get; set; } = "basic";
+    public string? ContentPath { get; set; }
     public string? SpawnDefinitionKey { get; set; }
     public string? EncounterKey { get; set; }
     public bool AtomicSpawnGroup { get; set; }
@@ -150,6 +151,7 @@ public class Enemy
 
     private Vector2 _lastVisualWorld;
     private readonly Random _rng;
+    private Camera? _collisionCamera;
 
     private static readonly IReadOnlyDictionary<string, int> TierRanks =
         new Dictionary<string, int> { ["easy"] = 1, ["medium"] = 2, ["hard"] = 3 };
@@ -182,9 +184,40 @@ public class Enemy
 
     public void MarkAttack(float duration = .22f) => VisualAttackTimer = Math.Max(VisualAttackTimer, Simulation.FrameRate * duration);
 
+    /// <summary>Hook for the path layer's ranged-distance multiplier.</summary>
+    public virtual void ScaleAttackRange(double multiplier) { }
+
     public Rectangle WorldRect() => WorldRectAt(WorldX, WorldY);
 
     private Rectangle WorldRectAt(float x, float y) => new((int)x, (int)y, (int)Size, (int)Size);
+
+    /// <summary>Supplies the live camera used to match wall collision to the screen-aligned body.</summary>
+    public void SetCollisionCamera(Camera? camera) => _collisionCamera = camera;
+
+    /// <summary>Exact world footprint of the square drawn from this enemy's screen anchor.</summary>
+    public Vector2[] WorldCollisionPolygon(Camera camera, float? worldX = null, float? worldY = null)
+    {
+        float x = worldX ?? WorldX, y = worldY ?? WorldY;
+        var anchor = new Vector2(x, y);
+        var offsets = new[]
+        {
+            Vector2.Zero, new Vector2(Size, 0),
+            new Vector2(Size, Size), new Vector2(0, Size),
+        };
+        return offsets.Select(offset => anchor + camera.ScreenVectorToWorld(offset)).ToArray();
+    }
+
+    private bool PositionHitsWall(float x, float y, Battleground battleground) =>
+        _collisionCamera is null
+            ? battleground.RectHitsWall(WorldRectAt(x, y))
+            : battleground.ConvexPolygonHitsWall(WorldCollisionPolygon(_collisionCamera, x, y));
+
+    /// <summary>Moves a newly spawned or camera-rotated body out of any wall overlap.</summary>
+    public void EnsureCollisionSafePosition(Battleground battleground)
+    {
+        if (PositionHitsWall(WorldX, WorldY, battleground))
+            FindNearestCollisionSafePosition(battleground);
+    }
 
     protected bool TryAxisMove(float amount, string axis, Battleground battleground)
     {
@@ -192,8 +225,7 @@ public class Enemy
             return false;
         float nextX = axis == "x" ? WorldX + amount : WorldX;
         float nextY = axis == "y" ? WorldY + amount : WorldY;
-        var candidate = WorldRectAt(nextX, nextY);
-        if (battleground.RectHitsWall(candidate))
+        if (PositionHitsWall(nextX, nextY, battleground))
             return false;
         WorldX = nextX;
         WorldY = nextY;
@@ -367,14 +399,41 @@ public class Enemy
         TryAxisMove(directionX * step, "x", battleground);
         TryAxisMove(directionY * step, "y", battleground);
 
-        if (battleground.RectHitsWall(WorldRect()))
-        {
-            var safeRect = battleground.FindNearestOpenRect(WorldRect());
-            WorldX = safeRect.X;
-            WorldY = safeRect.Y;
-        }
+        EnsureCollisionSafePosition(battleground);
 
         FinishMovementTracking();
+    }
+
+    private void FindNearestCollisionSafePosition(Battleground battleground)
+    {
+        int step = Math.Max(1, Battleground.TileSize / 8);
+        for (int distance = step; distance <= Battleground.TileSize; distance += step)
+        {
+            for (int offsetX = -distance; offsetX <= distance; offsetX += step)
+            {
+                foreach (int offsetY in new[] { -distance, distance })
+                {
+                    if (!PositionHitsWall(WorldX + offsetX, WorldY + offsetY, battleground))
+                    {
+                        WorldX += offsetX;
+                        WorldY += offsetY;
+                        return;
+                    }
+                }
+            }
+            for (int offsetY = -distance + step; offsetY < distance; offsetY += step)
+            {
+                foreach (int offsetX in new[] { -distance, distance })
+                {
+                    if (!PositionHitsWall(WorldX + offsetX, WorldY + offsetY, battleground))
+                    {
+                        WorldX += offsetX;
+                        WorldY += offsetY;
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     public virtual IReadOnlyList<(string Part, Rectangle Rect)> GetWorldHitboxes() => new[] { ("body", WorldRect()) };

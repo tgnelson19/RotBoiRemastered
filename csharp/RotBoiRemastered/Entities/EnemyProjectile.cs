@@ -34,10 +34,11 @@ public sealed class EnemyProjectile
     public float OriginY { get; }
     public float Direction { get; set; }
     public float Speed { get; set; }
-    public float Damage { get; }
-    public float Size { get; }
+    public float Damage { get; set; }
+    public float Size { get; set; }
     public float RemainingRange { get; set; }
-    public Color Color { get; }
+    public Color Color { get; set; }
+    public string? ContentPath { get; set; }
     public string Shape { get; }
     public string Path { get; }
     public float Amplitude { get; }

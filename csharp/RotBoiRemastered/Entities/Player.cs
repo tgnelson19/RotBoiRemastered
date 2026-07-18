@@ -20,14 +20,9 @@ namespace RotBoiRemastered.Entities;
 /// could read it) is gone -- Draw computes it fresh from `camera.Lock`
 /// on demand instead of caching a value that's trivial to recompute.
 ///
-/// Explicitly deferred: the boss-obstacle-avoidance and arena-radius
-/// constraint branches in Python's movePlayer (`movement_obstacles`,
-/// `constrain_player_position`, `arenaRadius`) -- there's no boss type to
-/// provide them yet (see bossTypes.py in Entities/README.md's deferred
-/// list). Movement here is plain wall collision only; boss arenas will need
-/// to hook back in once that content exists. Controller input
-/// (`vH.controllerMoveX/Y`) also isn't wired up (no controller state ported
-/// yet) -- Move only takes keyboard-shaped directional booleans for now.
+/// Boss-specific arena constraints remain in GameSession so this entity stays
+/// boss-agnostic. Move accepts keyboard directions plus an analog controller
+/// vector and resolves shared wall/obstacle collision.
 /// </summary>
 public sealed class Player
 {
@@ -48,10 +43,31 @@ public sealed class Player
 
     public Rectangle WorldRect(RunState state) => new((int)WorldX, (int)WorldY, (int)state.PlayerSize, (int)state.PlayerSize);
 
+    /// <summary>
+    /// World-space footprint of the square drawn at the camera lock. At zero
+    /// camera rotation this is the ordinary WorldRect; at other angles it is
+    /// the inverse-rotated screen-aligned square seen by the player.
+    /// </summary>
+    public Vector2[] WorldCollisionPolygon(RunState state, Camera camera, float? worldX = null, float? worldY = null)
+    {
+        float x = worldX ?? WorldX, y = worldY ?? WorldY;
+        float size = (float)state.PlayerSize;
+        var anchor = new Vector2(x, y);
+        // Camera.WorldToScreen maps the player's world position to Camera.Lock,
+        // which is the drawn rectangle's top-left. Invert offsets from that
+        // anchor directly so these are exactly the four visible corners.
+        var screenOffsets = new[]
+        {
+            Vector2.Zero, new Vector2(size, 0),
+            new Vector2(size, size), new Vector2(0, size),
+        };
+        return screenOffsets.Select(offset => anchor + camera.ScreenVectorToWorld(offset)).ToArray();
+    }
+
     /// <summary>Ported from character.py's movePlayer().</summary>
     public void Move(RunState state, Battleground battleground, Camera camera,
         bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed,
-        IReadOnlyList<Rectangle>? obstacles = null)
+        IReadOnlyList<Rectangle>? obstacles = null, Vector2 controllerMove = default)
     {
         double seconds = Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         state.BossAfflictions.Update(seconds);
@@ -59,6 +75,10 @@ public sealed class Player
 
         float inputX = (moveLeft ? 1f : 0f) - (moveRight ? 1f : 0f);
         float inputY = (moveUp ? 1f : 0f) - (moveDown ? 1f : 0f);
+        inputX -= controllerMove.X;
+        inputY -= controllerMove.Y;
+        // Match the Python movement rule: two active axes each receive 1/sqrt(2),
+        // keeping diagonal travel the same speed as cardinal travel.
         float directionScale = (inputX != 0 && inputY != 0) ? 0.70710678f : 1.0f;
         inputX *= directionScale;
         inputY *= directionScale;
@@ -108,26 +128,26 @@ public sealed class Player
         float newAbsPosX = WorldX - state.DX;
         float newAbsPosY = WorldY - state.DY;
 
-        var nextXRect = new Rectangle((int)newAbsPosX, (int)WorldY, (int)state.PlayerSize, (int)state.PlayerSize);
-        if (!battleground.RectHitsWall(nextXRect) && !HitsObstacle(nextXRect, obstacles))
+        var nextXPolygon = WorldCollisionPolygon(state, camera, newAbsPosX, WorldY);
+        if (!battleground.ConvexPolygonHitsWall(nextXPolygon) && !HitsObstacle(nextXPolygon, obstacles))
             WorldX = newAbsPosX;
         else
             state.DX = 0;
 
-        var nextYRect = new Rectangle((int)WorldX, (int)newAbsPosY, (int)state.PlayerSize, (int)state.PlayerSize);
-        if (!battleground.RectHitsWall(nextYRect) && !HitsObstacle(nextYRect, obstacles))
+        var nextYPolygon = WorldCollisionPolygon(state, camera, WorldX, newAbsPosY);
+        if (!battleground.ConvexPolygonHitsWall(nextYPolygon) && !HitsObstacle(nextYPolygon, obstacles))
             WorldY = newAbsPosY;
         else
             state.DY = 0;
     }
 
-    private static bool HitsObstacle(Rectangle rect, IReadOnlyList<Rectangle>? obstacles)
+    private static bool HitsObstacle(IReadOnlyList<Vector2> polygon, IReadOnlyList<Rectangle>? obstacles)
     {
         if (obstacles is null)
             return false;
         for (int i = 0; i < obstacles.Count; i++)
         {
-            if (rect.Intersects(obstacles[i]))
+            if (Battleground.ConvexPolygonIntersectsRectangle(polygon, obstacles[i]))
                 return true;
         }
         return false;

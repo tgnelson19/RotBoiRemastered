@@ -1,4 +1,5 @@
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Core;
 
 namespace RotBoiRemastered.Tests.Entities;
 
@@ -55,5 +56,16 @@ public class ExperienceBubbleTests
     {
         var bubble = new ExperienceBubble(0, 0, value: 1, difficultyDead: 1, rng: new Random(3));
         Assert.Equal(0, bubble.CelebrationParticleCount);
+    }
+
+    [Fact]
+    public void Update_VisualAgeAdvancesInSecondsNotTimerTicks()
+    {
+        Simulation.ResetForTests();
+        var bubble = new ExperienceBubble(150, 150, value: 1, difficultyDead: 1, rng: new Random(1));
+
+        bubble.Update(0, EntityTestFixtures.SmallOpenRoom());
+
+        Assert.Equal(1.0 / Simulation.FrameRate, bubble.VisualAge, 5);
     }
 }

@@ -22,6 +22,8 @@ public class WanderingRangedEnemy : Enemy
     protected float AttackRangeTiles { get; set; } = 10f;
     protected readonly Random Rng;
 
+    public override void ScaleAttackRange(double multiplier) => AttackRangeTiles *= (float)multiplier;
+
     public WanderingRangedEnemy(float worldX, float worldY, float speed, float size, Color color,
         double damage, double hp, double expValue, double difficulty,
         string archetype = "drifter", string difficultyTier = "easy", Random? rng = null)

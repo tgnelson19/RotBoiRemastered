@@ -91,6 +91,76 @@ public sealed class Battleground
         return false;
     }
 
+    /// <summary>
+    /// Tests a convex world-space polygon against solid tiles. This is used by
+    /// screen-aligned entities whose world footprint rotates with the camera.
+    /// Merely touching a tile edge is allowed, matching Rectangle.Intersects.
+    /// </summary>
+    public bool ConvexPolygonHitsWall(IReadOnlyList<Vector2> polygon)
+    {
+        if (polygon.Count < 3)
+            return false;
+        float minX = polygon.Min(point => point.X), maxX = polygon.Max(point => point.X);
+        float minY = polygon.Min(point => point.Y), maxY = polygon.Max(point => point.Y);
+        if (minX < 0 || minY < 0 || maxX > Width * TileSize || maxY > Height * TileSize)
+            return true;
+
+        const float edgeEpsilon = 0.0001f;
+        int left = Math.Clamp((int)Math.Floor(minX / TileSize), 0, Width - 1);
+        int top = Math.Clamp((int)Math.Floor(minY / TileSize), 0, Height - 1);
+        int right = Math.Clamp((int)Math.Floor((maxX - edgeEpsilon) / TileSize), 0, Width - 1);
+        int bottom = Math.Clamp((int)Math.Floor((maxY - edgeEpsilon) / TileSize), 0, Height - 1);
+        for (int y = top; y <= bottom; y++)
+        {
+            for (int x = left; x <= right; x++)
+            {
+                if (Tiles[y, x].IsSolid() && ConvexPolygonIntersectsRectangle(polygon, TileRect(x, y)))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Separating-axis intersection for a convex polygon and an axis-aligned rectangle.</summary>
+    public static bool ConvexPolygonIntersectsRectangle(IReadOnlyList<Vector2> polygon, Rectangle rectangle)
+    {
+        if (polygon.Count < 3)
+            return false;
+        var rectangleCorners = new[]
+        {
+            new Vector2(rectangle.Left, rectangle.Top), new Vector2(rectangle.Right, rectangle.Top),
+            new Vector2(rectangle.Right, rectangle.Bottom), new Vector2(rectangle.Left, rectangle.Bottom),
+        };
+        var axes = new List<Vector2> { Vector2.UnitX, Vector2.UnitY };
+        for (int index = 0; index < polygon.Count; index++)
+        {
+            Vector2 edge = polygon[(index + 1) % polygon.Count] - polygon[index];
+            if (edge.LengthSquared() > 0.000001f)
+                axes.Add(new Vector2(-edge.Y, edge.X));
+        }
+
+        foreach (var axis in axes)
+        {
+            float polygonMin = float.PositiveInfinity, polygonMax = float.NegativeInfinity;
+            foreach (var point in polygon)
+            {
+                float projection = Vector2.Dot(point, axis);
+                polygonMin = Math.Min(polygonMin, projection);
+                polygonMax = Math.Max(polygonMax, projection);
+            }
+            float rectangleMin = float.PositiveInfinity, rectangleMax = float.NegativeInfinity;
+            foreach (var point in rectangleCorners)
+            {
+                float projection = Vector2.Dot(point, axis);
+                rectangleMin = Math.Min(rectangleMin, projection);
+                rectangleMax = Math.Max(rectangleMax, projection);
+            }
+            if (polygonMax <= rectangleMin || rectangleMax <= polygonMin)
+                return false;
+        }
+        return true;
+    }
+
     /// <summary>Number of wall tiles overlapped; out-of-bounds counts as a large number so callers treat it as impassable.</summary>
     public int CountOverlappingWalls(Rectangle worldRect)
     {

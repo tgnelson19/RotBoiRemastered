@@ -80,6 +80,19 @@ public class BattlegroundTests
     }
 
     [Fact]
+    public void ConvexPolygonHitsWall_DetectsRotatedCornerOverlap()
+    {
+        var battleground = SmallOpenRoom();
+        var polygon = new[]
+        {
+            new Vector2(48, 75), new Vector2(75, 48),
+            new Vector2(102, 75), new Vector2(75, 102),
+        };
+
+        Assert.True(battleground.ConvexPolygonHitsWall(polygon));
+    }
+
+    [Fact]
     public void FindPathAroundWalls_ReturnsSafeStep()
     {
         var battleground = SmallOpenRoom();

@@ -80,8 +80,8 @@ public sealed class ExperienceBubble
     public void Update(float playerAuraSpeed, Battleground battleground)
     {
         float frameScale = (float)Simulation.GetFrameScale();
-        float dt = (float)Simulation.GetTimerStep();
-        VisualAge += dt;
+        float seconds = (float)(Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate));
+        VisualAge += seconds;
 
         for (int i = _celebrationParticles.Count - 1; i >= 0; i--)
         {
@@ -89,7 +89,7 @@ public sealed class ExperienceBubble
             particle.X += particle.Vx * frameScale;
             particle.Y += particle.Vy * frameScale;
             particle.Vy += 0.08f * frameScale;
-            particle.Life -= dt;
+            particle.Life -= seconds;
             if (particle.Life <= 0)
                 _celebrationParticles.RemoveAt(i);
             else

@@ -17,13 +17,8 @@ namespace RotBoiRemastered.Core;
 ///   (`KeysPressed`, `MousePressed`) is derived by diffing this frame's
 ///   polled keyboard/mouse state against last frame's, a standard MonoGame
 ///   idiom (see <see cref="CollectInput"/>).
-/// - The custom in-arena aiming reticle (character.py hides the OS cursor
-///   and draws its own crosshair while the mouse is over the arena) isn't
-///   ported -- the OS cursor stays visible everywhere, including during
-///   aiming, which is fully functional, just visually different. A natural
-///   follow-up once the HUD-overlay polish pieces (boss health bar,
-///   tutorial hints, low-health warning, run-complete banner -- see
-///   GameSession's own doc comment) get their own pass.
+/// - Keyboard, mouse, and first-controller input are polled explicitly;
+///   F11 toggles borderless fullscreen while preserving the window size.
 /// - `hasBeenReset`'s two-call reset dance around the title screen has no
 ///   observable effect here (the title screen never reads run stats), so
 ///   returning to it just leaves the previous <see cref="GameSession"/>
@@ -44,6 +39,9 @@ public class RotBoiGame : Game
 
     private KeyboardState _previousKeyboardState;
     private ButtonState _previousMouseButtonState = ButtonState.Released;
+    private GamePadState _previousGamePadState;
+    private int _windowedWidth = 1280;
+    private int _windowedHeight = 720;
 
     public GameState State { get; set; } = GameState.TitleScreen;
 
@@ -83,22 +81,48 @@ public class RotBoiGame : Game
         Simulation.SetDeltaTime(gameTime.ElapsedGameTime.TotalMilliseconds);
         CollectInput();
 
-        if (InputState.KeysPressed.Contains(Keys.Escape))
+        IsMouseVisible = State != GameState.GameRun || _session is null
+            || InputState.MousePosition.X >= _session.InformationSheet.ArenaWidth
+            || _session.InformationSheet.DragInProgress;
+
+        if (InputState.KeysPressed.Contains(Keys.F11))
+            ToggleFullscreen();
+
+        if (InputState.ControllerPausePressed && State == GameState.Paused)
+        {
+            State = _pauseReturnState;
+            base.Update(gameTime);
+            return;
+        }
+
+        bool enteredPause = false;
+        if (InputState.KeysPressed.Contains(Keys.Escape) || InputState.ControllerPausePressed)
         {
             if (State == GameState.GameRun)
             {
                 _pauseReturnState = GameState.GameRun;
                 State = GameState.Paused;
+                _session?.InformationSheet.CancelDrag();
+                enteredPause = true;
             }
             else if (State == GameState.Leveling)
             {
                 _pauseReturnState = GameState.Leveling;
                 State = GameState.Paused;
+                _session?.InformationSheet.CancelDrag();
+                enteredPause = true;
             }
         }
 
         UpdateInputToggles();
         UpdateCameraControls(gameTime);
+
+        // Do not let the Escape press that opened pause immediately resume it.
+        if (enteredPause)
+        {
+            base.Update(gameTime);
+            return;
+        }
 
         switch (State)
         {
@@ -122,6 +146,28 @@ public class RotBoiGame : Game
         base.Update(gameTime);
     }
 
+    private void ToggleFullscreen()
+    {
+        if (_graphics.IsFullScreen)
+        {
+            _graphics.IsFullScreen = false;
+            _graphics.PreferredBackBufferWidth = _windowedWidth;
+            _graphics.PreferredBackBufferHeight = _windowedHeight;
+        }
+        else
+        {
+            _windowedWidth = Math.Max(640, GraphicsDevice.Viewport.Width);
+            _windowedHeight = Math.Max(360, GraphicsDevice.Viewport.Height);
+            var mode = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
+            _graphics.HardwareModeSwitch = false;
+            _graphics.PreferredBackBufferWidth = mode.Width;
+            _graphics.PreferredBackBufferHeight = mode.Height;
+            _graphics.IsFullScreen = true;
+        }
+        _graphics.ApplyChanges();
+        _session?.Resize(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+    }
+
     /// <summary>Ported from main.py's baseInputCollection()'s event-drain shape, using polled state diffs instead of a pygame event queue.</summary>
     private void CollectInput()
     {
@@ -140,6 +186,19 @@ public class RotBoiGame : Game
         InputState.MouseDown = mouseState.LeftButton == ButtonState.Pressed;
         InputState.MousePressed = mouseState.LeftButton == ButtonState.Pressed && _previousMouseButtonState == ButtonState.Released;
         _previousMouseButtonState = mouseState.LeftButton;
+
+        var gamePadState = GamePad.GetState(PlayerIndex.One);
+        var left = gamePadState.ThumbSticks.Left;
+        var right = gamePadState.ThumbSticks.Right;
+        InputState.ControllerMove = left.Length() > .2f ? new Vector2(left.X, -left.Y) : Vector2.Zero;
+        InputState.ControllerAim = right.Length() > .25f ? new Vector2(right.X, -right.Y) : Vector2.Zero;
+        InputState.ControllerDashPressed = gamePadState.Buttons.A == ButtonState.Pressed
+            && _previousGamePadState.Buttons.A == ButtonState.Released;
+        InputState.ControllerAutofirePressed = gamePadState.Buttons.X == ButtonState.Pressed
+            && _previousGamePadState.Buttons.X == ButtonState.Released;
+        InputState.ControllerPausePressed = gamePadState.Buttons.Start == ButtonState.Pressed
+            && _previousGamePadState.Buttons.Start == ButtonState.Released;
+        _previousGamePadState = gamePadState;
     }
 
     /// <summary>Ported from main.py's update_input_toggles().</summary>
@@ -147,7 +206,7 @@ public class RotBoiGame : Game
     {
         if (Keybinds.Pressed("dev_boss") && _session is not null && _session.State.ActiveBoss is null && !_session.State.BossDebugRequested)
             _session.State.BossDebugRequested = true;
-        if (Keybinds.Pressed("autofire"))
+        if (Keybinds.Pressed("autofire") || InputState.ControllerAutofirePressed)
         {
             GameProfile.Profile.AutoFire = !GameProfile.Profile.AutoFire;
             if (_session is not null)
@@ -203,10 +262,19 @@ public class RotBoiGame : Game
 
         bool moveUp = Keybinds.Held("move_up"), moveDown = Keybinds.Held("move_down");
         bool moveLeft = Keybinds.Held("move_left"), moveRight = Keybinds.Held("move_right");
-        session.MovePlayer(moveLeft, moveRight, moveUp, moveDown, Keybinds.Pressed("dash"));
+        session.MovePlayer(moveLeft, moveRight, moveUp, moveDown,
+            Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
 
         var mouseScreen = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
-        session.HandleBulletCreation(mouseScreen, InputState.MouseDown, session.InformationSheet.DragInProgress);
+        bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
+        if (controllerFiring)
+        {
+            var origin = session.Camera.Lock + new Vector2((float)session.State.PlayerSize / 2f);
+            mouseScreen = origin + new Vector2(InputState.ControllerAim.X * GraphicsDevice.Viewport.Width,
+                InputState.ControllerAim.Y * GraphicsDevice.Viewport.Height);
+        }
+        session.HandleBulletCreation(mouseScreen, InputState.MouseDown, session.InformationSheet.DragInProgress,
+            controllerFiring: controllerFiring);
         session.UpdateBullets();
 
         session.HandleEnemyCreation();
@@ -222,7 +290,12 @@ public class RotBoiGame : Game
         session.RecoverPlayerHealth();
 
         bool fatalHit = session.HurtPlayer();
-        if (fatalHit || session.State.GameCompleted)
+        if (fatalHit)
+        {
+            State = GameState.Results;
+            return;
+        }
+        if (session.State.GameCompleted && InputState.KeysPressed.Contains(Keys.Enter))
         {
             State = GameState.Results;
             return;
@@ -241,6 +314,8 @@ public class RotBoiGame : Game
     private void UpdatePaused()
     {
         var action = _menus.HandlePause(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
+        // Menus edits the persisted default; the live run keeps a cached copy.
+        _session!.State.AutoFire = GameProfile.Profile.AutoFire;
         switch (action)
         {
             case MenuAction.Resume:
@@ -321,6 +396,7 @@ public class RotBoiGame : Game
         session.DrawDamageTexts(_spriteBatch);
         session.DrawExperience(_spriteBatch);
         session.DrawLootCrates(_spriteBatch);
+        session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);
         session.DrawBountyIndicator(_spriteBatch);
         session.DrawInformationSheet(_spriteBatch, InputState.MousePosition);
         session.HandleInformationSheetDrag(InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);

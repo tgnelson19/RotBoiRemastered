@@ -19,6 +19,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
 - `Escape`: pause during a run; quit from the title screen
+- `F11`: switch between windowed and borderless fullscreen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
 
 ## Comfort and accessibility

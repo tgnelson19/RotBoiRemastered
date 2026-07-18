@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Entities;
 
 namespace RotBoiRemastered.World;
 
@@ -33,15 +34,14 @@ public sealed record GamePath(
     string MidBoss, string FinalBoss, Color Accent, EnemyStyle Style);
 
 /// <summary>
-/// Data-driven content paths layered over the shared run systems. Ported
-/// from gamePaths.py -- the data/selection portion only. Deferred:
-/// ApplyEnemyIdentity, ENCOUNTERS (_PathEnemyCatalog), RegisterExclusiveEncounter,
-/// and TuneNewProjectiles all operate directly on Enemy/EnemyProjectile/
-/// EnemyCatalog instances, none of which are ported yet -- port them
-/// alongside Entities/.
+/// Data-driven content paths layered over the shared run systems. Selection,
+/// battleground generation, boss rosters, enemy identity, and hostile
+/// projectile tuning are wired into GameSession. The optional Python-only
+/// exclusive-encounter extension registry has no registered consumers.
 /// </summary>
 public static class GamePaths
 {
+    private static readonly Random ProjectileRng = new(9071);
     // Order matters here (matches Python 3.7+ dict insertion order, which
     // gamePaths.py relies on for e.g. title-screen path cycling) -- Paths is
     // the ordered source of truth; PathsByKey is only for O(1) lookup.
@@ -134,4 +134,60 @@ public static class GamePaths
     public static string BossKey(bool midpoint) => midpoint ? Active().MidBoss : Active().FinalBoss;
 
     public static bool IsTouch() => _activeKey == "touch";
+
+    /// <summary>Applies the active path's shared enemy identity exactly once.</summary>
+    public static Enemy? ApplyEnemyIdentity(Enemy? enemy)
+    {
+        var path = Active();
+        var style = path.Style;
+        if (enemy is null || path.Key == "sound" || enemy.ContentPath == path.Key)
+            return enemy;
+
+        enemy.ContentPath = path.Key;
+        enemy.Speed *= (float)style.Speed;
+        enemy.Size *= (float)style.Size;
+        enemy.MaxHp = (int)Math.Round(enemy.MaxHp * style.Health);
+        enemy.Hp = enemy.MaxHp;
+        enemy.Damage = (int)Math.Round(enemy.Damage * style.Damage);
+        enemy.ExpValue *= style.Experience;
+        if (style.Colors is { Count: > 0 })
+            enemy.Color = style.Colors[enemy.Family.Sum(character => character) % style.Colors.Count];
+        if (enemy.AttackCooldownMax.HasValue)
+            enemy.AttackCooldownMax *= (float)style.AttackCooldown;
+        if (enemy.AttackCooldown.HasValue)
+            enemy.AttackCooldown *= (float)style.AttackCooldown;
+        enemy.ScaleAttackRange(style.AttackRange);
+        enemy.AwarenessRange *= (float)style.Awareness;
+        enemy.DisengageRange *= (float)style.Awareness;
+        enemy.InteractionTags = enemy.InteractionTags.Concat(style.Tags ?? Array.Empty<string>()).ToHashSet();
+        foreach (var child in enemy.SpawnedEnemies)
+            ApplyEnemyIdentity(child);
+        return enemy;
+    }
+
+    /// <summary>Applies active-path projectile rules to newly emitted hostile shots.</summary>
+    public static void TuneNewProjectiles(IEnumerable<EnemyProjectile> projectiles)
+    {
+        var path = Active();
+        var style = path.Style;
+        if (path.Key == "sound")
+            return;
+
+        foreach (var projectile in projectiles)
+        {
+            if (projectile.ContentPath == path.Key)
+                continue;
+            projectile.ContentPath = path.Key;
+            projectile.Speed *= (float)style.ProjectileSpeed;
+            projectile.Size *= (float)style.ProjectileSize;
+            projectile.Damage = MathF.Round(projectile.Damage * (float)style.ProjectileDamage);
+            projectile.RemainingRange *= (float)style.ProjectileRange;
+            if (style.ProjectileLifetime.HasValue)
+                projectile.Lifetime = Math.Max(projectile.Lifetime ?? 0, (float)style.ProjectileLifetime.Value);
+            if (style.AimedChance < 1 && ProjectileRng.NextDouble() > style.AimedChance)
+                projectile.Direction += (float)(ProjectileRng.NextDouble() * Math.PI * 2 - Math.PI);
+            if (style.Colors is { Count: > 0 })
+                projectile.Color = style.Colors[^1];
+        }
+    }
 }

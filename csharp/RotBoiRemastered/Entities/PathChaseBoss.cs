@@ -93,6 +93,7 @@ public class PathChaseBoss : Enemy
     public string PhaseLabel { get; protected set; }
     public string PhaseFlavor { get; protected set; }
     public Color PhaseAccent { get; protected set; }
+    public string BossDisplayName => Config.BossName;
     public double EntranceRemaining { get; set; } = .9;
     public bool DebugPhaseLocked { get; set; }
     public double PhaseElapsed { get; set; }

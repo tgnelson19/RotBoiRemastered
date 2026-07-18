@@ -4,13 +4,8 @@ using Microsoft.Xna.Framework.Input;
 namespace RotBoiRemastered.Core;
 
 /// <summary>
-/// Minimal slice of variableHolster.py's input-tracking globals (keyPressed,
-/// keys, mouseX/mouseY, mouseDown/mousePressed) -- just enough for
-/// Keybinds.cs and the UI/ menu screens to check input against. This will
-/// grow into a full port of variableHolster.py (controller state, screen
-/// dimensions, frame timing) when that module gets its own pass; kept
-/// intentionally small for now rather than porting the whole thing
-/// speculatively. Menus.cs/LevelingHandler.cs don't read this directly --
+/// Live keyboard, mouse, and first-controller input state derived once per
+/// frame by RotBoiGame. Menus.cs/LevelingHandler.cs don't read this directly --
 /// they take mouse position/state as explicit method parameters (matching
 /// UiTheme.DrawButton's existing shape), so only the eventual game-loop
 /// entry point needs to touch this class at all.
@@ -31,4 +26,10 @@ public static class InputState
 
     /// <summary>True on the frame the left mouse button was first pressed (edge-triggered).</summary>
     public static bool MousePressed { get; set; }
+
+    public static Vector2 ControllerMove { get; set; }
+    public static Vector2 ControllerAim { get; set; }
+    public static bool ControllerDashPressed { get; set; }
+    public static bool ControllerAutofirePressed { get; set; }
+    public static bool ControllerPausePressed { get; set; }
 }

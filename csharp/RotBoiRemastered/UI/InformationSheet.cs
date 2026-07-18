@@ -105,6 +105,14 @@ public sealed class InformationSheet
     public int ArenaWidth => _posX;
     public bool DragInProgress { get; private set; }
 
+    /// <summary>Abandons the current drag without moving either item.</summary>
+    public void CancelDrag()
+    {
+        _draggingItem = null;
+        _draggingSource = null;
+        DragInProgress = false;
+    }
+
     public InformationSheet(int screenWidth, int screenHeight)
     {
         _mode = GameProfile.Profile.HudMode;

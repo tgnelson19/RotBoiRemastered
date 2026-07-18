@@ -40,10 +40,8 @@ public sealed class RunResultsSnapshot
 /// directly assigned `vH.state`/called `game.resetAllStats()`; here they
 /// return a `MenuAction` instead and leave the actual state transition to
 /// the caller, matching `LevelingHandler.PlayerClicked`'s existing
-/// return-a-result contract. Dropped the `cS.autoFire` cache-mirror sync
-/// (`if key == "autofire": cS.autoFire = bool(...)`,) since
-/// `GameProfile.Profile.AutoFire` is already the single source of truth --
-/// nothing needs a second cached copy of the same value.
+/// return-a-result contract. The caller synchronizes the persisted autofire
+/// preference into the current RunState after this handler returns.
 /// </summary>
 public sealed class Menus
 {

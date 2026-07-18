@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
 
@@ -57,6 +58,24 @@ public class EnemyTests
         for (int i = 0; i < 20; i++)
             enemy.Update(MakeContext(-1000, 125, battleground)); // player beyond the left wall
         Assert.False(battleground.RectHitsWall(enemy.WorldRect()));
+    }
+
+    [Fact]
+    public void Update_RotatedCamera_NeverLetsVisibleCornersEnterWall()
+    {
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var enemy = MakeEnemy(90, 125, awarenessRange: 1000f, speed: 4f);
+        var camera = new Camera();
+        camera.SetAngle(45);
+        enemy.SetCollisionCamera(camera);
+
+        for (int i = 0; i < 30; i++)
+        {
+            enemy.Update(MakeContext(-1000, 125, battleground));
+            Assert.False(battleground.ConvexPolygonHitsWall(enemy.WorldCollisionPolygon(camera)));
+        }
+
+        Assert.True(enemy.WorldX > Battleground.TileSize);
     }
 
     [Fact]
