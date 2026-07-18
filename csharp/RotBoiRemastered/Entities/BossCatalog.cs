@@ -23,10 +23,10 @@ public sealed record BossDefinition(string Key, string DisplayName, BossFactory 
 /// Ported from bossTypes.py's `BossCatalog`/`BOSS_CATALOG`. Only registers
 /// the bosses currently ported: `beaudis`/`dissonance` (the "sound" content
 /// path's mid/final bosses -- the only path natural gameplay can currently
-/// reach, since `gamePaths.py`'s per-path boss-key selection isn't wired)
-/// and the Touch path's `bair`/`sting` + the sight-themed `ishe`/`chronos`.
-/// `kage`/`rot`/`hypno`/`malady` remain unregistered -- their classes
-/// (`SinChemesthesisBoss`/`PhantasiaBoss` families) aren't ported yet, see
+/// reach, since `gamePaths.py`'s per-path boss-key selection isn't wired),
+/// the Touch path's `bair`/`sting`, the sight-themed `ishe`/`chronos`, and
+/// the Chemesthesis path's `kage`/`rot`. `hypno`/`malady` remain
+/// unregistered -- the `PhantasiaBoss` family isn't ported yet, see
 /// Entities/README.md.
 /// </summary>
 public sealed class BossCatalog
@@ -60,6 +60,8 @@ public sealed class BossCatalog
         catalog.Register(new BossDefinition("chronos", "Chronos", (x, y, battleground, _, rng) => new Chronos(x, y, battleground, rng)));
         catalog.Register(new BossDefinition("bair", "Bair", (x, y, battleground, _, rng) => new Bair(x, y, battleground, rng)));
         catalog.Register(new BossDefinition("sting", "Sting", (x, y, battleground, _, rng) => new Sting(x, y, battleground, rng)));
+        catalog.Register(new BossDefinition("kage", "Kage", (x, y, battleground, _, rng) => new Kage(x, y, battleground, rng)));
+        catalog.Register(new BossDefinition("rot", "Rot", (x, y, battleground, _, rng) => new Rot(x, y, battleground, rng)));
         return catalog;
     }
 }

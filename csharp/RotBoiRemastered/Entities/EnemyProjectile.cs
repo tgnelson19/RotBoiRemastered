@@ -53,6 +53,12 @@ public sealed class EnemyProjectile
     public bool TruthMarked { get; set; }
     public double BeliefGain { get; set; }
     public double ClarityGain { get; set; }
+    /// <summary>Ported from bossTypes.py's SinChemesthesisBoss._shot duck-typed `affliction`/`afflictionDuration`/`afflictionStrength`/`exposure`/`afflictionSource` attributes -- applied to RunState.BossAfflictions on player hit (see GameSession.HurtPlayer). Null means "no affliction," matching Python's `getattr(projectile, "affliction", None)`.</summary>
+    public string? Affliction { get; set; }
+    public double AfflictionDuration { get; set; }
+    public double AfflictionStrength { get; set; }
+    public double Exposure { get; set; }
+    public Vector2? AfflictionSource { get; set; }
     public bool IgnoreWalls { get; }
     public Vector2? Target { get; set; }
     public float TelegraphDuration { get; set; } = 1.0f;

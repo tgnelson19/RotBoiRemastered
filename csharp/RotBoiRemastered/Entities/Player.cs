@@ -50,7 +50,8 @@ public sealed class Player
 
     /// <summary>Ported from character.py's movePlayer().</summary>
     public void Move(RunState state, Battleground battleground, Camera camera,
-        bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed)
+        bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed,
+        IReadOnlyList<Rectangle>? obstacles = null)
     {
         double seconds = Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         state.BossAfflictions.Update(seconds);
@@ -108,16 +109,28 @@ public sealed class Player
         float newAbsPosY = WorldY - state.DY;
 
         var nextXRect = new Rectangle((int)newAbsPosX, (int)WorldY, (int)state.PlayerSize, (int)state.PlayerSize);
-        if (!battleground.RectHitsWall(nextXRect))
+        if (!battleground.RectHitsWall(nextXRect) && !HitsObstacle(nextXRect, obstacles))
             WorldX = newAbsPosX;
         else
             state.DX = 0;
 
         var nextYRect = new Rectangle((int)WorldX, (int)newAbsPosY, (int)state.PlayerSize, (int)state.PlayerSize);
-        if (!battleground.RectHitsWall(nextYRect))
+        if (!battleground.RectHitsWall(nextYRect) && !HitsObstacle(nextYRect, obstacles))
             WorldY = newAbsPosY;
         else
             state.DY = 0;
+    }
+
+    private static bool HitsObstacle(Rectangle rect, IReadOnlyList<Rectangle>? obstacles)
+    {
+        if (obstacles is null)
+            return false;
+        for (int i = 0; i < obstacles.Count; i++)
+        {
+            if (rect.Intersects(obstacles[i]))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Ported from character.py's drawPlayer(). Draws at the camera's screen lock, not a world-transformed position.</summary>

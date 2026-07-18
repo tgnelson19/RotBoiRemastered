@@ -8,6 +8,18 @@ namespace RotBoiRemastered.Systems;
 public sealed record UpgradeHistoryEntry(string Name, string Rarity, string MathType);
 
 /// <summary>
+/// Ported from characterStats.py's `player_build_snapshot()` return value
+/// (an immutable summary bosses may inspect without mutating the build --
+/// used by `Entities/Rot.cs`'s Envy phase). `MappingProxyType`'s
+/// immutability guarantee is naturally covered by using `IReadOnlyDictionary`.
+/// </summary>
+public sealed record PlayerBuildSnapshot(
+    IReadOnlyDictionary<string, int> Types,
+    IReadOnlyDictionary<string, int> Categories,
+    IReadOnlyDictionary<string, double> Stats,
+    string DominantOffense);
+
+/// <summary>
 /// Belief/clarity meta-progression toward a run's dream-logic content.
 /// Ported from characterStats.py's `dreamState` dict + its free functions
 /// (`alter_belief`/`update_dream_state`) -- module-level dict and functions
@@ -426,5 +438,31 @@ public sealed class RunState
         Aura = Stats["Aura Size"].Combined;
         AuraSpeed = Stats["Aura Strength"].Combined;
         XpMult = Stats["Exp Multiplier"].Combined;
+    }
+
+    /// <summary>Ported from characterStats.py's player_build_snapshot(). Returns an immutable summary bosses may inspect without mutating the build (used by Rot's Envy phase).</summary>
+    public PlayerBuildSnapshot BuildSnapshot()
+    {
+        var categories = new Dictionary<string, int>();
+        foreach (var (name, count) in UpgradeTypeCounts)
+        {
+            if (Upgrades.DefinitionsByName.TryGetValue(name, out var definition))
+                categories[definition.Category] = categories.GetValueOrDefault(definition.Category) + count;
+        }
+        var offenseKeys = new[] { "volley", "tempo", "precision", "power", "critical" };
+        var offense = offenseKeys.ToDictionary(key => key, key => categories.GetValueOrDefault(key));
+        string dominant = offense.Values.Any(value => value != 0)
+            ? offense.OrderByDescending(kv => kv.Value).First().Key
+            : "power";
+        var stats = new Dictionary<string, double>
+        {
+            ["projectile_count"] = ProjectileCount,
+            ["pierce"] = BulletPierce,
+            ["crit_chance"] = CritChance,
+            ["crit_damage"] = CritDamage,
+            ["bullet_speed"] = BulletSpeed,
+            ["bullet_size"] = BulletSize,
+        };
+        return new PlayerBuildSnapshot(new Dictionary<string, int>(UpgradeTypeCounts), categories, stats, dominant);
     }
 }

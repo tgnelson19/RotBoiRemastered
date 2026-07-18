@@ -313,6 +313,14 @@ public class PathChaseBoss : Enemy
         MarkAttack(.42f);
     }
 
+    /// <summary>
+    /// Invokes <see cref="Enemy.Update"/> directly, bypassing this class's own
+    /// movement-mode dispatch. Ported from SinChemesthesisBoss.updateEnemy's call to
+    /// `Enemy.updateEnemy(self, ...)` -- Python calls its grandparent method directly,
+    /// skipping PathChaseBoss's override entirely, which C# has no direct syntax for.
+    /// </summary>
+    protected void ChaseUpdate(EnemyUpdateContext context) => base.Update(context);
+
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();

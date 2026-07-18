@@ -128,7 +128,8 @@ public sealed class GameSession
     /// </summary>
     public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed)
     {
-        Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed);
+        var obstacles = State.ActiveBoss is Rot rot ? rot.MovementObstacles() : null;
+        Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed, obstacles);
         if (State.ActiveBoss is Dissonance dissonance)
         {
             float playerX = Player.WorldX + (float)State.PlayerSize / 2f, playerY = Player.WorldY + (float)State.PlayerSize / 2f;
@@ -426,6 +427,7 @@ public sealed class GameSession
         {
             PlayerWorldX = playerCenter.X, PlayerWorldY = playerCenter.Y, Battleground = Battleground,
             ProjectileSink = State.EnemyProjectileHolster, AllEnemies = State.EnemyHolster, ExperienceBubbles = State.ExperienceList,
+            Camera = Camera, BossAfflictions = State.BossAfflictions, PlayerBuildSnapshot = State.BuildSnapshot(),
         };
         foreach (var enemy in State.EnemyHolster)
         {
@@ -938,7 +940,11 @@ public sealed class GameSession
                 State.DreamState.AlterBelief(projectile.BeliefGain - projectile.ClarityGain,
                     falseRule: projectile.BeliefGain >= 1.0, truth: projectile.ClarityGain > 0);
             }
-            // Boss-affliction projectiles (bossTypes.py) are deferred.
+            if (projectile.Affliction is not null)
+            {
+                State.BossAfflictions.Apply(projectile.Affliction, projectile.AfflictionDuration,
+                    projectile.AfflictionStrength, projectile.Exposure, projectile.AfflictionSource);
+            }
             if (!projectile.PersistentHazard)
                 projectile.RemFlag = true;
             double trueDamage = HostileDamageAfterDefense(projectile.Damage, State.Defense);

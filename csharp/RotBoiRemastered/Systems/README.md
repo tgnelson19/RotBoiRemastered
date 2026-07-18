@@ -22,7 +22,9 @@ port first since they were deliberately kept pygame-free in the Python original.
   above: kept as one class (it's genuinely one bounded context -- the
   current run's state), but internally organized into clearly-scoped
   properties and the nested `DreamState`/`BossAfflictions` helper classes
-  rather than ~80 flat fields.
+  rather than ~80 flat fields. `PlayerBuildSnapshot` (record) +
+  `BuildSnapshot()` were added for `Entities/Rot.cs`'s Envy phase --
+  ported from `characterStats.py`'s `player_build_snapshot()`.
 - `GameSession.cs` <- `character.py`'s "handling*"/"update*"/"draw*" free
   functions + `resetAllStats()`/`combarinoPlayerStats()`/
   `handleLevelingProcess()`. **Done for the non-boss gameplay loop**: bullet
@@ -56,13 +58,27 @@ port first since they were deliberately kept pygame-free in the Python original.
   reset) for both boss types (duplicated per type rather than introducing
   a shared interface for two implementors -- see the method's shape).
   `MovePlayer` now also clamps the player inside `Dissonance.ArenaRadius`
-  (Python's `elif hasattr(boss, "arenaRadius")` branch; the
-  `constrain_player_position` branch stays deferred with the
-  `PathChaseBoss` family), and `HandleDamagingEnemies` routes portal-hit
-  player bullets through `Dissonance.RoutePlayerBullet` before normal
-  pierce/damage consumption. `RunState.BossDebugRequested`/
-  `BossDebugInvincible` are back (dropped since the Player.cs/GameSession
-  pass, promised to return once a boss existed) -- both are now fully
-  wired (`BossDebugInvincible` in `HurtPlayer`, `BossDebugRequested` now
-  spawns Dissonance, matching Python's debug hotkey always summoning the
-  *final* boss, never Beaudis).
+  (Python's `elif hasattr(boss, "arenaRadius")` branch), and
+  `HandleDamagingEnemies` routes portal-hit player bullets through
+  `Dissonance.RoutePlayerBullet` before normal pierce/damage consumption.
+  `RunState.BossDebugRequested`/`BossDebugInvincible` are back (dropped
+  since the Player.cs/GameSession pass, promised to return once a boss
+  existed) -- both are now fully wired (`BossDebugInvincible` in
+  `HurtPlayer`, `BossDebugRequested` now spawns Dissonance, matching
+  Python's debug hotkey always summoning the *final* boss, never Beaudis).
+- Now that `Entities/Rot.cs` exists (see Entities/README.md), three more
+  touch points are wired: `MovePlayer` computes
+  `State.ActiveBoss is Rot rot ? rot.MovementObstacles() : null` and passes
+  it to `Player.Move`'s new `obstacles` parameter (checked alongside the
+  existing wall-collision test on both axes -- kept boss-type-awareness in
+  `GameSession` only, per `Player.cs`'s own boss-agnostic doc comment);
+  `HurtPlayer` applies `projectile.Affliction` to `State.BossAfflictions`
+  on a colliding hit (Python's `hurtPlayer()` boss-affliction-projectile
+  branch, previously deferred since nothing produced one); and
+  `UpdateEnemies`'s `EnemyUpdateContext` now populates
+  `Camera`/`BossAfflictions`/`PlayerBuildSnapshot` (`RunState.BuildSnapshot()`,
+  ported from `characterStats.py`'s `player_build_snapshot()` -- an
+  immutable summary of upgrade types/categories/stats/dominant-offense a
+  boss may inspect without mutating the build) -- all three exist solely
+  for `Rot`'s crystal-wall terrain and Envy-phase build-reading attack, but
+  every `Enemy.Update` override still shares the one context shape.

@@ -13,6 +13,8 @@ public class BossCatalogTests
     [InlineData("chronos", typeof(Chronos))]
     [InlineData("bair", typeof(Bair))]
     [InlineData("sting", typeof(Sting))]
+    [InlineData("kage", typeof(Kage))]
+    [InlineData("rot", typeof(Rot))]
     public void CreateDefault_RegistersEveryPortedBoss(string key, Type expectedType)
     {
         var catalog = BossCatalog.CreateDefault();
@@ -28,8 +30,6 @@ public class BossCatalogTests
     public void CreateDefault_DoesNotRegisterUnportedBosses()
     {
         var catalog = BossCatalog.CreateDefault();
-        Assert.False(catalog.TryGet("kage", out _));
-        Assert.False(catalog.TryGet("rot", out _));
         Assert.False(catalog.TryGet("hypno", out _));
         Assert.False(catalog.TryGet("malady", out _));
     }

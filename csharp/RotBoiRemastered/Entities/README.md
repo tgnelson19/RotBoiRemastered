@@ -142,9 +142,10 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
 - **`PathChaseBoss.cs`** <- bossTypes.py's `PathChaseBoss` ("Configurable
   three-phase placeholder for rapidly prototyping path bosses" -- the
   shared base for every alternate mid/final boss on non-"sound" content
-  paths; see `gamePaths.py`'s `boss_key()`). **Done**, along with two of
-  its four concrete families -- see "Explicitly deferred" below for the
-  other two and why this pass stopped here. Python's ~24 overridable class
+  paths; see `gamePaths.py`'s `boss_key()`). **Done**, along with all four
+  of its concrete families (the `PhantasiaBoss` family is a *separate*
+  boss lineage entirely, not one of these four -- see "Explicitly deferred"
+  below). Python's ~24 overridable class
   attributes (`bossName`, `phaseLabels`, `bodyColor`, `movementSpeed`, ...)
   become one `PathChaseBossConfig` record each subclass builds (using a
   `with` expression against its parent's config to mirror Python's partial
@@ -172,38 +173,68 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     combat and movement, not the base's chase-the-player behavior) but
     still calls `base.Draw` for the shared arena rendering. `PlagueSigils.All`
     holds the ten shared plague sigils Bair/Sting's `phaseSigils` index into.
+  - **`SinChemesthesisBoss.cs`/`Kage.cs`/`Rot.cs`** -- the Chemesthesis
+    content path's mid/final bosses ("THE FIRST REACTION"/"THE FIELD THAT
+    REMAINS"). Unlike Ishe/Bair/Sting, this family has a real
+    stagger/fracture system: `SinChemesthesisBoss` re-adds the
+    `Stagger`/`MaxStagger`/`IsStaggered`/etc. fields `PathChaseBoss.cs`
+    dropped as dead-in-that-family (see that class's doc comment) since
+    this is the one family that actually uses them. `TakeDamage` applies a
+    1.25x bonus multiplier once staggered, accumulates `Stagger` per hit,
+    and disables the boss (`Update` early-returns after just advancing age)
+    for `StaggerDuration` once `Stagger` reaches `MaxStagger`. Python's
+    `SinChemesthesisBoss.updateEnemy` calls `Enemy.updateEnemy` directly,
+    skipping `PathChaseBoss.updateEnemy`'s own movement-mode dispatch
+    entirely -- C# has no "call the grandparent" syntax, so `PathChaseBoss`
+    gained a `protected ChaseUpdate(context) => base.Update(context)`
+    wrapper this family calls instead of `base.Update`.
+    `_shot`/`_fan`/`_radial`/`_bomb`/`_laser`/`_parallel_lanes` become
+    protected `Shot`/`Fan`/`Radial`/`Bomb`/`Laser`/`ParallelLanes` helpers
+    shared by every phase-pattern override. `_draw_sigil`'s progressive
+    per-stroke reveal (`stroke_budget`/`segment_budget`) is ported
+    faithfully as a real gameplay-relevant visual; Python's
+    supersample+`smoothscale` anti-aliasing is dropped (this port's
+    established "no AA anywhere in `Primitives2D`" simplification) --
+    `DrawSigil` draws directly at final screen coordinates instead of an
+    offscreen `pygame.Surface`, which is mathematically identical once
+    there's no surface-level compositing effect to preserve (confirmed for
+    `_draw_field_diagram`'s seven procedural sin-motif diagrams too, same
+    reasoning). `Rot.cs` adds a persistent-terrain subsystem on top: mutable
+    `CrystalWall`/`CleansingVent` classes (not records -- fields like
+    `Remaining`/`Warning`/`Rect` mutate every frame), `MovementObstacles()`
+    (consumed by `Player.Move`'s new `obstacles` parameter, wired through
+    `GameSession.MovePlayer`), a `"crystal:N"` hitbox/damage part-ID scheme
+    (`GetScreenHitboxes`/`DamageCrystal`), and direct integration with the
+    already-existing `RunState.BossAfflictions` (exposure/pull -- cleansing
+    vents call `BossAfflictions.Reset()`) and the newly-added
+    `RunState.BuildSnapshot()`/`PlayerBuildSnapshot` (ported from
+    `characterStats.py`'s `player_build_snapshot()`; Rot's Envy phase reads
+    `PlayerBuildSnapshot.DominantOffense` to pick an attack). Both new
+    fields live on `EnemyUpdateContext` (`Camera`/`BossAfflictions`/
+    `PlayerBuildSnapshot`, all nullable -- see that type's doc comment) and
+    are populated by `GameSession.UpdateEnemies`.
 - **`BossCatalog.cs`** <- `BossDefinition`/`BossCatalog`/`BOSS_CATALOG`.
-  **Done** for the six bosses ported so far (`beaudis`/`dissonance`/
-  `ishe`/`chronos`/`bair`/`sting`) -- same `EnemyFactory`-delegate/
-  `CreateDefault()` cleanup as `EnemyCatalog.cs`. Not wired into
-  `GameSession`'s actual spawn flow (which constructs `Beaudis`/`Dissonance`
-  directly): `gamePaths.py`'s per-path boss-key selection -- the thing that
-  would ever ask the catalog for `ishe`/`bair`/etc. -- isn't ported, so
-  this stays standalone infrastructure ready for whenever that selection
-  exists, same reasoning as `EnemyCatalog.cs` before `GameSession` existed.
+  **Done** for the eight bosses ported so far (`beaudis`/`dissonance`/
+  `ishe`/`chronos`/`bair`/`sting`/`kage`/`rot`) -- same
+  `EnemyFactory`-delegate/`CreateDefault()` cleanup as `EnemyCatalog.cs`.
+  Not wired into `GameSession`'s actual spawn flow (which constructs
+  `Beaudis`/`Dissonance` directly): `gamePaths.py`'s per-path boss-key
+  selection -- the thing that would ever ask the catalog for
+  `ishe`/`bair`/`kage`/etc. -- isn't ported, so this stays standalone
+  infrastructure ready for whenever that selection exists, same reasoning
+  as `EnemyCatalog.cs` before `GameSession` existed.
 
 ## Explicitly deferred (not in Entities/ yet)
 
-- **The rest of `bossTypes.py`'s ~4750 lines** -- two more `PathChaseBoss`
-  families, deliberately not attempted this pass:
-  - **`SinChemesthesisBoss`/`Kage`/`Rot`** ("THE FIRST REACTION"/"THE FIELD
-    THAT REMAINS") -- a real stagger/fracture system (unlike Ishe/Bair/
-    Sting, which use plain `Enemy.TakeDamage`), plus `Rot`'s crystal-wall
-    terrain obstacles (their own hitbox/damage subsystem, `movement_obstacles()`)
-    and direct integration with `characterStats.py`'s `bossAfflictions`
-    (exposure/pull) and a `player_build_snapshot()` function that doesn't
-    exist anywhere in this port yet. Genuinely a new subsystem, not just
-    more config.
+- **The rest of `bossTypes.py`'s ~4750 lines** -- one more boss lineage,
+  deliberately not attempted yet:
   - **`PhantasiaBoss`/`Hypno`/`Malady`** ("THE DREAM COURT"/final bosses) --
     integrates with `RunState.DreamState`'s belief/truth mechanics (which
-    *does* already exist, unlike the Sin family) via true/false "commandment"
-    rules, but `Malady` alone is ~680 lines of a fully custom procedural
-    "puppet" body with jointed limb rendering -- its own dedicated pass.
+    *does* already exist) via true/false "commandment" rules, but `Malady`
+    alone is ~680 lines of a fully custom procedural "puppet" body with
+    jointed limb rendering -- its own dedicated pass.
 
-  Until these exist, `Player.cs`/`GameSession.cs`'s boss-movement-obstacle
-  branch for anything beyond `PathChaseBoss.ConstrainPlayerPosition`
-  (`Rot`'s crystal-wall `movement_obstacles()`) and `gamePaths.py`'s
-  per-path boss content-key selection (which boss variant counts as "the
-  mid/final boss" on the active path -- always the "sound" path's
-  Beaudis/Dissonance here) stay documented no-ops -- see those files' doc
-  comments for the specifics.
+  Until these exist, `gamePaths.py`'s per-path boss content-key selection
+  (which boss variant counts as "the mid/final boss" on the active path --
+  always the "sound" path's Beaudis/Dissonance here) stays a documented
+  no-op -- see `GamePaths.cs`'s doc comments for specifics.

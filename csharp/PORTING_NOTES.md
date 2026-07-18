@@ -186,14 +186,35 @@ Dependency order roughly follows the Python import graph:
     (built with a `with` expression against the parent's config to mirror
     partial class-attribute override) instead of C# virtual properties --
     avoids the well-known hazard of calling virtual members from a base
-    constructor before `base(...)` finishes. Deferred: the
+    constructor before `base(...)` finishes. Deferred at this point: the
     `SinChemesthesisBoss` family (`Kage`/`Rot` -- needs a real stagger
     system plus `Rot`'s crystal-wall terrain and `characterStats.py`
-    integrations this port doesn't have yet) and the `PhantasiaBoss`
+    integrations this port didn't have yet) and the `PhantasiaBoss`
     family (`Hypno`/`Malady` -- `Malady` alone is ~680 lines of custom
-    puppet-body rendering) -- see `Entities/README.md`'s "Explicitly
-    deferred" section for the full reasoning.
-11. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
+    puppet-body rendering).
+11. **`Entities/SinChemesthesisBoss.cs`/`Kage.cs`/`Rot.cs`** -- the
+    Chemesthesis content path's mid/final bosses, the family deferred in
+    step 10. **Done**: the shared stagger/fracture system (re-added to this
+    family only, since `PathChaseBoss.cs` had dropped it as dead weight for
+    Ishe/Bair/Sting), the `ChaseUpdate` wrapper `PathChaseBoss.cs` gained so
+    this family can call `Enemy.Update` directly the way Python's
+    `SinChemesthesisBoss.updateEnemy` calls `Enemy.updateEnemy` directly
+    (bypassing `PathChaseBoss.updateEnemy`'s own dispatch -- no "call the
+    grandparent" syntax in C#), the seven procedural sin-motif field
+    diagrams and progressive-stroke-reveal sigil rendering (AA dropped,
+    same simplification as the rest of `Primitives2D`), and `Rot`'s
+    persistent-terrain subsystem (mutable `CrystalWall`/`CleansingVent`
+    classes, `MovementObstacles()`, a `"crystal:N"` hitbox/damage part-ID
+    scheme). Required three small additions elsewhere: `Player.Move` gained
+    an `obstacles` parameter (kept boss-type-awareness in `GameSession`
+    only); `RunState` gained `PlayerBuildSnapshot`/`BuildSnapshot()`
+    (ported from `characterStats.py`'s `player_build_snapshot()`, read by
+    Rot's Envy phase); and `EnemyUpdateContext` gained nullable
+    `Camera`/`BossAfflictions`/`PlayerBuildSnapshot` fields, populated by
+    `GameSession.UpdateEnemies`. `BossCatalog` now registers `kage`/`rot`.
+    Deferred: the `PhantasiaBoss` family (`Hypno`/`Malady`) -- see
+    `Entities/README.md`'s "Explicitly deferred" section.
+12. Wire it all into `Core/RotBoiGame.cs`'s state switch last.
 
 ## Known differences from the Python version
 

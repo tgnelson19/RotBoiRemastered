@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -20,6 +21,14 @@ public sealed record HitResult(bool Applied, bool Killed, double Amount = 0, boo
 /// enemy's override, so every Update signature stays identical and every
 /// enemy type -- not just the two that need it -- is unit testable without
 /// constructing a whole run's worth of global state.
+///
+/// `Camera`/`BossAfflictions`/`PlayerBuildSnapshot` are all nullable and
+/// added for `Rot` (bossTypes.py's `SinChemesthesisBoss` family): Camera for
+/// `_camera_cardinal_angle`'s `bG.screen_vector_to_world` read, BossAfflictions
+/// for `characterStats.py`'s `bossAfflictions`/`reset_boss_afflictions`, and
+/// PlayerBuildSnapshot for `player_build_snapshot()`. Nothing else in this
+/// port needs them yet, but every Enemy still gets one uniform Update
+/// signature, same reasoning as the rest of this context object.
 /// </summary>
 public sealed class EnemyUpdateContext
 {
@@ -29,6 +38,9 @@ public sealed class EnemyUpdateContext
     public List<EnemyProjectile> ProjectileSink { get; init; } = new();
     public IReadOnlyList<Enemy> AllEnemies { get; init; } = Array.Empty<Enemy>();
     public List<ExperienceBubble> ExperienceBubbles { get; init; } = new();
+    public Camera? Camera { get; init; }
+    public BossAfflictions? BossAfflictions { get; init; }
+    public PlayerBuildSnapshot? PlayerBuildSnapshot { get; init; }
 }
 
 /// <summary>
