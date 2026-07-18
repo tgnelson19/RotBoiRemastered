@@ -143,7 +143,8 @@ public static class MetaProgression
             Level = state.CurrentLevel,
             Kills = state.NumOfEnemiesKilled,
             Seconds = state.RunTimeSeconds,
-            Items = state.Equipment.Values.Where(item => item is not null).Cast<ItemDrop>().Select(Items.Serialize).ToList(),
+            Items = state.Equipment.Values.Concat(state.Inventory)
+                .Where(item => item is not null).Cast<ItemDrop>().Select(Items.Serialize).ToList(),
         };
         GameProfile.Profile.ExtractedRuns.Insert(0, run);
         if (GameProfile.Profile.ExtractedRuns.Count > 10)
@@ -189,5 +190,12 @@ public static class MetaProgression
         GameProfile.Profile.StartingLoadout[target] = stored;
         GameProfile.SaveProfile();
         return true;
+    }
+
+    /// <summary>Un-assigns a slot from the next run's loadout -- the Soul's "NEXT RUN" preview strip's click-to-remove.</summary>
+    public static void ClearStartingLoadoutSlot(string slot)
+    {
+        GameProfile.Profile.StartingLoadout.Remove(slot);
+        GameProfile.SaveProfile();
     }
 }
