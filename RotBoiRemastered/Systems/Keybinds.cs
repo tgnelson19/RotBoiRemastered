@@ -32,9 +32,6 @@ public static class Keybinds
         ("interact", "Interact", Keys.F),
         ("hud_toggle", "Toggle HUD Detail", Keys.Tab),
         ("restart", "Restart Run (while paused)", Keys.R),
-        ("dev_level_up", "DEV: Force Level Up", Keys.F1),
-        ("dev_boss", "DEV: Force Boss Encounter", Keys.B),
-        ("dev_invincible", "DEV: Toggle Boss Invincibility", Keys.Y),
         ("console_toggle", "DEV: Toggle Console", Keys.OemTilde),
     };
 
