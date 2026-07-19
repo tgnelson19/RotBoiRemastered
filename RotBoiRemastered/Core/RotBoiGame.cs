@@ -266,8 +266,6 @@ public class RotBoiGame : Game
     /// <summary>Ported from main.py's update_input_toggles().</summary>
     private void UpdateInputToggles()
     {
-        if (Keybinds.Pressed("dev_boss") && _session is not null && _session.State.ActiveBoss is null && !_session.State.BossDebugRequested)
-            _session.State.BossDebugRequested = true;
         if (Keybinds.Pressed("autofire") || InputState.ControllerAutofirePressed)
         {
             GameProfile.Profile.AutoFire = !GameProfile.Profile.AutoFire;
@@ -277,10 +275,6 @@ public class RotBoiGame : Game
         }
         if (Keybinds.Pressed("hud_toggle") && State == GameState.GameRun)
             _session!.ToggleWeaponStats();
-        if (Keybinds.Pressed("dev_invincible") && _session is not null)
-            _session.State.BossDebugInvincible = !_session.State.BossDebugInvincible;
-        if (Keybinds.Pressed("dev_level_up") && State == GameState.GameRun)
-            _session!.DebugForceLevelUp();
     }
 
     /// <summary>Ported from main.py's update_camera_controls().</summary>

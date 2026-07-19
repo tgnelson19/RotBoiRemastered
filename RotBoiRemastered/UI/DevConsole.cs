@@ -25,6 +25,8 @@ public readonly record struct ConsoleResult(ConsoleActionKind Kind = ConsoleActi
 ///   /spawn &lt;count&gt; "&lt;item name&gt;" [rarity]  -- drops a loot crate at the player
 ///   /give &lt;count&gt; "&lt;item name&gt;" [rarity]   -- fills empty inventory slots directly
 ///   /god                                    -- toggles RunState.BossDebugInvincible
+///   /boss                                   -- forces the level's boss encounter to start
+///   /levelup                                -- forces an immediate level up
 ///   /extract                                -- runs the same sequence as the pause menu's
 ///                                               Extract button, bypassing its BeaudisDefeated gate
 ///   /help                                   -- lists the above
@@ -104,6 +106,8 @@ public sealed class DevConsole
             Log("/spawn <count> \"<item name>\" [rarity]  -- drop a crate at your position");
             Log("/give <count> \"<item name>\" [rarity]   -- add straight to inventory");
             Log("/god                                    -- toggle invincibility");
+            Log("/boss                                   -- force the boss encounter to start");
+            Log("/levelup                                -- force an immediate level up");
             Log("/extract                                -- end the run as an extraction");
             return default;
         }
@@ -117,6 +121,8 @@ public sealed class DevConsole
             case "spawn": return HandleSpawn(tokens, session);
             case "give": return HandleGive(tokens, session);
             case "god": return HandleGod(session);
+            case "boss": return HandleBoss(session);
+            case "levelup": return HandleLevelUp(session);
             case "extract": return HandleExtract();
             default:
                 Log($"Unknown command: {command} (try /help)");
@@ -157,6 +163,25 @@ public sealed class DevConsole
     {
         session.State.BossDebugInvincible = !session.State.BossDebugInvincible;
         Log($"God mode: {(session.State.BossDebugInvincible ? "ON" : "OFF")}");
+        return default;
+    }
+
+    private ConsoleResult HandleBoss(GameSession session)
+    {
+        if (session.State.ActiveBoss is not null || session.State.BossDebugRequested)
+        {
+            Log("A boss encounter is already active or pending.");
+            return default;
+        }
+        session.State.BossDebugRequested = true;
+        Log("Boss encounter requested.");
+        return default;
+    }
+
+    private ConsoleResult HandleLevelUp(GameSession session)
+    {
+        session.DebugForceLevelUp();
+        Log("Forced a level up.");
         return default;
     }
 
