@@ -76,6 +76,7 @@ public class RotBoiGame : Game
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         UiTheme.Initialize(GraphicsDevice);
         Primitives2D.Initialize(GraphicsDevice);
+        Sprites.Initialize(GraphicsDevice);
     }
 
     // ----- Update -----

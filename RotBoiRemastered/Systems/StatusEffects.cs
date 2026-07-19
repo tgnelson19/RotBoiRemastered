@@ -61,6 +61,8 @@ public static class StatusEffects
         double multiplier = 1;
         if (enemy.StatusEffects.ContainsKey("poison") && enemy.StatusEffects.ContainsKey("daze"))
             multiplier += .08;
+        if (enemy.StatusEffects.ContainsKey("dread"))
+            multiplier += .15;
         if (bullet?.IsCritical == true && enemy.StatusEffects.TryGetValue("bleed", out var bleed))
             multiplier += Math.Min(.20, bleed.Stacks * .025);
         return multiplier;
@@ -84,6 +86,7 @@ public static class StatusEffects
                 case "poison": dotPerSecond += Math.Max(2, enemy.MaxHp * effect.Potency) * effect.Stacks; break;
                 case "bleed": dotPerSecond += Math.Max(1, enemy.MaxHp * effect.Potency) * effect.Stacks; break;
                 case "slow": movement *= Math.Max(.45, 1 - effect.Potency); break;
+                case "dread": movement *= Math.Max(.40, 1 - effect.Potency); break;
                 case "daze": daze = Math.Max(daze, effect.Potency); break;
                 case "stun": stunned = true; break;
             }

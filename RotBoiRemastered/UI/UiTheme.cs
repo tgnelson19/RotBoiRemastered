@@ -45,6 +45,7 @@ public static class UiTheme
         ["Epic"] = Purple,
         ["Legendary"] = Gold,
         ["Mythical"] = new Color(245, 241, 220),
+        ["Unique"] = new Color(224, 96, 43),
     };
 
     public const int ReferenceWidth = 1920;

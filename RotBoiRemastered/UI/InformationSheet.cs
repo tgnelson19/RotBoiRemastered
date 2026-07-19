@@ -732,7 +732,7 @@ public sealed class InformationSheet
         Primitives2D.RectOutline(spriteBatch, symbolRect, UiTheme.Ink, Px(2));
         var symbolInner = symbolRect;
         symbolInner.Inflate(-Px(7), -Px(7));
-        ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, UiTheme.Ink, item.Definition.VisualKind);
+        ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, UiTheme.Ink, item.Definition.VisualKind, item.Name);
         DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(15), UiTheme.Text,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(14)));
         DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.SlotType.ToUpperInvariant()}", Px(9), rarity,

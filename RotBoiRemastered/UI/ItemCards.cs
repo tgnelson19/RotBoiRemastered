@@ -8,12 +8,50 @@ namespace RotBoiRemastered.UI;
 /// <summary>Resolution-independent icons and mini cards for equippable loot items. Ported from itemCards.py.</summary>
 public static class ItemCards
 {
+    /// <summary>Sprite folder per slot type -- see Content/Sprites/README.md. Filename is the item's VisualKind, so e.g. slot "weapon" + kind "dagger" looks up Content/Sprites/Weapons/dagger.png.</summary>
+    private static readonly Dictionary<string, string> SpriteFolderBySlot = new()
+    {
+        ["weapon"] = "Weapons", ["armor"] = "Armor", ["ring"] = "Rings", ["accessory"] = "Accessories",
+    };
+
     private static void DrawLine(SpriteBatch spriteBatch, Color color, Vector2 start, Vector2 end, float width)
         => Primitives2D.Line(spriteBatch, start, end, color, Math.Max(1, (int)width));
 
-    public static void DrawItemSymbol(SpriteBatch spriteBatch, string slotType, Rectangle rect, Color? color = null,
-        string? visualKind = null)
+    /// <summary>
+    /// Draws a sprite for (slotType, itemName, visualKind) if one has been
+    /// added under Content/Sprites, scaled to fill rect. Tries the specific
+    /// item name first (e.g. Weapons/bow_of_dread.png) so a unique -- or any
+    /// item that outgrows sharing its VisualKind's generic art -- can get a
+    /// sprite distinct from every other item of that same silhouette,
+    /// falling back to the shared VisualKind sprite otherwise. Unlike the
+    /// procedural symbol below, neither tier applies `color` -- authored art
+    /// carries its own palette rather than being flattened to a single ink tint.
+    /// </summary>
+    private static bool TryDrawItemSprite(SpriteBatch spriteBatch, string slotType, string? itemName, string visualKind, Rectangle rect)
     {
+        if (!SpriteFolderBySlot.TryGetValue(slotType.ToLowerInvariant(), out var folder))
+            return false;
+        var sprite = (itemName is not null ? Sprites.TryGet($"{folder}/{Slug(itemName)}") : null)
+            ?? Sprites.TryGet($"{folder}/{visualKind}");
+        if (sprite is null)
+            return false;
+        spriteBatch.Draw(sprite, rect, Color.White);
+        return true;
+    }
+
+    /// <summary>"Bow of Dread" -> "bow_of_dread", matching how a sprite file for a specific item should be named.</summary>
+    private static string Slug(string name)
+    {
+        var cleaned = new string(name.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray());
+        return string.Join('_', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    public static void DrawItemSymbol(SpriteBatch spriteBatch, string slotType, Rectangle rect, Color? color = null,
+        string? visualKind = null, string? itemName = null)
+    {
+        if (visualKind is not null && TryDrawItemSprite(spriteBatch, slotType, itemName, visualKind, rect))
+            return;
+
         Color drawColor = color ?? UiTheme.Text;
         float cx = rect.Center.X, cy = rect.Center.Y;
         float unit = Math.Max(1f, Math.Min(rect.Width, rect.Height) / 20f);
@@ -161,7 +199,7 @@ public static class ItemCards
         Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14), cornerRadius);
         var inner = rect;
         inner.Inflate((int)(-rect.Width * .15f), (int)(-rect.Height * .18f));
-        DrawItemSymbol(spriteBatch, item.SlotType, inner, UiTheme.Ink, item.Definition.VisualKind);
+        DrawItemSymbol(spriteBatch, item.SlotType, inner, UiTheme.Ink, item.Definition.VisualKind, item.Name);
         return rect;
     }
 }

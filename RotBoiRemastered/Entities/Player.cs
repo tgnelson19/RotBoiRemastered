@@ -163,6 +163,23 @@ public sealed class Player
         bool flashOn = state.PlayerInvulnerabilityTimer > 0 && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
         Color color = flashOn ? new Color(235, 245, 255) : state.PlayerColor;
         float drawSize = state.PlayerSize * sizeScale;
+
+        // One fixed sprite slot, not a selectable list like ProjectileDesign
+        // -- there's no wardrobe UI for alternate skins yet. Never rotated
+        // (the camera turns instead of the character), but still tinted for
+        // the dash/invulnerability cues so those keep reading once real art
+        // replaces the procedural body.
+        var sprite = Sprites.TryGet("Player/character");
+        if (sprite is not null)
+        {
+            var origin = new Vector2(sprite.Width / 2f, sprite.Height / 2f);
+            float scale = drawSize / Math.Max(sprite.Width, sprite.Height);
+            Color tint = flashOn ? new Color(235, 245, 255) : state.Dashing ? UiTheme.Cream : Color.White;
+            spriteBatch.Draw(sprite, camera.Lock + new Vector2(4f, 4f), null, UiTheme.Shadow, 0f, origin, scale, SpriteEffects.None, 0f);
+            spriteBatch.Draw(sprite, camera.Lock, null, tint, 0f, origin, scale, SpriteEffects.None, 0f);
+            return;
+        }
+
         int half = (int)Math.Round(drawSize / 2f);
         var rect = new Rectangle((int)camera.Lock.X - half, (int)camera.Lock.Y - half,
             (int)drawSize, (int)drawSize);
