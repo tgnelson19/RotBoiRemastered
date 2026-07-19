@@ -27,6 +27,7 @@ public readonly record struct ConsoleResult(ConsoleActionKind Kind = ConsoleActi
 ///   /god                                    -- toggles RunState.BossDebugInvincible
 ///   /boss                                   -- forces the level's boss encounter to start
 ///   /levelup                                -- forces an immediate level up
+///   /killall                                -- kills every enemy in the arena, boss included
 ///   /extract                                -- runs the same sequence as the pause menu's
 ///                                               Extract button, bypassing its BeaudisDefeated gate
 ///   /help                                   -- lists the above
@@ -108,6 +109,7 @@ public sealed class DevConsole
             Log("/god                                    -- toggle invincibility");
             Log("/boss                                   -- force the boss encounter to start");
             Log("/levelup                                -- force an immediate level up");
+            Log("/killall                                -- kill every enemy in the arena, boss included");
             Log("/extract                                -- end the run as an extraction");
             return default;
         }
@@ -123,6 +125,7 @@ public sealed class DevConsole
             case "god": return HandleGod(session);
             case "boss": return HandleBoss(session);
             case "levelup": return HandleLevelUp(session);
+            case "killall": return HandleKillAll(session);
             case "extract": return HandleExtract();
             default:
                 Log($"Unknown command: {command} (try /help)");
@@ -182,6 +185,28 @@ public sealed class DevConsole
     {
         session.DebugForceLevelUp();
         Log("Forced a level up.");
+        return default;
+    }
+
+    /// <summary>
+    /// Sets Hp straight to 0 on every enemy instead of routing through
+    /// TakeDamage -- bosses like Beaudis clamp/refuse damage mid-scripted-phase
+    /// (see Beaudis.TakeDamage's Dying/SurvivalActive/_phaseProtectionTimer
+    /// gate, which a real kill only ever gets past via a dedicated Dying flag,
+    /// never through repeated TakeDamage calls), so trying to "deal lethal
+    /// damage" the normal way could leave a boss stuck alive. GameSession's
+    /// own per-frame sweep (HandleDamagingEnemies: `if (enemy.IsDead())
+    /// deadEnemies.Add(enemy)`) already treats Hp &lt;= 0 as equally valid to a
+    /// TakeDamage-reported kill for every enemy type with no override needed,
+    /// so it picks these up next frame and runs the exact same loot/XP/boss-
+    /// defeat pipeline a normal kill would.
+    /// </summary>
+    private ConsoleResult HandleKillAll(GameSession session)
+    {
+        int count = session.State.EnemyHolster.Count;
+        foreach (var enemy in session.State.EnemyHolster)
+            enemy.Hp = 0;
+        Log(count == 0 ? "No enemies to kill." : $"Killed {count} enem{(count == 1 ? "y" : "ies")}.");
         return default;
     }
 

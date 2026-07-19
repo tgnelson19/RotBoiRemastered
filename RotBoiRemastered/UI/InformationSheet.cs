@@ -733,7 +733,16 @@ public sealed class InformationSheet
         // instead of running past the panel's right edge, and the panel is
         // sized to actually fit however many lines that took.
         var descriptionLines = WrapText($"“{item.Definition.Description}”", Px(10), width - Px(30));
-        int height = headerHeight + effects.Count * rowHeight + statuses.Count * Px(30) + Px(34) + descriptionLines.Count * Px(14);
+        // A unique's EffectFlavorText callout (see ItemDefinition's doc
+        // comment) sits where the StatusChances "X% ON HIT" rows go, for
+        // signature effects like Grimsbane's Bane stacking that aren't
+        // chance-based and so never generate one of those rows themselves.
+        var effectFlavorLines = item.Definition.EffectFlavorText is { } effectFlavorText
+            ? WrapText(effectFlavorText, Px(11), width - Px(32))
+            : new List<string>();
+        int effectFlavorHeight = effectFlavorLines.Count > 0 ? effectFlavorLines.Count * Px(15) + Px(10) : 0;
+        int height = headerHeight + effects.Count * rowHeight + statuses.Count * Px(30) + effectFlavorHeight
+            + Px(34) + descriptionLines.Count * Px(14);
         var rect = new Rectangle(mousePosition.X - width - Px(12), mousePosition.Y + Px(10), width, height);
         rect = ClampToBounds(rect, new Rectangle(0, 0, _screenWidth, _totalHeight));
         Color rarity = UiTheme.RarityColors.TryGetValue(item.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
@@ -776,6 +785,20 @@ public sealed class InformationSheet
             DrawSheetText(spriteBatch, $"✦  {kind.ToUpperInvariant()}  {scaled:0}% ON HIT", Px(11), UiTheme.Green,
                 new Vector2(rect.X + Px(16), y + Px(5)));
             y += Px(30);
+        }
+        if (effectFlavorLines.Count > 0)
+        {
+            // Fixed red for every unique's callout for now -- EffectFlavorText
+            // is authored per item, so a per-item color is a natural follow-up
+            // once more than one is wanted, without touching this draw path.
+            Color effectFlavorColor = UiTheme.Red;
+            y += Px(5);
+            foreach (var line in effectFlavorLines)
+            {
+                DrawSheetText(spriteBatch, line, Px(11), effectFlavorColor, new Vector2(rect.X + Px(16), y));
+                y += Px(15);
+            }
+            y += Px(5);
         }
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(12), y), new Vector2(rect.Right - Px(12), y), UiTheme.Border, 1);
         for (int index = 0; index < descriptionLines.Count; index++)

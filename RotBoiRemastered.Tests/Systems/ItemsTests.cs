@@ -16,6 +16,19 @@ public class ItemsTests
     }
 
     [Fact]
+    public void EveryUniqueWithEffectIds_HasAnEffectFlavorTextCallout()
+    {
+        // EffectFlavorText is what InformationSheet.DrawItemTooltip shows in
+        // place of a StatusChances "X% ON HIT" row for a unique's signature
+        // effect (guaranteed procs like Grimsbane's Bane stacking never
+        // generate one of those rows on their own, since they're not chance-
+        // based) -- without it, the tooltip would silently give no on-hit
+        // effect other than whatever an item shares with regular items.
+        foreach (var unique in Items.Uniques.Where(item => item.EffectIds is { Count: > 0 }))
+            Assert.False(string.IsNullOrWhiteSpace(unique.EffectFlavorText), $"{unique.Name} has EffectIds but no EffectFlavorText.");
+    }
+
+    [Fact]
     public void RollDropCount_IsReproducible()
     {
         // Mirrors test_roll_drop_count_is_reproducible in tests/test_items.py:

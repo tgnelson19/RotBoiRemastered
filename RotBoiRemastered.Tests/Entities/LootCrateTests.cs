@@ -34,4 +34,27 @@ public class LootCrateTests
         var crate = new LootCrate(0, 0, new[] { Drop("Common"), Drop("Legendary") });
         Assert.Equal(UiTheme.RarityColors["Legendary"], crate.Tint());
     }
+
+    [Fact]
+    public void Size_IsTwiceAsLarge_WhenTheCrateHoldsAUniqueDrop()
+    {
+        var normal = new LootCrate(0, 0, new[] { Drop("Legendary") });
+        var unique = new LootCrate(0, 0, new[] { new ItemDrop(Items.UniquesByName["Grimsbane"], "Unique") });
+
+        Assert.Equal((int)(Simulation.TileSize * 0.6f), normal.WorldRect().Width);
+        Assert.Equal(normal.Size * 2, unique.Size);
+    }
+
+    [Fact]
+    public void ContainsUnique_TrueOnlyWhenAUniqueDropIsPresent()
+    {
+        // "Unique" isn't in Upgrades.RarityOrder (see Tint()'s ranking), so
+        // this has to be checked independently rather than falling out of
+        // the same rarity-order lookup.
+        var withoutUnique = new LootCrate(0, 0, new[] { Drop("Legendary") });
+        var withUnique = new LootCrate(0, 0, new[] { Drop("Common"), new ItemDrop(Items.UniquesByName["Grimsbane"], "Unique") });
+
+        Assert.False(withoutUnique.ContainsUnique);
+        Assert.True(withUnique.ContainsUnique);
+    }
 }
