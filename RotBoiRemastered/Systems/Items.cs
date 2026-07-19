@@ -22,6 +22,16 @@ public sealed record ItemStatModifier(string Stat, double Additive = 0, double M
 /// that unique's own independent per-kill odds (see Items.RollUniqueDrop)
 /// -- multiple uniques can share a DropsFromBossKey, each with its own
 /// DropChance, which is what makes that boss's effective drop table.
+///
+/// EffectFlavorText is a short, plain-language callout for a unique's
+/// EffectIds-driven signature effect (e.g. Grimsbane's Bane stacking isn't
+/// chance-based, so it never shows up in the StatusChances "X% ON HIT" rows
+/// the way Bloody Dagger's bleed does) -- InformationSheet.DrawItemTooltip
+/// draws it right where those status rows would go, distinct from
+/// Description's longer prose lower in the tooltip. Deliberately just a
+/// string, not a Color, here: Items.cs stays render-agnostic (see this
+/// record's own doc comment above), so the color it's drawn in lives in the
+/// UI layer instead.
 /// </summary>
 public sealed record ItemDefinition(
     string Name,
@@ -32,7 +42,8 @@ public sealed record ItemDefinition(
     IReadOnlyDictionary<string, double>? StatusChances = null,
     IReadOnlyList<string>? EffectIds = null,
     string? DropsFromBossKey = null,
-    double DropChance = .12);
+    double DropChance = .12,
+    string? EffectFlavorText = null);
 
 public sealed record ItemDrop(ItemDefinition Definition, string Rarity)
 {
@@ -183,17 +194,20 @@ public static class Items
         /*
         new ItemDefinition("Unique Name", "weapon/armor/ring/accessory", "Flavor text.",
             "type_visual (vial/bow/dagger/bell/badge/etc.)", Mods(Mult("Bullet Damage", 100), Mult("Bullet Range", 100), Mult("Bullet Speed", 100)),
-            EffectIds: new[] { "custom_effect_name", "second_effect_name" }, DropsFromBossKey: "boss_key", DropChance: .12),
+            EffectIds: new[] { "custom_effect_name", "second_effect_name" }, DropsFromBossKey: "boss_key", DropChance: .12,
+            EffectFlavorText: "Short callout for the signature effect."),
         */
 
         new ItemDefinition("Bow of Dread", "weapon", "Every arrow carries a whisper of Dread, leaving struck enemies slowed and exposed -- and the bow itself feeds on the fear it causes.",
             "bow", Mods(Mult("Bullet Damage", 135), Mult("Bullet Range", 185), Mult("Bullet Speed", 120)),
-            EffectIds: new[] { "dread_on_hit", "dread_lifesteal" }, DropsFromBossKey: "sting", DropChance: .12),
+            EffectIds: new[] { "dread_on_hit", "dread_lifesteal" }, DropsFromBossKey: "sting", DropChance: .12,
+            EffectFlavorText: "On Hit: afflicts Dread, slowing the target and raising damage taken."),
 
         new ItemDefinition("Grimsbane", "weapon",
             "Darkness clings to the rigid bones, and the shadows it strikes shiver in fear. Every hit marks its target with Bane, a stacking curse that leaves it ever more exposed.",
             "bow", Mods(Mult("Bullet Damage", 50), Mult("Bullet Range", 200), Mult("Attack Speed", 200)), Status("bleed", .05),
-            EffectIds: new[] { "bane_on_hit" }, DropsFromBossKey: "dissonance", DropChance: .12),
+            EffectIds: new[] { "bane_on_hit" }, DropsFromBossKey: "dissonance", DropChance: 1,
+            EffectFlavorText: "On Hit: stacks Bane, increasing damage taken (max 30 stacks)."),
 
     };
 

@@ -25,6 +25,7 @@ the code -- there's no separate id-to-file table to maintain.
 | `Accessories/` | `ItemDefinition.VisualKind` | `Systems/Items.cs` (`charm`, `locket`, `badge`, `vial`, `bell`) |
 | `Bullets/` | `ProjectileDesign.Id` | `Systems/Cosmetics.cs` (`bulb`, `shard`, `lance`, `comet`, `fork`) |
 | `Player/` | fixed name `character.png` | one sprite, no selection yet -- see `Entities/Player.cs` |
+| `Misc/` | fixed name `treasure.png` | drawn instead of the procedural box for any loot crate holding a Unique-rarity drop -- see `Entities/LootCrate.cs`'s `ContainsUnique` |
 
 Example: giving the Iron Dagger real art means adding `Weapons/dagger.png` --
 every weapon whose `VisualKind` is `"dagger"` (Iron Dagger *and* Bloody
