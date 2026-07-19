@@ -41,7 +41,6 @@ public sealed class ExperienceBubble
     public float Speed { get; private set; } = 1f;
     public bool NaturalSpawn { get; set; } = true;
     public float VisualAge { get; private set; }
-    public string PickupKind => "experience";
 
     private readonly List<CelebrationParticle> _celebrationParticles = new();
     public int CelebrationParticleCount => _celebrationParticles.Count;

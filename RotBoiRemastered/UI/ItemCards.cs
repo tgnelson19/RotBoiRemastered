@@ -151,22 +151,6 @@ public static class ItemCards
         }
     }
 
-    /// <summary>Draws a rarity-backed mini card with an item slot-type icon.</summary>
-    public static Rectangle DrawItemCard(SpriteBatch spriteBatch, Rectangle rect, string slotType, string rarity, bool hovered = false)
-    {
-        Color rarityColor = UiTheme.RarityColors.TryGetValue(rarity, out var color) ? color : UiTheme.Border;
-        int cornerRadius = Math.Max(2, rect.Width / 8);
-        var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
-        Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
-        Color fill = hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor;
-        Primitives2D.FillRoundedRect(spriteBatch, rect, fill, cornerRadius);
-        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14), cornerRadius);
-        var inner = rect;
-        inner.Inflate((int)(-rect.Width * .18f), (int)(-rect.Height * .22f));
-        DrawItemSymbol(spriteBatch, slotType, inner, UiTheme.Ink);
-        return rect;
-    }
-
     public static Rectangle DrawItemCard(SpriteBatch spriteBatch, Rectangle rect, ItemDrop item, bool hovered = false)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(item.Rarity, out var color) ? color : UiTheme.Border;

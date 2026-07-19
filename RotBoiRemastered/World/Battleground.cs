@@ -161,23 +161,6 @@ public sealed class Battleground
         return true;
     }
 
-    /// <summary>Number of wall tiles overlapped; out-of-bounds counts as a large number so callers treat it as impassable.</summary>
-    public int CountOverlappingWalls(Rectangle worldRect)
-    {
-        int left = FloorDiv(worldRect.Left, TileSize);
-        int top = FloorDiv(worldRect.Top, TileSize);
-        int right = FloorDiv(worldRect.Right - 1, TileSize);
-        int bottom = FloorDiv(worldRect.Bottom - 1, TileSize);
-        if (left < 0 || top < 0 || bottom >= Height || right >= Width)
-            return 1_000_000;
-        int count = 0;
-        for (int y = top; y <= bottom; y++)
-            for (int x = left; x <= right; x++)
-                if (Tiles[y, x].IsSolid())
-                    count++;
-        return count;
-    }
-
     private (int X, int Y)[] OpenTiles()
     {
         if (_openTiles is not null)
