@@ -32,7 +32,8 @@ public static class StatusEffects
         }
         effect.Remaining = Math.Max(effect.Remaining, duration);
         effect.Potency = Math.Max(effect.Potency, potency);
-        effect.Stacks = Math.Min(kind == "bleed" ? 8 : 3, effect.Stacks + stacks);
+        int stackCap = kind switch { "bleed" => 8, "bane" => 30, _ => 3 };
+        effect.Stacks = Math.Min(stackCap, effect.Stacks + stacks);
         GameProfile.IncrementQuest("statuses_applied");
     }
 
@@ -65,6 +66,11 @@ public static class StatusEffects
             multiplier += .15;
         if (bullet?.IsCritical == true && enemy.StatusEffects.TryGetValue("bleed", out var bleed))
             multiplier += Math.Min(.20, bleed.Stacks * .025);
+        // Unlike bleed's crit-only bonus, Bane (Grimsbane's signature stacking
+        // curse -- see UniqueEffects.OnPlayerHit's "bane_on_hit") boosts every
+        // hit the target takes, +5% per stack, up to the 30-stack cap (+150%).
+        if (enemy.StatusEffects.TryGetValue("bane", out var bane))
+            multiplier += bane.Stacks * .05;
         return multiplier;
     }
 

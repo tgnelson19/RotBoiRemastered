@@ -678,24 +678,17 @@ public sealed class InformationSheet
         return new Rectangle(x, y, rect.Width, rect.Height);
     }
 
-    private void DrawTooltip(SpriteBatch spriteBatch, Point mousePosition)
+    /// <summary>Breaks text into lines no wider than maxWidth at fontSize, so callers can size a panel to the wrapped line count before drawing rather than letting long text run past a fixed-height box.</summary>
+    private List<string> WrapText(string text, double fontSize, int maxWidth)
     {
-        if (_tooltipItem is not null)
-        {
-            DrawItemTooltip(spriteBatch, mousePosition, _tooltipItem);
-            return;
-        }
-        if (string.IsNullOrEmpty(_tooltip))
-            return;
-        int width = Math.Min(Px(250), (int)(_screenWidth * .24));
-        var font = UiTheme.RawFont(Px(9) * LocalTextScale());
-        var words = _tooltip.Split(' ');
+        var font = UiTheme.RawFont(fontSize * LocalTextScale());
+        var words = text.Split(' ');
         var lines = new List<string>();
         string line = "";
         foreach (var word in words)
         {
             string candidate = (line + " " + word).Trim();
-            if (font.MeasureString(candidate).X > width - Px(18) && line.Length > 0)
+            if (font.MeasureString(candidate).X > maxWidth && line.Length > 0)
             {
                 lines.Add(line);
                 line = word;
@@ -706,6 +699,20 @@ public sealed class InformationSheet
             }
         }
         lines.Add(line);
+        return lines;
+    }
+
+    private void DrawTooltip(SpriteBatch spriteBatch, Point mousePosition)
+    {
+        if (_tooltipItem is not null)
+        {
+            DrawItemTooltip(spriteBatch, mousePosition, _tooltipItem);
+            return;
+        }
+        if (string.IsNullOrEmpty(_tooltip))
+            return;
+        int width = Math.Min(Px(250), (int)(_screenWidth * .24));
+        var lines = WrapText(_tooltip, Px(9), width - Px(18));
         var rect = new Rectangle(mousePosition.X - width - Px(10), mousePosition.Y + Px(10), width, Px(15 + lines.Count * 14));
         rect = ClampToBounds(rect, new Rectangle(_posX, 0, _totalLength, _totalHeight));
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Cream, shadow: 4);
@@ -721,7 +728,12 @@ public sealed class InformationSheet
         int width = Math.Min(Px(320), (int)(_screenWidth * .34));
         int headerHeight = Px(74);
         int rowHeight = Px(38);
-        int height = headerHeight + effects.Count * rowHeight + statuses.Count * Px(30) + Px(48);
+        // Wrapped up front (rather than drawn at a fixed one-line height) so
+        // long flavor text -- e.g. Grimsbane's -- breaks onto extra lines
+        // instead of running past the panel's right edge, and the panel is
+        // sized to actually fit however many lines that took.
+        var descriptionLines = WrapText($"“{item.Definition.Description}”", Px(10), width - Px(30));
+        int height = headerHeight + effects.Count * rowHeight + statuses.Count * Px(30) + Px(34) + descriptionLines.Count * Px(14);
         var rect = new Rectangle(mousePosition.X - width - Px(12), mousePosition.Y + Px(10), width, height);
         rect = ClampToBounds(rect, new Rectangle(0, 0, _screenWidth, _totalHeight));
         Color rarity = UiTheme.RarityColors.TryGetValue(item.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
@@ -766,8 +778,9 @@ public sealed class InformationSheet
             y += Px(30);
         }
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(12), y), new Vector2(rect.Right - Px(12), y), UiTheme.Border, 1);
-        DrawSheetText(spriteBatch, $"“{item.Definition.Description}”", Px(10), UiTheme.Cream,
-            new Vector2(rect.X + Px(15), y + Px(12)));
+        for (int index = 0; index < descriptionLines.Count; index++)
+            DrawSheetText(spriteBatch, descriptionLines[index], Px(10), UiTheme.Cream,
+                new Vector2(rect.X + Px(15), y + Px(12) + index * Px(14)));
     }
 
     /// <summary>

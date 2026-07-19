@@ -56,9 +56,33 @@ public class ItemsTests
     [Fact]
     public void AttackSpeedDisplay_TreatsShorterDelayAsPositive()
     {
-        Assert.Equal("+4%", new ItemEffectView("Attack Speed", 0, .96).DisplayValue);
+        // Multiplier is a cooldown ratio for Attack Speed (smaller = faster);
+        // DisplayValue inverts it to the actual speed ratio before turning
+        // that into a percent, so a .96 cooldown ratio (attacks 1/.96 =
+        // 1.041666...x as often) reads as "+4.17%", not the raw "+4%" you'd
+        // get by applying (1 - Multiplier) * 100 directly to the ratio.
+        Assert.Equal("+4.17%", new ItemEffectView("Attack Speed", 0, .96).DisplayValue);
         Assert.True(new ItemEffectView("Attack Speed", -3, 1).IsBeneficial);
-        Assert.Equal("-10%", new ItemEffectView("Attack Speed", 0, 1.10).DisplayValue);
+        Assert.Equal("-9.09%", new ItemEffectView("Attack Speed", 0, 1.10).DisplayValue);
+    }
+
+    [Fact]
+    public void AttackSpeedMult_ReciprocalAndDisplayValue_StayInLockstep()
+    {
+        // Regression test: Items.Mult("Attack Speed", percent) is documented to
+        // store 100/percent as the cooldown ratio (so "200" means attacking
+        // twice as fast), and ItemEffectView.DisplayValue is documented to
+        // un-invert that same ratio before turning it into a percent. These
+        // two have already drifted out of sync once in practice -- Mult()
+        // reverted to the plain percent/100 form while DisplayValue still
+        // expected the inverted ratio, which silently turned a "200" (meant
+        // to double attack speed) into a displayed "-50%" that actually
+        // halved it. Mult() itself is private, so this pins its documented
+        // output (100/200 = .5) directly and checks DisplayValue interprets
+        // that ratio as "attacks twice as fast", not "half as fast".
+        var doubledAttackSpeed = new ItemEffectView("Attack Speed", 0, 100.0 / 200.0);
+        Assert.Equal("+100%", doubledAttackSpeed.DisplayValue);
+        Assert.True(doubledAttackSpeed.IsBeneficial);
     }
 
     [Fact]
