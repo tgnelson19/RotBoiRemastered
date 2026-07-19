@@ -21,7 +21,19 @@ public static class ProjectileVisuals
         Vector2 P(float x, float y) => center + forward * (x * size) + side * (y * size);
         Vector2[] Shape(params (float X, float Y)[] points) => points.Select(point => P(point.X, point.Y)).ToArray();
 
-        if (design == "shard")
+        var sprite = Sprites.TryGet($"Bullets/{design}");
+        if (sprite is not null)
+        {
+            // Authored pointing +X (forward, pre-rotation) -- see
+            // Content/Sprites/README.md. Not tinted by core/edge: authored
+            // art keeps its own palette rather than being flattened to the
+            // Wardrobe's color picker, unlike the procedural shapes below.
+            float rotation = MathF.Atan2(forward.Y, forward.X);
+            var origin = new Vector2(sprite.Width / 2f, sprite.Height / 2f);
+            float scale = size * 1.6f / Math.Max(sprite.Width, sprite.Height);
+            spriteBatch.Draw(sprite, center, null, Color.White, rotation, origin, scale, SpriteEffects.None, 0f);
+        }
+        else if (design == "shard")
         {
             FillLayer(spriteBatch, Shape((-.62f, -.27f), (.12f, -.40f), (.70f, 0), (.12f, .40f), (-.62f, .27f)), edge);
             FillLayer(spriteBatch, Shape((-.43f, -.14f), (.10f, -.24f), (.48f, 0), (.10f, .24f), (-.43f, .14f)), core);

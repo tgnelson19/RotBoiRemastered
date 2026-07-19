@@ -9,6 +9,17 @@ public sealed record ItemStatModifier(string Stat, double Additive = 0, double M
 /// Authored equipment archetype. VisualKind drives the deliberately generic
 /// silhouette (dagger, sword, spear, bow, wand, vest, and so on) while the
 /// modifiers keep all balance data out of rendering code.
+///
+/// EffectId/DropsFromBossKey/DropChance are only set on entries in
+/// <see cref="Items.Uniques"/> (null/default for every regular Definitions
+/// entry): EffectId names a bespoke on-hit behavior dispatched by
+/// UniqueEffects.OnPlayerHit (see its doc comment for why that's a separate
+/// hook rather than another StatusChances entry), DropsFromBossKey ties the
+/// drop to one specific boss kill rather than the regular loot table, and
+/// DropChance is that unique's own independent per-kill odds (see
+/// Items.RollUniqueDrop) -- multiple uniques can share a DropsFromBossKey,
+/// each with its own DropChance, which is what makes that boss's effective
+/// drop table.
 /// </summary>
 public sealed record ItemDefinition(
     string Name,
@@ -16,7 +27,10 @@ public sealed record ItemDefinition(
     string Description,
     string VisualKind,
     IReadOnlyList<ItemStatModifier> Modifiers,
-    IReadOnlyDictionary<string, double>? StatusChances = null);
+    IReadOnlyDictionary<string, double>? StatusChances = null,
+    string? EffectId = null,
+    string? DropsFromBossKey = null,
+    double DropChance = .12);
 
 public sealed record ItemDrop(ItemDefinition Definition, string Rarity)
 {
@@ -128,6 +142,53 @@ public static class Items
     public static readonly IReadOnlyDictionary<string, ItemDefinition> DefinitionsByName =
         Definitions.ToDictionary(definition => definition.Name);
 
+    /// <summary>
+    /// Fixed-stat named items (see ItemDefinition's doc comment) -- never
+    /// rolled by GenerateDrop/GenerateDrops, never rarity-scaled (RarityPower
+    /// treats "Unique" as a full, un-diminished 1.0), only obtainable via
+    /// RollUniqueDrop when the boss named in DropsFromBossKey is defeated.
+    /// </summary>
+    public static readonly IReadOnlyList<ItemDefinition> Uniques = new[]
+    {
+
+        //Template for new unique items:
+        /*
+        new ItemDefinition("Unique Name", "weapon/armor/ring/accessory", "Flavor text.",
+            "type_visual (vial/bow/dagger/bell/badge/etc.)", Mods(Mult("Bullet Damage", 0.00), Mult("Bullet Range", 0.00), Mult("Bullet Speed", 0.00)),
+            EffectId: "custom_effect_name", DropsFromBossKey: "boss_key", DropChance: .12),
+        */
+
+        new ItemDefinition("Bow of Dread", "weapon", "Every arrow carries a whisper of Dread, leaving struck enemies slowed and exposed.",
+            "bow", Mods(Mult("Bullet Damage", 1.35), Mult("Bullet Range", 1.85), Mult("Bullet Speed", 1.20)),
+            EffectId: "dread_on_hit", DropsFromBossKey: "sting", DropChance: .12),
+
+    };
+
+    public static readonly IReadOnlyDictionary<string, ItemDefinition> UniquesByName =
+        Uniques.ToDictionary(unique => unique.Name);
+
+    /// <summary>
+    /// Rolls every unique tied to this boss key independently against its
+    /// own DropChance -- that's the boss's drop table. See
+    /// GameSession.HandleDamagingEnemies' boss-defeat branch, which
+    /// guarantees a winning roll a loot crate slot regardless of the regular
+    /// RollDropCount roll. Candidates are shuffled first so, on the rare
+    /// kill where more than one entry wins its roll, it's not always the
+    /// first-declared one that gets returned -- RollUniqueDrop only ever
+    /// hands back one item per kill even if several uniques are eligible.
+    /// </summary>
+    public static ItemDrop? RollUniqueDrop(string bossKey, Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        var candidates = Uniques.Where(unique => unique.DropsFromBossKey == bossKey).OrderBy(_ => rng.NextDouble());
+        foreach (var candidate in candidates)
+        {
+            if (rng.NextDouble() <= candidate.DropChance)
+                return new ItemDrop(candidate, "Unique");
+        }
+        return null;
+    }
+
     private static readonly int[] DropCounts = { 0, 1, 2, 3, 4 };
     private static readonly double[] DropCountWeights = { 55, 25, 12, 6, 2 };
 
@@ -163,7 +224,7 @@ public static class Items
         return Enumerable.Range(0, count).Select(_ => GenerateDrop(rng)).ToList();
     }
 
-    /// <summary>Rarity strengthens an item's identity without making drawbacks lethal.</summary>
+    /// <summary>Rarity strengthens an item's identity without making drawbacks lethal. "Unique" is fixed at a full, un-diminished 1.0 -- see Items.Uniques' doc comment.</summary>
     public static double RarityPower(string rarity) => rarity switch
     {
         "Common" => .65,
@@ -171,6 +232,7 @@ public static class Items
         "Epic" => 1.00,
         "Legendary" => 1.15,
         "Mythical" => 1.30,
+        "Unique" => 1.00,
         _ => .65,
     };
 
@@ -218,8 +280,15 @@ public static class Items
 
     public static StoredItemData Serialize(ItemDrop drop) => new(drop.Name, drop.Rarity);
 
-    public static ItemDrop? Deserialize(StoredItemData? data) => data is not null && DefinitionsByName.TryGetValue(data.Name, out var definition)
-        && Upgrades.RarityOrder.Contains(data.Rarity)
-        ? new ItemDrop(definition, data.Rarity)
-        : null;
+    /// <summary>Checked by name against Uniques first (their stored Rarity is always "Unique", which Upgrades.RarityOrder deliberately doesn't contain) before falling back to the regular, tiered-rarity-validated lookup.</summary>
+    public static ItemDrop? Deserialize(StoredItemData? data)
+    {
+        if (data is null)
+            return null;
+        if (UniquesByName.TryGetValue(data.Name, out var unique))
+            return new ItemDrop(unique, "Unique");
+        return DefinitionsByName.TryGetValue(data.Name, out var definition) && Upgrades.RarityOrder.Contains(data.Rarity)
+            ? new ItemDrop(definition, data.Rarity)
+            : null;
+    }
 }

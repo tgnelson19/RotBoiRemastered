@@ -38,4 +38,12 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+  <ItemGroup>
+    <!-- Same raw-copy treatment as the font above: any PNG dropped under
+         Content/Sprites/ is picked up automatically (no per-file entry, no
+         Content.mgcb registration) and read at runtime by Core/Sprites.cs. -->
+    <None Include="Content/Sprites/**/*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

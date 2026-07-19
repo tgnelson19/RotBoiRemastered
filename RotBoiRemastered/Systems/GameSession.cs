@@ -738,7 +738,11 @@ public sealed class GameSession
                 double hitDamage = bullet.Damage * StatusEffects.DamageMultiplier(enemy, bullet);
                 var result = enemy.TakeDamage(hitDamage, collided.Part, DamageSource.Direct);
                 if (result.Applied && !result.Killed)
+                {
                     StatusEffects.RollPlayerHit(enemy, bullet, State.Equipment.Values, State.ProjectileCount, rng);
+                    if (State.Equipment.GetValueOrDefault("weapon") is { Definition.EffectId: not null } weapon)
+                        UniqueEffects.OnPlayerHit(enemy, bullet, weapon, rng);
+                }
                 if (result.Applied)
                 {
                     GameProfile.IncrementQuest("damage_dealt", Math.Max(0, (long)Math.Round(result.Amount)));
@@ -787,10 +791,19 @@ public sealed class GameSession
                 }
             }
 
-            int dropCount = Items.RollDropCount(rng);
-            if (dropCount > 0)
+            // Boss key computed up front (rather than inside the boss-only
+            // block below, as before) so RollUniqueDrop can add its result
+            // to this same crate -- a bonus unique is guaranteed a slot on
+            // the boss kill that earns it, independent of the regular
+            // RollDropCount roll that still runs (and could otherwise land
+            // on 0) for every enemy, boss or not.
+            string? defeatedBossKey = ReferenceEquals(enemy, State.ActiveBoss) ? (_activeBossKey ?? BossKeyFor(enemy)) : null;
+            var drops = Items.GenerateDrops(Items.RollDropCount(rng), rng);
+            if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng) is { } uniqueDrop)
+                drops.Add(uniqueDrop);
+            if (drops.Count > 0)
             {
-                var crate = new LootCrate(enemy.WorldX, enemy.WorldY, Items.GenerateDrops(dropCount, rng));
+                var crate = new LootCrate(enemy.WorldX, enemy.WorldY, drops);
                 State.LootCrateList.Add(crate);
                 if (State.LootCrateList.Count > MaxLootCrates)
                 {
@@ -800,10 +813,9 @@ public sealed class GameSession
                 }
             }
 
-            if (ReferenceEquals(enemy, State.ActiveBoss))
+            if (defeatedBossKey is not null)
             {
                 GameProfile.IncrementQuest("bosses_defeated");
-                string? defeatedBossKey = _activeBossKey ?? BossKeyFor(enemy);
                 if (defeatedBossKey == GamePaths.BossKey(midpoint: true))
                 {
                     State.BeaudisDefeated = true;
