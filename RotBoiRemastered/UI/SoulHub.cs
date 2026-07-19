@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -12,10 +13,27 @@ public sealed class SoulHub
 {
     private const float StationOpenRadiusTiles = 1.45f;
     private const float StationCloseRadiusTiles = 1.85f;
+    /// <summary>
+    /// Ring radius for the path portals -- well outside the four station
+    /// offsets (4 tiles) and the DPS dummy (also 4 tiles), and still clear of
+    /// every GamePaths generator's nearest building/block (the tightest
+    /// being Touch, whose closest cardinal-lane block sits ~18.8 tiles out),
+    /// so a 14-tile ring stays open ground in all five.
+    /// </summary>
+    private const float PathPortalRingRadiusTiles = 14f;
+    private const float PathPortalInteractRadiusTiles = 1.6f;
+    private const float PathPortalConfirmCloseRadiusTiles = 2.1f;
+    /// <summary>Time spent visibly pulling the player from where they confirmed into the portal's center.</summary>
+    private const double PortalPullSeconds = 0.9;
+    /// <summary>Time spent held at full black after the pull, so the scene swap underneath is never visible.</summary>
+    private const double PortalFadeSeconds = 0.45;
+    /// <summary>Smallest the player's cosmetic draw scale shrinks to mid-pull, selling a "falling in" look. Render-only (see Player.Draw) -- never touches RunState.PlayerSize, so there's nothing to reset when the next map loads at the default scale of 1.</summary>
+    private const float PortalMinPlayerScale = 0.3f;
     private sealed record DummyHit(double Time, double Damage);
     private readonly Queue<DummyHit> _dummyHits = new();
     private readonly Dictionary<string, Rectangle> _targets = new();
     private readonly Dictionary<string, Vector2> _stationWorld = new();
+    private readonly Dictionary<string, Vector2> _pathPortalWorld = new();
     private Vector2 _dummyWorld;
     private string? _overlay;
     private string? _tooltip;
@@ -25,8 +43,23 @@ public sealed class SoulHub
     private double _currentDps;
     private double _sessionBest;
     private double _lastRecordSave;
-    public bool OverlayOpen => _overlay is not null;
-    public void CloseOverlay() => _overlay = null;
+    /// <summary>Portal key awaiting an "ENTER X?" confirmation -- set on F near a portal, cleared by re-pressing F (confirm), walking away, or Escape.</summary>
+    private string? _confirmingPortalKey;
+    /// <summary>Portal key the player has committed to; drives the pull-in/fade animation until PortalPullSeconds + PortalFadeSeconds elapses.</summary>
+    private string? _enteringPortalKey;
+    private double _portalAnimationStart;
+    private Vector2 _portalTravelStart;
+    private float _playerDrawScale = 1f;
+    public bool OverlayOpen => _overlay is not null || _confirmingPortalKey is not null;
+    /// <summary>True once a portal has been confirmed -- movement and all other Soul interaction are suppressed for the remainder of the animation.</summary>
+    public bool IsEnteringPortal => _enteringPortalKey is not null;
+    /// <summary>Cosmetic player render scale (see Player.Draw) -- 1 outside the pull-in animation, easing down to PortalMinPlayerScale during it.</summary>
+    public float PlayerDrawScale => _playerDrawScale;
+    public void CloseOverlay()
+    {
+        _overlay = null;
+        _confirmingPortalKey = null;
+    }
 
     /// <summary>
     /// Hit rects for the Vault grid, refreshed each frame by DrawVault and fed into
@@ -48,6 +81,17 @@ public sealed class SoulHub
         _stationWorld["quests"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 4);
         _stationWorld["skills"] = session.PlayerWorldCenter + new Vector2(0, Simulation.TileSize * 4);
         _stationWorld["wardrobe"] = session.PlayerWorldCenter + new Vector2(-Simulation.TileSize * 4, Simulation.TileSize * 4);
+        _pathPortalWorld.Clear();
+        var paths = GamePaths.Paths;
+        for (int index = 0; index < paths.Count; index++)
+        {
+            // Start pointing straight up and go clockwise so the ring reads
+            // left-to-right the same order as GamePaths.Paths / the old
+            // title-screen selector.
+            float angle = -MathHelper.PiOver2 + MathHelper.TwoPi * index / paths.Count;
+            var offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Simulation.TileSize * PathPortalRingRadiusTiles;
+            _pathPortalWorld[paths[index].Key] = session.PlayerWorldCenter + offset;
+        }
         _dummyHits.Clear();
         _seconds = 0;
         _measurementStart = 0;
@@ -56,12 +100,17 @@ public sealed class SoulHub
         _sessionBest = 0;
         _lastRecordSave = 0;
         _overlay = null;
+        _confirmingPortalKey = null;
+        _enteringPortalKey = null;
+        _playerDrawScale = 1f;
         session.InformationSheet.CancelDrag();
     }
 
     public void Update(GameSession session, double elapsedSeconds)
     {
         _seconds += Math.Min(.05, elapsedSeconds);
+        if (_enteringPortalKey is not null)
+            UpdatePortalTravel(session);
         var dummyRect = new Rectangle((int)(_dummyWorld.X - 34), (int)(_dummyWorld.Y - 44), 68, 88);
         foreach (var bullet in session.State.BulletHolster.Where(bullet => !bullet.RemFlag && dummyRect.Intersects(bullet.WorldRect())).ToArray())
         {
@@ -94,11 +143,67 @@ public sealed class SoulHub
         session.UpdateDamageTexts();
     }
 
+    /// <summary>
+    /// Eases the player's world position from where they confirmed toward the
+    /// portal's center over PortalPullSeconds -- since Player.Draw always
+    /// renders at the camera lock (a fixed screen point), moving WorldX/Y
+    /// scrolls the world around the player instead, which reads as the
+    /// portal sliding in to meet them. Player.SetPosition takes a top-left
+    /// corner, hence the half-size offset from the portal's stored center.
+    /// </summary>
+    private void UpdatePortalTravel(GameSession session)
+    {
+        double pullT = Math.Clamp((_seconds - _portalAnimationStart) / PortalPullSeconds, 0, 1);
+        float eased = (float)(pullT * pullT);
+        // Same eased factor drives the shrink as the position lerp, so the
+        // player visibly gets smaller at exactly the rate they close the
+        // distance -- reads as falling into the portal rather than just
+        // walking up to it.
+        _playerDrawScale = MathHelper.Lerp(1f, PortalMinPlayerScale, eased);
+        if (!_pathPortalWorld.TryGetValue(_enteringPortalKey!, out var target))
+            return;
+        var center = Vector2.Lerp(_portalTravelStart, target, eased);
+        float half = (float)session.State.PlayerSize / 2f;
+        session.Player.SetPosition(center.X - half, center.Y - half);
+    }
+
     /// <summary>True while the carried-loadout sidebar (right side, same style/drag as gameplay) should be visible -- free-roam or the Vault open, not while browsing the other three stations.</summary>
     private bool SidebarShown => _overlay is null || _overlay == "storage";
 
-    public void HandleInput(GameSession session, IReadOnlySet<Keys> keysPressed, Point mouse, bool mouseDown, bool mousePressed)
+    /// <summary>
+    /// Returns the GamePaths key of a portal whose entry animation just
+    /// finished (caller starts a run there), or null. A bare F near a portal
+    /// only opens the "ENTER X?" confirmation (see DrawPortalConfirm); a
+    /// second F commits, kicking off the pull-in/fade animation that this
+    /// method later reports as complete once IsEnteringPortal's clock runs out.
+    /// </summary>
+    public string? HandleInput(GameSession session, IReadOnlySet<Keys> keysPressed, Point mouse, bool mouseDown, bool mousePressed)
     {
+        if (_enteringPortalKey is not null)
+        {
+            if (_seconds - _portalAnimationStart < PortalPullSeconds + PortalFadeSeconds)
+                return null;
+            string finishedKey = _enteringPortalKey;
+            _enteringPortalKey = null;
+            return finishedKey;
+        }
+        if (_confirmingPortalKey is not null)
+        {
+            if (!_pathPortalWorld.TryGetValue(_confirmingPortalKey, out var portal)
+                || !WithinStationRadius(session.PlayerWorldCenter, portal, PathPortalConfirmCloseRadiusTiles))
+            {
+                _confirmingPortalKey = null;
+                return null;
+            }
+            if (keysPressed.Contains(Keys.F))
+            {
+                _enteringPortalKey = _confirmingPortalKey;
+                _confirmingPortalKey = null;
+                _portalAnimationStart = _seconds;
+                _portalTravelStart = session.PlayerWorldCenter;
+            }
+            return null;
+        }
         if (_overlay is not null)
         {
             bool walkedAway = !_stationWorld.TryGetValue(_overlay, out var station)
@@ -107,11 +212,17 @@ public sealed class SoulHub
             {
                 _overlay = null;
                 session.InformationSheet.CancelDrag();
-                return;
+                return null;
             }
         }
         else if (keysPressed.Contains(Keys.F))
         {
+            var nearbyPortal = NearbyPathPortal(session);
+            if (nearbyPortal is not null)
+            {
+                _confirmingPortalKey = nearbyPortal;
+                return null;
+            }
             var nearby = NearbyStation(session);
             if (nearby is not null)
                 _overlay = nearby;
@@ -126,7 +237,7 @@ public sealed class SoulHub
             session.HandleCarriedLoadoutDrag(mouse, mouseDown, mousePressed, vaultSlotRects);
         }
         if (!mousePressed)
-            return;
+            return null;
         foreach (var (key, rect) in _targets.ToArray())
         {
             if (!rect.Contains(mouse)) continue;
@@ -139,6 +250,7 @@ public sealed class SoulHub
             }
             break;
         }
+        return null;
     }
 
     private string? NearbyStation(GameSession session) => _stationWorld
@@ -147,9 +259,21 @@ public sealed class SoulHub
         .Select(station => station.Key)
         .FirstOrDefault();
 
+    private string? NearbyPathPortal(GameSession session) => _pathPortalWorld
+        .Where(portal => WithinStationRadius(session.PlayerWorldCenter, portal.Value, PathPortalInteractRadiusTiles))
+        .OrderBy(portal => Vector2.DistanceSquared(portal.Value, session.PlayerWorldCenter))
+        .Select(portal => portal.Key)
+        .FirstOrDefault();
+
     public static bool WithinStationRadius(Vector2 player, Vector2 station, float radiusTiles) =>
         Vector2.DistanceSquared(player, station) <= MathF.Pow(Simulation.TileSize * radiusTiles, 2);
 
+    /// <summary>
+    /// World-layer draw: the dummy, stations, and path portals -- everything
+    /// meant to sit *behind* the player. Call before GameSession.DrawPlayer;
+    /// pair with <see cref="DrawForeground"/> (called after) for the overlay/
+    /// confirm/sidebar/fade layers that must cover the player instead.
+    /// </summary>
     public void DrawWorld(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
         _targets.Clear();
@@ -171,13 +295,28 @@ public sealed class SoulHub
         UiTheme.DrawText(spriteBatch, $"SESSION {_sessionBest:0}  //  RECORD {GameProfile.Profile.BestDummyDps:0}", 8, UiTheme.Cream,
             new Vector2(readout.X + 14, readout.Y + 98));
         UiTheme.DrawText(spriteBatch, "THE SOUL", 27, UiTheme.Text, new Vector2(22, 18));
-        UiTheme.DrawText(spriteBatch, "SAFE GROUND  //  WALK TO A STATION  //  F INTERACT  //  ESC OPTIONS", 9, UiTheme.Muted, new Vector2(24, 54));
+        UiTheme.DrawText(spriteBatch, "SAFE GROUND  //  WALK TO A STATION OR PATH PORTAL  //  F INTERACT  //  ESC OPTIONS", 9, UiTheme.Muted, new Vector2(24, 54));
         DrawStations(spriteBatch, session);
+        DrawPathPortals(spriteBatch, session);
+    }
+
+    /// <summary>
+    /// UI-layer draw: overlay panels, the portal confirm modal, the carried-
+    /// loadout sidebar, and the portal fade -- everything meant to sit *on
+    /// top of* the player. Call after GameSession.DrawPlayer; see
+    /// <see cref="DrawWorld"/>.
+    /// </summary>
+    public void DrawForeground(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
+    {
         if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
+        if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session);
         // Drawn last so the dragged-item icon (part of this call, see
         // InformationSheet.DrawCarriedLoadout) always renders on top, wherever the
         // cursor currently is -- including over the Vault panel drawn just above.
         if (SidebarShown) session.DrawCarriedLoadout(spriteBatch, mouse);
+        // Absolute last: once committed, the fade must cover everything above
+        // (sidebar included) so the ResetAll scene swap underneath is never visible.
+        if (_enteringPortalKey is not null) DrawPortalFade(spriteBatch, session);
     }
 
     private void DrawStations(SpriteBatch spriteBatch, GameSession session)
@@ -204,6 +343,71 @@ public sealed class SoulHub
         if (nearby is not null)
             UiTheme.DrawText(spriteBatch, $"F  //  OPEN {labels[nearby].Label}", 13, labels[nearby].Accent,
                 new Vector2(session.ScreenWidth / 2f, session.ScreenHeight - 42), "center");
+    }
+
+    /// <summary>
+    /// One equally-spaced swirl portal per GamePaths entry, replacing the old
+    /// title-screen path selector -- walking up and pressing F (see
+    /// NearbyPathPortal/HandleInput) leaves the Soul and starts a run on that
+    /// path directly. Visual mirrors GameSession.DrawBossPortal's swirl (same
+    /// pulsing fill + rotating arcs) so an in-run boss portal and a Soul path
+    /// portal read as the same language, just tinted per path.
+    /// </summary>
+    private void DrawPathPortals(SpriteBatch spriteBatch, GameSession session)
+    {
+        float t = (float)_seconds;
+        string? nearbyPortal = NearbyPathPortal(session);
+        foreach (var path in GamePaths.Paths)
+        {
+            if (!_pathPortalWorld.TryGetValue(path.Key, out var world)) continue;
+            var screen = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
+            float radius = Simulation.TileSize * 1.05f;
+            // Committing spins the destination portal up hard during the pull
+            // (see UpdatePortalTravel) so it visibly reels the player in,
+            // instead of sitting there identical to every other portal.
+            bool committing = path.Key == _enteringPortalKey;
+            float pullT = committing ? (float)Math.Clamp((_seconds - _portalAnimationStart) / PortalPullSeconds, 0, 1) : 0f;
+            float intensity = 1f + pullT * 2.2f;
+            float pulse = 1f + .06f * intensity * MathF.Sin(t * 2.2f * intensity + path.Key.GetHashCode());
+            Primitives2D.FillCircle(spriteBatch, screen, radius * .78f * pulse, UiTheme.Ink);
+            Primitives2D.CircleOutline(spriteBatch, screen, radius, path.Accent, 3);
+            for (int index = 0; index < 3; index++)
+            {
+                float speed = (1.4f + index * .55f) * intensity;
+                float phase = t * speed + index * (MathF.PI * 2f / 3f);
+                float ringRadius = radius * (.55f + index * .18f) * (1f - pullT * .35f);
+                var arcRect = new Rectangle((int)(screen.X - ringRadius), (int)(screen.Y - ringRadius), (int)(ringRadius * 2), (int)(ringRadius * 2));
+                Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .62f, path.Accent, 2);
+            }
+            UiTheme.DrawText(spriteBatch, path.Title, 10, path.Accent, new Vector2(screen.X, screen.Y + radius + 8), "midtop");
+            // Suppressed while confirming/entering that same portal -- the center
+            // confirmation panel (DrawPortalConfirm) already explains the prompt.
+            if (path.Key == nearbyPortal && path.Key != _confirmingPortalKey && _enteringPortalKey is null)
+                UiTheme.DrawText(spriteBatch, "F  //  ENTER", 9, UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 26), "midtop");
+        }
+    }
+
+    /// <summary>Centered "ENTER {PATH}?" modal shown while _confirmingPortalKey is set -- F commits, walking away or Escape cancels (Escape via OverlayOpen/CloseOverlay in Core/RotBoiGame.cs).</summary>
+    private void DrawPortalConfirm(SpriteBatch spriteBatch, GameSession session)
+    {
+        var path = GamePaths.PathsByKey[_confirmingPortalKey!];
+        int width = (int)(session.ScreenWidth * .34f), height = (int)(session.ScreenHeight * .2f);
+        var rect = new Rectangle(session.ScreenWidth / 2 - width / 2, (int)(session.ScreenHeight * .32f), width, height);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight), UiTheme.Void * .55f);
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, path.Accent, shadow: 10);
+        UiTheme.DrawText(spriteBatch, $"ENTER {path.Title}?", 22, path.Accent, new Vector2(rect.Center.X, rect.Y + 26), "center");
+        UiTheme.DrawText(spriteBatch, path.Subtitle, 11, UiTheme.Cream, new Vector2(rect.Center.X, rect.Y + 62), "center");
+        UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", 10, UiTheme.Muted,
+            new Vector2(rect.Center.X, rect.Bottom - 24), "center");
+    }
+
+    /// <summary>Full-screen cover that ramps to solid black over the animation's second half, timed with UpdatePortalTravel so the arriving-at-portal moment and the fade-out land together.</summary>
+    private void DrawPortalFade(SpriteBatch spriteBatch, GameSession session)
+    {
+        double fadeT = Math.Clamp((_seconds - _portalAnimationStart - PortalPullSeconds) / PortalFadeSeconds, 0, 1);
+        if (fadeT <= 0)
+            return;
+        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight), UiTheme.Void * (float)fadeT);
     }
 
     private void DrawOverlay(SpriteBatch spriteBatch, GameSession session, Point mouse)

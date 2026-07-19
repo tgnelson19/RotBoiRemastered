@@ -150,20 +150,28 @@ public sealed class Player
         return false;
     }
 
-    /// <summary>Ported from character.py's drawPlayer(). Draws at the camera's screen lock, not a world-transformed position.</summary>
-    public void Draw(SpriteBatch spriteBatch, RunState state, Camera camera)
+    /// <summary>
+    /// Ported from character.py's drawPlayer(). Draws at the camera's screen
+    /// lock, not a world-transformed position. <paramref name="sizeScale"/>
+    /// is a purely cosmetic render-time multiplier (e.g. SoulHub's portal
+    /// pull-in shrink) -- it never touches RunState.PlayerSize, so collision/
+    /// combat sizing is untouched and there's nothing to reset when a real
+    /// run starts drawing at the default scale of 1.
+    /// </summary>
+    public void Draw(SpriteBatch spriteBatch, RunState state, Camera camera, float sizeScale = 1f)
     {
         bool flashOn = state.PlayerInvulnerabilityTimer > 0 && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
         Color color = flashOn ? new Color(235, 245, 255) : state.PlayerColor;
-        int half = (int)Math.Round(state.PlayerSize / 2f);
+        float drawSize = state.PlayerSize * sizeScale;
+        int half = (int)Math.Round(drawSize / 2f);
         var rect = new Rectangle((int)camera.Lock.X - half, (int)camera.Lock.Y - half,
-            (int)state.PlayerSize, (int)state.PlayerSize);
+            (int)drawSize, (int)drawSize);
 
         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 4, rect.Y + 4, rect.Width, rect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, rect, color);
         Primitives2D.RectOutline(spriteBatch, rect, state.Dashing ? UiTheme.Cream : state.PlayerEdgeColor, 3);
         var inset = rect;
-        inset.Inflate(-(int)(state.PlayerSize * .42f), -(int)(state.PlayerSize * .42f));
+        inset.Inflate(-(int)(drawSize * .42f), -(int)(drawSize * .42f));
         Primitives2D.FillRect(spriteBatch, inset, UiTheme.Lighten(color, 45));
     }
 }

@@ -3,22 +3,25 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
-using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
 /// <summary>What HandleInput determined should happen, matching MenuAction's return-a-result shape.</summary>
-public enum TitleAction { None, StartRun, EnterSoul, Settings, Quit }
+public enum TitleAction { None, EnterSoul, Settings, Quit }
 
 /// <summary>
-/// The title screen: path selector, play button, field manual, best-run tag.
-/// Ported from character.py's runTheTitleScreen() (one big function in
-/// Python too -- no separate helpers to extract). Follows Menus.cs's shape
-/// (Draw/HandleInput pair, no module globals) rather than mutating state
-/// directly -- the caller (Core/RotBoiGame.cs) is responsible for actually
-/// activating the selected path and constructing/resetting a GameSession on
-/// TitleAction.StartRun, matching Menus's established return-a-result
-/// contract.
+/// The title screen: entry point, field manual, best-run tag. Ported from
+/// character.py's runTheTitleScreen() (one big function in Python too -- no
+/// separate helpers to extract). Follows Menus.cs's shape (Draw/HandleInput
+/// pair, no module globals) rather than mutating state directly -- the
+/// caller (Core/RotBoiGame.cs) is responsible for actually activating a path
+/// and constructing/resetting a GameSession.
+///
+/// Path selection no longer happens here: The Soul is now the hub every run
+/// launches from, with one equally-spaced portal per GamePaths entry (see
+/// SoulHub.DrawPathPortals/NearbyPathPortal) standing in for the old
+/// title-screen selector grid + per-path "ENTER {TITLE}" button. This screen
+/// only gets you into the Soul.
 ///
 /// Dropped vs. Python: the best-run tag reads GameProfile.Profile.BestLevel/
 /// BestKills directly rather than `max(cS.highestLevel, profile["best_level"])`
@@ -29,8 +32,6 @@ public enum TitleAction { None, StartRun, EnterSoul, Settings, Quit }
 /// </summary>
 public sealed class TitleScreen
 {
-    private readonly Dictionary<string, Rectangle> _pathButtons = new();
-    private Rectangle _playButton;
     private Rectangle _soulButton;
     private Rectangle _settingsButton;
 
@@ -55,9 +56,9 @@ public sealed class TitleScreen
         // heights, gaps) only ever scaled with GuiScale via uiScale --
         // DrawButton's own shrink-to-fit loop has a floor (raw size 9) that
         // still renders far too wide once a high TextSize multiplies it, so
-        // without growing the boxes too, the five path buttons overlapped
-        // each other well before any single label's text could shrink
-        // enough to fit. uiScale now folds in the same growth-only factor
+        // without growing the boxes too, a long button label could overlap
+        // its own border well before the text could shrink enough to fit.
+        // uiScale now folds in the same growth-only factor
         // InformationSheet.TextGrowthFactor uses, so layout keeps pace with
         // whatever TextSize the text itself is already rendering at. The
         // extra headroom factor is capped well below MaxTextScale (2.0) --
@@ -84,46 +85,26 @@ public sealed class TitleScreen
         float subtitleY = Math.Max(screenHeight * .245f, titleRect.Bottom + gap);
         var subtitleRect = UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", scale * .026, UiTheme.Cream, new Vector2(screenWidth / 2f, subtitleY), "midtop");
         float taglineY = Math.Max(screenHeight * .305f, subtitleRect.Bottom + gap);
-        var taglineRect = UiTheme.DrawText(spriteBatch, "CHOOSE WHAT THE ROT REMEMBERS.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, taglineY), "midtop");
+        var taglineRect = UiTheme.DrawText(spriteBatch, "EVERY PATH WAITS IN THE SOUL.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, taglineY), "midtop");
 
-        float selectorY = Math.Max(screenHeight * .365f, taglineRect.Bottom + gap * 2);
-        var paths = GamePaths.Paths;
-        float selectorWidth = (contentWidth - gap * (paths.Count - 1)) / paths.Count;
-        float selectorHeight = Math.Min(Math.Max(50 * uiScale, scale * .058f), scale * .085f);
-        _pathButtons.Clear();
-        for (int index = 0; index < paths.Count; index++)
-        {
-            var path = paths[index];
-            var rect = new Rectangle((int)(left + index * (selectorWidth + gap)), (int)selectorY,
-                (int)selectorWidth, (int)selectorHeight);
-            bool isSelected = path.Key == GamePaths.Selected().Key;
-            UiTheme.DrawButton(spriteBatch, rect, path.Title, mousePosition, mouseDown, true,
-                isSelected ? path.Accent : UiTheme.Border, null, (int)(scale * .014f));
-            _pathButtons[path.Key] = rect;
-        }
-
-        var selected = GamePaths.Selected();
-        float descriptionY = Math.Max(screenHeight * .455f, selectorY + selectorHeight + gap * 2);
-        var descriptionRect = UiTheme.DrawText(spriteBatch, $"{selected.Subtitle}  //  {selected.Description}", scale * .013, selected.Accent,
-            new Vector2(screenWidth / 2f, descriptionY), "midtop");
-        float playButtonY = Math.Max(screenHeight * .495f, descriptionRect.Bottom + gap * 2);
-        float playButtonHeight = Math.Min(Math.Max(54 * uiScale, scale * .064f), scale * .095f);
-        _playButton = new Rectangle((int)(left + contentWidth * .27f), (int)playButtonY,
-            (int)(contentWidth * .46f), (int)playButtonHeight);
-        UiTheme.DrawButton(spriteBatch, _playButton, $"ENTER {selected.Title}", mousePosition, mouseDown, true,
-            selected.Accent, "SPACE", (int)(scale * .019f));
-
-        float soulButtonY = Math.Max(screenHeight * .585f, playButtonY + playButtonHeight + gap * 2);
-        _soulButton = new Rectangle((int)(left + contentWidth * .18f), (int)soulButtonY,
-            (int)(contentWidth * .30f), (int)Math.Min(Math.Max(42 * uiScale, scale * .052f), scale * .078f));
+        // The old path-selector grid + per-path "ENTER {TITLE}" button lived
+        // here; path choice now happens by walking up to one of the Soul's
+        // equally-spaced path portals (see SoulHub.DrawPathPortals), so this
+        // screen's only job is getting the player into the Soul.
+        float soulButtonY = Math.Max(screenHeight * .5f, taglineRect.Bottom + gap * 4);
+        float soulButtonHeight = Math.Min(Math.Max(58 * uiScale, scale * .068f), scale * .098f);
+        _soulButton = new Rectangle((int)(left + contentWidth * .22f), (int)soulButtonY,
+            (int)(contentWidth * .56f), (int)soulButtonHeight);
         UiTheme.DrawButton(spriteBatch, _soulButton, "ENTER THE SOUL", mousePosition, mouseDown, true,
-            UiTheme.Purple, "F", (int)(scale * .014f));
-        _settingsButton = new Rectangle((int)(left + contentWidth * .52f), _soulButton.Y,
-            (int)(contentWidth * .30f), _soulButton.Height);
+            UiTheme.Purple, "SPACE / F", (int)(scale * .019f));
+
+        float settingsButtonY = Math.Max(screenHeight * .615f, soulButtonY + soulButtonHeight + gap * 2);
+        _settingsButton = new Rectangle((int)(left + contentWidth * .35f), (int)settingsButtonY,
+            (int)(contentWidth * .30f), (int)Math.Min(Math.Max(42 * uiScale, scale * .052f), scale * .078f));
         UiTheme.DrawButton(spriteBatch, _settingsButton, "SETTINGS", mousePosition, mouseDown, true,
             UiTheme.Blue, null, (int)(scale * .014f));
 
-        float controlsY = Math.Max(screenHeight * .665f, _soulButton.Bottom + gap * 2);
+        float controlsY = Math.Max(screenHeight * .665f, _settingsButton.Bottom + gap * 3);
         var controlsRect = new Rectangle((int)left, (int)controlsY, (int)contentWidth,
             (int)Math.Min(Math.Max(116 * uiScale, screenHeight * .15f), screenHeight * .21f));
         UiTheme.DrawPanel(spriteBatch, controlsRect, UiTheme.Panel, UiTheme.Border, shadow: 6);
@@ -146,41 +127,13 @@ public sealed class TitleScreen
         int bestLevel = GameProfile.Profile.BestLevel;
         string recordLabel = bestLevel <= 0 ? "NO RUNS LOGGED" : $"BEST RUN  //  LEVEL {bestLevel:D2}  //  {GameProfile.Profile.BestKills} KILLS";
         UiTheme.DrawTag(spriteBatch, recordLabel, new Vector2(left, screenHeight * .87f), bestLevel > 0 ? UiTheme.Gold : UiTheme.Border, scale * .012);
-        UiTheme.DrawText(spriteBatch, "A / D  SELECT PATH    ESC  QUIT", scale * .012, UiTheme.Muted,
+        UiTheme.DrawText(spriteBatch, "SPACE / F  ENTER THE SOUL    ESC  QUIT", scale * .012, UiTheme.Muted,
             new Vector2(left + contentWidth, screenHeight * .875f), "topright");
     }
 
-    /// <summary>
-    /// LEFT/A and RIGHT/D are hardcoded, not routed through Keybinds --
-    /// matching Python's own title screen (`pg.K_LEFT in vH.keyPressed or
-    /// pg.K_a in vH.keyPressed`), which never made these rebindable either.
-    /// </summary>
     public TitleAction HandleInput(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed)
     {
-        if (keysPressed.Contains(Keys.Left) || keysPressed.Contains(Keys.A))
-        {
-            GamePaths.Cycle(-1);
-        }
-        else if (keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D))
-        {
-            GamePaths.Cycle(1);
-        }
-        else if (mousePressed)
-        {
-            foreach (var (key, rect) in _pathButtons)
-            {
-                if (rect.Contains(mousePosition))
-                {
-                    GamePaths.Select(key);
-                    break;
-                }
-            }
-        }
-
-        bool playHovered = _playButton.Contains(mousePosition);
-        if (keysPressed.Contains(Keys.Space) || (playHovered && mousePressed))
-            return TitleAction.StartRun;
-        if (keysPressed.Contains(Keys.F) || (_soulButton.Contains(mousePosition) && mousePressed))
+        if (keysPressed.Contains(Keys.Space) || keysPressed.Contains(Keys.F) || (_soulButton.Contains(mousePosition) && mousePressed))
             return TitleAction.EnterSoul;
         if (_settingsButton.Contains(mousePosition) && mousePressed)
             return TitleAction.Settings;

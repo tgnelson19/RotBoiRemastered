@@ -266,11 +266,20 @@ public static class UiTheme
         if (!string.IsNullOrEmpty(keyHint))
         {
             int inset = padding;
-            var hr = new Rectangle(visualRect.X + inset, visualRect.Y + inset,
-                visualRect.Height - inset * 2, visualRect.Height - inset * 2);
+            int boxHeight = visualRect.Height - inset * 2;
+            double hintTextSize = textSize * 0.72;
+            // A single-key hint ("R", "ESC") stays a square sized off the
+            // button's own height, same as before; a longer combo hint like
+            // "SPACE / F" instead grows the box to fit its measured width
+            // (plus its own padding) rather than overflowing a fixed square.
+            int hintPaddingX = Math.Max(8, (int)MathF.Round(10 * scale));
+            int textWidth = (int)MathF.Ceiling(Font(hintTextSize).MeasureString(keyHint).X);
+            int boxWidth = Math.Max(boxHeight, textWidth + hintPaddingX * 2);
+            var hr = new Rectangle(visualRect.X + inset, visualRect.Y + inset, boxWidth, boxHeight);
             hintRect = hr;
-            Primitives2D.FillRect(spriteBatch, hr, accent);
-            DrawText(spriteBatch, keyHint, textSize * 0.72, Ink,
+            int cornerRadius = Math.Max(3, (int)MathF.Round(6 * scale));
+            Primitives2D.FillRoundedRect(spriteBatch, hr, accent, cornerRadius);
+            DrawText(spriteBatch, keyHint, hintTextSize, Ink,
                 new Vector2(hr.Center.X, hr.Center.Y), "center");
         }
 

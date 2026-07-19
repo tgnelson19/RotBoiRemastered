@@ -197,7 +197,7 @@ public sealed class GameSession
             GameProfile.IncrementQuest("distance_traveled", (long)Math.Round(traveled));
     }
 
-    public void DrawPlayer(SpriteBatch spriteBatch) => Player.Draw(spriteBatch, State, Camera);
+    public void DrawPlayer(SpriteBatch spriteBatch, float sizeScale = 1f) => Player.Draw(spriteBatch, State, Camera, sizeScale);
 
     /// <summary>Ported from character.py's handlingBulletCreation() for mouse and controller aiming.</summary>
     public void HandleBulletCreation(Vector2 mouseScreenPosition, bool mouseDown, bool dragInProgress, Random? rng = null, bool controllerFiring = false)
