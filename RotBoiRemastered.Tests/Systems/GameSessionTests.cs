@@ -222,6 +222,38 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void SpawnLootCrate_AddsACrateAtTheGivenPosition()
+    {
+        var session = MakeSession();
+        var drops = Items.GenerateDrops(1, new Random(1));
+
+        session.SpawnLootCrate(123f, 456f, drops);
+
+        var crate = Assert.Single(session.State.LootCrateList);
+        Assert.Equal(123f, crate.WorldX);
+        Assert.Equal(456f, crate.WorldY);
+    }
+
+    /// <summary>DevConsole's /spawn shares this same cap/eviction logic with the normal enemy-death loot drop (see GameSession.SpawnLootCrate's doc comment) -- this is the same behavior HandleDamagingEnemies relied on before the extraction.</summary>
+    [Fact]
+    public void SpawnLootCrate_EvictsTheOldestNonNearbyCrateOnceOverCapacity()
+    {
+        var session = MakeSession();
+        var oldest = new LootCrate(0, 0, Items.GenerateDrops(1, new Random(1)));
+        session.State.LootCrateList.Add(oldest);
+        session.State.NearbyCrate = oldest;
+        for (int i = 0; i < 39; i++)
+            session.State.LootCrateList.Add(new LootCrate(i, 0, Items.GenerateDrops(1, new Random(1))));
+        Assert.Equal(40, session.State.LootCrateList.Count);
+
+        session.SpawnLootCrate(999f, 999f, Items.GenerateDrops(1, new Random(1)));
+
+        Assert.Equal(40, session.State.LootCrateList.Count);
+        Assert.Contains(oldest, session.State.LootCrateList); // protected: it's NearbyCrate
+        Assert.Same(oldest, session.State.LootCrateList[0]); // the next-oldest was evicted instead
+    }
+
+    [Fact]
     public void HurtPlayer_DoesNothing_DuringGracePeriod()
     {
         var session = MakeSession();

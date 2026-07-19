@@ -35,6 +35,7 @@ public class RotBoiGame : Game
     private readonly Menus _menus = new();
     private readonly TitleScreen _titleScreen = new();
     private readonly SoulHub _soulHub = new();
+    private readonly DevConsole _devConsole = new();
     private GameSession? _session;
     private GameState _pauseReturnState = GameState.GameRun;
 
@@ -66,6 +67,10 @@ public class RotBoiGame : Game
     {
         Window.ClientSizeChanged += (_, _) =>
             _session?.Resize(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        // The only source of actual typed characters (shift/caps/layout already
+        // resolved) -- everything else in this codebase only ever tracks raw
+        // Keys, which is fine for discrete binds but not for free text entry.
+        Window.TextInput += (_, e) => _devConsole.HandleTextInput(e.Character);
         base.Initialize();
         if (GameProfile.Profile.Fullscreen)
             ApplyFullscreen(true, persist: false);
@@ -89,6 +94,31 @@ public class RotBoiGame : Game
         IsMouseVisible = State != GameState.GameRun || _session is null
             || InputState.MousePosition.X >= _session.InformationSheet.ArenaWidth
             || _session.InformationSheet.DragInProgress;
+
+        // Opening/closing the console is checked before anything else reads
+        // InputState this frame -- while open, none of F11/pause/gameplay
+        // should react to keystrokes that are actually meant as typed text
+        // (see DevConsole's doc comment on why simulation pauses too).
+        if (!_devConsole.IsOpen && Keybinds.Pressed("console_toggle") && _session is not null)
+            _devConsole.Open();
+        else if (_devConsole.IsOpen && (Keybinds.Pressed("console_toggle") || InputState.KeysPressed.Contains(Keys.Escape)))
+            _devConsole.Close();
+
+        var consoleResult = _devConsole.Update(_session, InputState.KeysPressed, gameTime.ElapsedGameTime.TotalSeconds);
+        if (consoleResult.Kind == ConsoleActionKind.ExtractRequested && _session is not null)
+        {
+            _session.State.RunOutcome = "EXTRACTED";
+            MetaProgression.RecordExtraction(_session.State, GamePaths.Selected().Key, completed: false);
+            MetaProgression.SyncCarriedItems(_session.State);
+            GameProfile.RecordRun(_session.State.CurrentLevel, _session.State.NumOfEnemiesKilled);
+            State = GameState.Results;
+        }
+
+        if (_devConsole.IsOpen)
+        {
+            base.Update(gameTime);
+            return;
+        }
 
         if (InputState.KeysPressed.Contains(Keys.F11))
             ToggleFullscreen();
@@ -487,6 +517,13 @@ public class RotBoiGame : Game
             case GameState.Soul:
                 DrawSoul();
                 break;
+        }
+
+        if (_devConsole.IsOpen)
+        {
+            _spriteBatch.Begin();
+            _devConsole.Draw(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+            _spriteBatch.End();
         }
 
         base.Draw(gameTime);
