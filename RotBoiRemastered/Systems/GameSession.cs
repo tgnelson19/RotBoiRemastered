@@ -740,8 +740,8 @@ public sealed class GameSession
                 if (result.Applied && !result.Killed)
                 {
                     StatusEffects.RollPlayerHit(enemy, bullet, State.Equipment.Values, State.ProjectileCount, rng);
-                    if (State.Equipment.GetValueOrDefault("weapon") is { Definition.EffectId: not null } weapon)
-                        UniqueEffects.OnPlayerHit(enemy, bullet, weapon, rng);
+                    if (State.Equipment.GetValueOrDefault("weapon") is { Definition.EffectIds.Count: > 0 } weapon)
+                        UniqueEffects.OnPlayerHit(enemy, bullet, weapon, State, rng);
                 }
                 if (result.Applied)
                 {

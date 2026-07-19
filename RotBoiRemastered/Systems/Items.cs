@@ -10,16 +10,18 @@ public sealed record ItemStatModifier(string Stat, double Additive = 0, double M
 /// silhouette (dagger, sword, spear, bow, wand, vest, and so on) while the
 /// modifiers keep all balance data out of rendering code.
 ///
-/// EffectId/DropsFromBossKey/DropChance are only set on entries in
+/// EffectIds/DropsFromBossKey/DropChance are only set on entries in
 /// <see cref="Items.Uniques"/> (null/default for every regular Definitions
-/// entry): EffectId names a bespoke on-hit behavior dispatched by
-/// UniqueEffects.OnPlayerHit (see its doc comment for why that's a separate
-/// hook rather than another StatusChances entry), DropsFromBossKey ties the
-/// drop to one specific boss kill rather than the regular loot table, and
-/// DropChance is that unique's own independent per-kill odds (see
-/// Items.RollUniqueDrop) -- multiple uniques can share a DropsFromBossKey,
-/// each with its own DropChance, which is what makes that boss's effective
-/// drop table.
+/// entry): EffectIds names zero or more bespoke on-hit behaviors dispatched
+/// by UniqueEffects.OnPlayerHit (see its doc comment for why that's a
+/// separate hook rather than another StatusChances entry) -- a weapon can
+/// list more than one to stack independent effects (e.g. a crowd-control
+/// proc and a sustain proc) on the same item, each added as its own case
+/// with no knowledge of the others. DropsFromBossKey ties the drop to one
+/// specific boss kill rather than the regular loot table, and DropChance is
+/// that unique's own independent per-kill odds (see Items.RollUniqueDrop)
+/// -- multiple uniques can share a DropsFromBossKey, each with its own
+/// DropChance, which is what makes that boss's effective drop table.
 /// </summary>
 public sealed record ItemDefinition(
     string Name,
@@ -28,7 +30,7 @@ public sealed record ItemDefinition(
     string VisualKind,
     IReadOnlyList<ItemStatModifier> Modifiers,
     IReadOnlyDictionary<string, double>? StatusChances = null,
-    string? EffectId = null,
+    IReadOnlyList<string>? EffectIds = null,
     string? DropsFromBossKey = null,
     double DropChance = .12);
 
@@ -151,16 +153,20 @@ public static class Items
     public static readonly IReadOnlyList<ItemDefinition> Uniques = new[]
     {
 
-        //Template for new unique items:
+        //Template for new unique items -- list one or more EffectIds to stack independent effects on the same item (see UniqueEffects.OnPlayerHit):
         /*
         new ItemDefinition("Unique Name", "weapon/armor/ring/accessory", "Flavor text.",
             "type_visual (vial/bow/dagger/bell/badge/etc.)", Mods(Mult("Bullet Damage", 0.00), Mult("Bullet Range", 0.00), Mult("Bullet Speed", 0.00)),
-            EffectId: "custom_effect_name", DropsFromBossKey: "boss_key", DropChance: .12),
+            EffectIds: new[] { "custom_effect_name", "second_effect_name" }, DropsFromBossKey: "boss_key", DropChance: .12),
         */
 
-        new ItemDefinition("Bow of Dread", "weapon", "Every arrow carries a whisper of Dread, leaving struck enemies slowed and exposed.",
+        new ItemDefinition("Bow of Dread", "weapon", "Every arrow carries a whisper of Dread, leaving struck enemies slowed and exposed -- and the bow itself feeds on the fear it causes.",
             "bow", Mods(Mult("Bullet Damage", 1.35), Mult("Bullet Range", 1.85), Mult("Bullet Speed", 1.20)),
-            EffectId: "dread_on_hit", DropsFromBossKey: "sting", DropChance: .12),
+            EffectIds: new[] { "dread_on_hit", "dread_lifesteal" }, DropsFromBossKey: "sting", DropChance: .12),
+
+        new ItemDefinition("Grimsbane", "weapon", "Darkness clings to the rigid bones, and the shadows it strikes shiver in fear.",
+            "bow", Mods(Mult("Bullet Damage", 1.20), Mult("Bullet Range", .35), Mult("Attack Speed", .85)),
+            EffectIds: new[] { "grimsbane_effect" }, DropsFromBossKey: "dissonance", DropChance: .12),
 
     };
 
