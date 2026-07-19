@@ -802,16 +802,7 @@ public sealed class GameSession
             if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng) is { } uniqueDrop)
                 drops.Add(uniqueDrop);
             if (drops.Count > 0)
-            {
-                var crate = new LootCrate(enemy.WorldX, enemy.WorldY, drops);
-                State.LootCrateList.Add(crate);
-                if (State.LootCrateList.Count > MaxLootCrates)
-                {
-                    var evictable = State.LootCrateList.FirstOrDefault(c => c != State.NearbyCrate);
-                    if (evictable is not null)
-                        State.LootCrateList.Remove(evictable);
-                }
-            }
+                SpawnLootCrate(enemy.WorldX, enemy.WorldY, drops);
 
             if (defeatedBossKey is not null)
             {
@@ -1103,6 +1094,24 @@ public sealed class GameSession
 
         spriteBatch.End();
         graphicsDevice.ScissorRectangle = previousScissor;
+    }
+
+    /// <summary>
+    /// Adds a crate to State.LootCrateList, evicting the oldest non-nearby
+    /// crate once MaxLootCrates is exceeded -- factored out of
+    /// HandleDamagingEnemies' death-loot drop so DevConsole's /spawn command
+    /// shares the exact same cap/eviction behavior instead of duplicating it.
+    /// </summary>
+    public void SpawnLootCrate(float worldX, float worldY, IEnumerable<ItemDrop> drops)
+    {
+        var crate = new LootCrate(worldX, worldY, drops);
+        State.LootCrateList.Add(crate);
+        if (State.LootCrateList.Count > MaxLootCrates)
+        {
+            var evictable = State.LootCrateList.FirstOrDefault(c => c != State.NearbyCrate);
+            if (evictable is not null)
+                State.LootCrateList.Remove(evictable);
+        }
     }
 
     /// <summary>Ported from character.py's crateInteractionForPlayer(). The drag-in-progress guard is dropped (InformationSheet's drag UI is deferred).</summary>

@@ -35,6 +35,7 @@ public static class Keybinds
         ("dev_level_up", "DEV: Force Level Up", Keys.F1),
         ("dev_boss", "DEV: Force Boss Encounter", Keys.B),
         ("dev_invincible", "DEV: Toggle Boss Invincibility", Keys.Y),
+        ("console_toggle", "DEV: Toggle Console", Keys.OemTilde),
     };
 
     public static readonly IReadOnlyDictionary<string, Keys> ActionDefaults =

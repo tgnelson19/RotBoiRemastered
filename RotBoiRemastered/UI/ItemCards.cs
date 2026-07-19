@@ -195,11 +195,84 @@ public static class ItemCards
         int cornerRadius = Math.Max(2, rect.Width / 8);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
         Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
-        Primitives2D.FillRoundedRect(spriteBatch, rect, hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor, cornerRadius);
-        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, rect.Width / 14), cornerRadius);
+
+        // Uniques trade the regular rarity-tinted card (a flat wash of the
+        // rarity color) for a dark, near-opaque backdrop with a gold border
+        // -- reads as "a special mounted piece", not "an orange square" --
+        // plus an animated shine glinting across it (DrawUniqueSheen).
+        bool isUnique = item.Rarity == "Unique";
+        Color fill = isUnique ? (hovered ? UiTheme.Lighten(UiTheme.Ink, 14) : UiTheme.Ink) : (hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor);
+        Primitives2D.FillRoundedRect(spriteBatch, rect, fill, cornerRadius);
+        Primitives2D.RoundedRectOutline(spriteBatch, rect, isUnique ? rarityColor : UiTheme.Ink,
+            Math.Max(2, rect.Width / 14) + (isUnique ? 1 : 0), cornerRadius);
+
         var inner = rect;
         inner.Inflate((int)(-rect.Width * .15f), (int)(-rect.Height * .18f));
-        DrawItemSymbol(spriteBatch, item.SlotType, inner, UiTheme.Ink, item.Definition.VisualKind, item.Name);
+        // The procedural symbol's line color has to flip to something light
+        // for uniques -- it's normally Ink-on-bright-fill, and Ink-on-Ink
+        // would be invisible now that the fill itself is dark. Sprites
+        // ignore this color entirely either way (see TryDrawItemSprite).
+        DrawItemSymbol(spriteBatch, item.SlotType, inner, isUnique ? UiTheme.Gold : UiTheme.Ink, item.Definition.VisualKind, item.Name);
+
+        if (isUnique)
+            DrawUniqueSheen(spriteBatch, rect);
         return rect;
+    }
+
+    /// <summary>
+    /// A bright diagonal gold band -- like a bar of light glancing off a
+    /// polished surface -- sweeps left-to-right across the card, pauses,
+    /// then repeats every 1.6s. Drawn one horizontal strip at a time (a
+    /// manual per-row clip, each strip's left/right edges clamped to rect)
+    /// rather than a rotated rectangle or a real scissor rect: DrawItemCard
+    /// is called mid-batch from callers with their own already-open
+    /// SpriteBatch.Begin(), so a scissor rect here would mean an unwanted
+    /// nested End()/Begin() that clobbers whatever blend/transform state the
+    /// caller's batch was using. The band's travel range starts and ends far
+    /// enough outside rect (by its own width/slope) that it's fully
+    /// off-card -- and therefore fully clamped away to nothing -- at both
+    /// ends of the sweep, so it visibly enters and exits corner-first rather
+    /// than popping in/out. Public so InformationSheet's item-tooltip header
+    /// icon (a separate small draw path, not DrawItemCard) can apply the
+    /// same shine to stay visually consistent.
+    ///
+    /// Timed off the real-time system clock (Environment.TickCount64)
+    /// rather than any RunState/SoulHub clock passed in -- RunState.RunTimeSeconds
+    /// specifically only advances during UpdateGameRun (by design: it's a
+    /// gameplay stat, not a frame clock), so it sits frozen while browsing
+    /// the Soul's inventory sidebar, which is exactly where a unique's card
+    /// is most commonly just sitting there being looked at. A wall-clock
+    /// read keeps this purely-cosmetic animation running in every game
+    /// state uniformly, with no per-call-site plumbing required.
+    /// </summary>
+    public static void DrawUniqueSheen(SpriteBatch spriteBatch, Rectangle rect)
+    {
+        const double period = 1.6;
+        const double activeFraction = .7; // sweeps for 70% of the cycle, pauses for the rest
+        double t = Environment.TickCount64 / 1000.0 % period / period;
+        if (t > activeFraction)
+            return;
+        float sweep = (float)(t / activeFraction); // 0..1 across the active window
+
+        const float slope = .5f; // horizontal drift per row -- the band's diagonal tilt
+        float bandWidth = Math.Max(4f, rect.Width * .30f);
+        float coreWidth = bandWidth * .35f;
+        float margin = bandWidth + rect.Height * slope; // keeps the band fully off-card at sweep 0/1
+        float bandTopX = MathHelper.Lerp(rect.Left - margin, rect.Right + margin, sweep);
+
+        for (int y = rect.Top; y < rect.Bottom; y += 2)
+        {
+            float centerX = bandTopX + (y - rect.Top) * slope;
+            DrawClampedStrip(spriteBatch, rect, y, centerX, bandWidth, UiTheme.Gold * .5f);
+            DrawClampedStrip(spriteBatch, rect, y, centerX, coreWidth, Color.White * .75f);
+        }
+    }
+
+    private static void DrawClampedStrip(SpriteBatch spriteBatch, Rectangle rect, int y, float centerX, float width, Color color)
+    {
+        int left = (int)Math.Max(rect.Left, centerX - width / 2f);
+        int right = (int)Math.Min(rect.Right, centerX + width / 2f);
+        if (right > left)
+            Primitives2D.FillRect(spriteBatch, new Rectangle(left, y, right - left, 2), color);
     }
 }

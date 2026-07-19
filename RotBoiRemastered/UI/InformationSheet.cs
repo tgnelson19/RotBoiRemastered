@@ -727,12 +727,18 @@ public sealed class InformationSheet
         Color rarity = UiTheme.RarityColors.TryGetValue(item.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, rarity, shadow: 7);
 
+        // Same dark-backdrop-plus-shine treatment as ItemCards.DrawItemCard's
+        // Unique branch, kept in sync manually since this header icon is a
+        // separate small draw path (a plain rect, not a rounded card).
+        bool isUnique = item.Rarity == "Unique";
         var symbolRect = new Rectangle(rect.X + Px(12), rect.Y + Px(12), Px(50), Px(50));
-        Primitives2D.FillRect(spriteBatch, symbolRect, rarity);
-        Primitives2D.RectOutline(spriteBatch, symbolRect, UiTheme.Ink, Px(2));
+        Primitives2D.FillRect(spriteBatch, symbolRect, isUnique ? UiTheme.Ink : rarity);
+        Primitives2D.RectOutline(spriteBatch, symbolRect, isUnique ? rarity : UiTheme.Ink, Px(2));
         var symbolInner = symbolRect;
         symbolInner.Inflate(-Px(7), -Px(7));
-        ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, UiTheme.Ink, item.Definition.VisualKind, item.Name);
+        ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, isUnique ? UiTheme.Gold : UiTheme.Ink, item.Definition.VisualKind, item.Name);
+        if (isUnique)
+            ItemCards.DrawUniqueSheen(spriteBatch, symbolRect);
         DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(15), UiTheme.Text,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(14)));
         DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.SlotType.ToUpperInvariant()}", Px(9), rarity,
