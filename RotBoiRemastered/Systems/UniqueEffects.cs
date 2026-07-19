@@ -50,6 +50,17 @@ public static class UniqueEffects
                         state.HealthPoints = Math.Min(state.MaxHealthPoints, state.HealthPoints + heal);
                     }
                     break;
+
+                case "bane_on_hit":
+                    // Every hit (no roll -- this is Grimsbane's guaranteed
+                    // signature effect, unlike Dread's chance-based procs)
+                    // stacks Bane by 1, each stack worth +5% damage taken
+                    // (see StatusEffects.DamageMultiplier's "bane" case) up
+                    // to StatusEffects' 30-stack cap for that kind. The 4s
+                    // duration refreshes on every hit, so sustained fire
+                    // keeps racking stacks up but stopping lets them decay.
+                    StatusEffects.Apply(enemy, "bane", duration: 4.0);
+                    break;
             }
         }
     }

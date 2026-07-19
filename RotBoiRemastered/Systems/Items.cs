@@ -46,13 +46,22 @@ public sealed record ItemEffectView(string Stat, double Additive, double Multipl
     {
         get
         {
-            double direction = Stat == "Attack Speed" ? -1 : 1;
             if (Math.Abs(Additive) > .0001)
             {
+                double direction = Stat == "Attack Speed" ? -1 : 1;
                 double value = Additive * direction;
                 return $"{(value >= 0 ? "+" : "")}{value.ToString("0.##", CultureInfo.InvariantCulture)}";
             }
-            double percent = (Multiplier - 1) * 100 * direction;
+            // Multiplier is a cooldown ratio for Attack Speed (smaller means
+            // a shorter cooldown, i.e. faster attacks) -- invert it to the
+            // actual speed ratio before expressing a percent, so a halved
+            // cooldown (Multiplier .5, from Items.Mult("Attack Speed", 200))
+            // reads as "+100%" (twice the attack rate) instead of the raw,
+            // mathematically wrong "+50%" you'd get by applying the same
+            // percent-off-1.0 formula every other stat uses directly to a
+            // cooldown ratio instead of a rate.
+            double speedRatio = Stat == "Attack Speed" ? 1.0 / Multiplier : Multiplier;
+            double percent = (speedRatio - 1) * 100;
             return $"{(percent >= 0 ? "+" : "")}{percent.ToString("0.##", CultureInfo.InvariantCulture)}%";
         }
     }
@@ -74,7 +83,24 @@ public static class Items
         new[] { "weapon", "armor", "ring", "accessory" };
 
     private static ItemStatModifier Add(string stat, double value) => new(stat, Additive: value);
-    private static ItemStatModifier Mult(string stat, double value) => new(stat, Multiplier: value);
+    /// <summary>
+    /// Takes a percentage, not a raw ratio -- Mult("Bullet Range", 78) means
+    /// 78% (0.78x). "Attack Speed" is the one exception: it's stored as a
+    /// frame-count cooldown internally (see RunState.AttackCooldownStat),
+    /// where a *smaller* ratio means a shorter cooldown and therefore
+    /// *faster* attacks -- backwards from what "200 attack speed" should
+    /// intuitively mean. So Attack Speed alone takes the reciprocal
+    /// (100/percent) instead of percent/100, making Mult("Attack Speed", 200)
+    /// mean "attacks twice as fast" like every other stat's bigger-is-better
+    /// convention. ItemEffectView.DisplayValue un-inverts this same way when
+    /// showing the tooltip percentage -- if you ever touch one of these two,
+    /// touch the other, or they'll silently disagree (this has already
+    /// happened once: this method reverted to the plain percent/100 form
+    /// while DisplayValue still expected the inverted ratio, which made
+    /// Mult("Attack Speed", 200) display as -50% instead of +100%).
+    /// </summary>
+    private static ItemStatModifier Mult(string stat, double percent) =>
+        new(stat, Multiplier: stat == "Attack Speed" ? 100.0 / percent : percent / 100.0);
     private static IReadOnlyList<ItemStatModifier> Mods(params ItemStatModifier[] modifiers) => modifiers;
     private static IReadOnlyDictionary<string, double> Status(string kind, double chance) =>
         new Dictionary<string, double> { [kind] = chance };
@@ -87,58 +113,58 @@ public static class Items
     public static readonly IReadOnlyList<ItemDefinition> Definitions = new[]
     {
         new ItemDefinition("Iron Dagger", "weapon", "Close enough to hear the cut.", "dagger",
-            Mods(Mult("Bullet Damage", 2.10), Mult("Bullet Range", .28), Mult("Attack Speed", .78))),
+            Mods(Mult("Bullet Damage", 210), Mult("Bullet Range", 28), Mult("Attack Speed", 128))),
         new ItemDefinition("Bloody Dagger", "weapon", "It remembers every hand that slipped.", "dagger",
-            Mods(Mult("Bullet Damage", 1.82), Mult("Bullet Range", .32), Mult("Attack Speed", .82)), Status("bleed", .20)),
+            Mods(Mult("Bullet Damage", 182), Mult("Bullet Range", 32), Mult("Attack Speed", 122)), Status("bleed", .20)),
         new ItemDefinition("Rusty Sword", "weapon", "The ruined edge asks for many swings.", "sword",
-            Mods(Mult("Bullet Damage", .62), Mult("Bullet Range", .58), Mult("Attack Speed", .46))),
+            Mods(Mult("Bullet Damage", 62), Mult("Bullet Range", 58), Mult("Attack Speed", 217))),
         new ItemDefinition("Iron Sword", "weapon", "A dependable answer at arm's length.", "sword",
-            Mods(Mult("Bullet Damage", 1.55), Mult("Bullet Range", .62), Mult("Attack Speed", .94))),
+            Mods(Mult("Bullet Damage", 155), Mult("Bullet Range", 62), Mult("Attack Speed", 106))),
         new ItemDefinition("Bloody Sword", "weapon", "Warm stains bead along the fuller.", "sword",
-            Mods(Mult("Bullet Damage", 1.38), Mult("Bullet Range", .65), Mult("Attack Speed", .90)), Status("bleed", .16)),
+            Mods(Mult("Bullet Damage", 138), Mult("Bullet Range", 65), Mult("Attack Speed", 111)), Status("bleed", .16)),
         new ItemDefinition("Iron Spear", "weapon", "Distance, leverage, and one clean line.", "spear",
-            Mods(Mult("Bullet Damage", 1.28), Mult("Bullet Range", 1.02), Mult("Attack Speed", 1.10), Add("Bullet Pierce", .60))),
+            Mods(Mult("Bullet Damage", 128), Mult("Bullet Range", 102), Mult("Attack Speed", 91), Add("Bullet Pierce", .60))),
         new ItemDefinition("Bone Spear", "weapon", "A pale point made for finding gaps.", "spear",
-            Mods(Mult("Bullet Damage", 1.16), Mult("Bullet Range", 1.08), Add("Crit Chance", .08), Add("Bullet Pierce", .40))),
+            Mods(Mult("Bullet Damage", 116), Mult("Bullet Range", 108), Add("Crit Chance", .08), Add("Bullet Pierce", .40))),
         new ItemDefinition("Hunting Bow", "weapon", "The string hums before danger arrives.", "bow",
-            Mods(Mult("Bullet Damage", .92), Mult("Bullet Range", 1.72), Mult("Bullet Speed", 1.28), Mult("Attack Speed", .88))),
+            Mods(Mult("Bullet Damage", 92), Mult("Bullet Range", 172), Mult("Bullet Speed", 128), Mult("Attack Speed", 114))),
         new ItemDefinition("Yew Longbow", "weapon", "Patience drawn into a distant point.", "bow",
-            Mods(Mult("Bullet Damage", .98), Mult("Bullet Range", 2.02), Mult("Bullet Speed", 1.42), Mult("Attack Speed", 1.18))),
+            Mods(Mult("Bullet Damage", 98), Mult("Bullet Range", 202), Mult("Bullet Speed", 142), Mult("Attack Speed", 85))),
         new ItemDefinition("Ash Wand", "weapon", "A faint ember reaches beyond the dark.", "wand",
-            Mods(Mult("Bullet Damage", .72), Mult("Bullet Range", 2.55), Mult("Bullet Speed", 1.34), Mult("Bullet Size", .82))),
+            Mods(Mult("Bullet Damage", 72), Mult("Bullet Range", 255), Mult("Bullet Speed", 134), Mult("Bullet Size", 82))),
         new ItemDefinition("Glass Wand", "weapon", "Fragile light travels farther than courage.", "wand",
-            Mods(Mult("Bullet Damage", .64), Mult("Bullet Range", 3.00), Mult("Bullet Speed", 1.55), Add("Crit Chance", .12))),
+            Mods(Mult("Bullet Damage", 64), Mult("Bullet Range", 300), Mult("Bullet Speed", 155), Add("Crit Chance", .12))),
 
         new ItemDefinition("Leather Vest", "armor", "Scuffed hide that leaves room to breathe.", "vest",
-            Mods(Add("Defense", 18), Mult("Player Speed", 1.08))),
+            Mods(Add("Defense", 18), Mult("Player Speed", 108))),
         new ItemDefinition("Bloodstained Garb", "armor", "The cloth refuses to let another drop fall.", "vest",
-            Mods(Add("Defense", 24), Add("Vitality", 12), Mult("Player Speed", 1.03))),
+            Mods(Add("Defense", 24), Add("Vitality", 12), Mult("Player Speed", 103))),
         new ItemDefinition("Chainmail", "armor", "Linked rings trade a little speed for certainty.", "chain",
-            Mods(Add("Defense", 42), Mult("Player Speed", .92))),
+            Mods(Add("Defense", 42), Mult("Player Speed", 92))),
         new ItemDefinition("Plate Armor", "armor", "A walking wall, heavy but never absolute.", "plate",
-            Mods(Add("Defense", 76), Mult("Player Speed", .78))),
+            Mods(Add("Defense", 76), Mult("Player Speed", 78))),
         new ItemDefinition("Rusty Plate", "armor", "Missing rivets make the old shell surprisingly nimble.", "plate",
-            Mods(Add("Defense", 55), Mult("Player Speed", .90))),
+            Mods(Add("Defense", 55), Mult("Player Speed", 90))),
 
         new ItemDefinition("Copper Ring", "ring", "A warm band that keeps the hands moving.", "band",
-            Mods(Mult("Attack Speed", .88))),
+            Mods(Mult("Attack Speed", 114))),
         new ItemDefinition("Silver Band", "ring", "Cold metal steadies a hurried aim.", "band",
-            Mods(Add("Crit Chance", .10), Mult("Bullet Speed", 1.12))),
+            Mods(Add("Crit Chance", .10), Mult("Bullet Speed", 112))),
         new ItemDefinition("Signet Ring", "ring", "A forgotten crest still carries authority.", "signet",
-            Mods(Mult("Bullet Damage", 1.16), Add("Defense", 8))),
+            Mods(Mult("Bullet Damage", 116), Add("Defense", 8))),
         new ItemDefinition("Thorn Ring", "ring", "Its tiny barbs promise that wounds linger.", "signet",
             Mods(Add("Crit Chance", .05)), Status("bleed", .08)),
 
         new ItemDefinition("Lucky Charm", "accessory", "Small enough to lose; stubborn enough to return.", "charm",
-            Mods(Add("Crit Chance", .08), Mult("Exp Multiplier", 1.12))),
+            Mods(Add("Crit Chance", .08), Mult("Exp Multiplier", 112))),
         new ItemDefinition("Old Locket", "accessory", "The portrait is gone, but the promise remains.", "locket",
             Mods(Add("Health", 120), Add("Vitality", 8))),
         new ItemDefinition("Traveler's Badge", "accessory", "Every scratch points toward another road.", "badge",
-            Mods(Mult("Player Speed", 1.10), Add("Aura Size", 14))),
+            Mods(Mult("Player Speed", 110), Add("Aura Size", 14))),
         new ItemDefinition("Venom Vial", "accessory", "A green drop waits behind thin glass.", "vial",
-            Mods(Mult("Bullet Damage", .94)), Status("poison", .15)),
+            Mods(Mult("Bullet Damage", 94)), Status("poison", .15)),
         new ItemDefinition("Frost Bell", "accessory", "Its silent note makes the world hesitate.", "bell",
-            Mods(Mult("Bullet Range", 1.10)), Status("slow", .14)),
+            Mods(Mult("Bullet Range", 110)), Status("slow", .14)),
     };
 
     public static readonly IReadOnlyDictionary<string, ItemDefinition> DefinitionsByName =
@@ -156,17 +182,18 @@ public static class Items
         //Template for new unique items -- list one or more EffectIds to stack independent effects on the same item (see UniqueEffects.OnPlayerHit):
         /*
         new ItemDefinition("Unique Name", "weapon/armor/ring/accessory", "Flavor text.",
-            "type_visual (vial/bow/dagger/bell/badge/etc.)", Mods(Mult("Bullet Damage", 0.00), Mult("Bullet Range", 0.00), Mult("Bullet Speed", 0.00)),
+            "type_visual (vial/bow/dagger/bell/badge/etc.)", Mods(Mult("Bullet Damage", 100), Mult("Bullet Range", 100), Mult("Bullet Speed", 100)),
             EffectIds: new[] { "custom_effect_name", "second_effect_name" }, DropsFromBossKey: "boss_key", DropChance: .12),
         */
 
         new ItemDefinition("Bow of Dread", "weapon", "Every arrow carries a whisper of Dread, leaving struck enemies slowed and exposed -- and the bow itself feeds on the fear it causes.",
-            "bow", Mods(Mult("Bullet Damage", 1.35), Mult("Bullet Range", 1.85), Mult("Bullet Speed", 1.20)),
+            "bow", Mods(Mult("Bullet Damage", 135), Mult("Bullet Range", 185), Mult("Bullet Speed", 120)),
             EffectIds: new[] { "dread_on_hit", "dread_lifesteal" }, DropsFromBossKey: "sting", DropChance: .12),
 
-        new ItemDefinition("Grimsbane", "weapon", "Darkness clings to the rigid bones, and the shadows it strikes shiver in fear.",
-            "bow", Mods(Mult("Bullet Damage", 1.20), Mult("Bullet Range", .35), Mult("Attack Speed", .85)),
-            EffectIds: new[] { "grimsbane_effect" }, DropsFromBossKey: "dissonance", DropChance: .12),
+        new ItemDefinition("Grimsbane", "weapon",
+            "Darkness clings to the rigid bones, and the shadows it strikes shiver in fear. Every hit marks its target with Bane, a stacking curse that leaves it ever more exposed.",
+            "bow", Mods(Mult("Bullet Damage", 50), Mult("Bullet Range", 200), Mult("Attack Speed", 200)), Status("bleed", .05),
+            EffectIds: new[] { "bane_on_hit" }, DropsFromBossKey: "dissonance", DropChance: .12),
 
     };
 

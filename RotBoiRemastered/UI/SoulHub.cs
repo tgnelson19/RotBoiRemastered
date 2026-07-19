@@ -35,6 +35,7 @@ public sealed class SoulHub
     private readonly Dictionary<string, Vector2> _stationWorld = new();
     private readonly Dictionary<string, Vector2> _pathPortalWorld = new();
     private Vector2 _dummyWorld;
+    private TrainingDummy _dummy = new(0, 0);
     private string? _overlay;
     private string? _tooltip;
     private double _seconds;
@@ -55,6 +56,11 @@ public sealed class SoulHub
     public bool IsEnteringPortal => _enteringPortalKey is not null;
     /// <summary>Cosmetic player render scale (see Player.Draw) -- 1 outside the pull-in animation, easing down to PortalMinPlayerScale during it.</summary>
     public float PlayerDrawScale => _playerDrawScale;
+    /// <summary>World center of the DPS dummy's hit rect -- exposed so callers (and tests) can place bullets on it without duplicating its layout.</summary>
+    public Vector2 DummyWorld => _dummyWorld;
+    public double CurrentDps => _currentDps;
+    /// <summary>Whether the training dummy is currently carrying the given status effect (e.g. "bleed", "bane") -- lets tests confirm status effects actually land on it instead of only checking the DPS number they produce.</summary>
+    public bool DummyHasStatus(string kind) => _dummy.StatusEffects.ContainsKey(kind);
     public void CloseOverlay()
     {
         _overlay = null;
@@ -76,6 +82,7 @@ public sealed class SoulHub
         session.State.EnemyHolster.Clear();
         session.State.EnemyProjectileHolster.Clear();
         _dummyWorld = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 4, 0);
+        _dummy = new TrainingDummy(_dummyWorld.X, _dummyWorld.Y);
         _stationWorld.Clear();
         _stationWorld["storage"] = session.PlayerWorldCenter - new Vector2(Simulation.TileSize * 4, 0);
         _stationWorld["quests"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 4);
@@ -115,19 +122,19 @@ public sealed class SoulHub
         foreach (var bullet in session.State.BulletHolster.Where(bullet => !bullet.RemFlag && dummyRect.Intersects(bullet.WorldRect())).ToArray())
         {
             bullet.RemFlag = true;
-            if (_seconds - _lastHitTime > 2)
-            {
-                _dummyHits.Clear();
-                _measurementStart = _seconds;
-            }
-            double damage = bullet.Damage;
-            _dummyHits.Enqueue(new DummyHit(_seconds, damage));
-            _lastHitTime = _seconds;
-            session.State.DamageTextList.Add(new DamageText(_dummyWorld.X - 20, _dummyWorld.Y - 28,
-                bullet.IsCritical ? UiTheme.Purple : UiTheme.Gold, damage, 40, Simulation.FrameRate));
-            GameProfile.IncrementQuest("dummy_damage", Math.Max(1, (long)Math.Round(damage)));
+            double hitDamage = bullet.Damage * StatusEffects.DamageMultiplier(_dummy, bullet);
+            _dummy.TakeDamage(hitDamage);
+            RecordDummyHit(session, _dummy.DrainUnrecordedDamage(), bullet.IsCritical);
+            StatusEffects.RollPlayerHit(_dummy, bullet, session.State.Equipment.Values, session.State.ProjectileCount);
+            if (session.State.Equipment.GetValueOrDefault("weapon") is { Definition.EffectIds.Count: > 0 } weapon)
+                UniqueEffects.OnPlayerHit(_dummy, bullet, weapon, session.State);
         }
         session.State.BulletHolster.RemoveAll(bullet => bullet.RemFlag);
+        // Ticks bleed/poison/bane the same as a real enemy would every frame,
+        // so DoT from a hit-and-run playstyle keeps contributing to the DPS
+        // meter instead of only ever counting direct impacts.
+        StatusEffects.Update(_dummy, elapsedSeconds);
+        RecordDummyHit(session, _dummy.DrainUnrecordedDamage(), isCritical: false);
         while (_dummyHits.Count > 0 && _seconds - _dummyHits.Peek().Time > 5)
             _dummyHits.Dequeue();
         double observation = Math.Min(5, Math.Max(.5, _seconds - _measurementStart));
@@ -141,6 +148,23 @@ public sealed class SoulHub
             _lastRecordSave = _seconds;
         }
         session.UpdateDamageTexts();
+    }
+
+    /// <summary>Folds a landed hit (direct bullet impact or a status-effect tick) into the DPS window, damage text, and quest counter -- shared by both so bleed/bane ticks show up exactly like a direct hit would.</summary>
+    private void RecordDummyHit(GameSession session, double damage, bool isCritical)
+    {
+        if (damage <= 0)
+            return;
+        if (_seconds - _lastHitTime > 2)
+        {
+            _dummyHits.Clear();
+            _measurementStart = _seconds;
+        }
+        _dummyHits.Enqueue(new DummyHit(_seconds, damage));
+        _lastHitTime = _seconds;
+        session.State.DamageTextList.Add(new DamageText(_dummyWorld.X - 20, _dummyWorld.Y - 28,
+            isCritical ? UiTheme.Purple : UiTheme.Gold, damage, 40, Simulation.FrameRate));
+        GameProfile.IncrementQuest("dummy_damage", Math.Max(1, (long)Math.Round(damage)));
     }
 
     /// <summary>
