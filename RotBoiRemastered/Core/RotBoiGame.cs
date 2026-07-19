@@ -278,16 +278,6 @@ public class RotBoiGame : Game
         var action = _titleScreen.HandleInput(InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
         switch (action)
         {
-            case TitleAction.StartRun:
-            {
-                var battleground = GamePaths.ActivateSelected();
-                if (_session is null)
-                    _session = new GameSession(battleground, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
-                else
-                    _session.ResetAll(battleground);
-                State = GameState.GameRun;
-                break;
-            }
             case TitleAction.EnterSoul:
             {
                 var battleground = GamePaths.ActivateSelected();
@@ -442,17 +432,33 @@ public class RotBoiGame : Game
     private void UpdateSoul(GameTime gameTime)
     {
         var session = _session!;
-        session.MovePlayer(Keybinds.Held("move_left"), Keybinds.Held("move_right"), Keybinds.Held("move_up"), Keybinds.Held("move_down"),
-            Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
-        _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
-        if (_soulHub.OverlayOpen)
+        // Once a portal's pull-in animation is running, SoulHub.UpdatePortalTravel
+        // drives the player's world position directly -- ordinary WASD input would
+        // just fight that interpolation every frame.
+        if (!_soulHub.IsEnteringPortal)
+        {
+            session.MovePlayer(Keybinds.Held("move_left"), Keybinds.Held("move_right"), Keybinds.Held("move_up"), Keybinds.Held("move_down"),
+                Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
+        }
+        var enteredPathKey = _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
+        if (enteredPathKey is not null)
+        {
+            GamePaths.Select(enteredPathKey);
+            session.ResetAll(GamePaths.ActivateSelected());
+            State = GameState.GameRun;
             return;
-        var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
-        bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
-        if (controllerFiring)
-            aim = session.Camera.Lock + InputState.ControllerAim * GraphicsDevice.Viewport.Width;
-        session.HandleBulletCreation(aim, InputState.MouseDown, session.InformationSheet.DragInProgress, controllerFiring: controllerFiring);
-        session.UpdateBullets();
+        }
+        if (!_soulHub.OverlayOpen && !_soulHub.IsEnteringPortal)
+        {
+            var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
+            bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
+            if (controllerFiring)
+                aim = session.Camera.Lock + InputState.ControllerAim * GraphicsDevice.Viewport.Width;
+            session.HandleBulletCreation(aim, InputState.MouseDown, session.InformationSheet.DragInProgress, controllerFiring: controllerFiring);
+            session.UpdateBullets();
+        }
+        // Always ticks, even mid-overlay/confirm/animation, so the portal
+        // pull/fade clock (both keyed off SoulHub's own _seconds) never stalls.
         _soulHub.Update(session, gameTime.ElapsedGameTime.TotalSeconds);
     }
 
@@ -575,9 +581,13 @@ public class RotBoiGame : Game
         session.DrawBackgroundFull(_spriteBatch, GraphicsDevice);
         _spriteBatch.Begin();
         session.DrawBullets(_spriteBatch);
-        session.DrawPlayer(_spriteBatch);
-        session.DrawDamageTexts(_spriteBatch);
+        // Stations/portals draw first, then the player on top of them (not
+        // behind), then the overlay/confirm/sidebar/fade layer on top of
+        // the player -- see SoulHub.DrawWorld/DrawForeground's doc comments.
         _soulHub.DrawWorld(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
+        session.DrawPlayer(_spriteBatch, _soulHub.PlayerDrawScale);
+        session.DrawDamageTexts(_spriteBatch);
+        _soulHub.DrawForeground(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
         _spriteBatch.End();
     }
 }
