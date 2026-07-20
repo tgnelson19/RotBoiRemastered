@@ -26,11 +26,10 @@ namespace RotBoiRemastered.UI;
 ///   and GameSession already owns it. See GameSession.cs's constructor/
 ///   Resize/ResetAll.
 /// - The old compact/expanded HudMode is gone: the sidebar is a single
-///   fixed width now. The build-identity panel moved to its own arena
-///   overlay (<see cref="DrawBuildIdentityOverlay"/>) and the weapon-stats
-///   section moved into a Tab-toggled popup (<see cref="DrawWeaponStatsPopup"/>,
-///   <see cref="ToggleWeaponStats"/>) instead of always occupying sidebar
-///   space.
+///   fixed width now. Build identity is folded into the sidebar's run-summary
+///   header and optional quick-view sections moved into a configurable
+///   Tab-toggled details view (<see cref="DrawTabDetails"/>,
+///   <see cref="ToggleTabDetails"/>) instead of always occupying sidebar space.
 /// - No implicit per-frame `_sync_layout()` self-check: <see cref="SyncLayout"/>
 ///   is called explicitly by GameSession.Resize, matching
 ///   <c>LevelingHandler.UpdateLayout</c>'s existing contract instead of
@@ -117,7 +116,7 @@ public sealed class InformationSheet
     private List<Rectangle> _inventorySlotRects = new();
     private IReadOnlyList<Rectangle> _vaultSlotRects = Array.Empty<Rectangle>();
     private bool _allowWorldDrop = true;
-    private bool _weaponStatsOpen;
+    private bool _tabDetailsOpen;
 
     public int ArenaWidth => _posX;
     public bool DragInProgress { get; private set; }
@@ -175,12 +174,15 @@ public sealed class InformationSheet
         _screenWidth = screenWidth;
         _screenHeight = screenHeight;
         _uiScale = UiTheme.DisplayScale(screenWidth, screenHeight);
-        _totalLength = Math.Max(Px(220), Math.Min(Px(320), (int)(screenWidth * .15)));
+        // A little more horizontal room lets build guidance wrap cleanly now
+        // that it lives here, while still returning the arena space formerly
+        // covered by the separate build overlay.
+        _totalLength = Math.Max(Px(260), Math.Min(Px(320), (int)(screenWidth * .18)));
         // Never consume more than 42% of a narrow display.
         _totalLength = Math.Min(_totalLength, (int)(screenWidth * .42));
         _totalHeight = screenHeight;
         _posX = screenWidth - _totalLength;
-        _padding = Px(9);
+        _padding = Px(7);
     }
 
     /// <summary>Call from GameSession.Resize whenever the window size or GuiScale changes.</summary>
@@ -192,14 +194,13 @@ public sealed class InformationSheet
     }
 
     /// <summary>
-    /// TAB now opens/closes the weapon-stats popup (see DrawWeaponStatsPopup)
-    /// instead of switching the sidebar's own compact/expanded width -- the
-    /// sidebar is down to one fixed width now that the build-identity panel
-    /// moved to its own arena overlay and the weapon section moved into this
-    /// popup. Purely transient view state, not a persisted preference like
+    /// TAB opens/closes the configured details view (see DrawTabDetails)
+    /// instead of switching the sidebar's own compact/expanded width. The
+    /// weapon section remains on demand while build identity stays visible
+    /// in the run-summary header. Purely transient view state, not a persisted preference like
     /// the old HudMode was, so nothing here touches GameProfile.
     /// </summary>
-    public void ToggleWeaponStats() => _weaponStatsOpen = !_weaponStatsOpen;
+    public void ToggleTabDetails() => _tabDetailsOpen = !_tabDetailsOpen;
 
     private Rectangle Panel(SpriteBatch spriteBatch, int y, int height, Color? accent = null, Color? fill = null)
     {
@@ -339,42 +340,77 @@ public sealed class InformationSheet
 
     // ----- Draw -----
 
-    private int DrawHeader(SpriteBatch spriteBatch, RunState state)
+    private int DrawRunSummary(SpriteBatch spriteBatch, RunState state)
     {
-        var rect = Panel(spriteBatch, _padding, Px(62), UiTheme.Cream);
+        var (title, strength, caution) = BuildIdentity(state);
+        int textWidth = _totalLength - _padding * 2 - Px(22);
+        var strengthLines = WrapText(strength, Px(9), textWidth);
+        int lineHeight = Px(14);
+        int cautionY = Px(82) + strengthLines.Count * lineHeight + Px(2);
+        int familyY = cautionY + Px(17);
+        int height = familyY + Px(19);
+
+        var rect = Panel(spriteBatch, _padding, height, UiTheme.Purple);
         DrawSheetText(spriteBatch, $"LEVEL {state.CurrentLevel:D2}", Px(18), UiTheme.Text,
             new Vector2(rect.X + Px(11), rect.Y + Px(9)));
         var (pressureLabel, color, _) = Pressure(state);
         DrawSheetText(spriteBatch, pressureLabel, Px(10), color,
             new Vector2(rect.Right - Px(11), rect.Y + Px(14)), "topright");
-        DrawSheetText(spriteBatch, _weaponStatsOpen ? "Tab: close weapon stats" : "Tab: weapon stats", Px(9), UiTheme.Muted,
-            new Vector2(rect.X + Px(11), rect.Bottom - Px(15)));
+        DrawSheetText(spriteBatch, _tabDetailsOpen ? "Tab: close details" : "Tab: run details", Px(9), UiTheme.Muted,
+            new Vector2(rect.X + Px(11), rect.Y + Px(36)));
+
+        Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(52)),
+            new Vector2(rect.Right - Px(10), rect.Y + Px(52)), UiTheme.Border, 1);
+        DrawSheetText(spriteBatch, title, Px(15), UiTheme.Purple,
+            new Vector2(rect.X + Px(11), rect.Y + Px(58)));
+        for (int index = 0; index < strengthLines.Count; index++)
+            DrawSheetText(spriteBatch, strengthLines[index], Px(9), UiTheme.Text,
+                new Vector2(rect.X + Px(11), rect.Y + Px(82) + index * lineHeight));
+        DrawSheetText(spriteBatch, caution, Px(9), UiTheme.Muted,
+            new Vector2(rect.X + Px(11), rect.Y + cautionY));
+
+        var families = FamilyCounts(state);
+        if (families.Count == 0)
+        {
+            DrawSheetText(spriteBatch, "NO UPGRADES COLLECTED", Px(8), UiTheme.Muted,
+                new Vector2(rect.X + Px(11), rect.Y + familyY));
+        }
+        else
+        {
+            int shown = Math.Min(families.Count, 2);
+            float columnWidth = (rect.Width - Px(22)) / 2f;
+            for (int index = 0; index < shown; index++)
+            {
+                var (family, count) = families[index];
+                DrawSheetText(spriteBatch, $"{ToTitleCase(family).ToUpperInvariant()}  x{count}", Px(8),
+                    index == 0 ? UiTheme.Purple : UiTheme.Muted,
+                    new Vector2(rect.X + Px(11) + columnWidth * index, rect.Y + familyY));
+            }
+        }
         return rect.Bottom + _padding;
     }
 
     private int DrawStatus(SpriteBatch spriteBatch, RunState state, int y)
     {
         Color healthColor = state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
-        var rect = Panel(spriteBatch, y, Px(112), healthColor);
-        Bar(spriteBatch, rect, rect.Y + Px(9), "HEALTH", state.HealthPoints, state.MaxHealthPoints, healthColor,
+        var rect = Panel(spriteBatch, y, Px(96), healthColor);
+        Bar(spriteBatch, rect, rect.Y + Px(7), "HEALTH", state.HealthPoints, state.MaxHealthPoints, healthColor,
             $"{state.HealthPoints} / {state.MaxHealthPoints}");
         double dashValue = Math.Max(0, state.DashCooldownMax - state.CurrDashCooldown);
         string dashText = state.CurrDashCooldown <= 0 ? "READY" : $"{state.CurrDashCooldown / Simulation.FrameRate:F1} sec";
-        Bar(spriteBatch, rect, rect.Y + Px(39), "DASH", dashValue, state.DashCooldownMax, UiTheme.Blue, dashText);
+        Bar(spriteBatch, rect, rect.Y + Px(35), "DASH", dashValue, state.DashCooldownMax, UiTheme.Blue, dashText);
         double percent = state.ExpCount / Math.Max(1, state.ExpNeededForNextLevel) * 100;
-        Bar(spriteBatch, rect, rect.Y + Px(69), "NEXT PICK", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
-            $"{percent:F0}%");
-        if (percent >= 82)
-            DrawSheetText(spriteBatch, "Next pick soon", Px(9), UiTheme.Gold,
-                new Vector2(rect.Right - Px(11), rect.Bottom - Px(11)), "bottomright");
+        string pickText = percent >= 82 ? $"SOON / {percent:F0}%" : $"{percent:F0}%";
+        Bar(spriteBatch, rect, rect.Y + Px(63), "NEXT PICK", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
+            pickText);
         return rect.Bottom + _padding;
     }
 
     private int DrawInventory(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
     {
-        int headerHeight = Px(24);
-        int hubHeight = Px(140);
-        int height = headerHeight + hubHeight + Px(12);
+        int headerHeight = Px(22);
+        int hubHeight = Px(122);
+        int height = headerHeight + hubHeight + Px(10);
         var rect = Panel(spriteBatch, y, height, UiTheme.Border);
         DrawSheetText(spriteBatch, "EQUIPMENT", Px(10), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
 
@@ -430,10 +466,10 @@ public sealed class InformationSheet
     {
         const int columns = 4;
         int rows = (InventorySlotCount + columns - 1) / columns;
-        int headerHeight = Px(24);
+        int headerHeight = Px(22);
         int slotSize = Px(38);
-        int gap = Px(8);
-        int height = headerHeight + rows * slotSize + (rows - 1) * gap + Px(12);
+        int gap = Px(6);
+        int height = headerHeight + rows * slotSize + (rows - 1) * gap + Px(10);
         var rect = Panel(spriteBatch, y, height, UiTheme.Border);
         DrawSheetText(spriteBatch, "STASH", Px(10), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
 
@@ -469,9 +505,9 @@ public sealed class InformationSheet
         var crate = state.NearbyCrate;
         if (crate is null || crate.Items.Count == 0)
             return y;
-        int headerHeight = Px(24);
+        int headerHeight = Px(22);
         int slotSize = Px(38);
-        int height = headerHeight + slotSize + Px(20);
+        int height = headerHeight + slotSize + Px(12);
         var rect = Panel(spriteBatch, y, height, UiTheme.Cream);
         DrawSheetText(spriteBatch, "NEARBY LOOT", Px(10), UiTheme.Cream, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
 
@@ -509,43 +545,6 @@ public sealed class InformationSheet
         return rect.Bottom + _padding;
     }
 
-    /// <summary>
-    /// Floats at the top of the arena, immediately left of the sidebar,
-    /// rather than consuming vertical space among the sidebar's stacked
-    /// panels -- moved out per user request to declutter the sidebar.
-    /// Family rows shown is now always up to 4; there's no more compact/
-    /// expanded distinction to gate it at 2.
-    /// </summary>
-    public void DrawBuildIdentityOverlay(SpriteBatch spriteBatch, RunState state)
-    {
-        int width = Math.Max(Px(220), Math.Min(Px(280), _posX - Px(24)));
-        int height = Px(134);
-        var rect = new Rectangle(_posX - _padding - width, _padding, width, height);
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Purple, shadow: 3);
-        var (title, strength, caution) = BuildIdentity(state);
-        DrawSheetText(spriteBatch, title, Px(15), UiTheme.Purple, new Vector2(rect.X + Px(11), rect.Y + Px(9)));
-        DrawSheetText(spriteBatch, strength, Px(9), UiTheme.Text, new Vector2(rect.X + Px(11), rect.Y + Px(31)));
-        DrawSheetText(spriteBatch, caution, Px(9), UiTheme.Muted, new Vector2(rect.X + Px(11), rect.Y + Px(49)));
-        var families = FamilyCounts(state);
-        if (families.Count > 0)
-        {
-            const int maxPips = 5;
-            int shown = Math.Min(families.Count, 4);
-            for (int index = 0; index < shown; index++)
-            {
-                var (family, count) = families[index];
-                int rowY = rect.Y + Px(68 + index * 16);
-                DrawSheetText(spriteBatch, ToTitleCase(family), Px(9), UiTheme.Muted, new Vector2(rect.X + Px(11), rowY));
-                for (int pip = 0; pip < maxPips; pip++)
-                {
-                    var pipRect = new Rectangle(rect.Right - Px(11 + (maxPips - pip) * 11), rowY + Px(1), Px(7), Px(7));
-                    Primitives2D.FillRect(spriteBatch, pipRect, pip < count ? UiTheme.Purple : UiTheme.Ink);
-                    Primitives2D.RectOutline(spriteBatch, pipRect, UiTheme.Border, 1);
-                }
-            }
-        }
-    }
-
     private static Rectangle Inflated(Rectangle rect, int dx, int dy)
     {
         rect.Inflate(dx, dy);
@@ -568,19 +567,19 @@ public sealed class InformationSheet
         return labelRect;
     }
 
-    /// <summary>
-    /// Replaces the old always-on "YOUR WEAPON" sidebar section: this is
-    /// now an on-demand popup toggled via Tab (see ToggleWeaponStats),
-    /// centered over the arena so it doesn't compete with the sidebar for
-    /// room. Always shows every stat row -- no more compact/expanded
-    /// row-count split, since it's a deliberate look rather than
-    /// always-on real estate.
-    /// </summary>
-    public void DrawWeaponStatsPopup(SpriteBatch spriteBatch, RunState state, Point mousePosition)
+    /// <summary>The four unfinished quests nearest completion, with catalog order breaking ties.</summary>
+    public static List<QuestDefinition> ActiveTrackedQuests(GameProfileData profile, int maximum = 4)
     {
-        if (!_weaponStatsOpen)
-            return;
+        return MetaProgression.Quests
+            .Where(quest => !profile.CompletedQuests.Contains(quest.Key))
+            .OrderByDescending(quest => Math.Min(1,
+                profile.QuestProgress.GetValueOrDefault(quest.Counter) / (double)Math.Max(1, quest.Target)))
+            .Take(Math.Max(0, maximum))
+            .ToList();
+    }
 
+    private void DrawWeaponStatsPanel(SpriteBatch spriteBatch, Rectangle rect, RunState state, Point mousePosition)
+    {
         double attacksPerSecond = AttacksPerSecond(state);
         var rows = new List<(string Symbol, string Label, string Value, string? Rating, string HelpText)>
         {
@@ -601,9 +600,6 @@ public sealed class InformationSheet
             ("Bullet Range", "Range", $"{state.BulletRange / Simulation.TileSize:F1} tiles", Rating(state.BulletRange, 250),
                 "Approximate projectile travel distance."),
         };
-        int width = Math.Min(Px(300), Math.Max(Px(220), _posX / 3));
-        int height = Px(29 + rows.Count * 31);
-        var rect = new Rectangle(_posX - _padding * 2 - width, (_totalHeight - height) / 2, width, height);
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Blue, shadow: 6);
         DrawSheetText(spriteBatch, "YOUR WEAPON", Px(10), UiTheme.Blue, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
         for (int index = 0; index < rows.Count; index++)
@@ -613,15 +609,161 @@ public sealed class InformationSheet
         }
     }
 
+    private int QuestPanelHeight(int count, int columns)
+    {
+        int rows = Math.Max(1, (count + columns - 1) / columns);
+        return Px(39 + rows * 31);
+    }
+
+    private void DrawQuestPanel(SpriteBatch spriteBatch, Rectangle rect, IReadOnlyList<QuestDefinition> quests,
+        bool showAll, Point mousePosition)
+    {
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Green, shadow: 6);
+        DrawSheetText(spriteBatch, showAll ? "ALL QUESTS" : "TRACKED QUESTS", Px(10), UiTheme.Green,
+            new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+        DrawSheetText(spriteBatch, showAll ? $"{quests.Count} TOTAL" : "TOP 4 ACTIVE", Px(8), UiTheme.Muted,
+            new Vector2(rect.Right - Px(10), rect.Y + Px(9)), "topright");
+        if (quests.Count == 0)
+        {
+            DrawSheetText(spriteBatch, "Every quest is complete.", Px(9), UiTheme.Cream,
+                new Vector2(rect.Center.X, rect.Y + Px(47)), "center");
+            return;
+        }
+
+        int columns = showAll && rect.Width >= Px(480) ? 3 : showAll ? 2 : 1;
+        int gap = Px(5);
+        int cellWidth = (rect.Width - Px(20) - gap * (columns - 1)) / columns;
+        int cellHeight = Px(27);
+        int top = rect.Y + Px(31);
+        for (int index = 0; index < quests.Count; index++)
+        {
+            var quest = quests[index];
+            int column = index % columns, row = index / columns;
+            var cell = new Rectangle(rect.X + Px(10) + column * (cellWidth + gap), top + row * Px(31), cellWidth, cellHeight);
+            bool complete = GameProfile.Profile.CompletedQuests.Contains(quest.Key);
+            long value = Math.Min(quest.Target, GameProfile.Profile.QuestProgress.GetValueOrDefault(quest.Counter));
+            Primitives2D.FillRect(spriteBatch, cell, UiTheme.Panel);
+            Primitives2D.RectOutline(spriteBatch, cell, complete ? UiTheme.Green : UiTheme.Border, 1);
+            string name = quest.Name.Length > 18 ? quest.Name[..18] : quest.Name;
+            DrawSheetText(spriteBatch, name.ToUpperInvariant(), Px(8), complete ? UiTheme.Green : UiTheme.Text,
+                new Vector2(cell.X + Px(6), cell.Y + Px(4)));
+            string progressText = complete ? "DONE" : showAll
+                ? $"{value / (double)Math.Max(1, quest.Target):P0}"
+                : $"{value:N0}/{quest.Target:N0}";
+            DrawSheetText(spriteBatch, progressText, Px(8),
+                complete ? UiTheme.Green : UiTheme.Muted, new Vector2(cell.Right - Px(6), cell.Y + Px(4)), "topright");
+            UiTheme.DrawProgress(spriteBatch, new Rectangle(cell.X + Px(6), cell.Bottom - Px(7), cell.Width - Px(12), Px(4)),
+                (float)value / Math.Max(1, quest.Target), UiTheme.Green, segments: 8);
+            if (cell.Contains(mousePosition))
+                _tooltip = $"{quest.Description} Progress: {value:N0}/{quest.Target:N0}. Reward: {quest.Reward} Soul token{(quest.Reward == 1 ? "" : "s")}.";
+        }
+    }
+
+    private void DrawCosmeticPanel(SpriteBatch spriteBatch, Rectangle rect)
+    {
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Purple, shadow: 6);
+        DrawSheetText(spriteBatch, "COSMETIC CONFIGURATION", Px(10), UiTheme.Purple,
+            new Vector2(rect.X + Px(10), rect.Y + Px(8)));
+
+        var entries = new (string Label, string Value, Color? Core, Color? Edge)[]
+        {
+            ("CORE", Cosmetics.SelectedCore.Name, Cosmetics.SelectedCore.Color, null),
+            ("EDGE", Cosmetics.SelectedEdge.Name, Cosmetics.SelectedEdge.Color, null),
+            ("SHOT", Cosmetics.SelectedProjectile.Name, Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge),
+            ("DESIGN", Cosmetics.SelectedDesign.Name, null, null),
+        };
+        int top = rect.Y + Px(31);
+        int columnWidth = (rect.Width - Px(25)) / 2;
+        for (int index = 0; index < entries.Length; index++)
+        {
+            var entry = entries[index];
+            int column = index % 2, row = index / 2;
+            var cell = new Rectangle(rect.X + Px(10) + column * (columnWidth + Px(5)), top + row * Px(39),
+                columnWidth, Px(34));
+            Primitives2D.FillRect(spriteBatch, cell, UiTheme.Panel);
+            int textX = cell.X + Px(7);
+            if (entry.Core is Color core)
+            {
+                var swatch = new Rectangle(cell.X + Px(6), cell.Center.Y - Px(9), Px(18), Px(18));
+                Primitives2D.FillRect(spriteBatch, swatch, entry.Edge ?? core);
+                if (entry.Edge is Color edge)
+                {
+                    var inner = swatch;
+                    inner.Inflate(-Px(4), -Px(4));
+                    Primitives2D.FillRect(spriteBatch, inner, core);
+                    Primitives2D.RectOutline(spriteBatch, swatch, edge, 1);
+                }
+                else
+                    Primitives2D.RectOutline(spriteBatch, swatch, UiTheme.Cream, 1);
+                textX = swatch.Right + Px(6);
+            }
+            DrawSheetText(spriteBatch, entry.Label, Px(8), UiTheme.Muted, new Vector2(textX, cell.Y + Px(4)));
+            DrawSheetText(spriteBatch, entry.Value.ToUpperInvariant(), Px(9), UiTheme.Text,
+                new Vector2(textX, cell.Bottom - Px(4)), "bottomleft");
+        }
+        DrawSheetText(spriteBatch, "Change selections in the Soul Wardrobe.", Px(8), UiTheme.Muted,
+            new Vector2(rect.X + Px(10), rect.Bottom - Px(8)), "bottomleft");
+    }
+
+    /// <summary>Draws the persisted set of quick-view sections selected in Settings &gt; Tab Menu.</summary>
+    public void DrawTabDetails(SpriteBatch spriteBatch, RunState state, Point mousePosition)
+    {
+        if (!_tabDetailsOpen)
+            return;
+
+        var sections = new List<(string Kind, int Width, int Height)>();
+        int availableWidth = Math.Max(1, _posX - _padding * 2);
+        if (GameProfile.Profile.TabShowWeaponStats)
+            sections.Add(("weapon", Math.Min(Px(300), availableWidth), Px(29 + 8 * 31)));
+
+        bool showAllQuests = GameProfile.Profile.TabShowAllQuests;
+        IReadOnlyList<QuestDefinition> quests = showAllQuests
+            ? MetaProgression.Quests
+            : ActiveTrackedQuests(GameProfile.Profile);
+        if (showAllQuests || GameProfile.Profile.TabShowActiveQuests)
+        {
+            int questWidth = Math.Min(showAllQuests ? Px(620) : Px(340), availableWidth);
+            int columns = showAllQuests && questWidth >= Px(480) ? 3 : showAllQuests ? 2 : 1;
+            sections.Add(("quests", questWidth, QuestPanelHeight(quests.Count, columns)));
+        }
+        if (GameProfile.Profile.TabShowCosmetics)
+            sections.Add(("cosmetics", Math.Min(Px(360), availableWidth), Px(132)));
+        if (sections.Count == 0)
+            sections.Add(("empty", Math.Min(Px(340), availableWidth), Px(82)));
+
+        int gap = Px(8);
+        int totalHeight = sections.Sum(section => section.Height) + gap * (sections.Count - 1);
+        int y = Math.Max(_padding, (_totalHeight - totalHeight) / 2);
+        foreach (var section in sections)
+        {
+            var rect = new Rectangle((_posX - section.Width) / 2, y, section.Width, section.Height);
+            if (section.Kind == "weapon")
+                DrawWeaponStatsPanel(spriteBatch, rect, state, mousePosition);
+            else if (section.Kind == "quests")
+                DrawQuestPanel(spriteBatch, rect, quests, showAllQuests, mousePosition);
+            else if (section.Kind == "cosmetics")
+                DrawCosmeticPanel(spriteBatch, rect);
+            else
+            {
+                UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Gold, shadow: 6);
+                DrawSheetText(spriteBatch, "TAB MENU IS EMPTY", Px(12), UiTheme.Gold,
+                    new Vector2(rect.Center.X, rect.Y + Px(18)), "midtop");
+                DrawSheetText(spriteBatch, "Pause > Tab Menu to choose quick views.", Px(9), UiTheme.Text,
+                    new Vector2(rect.Center.X, rect.Y + Px(49)), "midtop");
+            }
+            y = rect.Bottom + gap;
+        }
+    }
+
     private int DrawObjective(SpriteBatch spriteBatch, RunState state, BountyInfo? bounty, Vector2 playerWorldPosition, int y)
     {
-        var rect = Panel(spriteBatch, y, Px(80), UiTheme.Gold);
+        var rect = Panel(spriteBatch, y, Px(72), UiTheme.Gold);
         var (_, color, ratio) = Pressure(state);
         var (name, detail) = BountyDetails(bounty, state, playerWorldPosition);
         string truncatedName = name.Length > 32 ? name[..32] : name;
         DrawSheetText(spriteBatch, truncatedName, Px(12), color, new Vector2(rect.X + Px(10), rect.Y + Px(8)));
-        DrawSheetText(spriteBatch, detail, Px(9), UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(29)));
-        UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + Px(10), rect.Y + Px(47), rect.Width - Px(20), Px(8)),
+        DrawSheetText(spriteBatch, detail, Px(9), UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(26)));
+        UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + Px(10), rect.Y + Px(42), rect.Width - Px(20), Px(8)),
             (float)ratio, color, 8);
         var (level, milestone) = NextMilestone(state);
         DrawSheetText(spriteBatch, $"Next: level {level} • {milestone}", Px(8), UiTheme.Muted,
@@ -632,7 +774,7 @@ public sealed class InformationSheet
     private void DrawRecentTable(SpriteBatch spriteBatch, RunState state, Point mousePosition, int minimumY)
     {
         int available = _totalHeight - minimumY - _padding;
-        int height = Math.Max(Px(76), Math.Min(Px(112), available));
+        int height = Math.Max(Px(70), Math.Min(Px(96), available));
         int y = _totalHeight - height - _padding;
         var rect = Panel(spriteBatch, y, height, UiTheme.Cream, UiTheme.Panel);
         DrawSheetText(spriteBatch, "RECENT PICKS", Px(9), UiTheme.Muted, new Vector2(rect.X + Px(10), rect.Y + Px(7)));
@@ -819,9 +961,7 @@ public sealed class InformationSheet
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
 
-        DrawBuildIdentityOverlay(spriteBatch, state);
-
-        int y = DrawHeader(spriteBatch, state);
+        int y = DrawRunSummary(spriteBatch, state);
         y = DrawStatus(spriteBatch, state, y);
         y = DrawInventory(spriteBatch, state, mousePosition, y);
         y = DrawStash(spriteBatch, state, mousePosition, y);
@@ -831,7 +971,7 @@ public sealed class InformationSheet
             y = DrawObjective(spriteBatch, state, currentBounty, playerWorldPosition, y);
         DrawRecentTable(spriteBatch, state, mousePosition, y);
 
-        DrawWeaponStatsPopup(spriteBatch, state, mousePosition);
+        DrawTabDetails(spriteBatch, state, mousePosition);
 
         if (_draggingItem is not null)
         {

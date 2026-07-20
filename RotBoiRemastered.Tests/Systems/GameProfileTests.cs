@@ -25,6 +25,10 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.DamageNumbers, profile.DamageNumbers);
         Assert.Equal(defaults.AimGuide, profile.AimGuide);
         Assert.Equal(defaults.HighContrast, profile.HighContrast);
+        Assert.Equal(defaults.TabShowWeaponStats, profile.TabShowWeaponStats);
+        Assert.Equal(defaults.TabShowActiveQuests, profile.TabShowActiveQuests);
+        Assert.Equal(defaults.TabShowAllQuests, profile.TabShowAllQuests);
+        Assert.Equal(defaults.TabShowCosmetics, profile.TabShowCosmetics);
         Assert.Equal(defaults.TextSize, profile.TextSize);
         Assert.Equal(defaults.GuiScale, profile.GuiScale);
         Assert.Equal(defaults.DamageTextSize, profile.DamageTextSize);
@@ -96,6 +100,9 @@ public class GameProfileTests : IDisposable
                 TextSize = 1.4,
                 GuiScale = 1.15,
                 DamageTextSize = .65,
+                TabShowWeaponStats = false,
+                TabShowActiveQuests = true,
+                TabShowCosmetics = true,
                 Keybinds = new Dictionary<string, int?> { ["dash"] = 42, ["move_up"] = null },
             };
             GameProfile.SavePath = path;
@@ -109,6 +116,9 @@ public class GameProfileTests : IDisposable
             Assert.Equal(1.4, reloaded.TextSize);
             Assert.Equal(1.15, reloaded.GuiScale);
             Assert.Equal(.65, reloaded.DamageTextSize);
+            Assert.False(reloaded.TabShowWeaponStats);
+            Assert.True(reloaded.TabShowActiveQuests);
+            Assert.True(reloaded.TabShowCosmetics);
             Assert.Equal(42, reloaded.Keybinds["dash"]);
             Assert.Null(reloaded.Keybinds["move_up"]);
         }

@@ -111,12 +111,12 @@ public sealed class GameSession
     }
 
     /// <summary>
-    /// Tab now opens/closes the weapon-stats popup instead of toggling the
-    /// sidebar's own width -- the sidebar is a single fixed width now, so
+    /// Tab opens/closes the configured run-details view instead of toggling
+    /// the sidebar's own width -- the sidebar is a single fixed width now, so
     /// there's no ArenaWidth change here to re-center the camera for
     /// (unlike the old HudMode toggle this replaced).
     /// </summary>
-    public void ToggleWeaponStats() => InformationSheet.ToggleWeaponStats();
+    public void ToggleTabDetails() => InformationSheet.ToggleTabDetails();
 
     /// <summary>
     /// Loads whatever's currently carried (GameProfile.Profile.CarriedEquipment/
@@ -1285,8 +1285,8 @@ public sealed class GameSession
     /// Draws the combat-only overlays layered above the arena and below the
     /// sidebar. The aim reticle is drawn separately (see
     /// <see cref="DrawAimReticle"/>) and later in the frame -- it needs to sit
-    /// above the sidebar's weapon-stats popup (Tab), which otherwise painted
-    /// over the reticle since that popup is centered within the arena, right
+    /// above the configurable Tab details view, which otherwise paints over
+    /// the reticle when a quick-view panel is centered within the arena, right
     /// where the reticle draws too.
     /// </summary>
     public void DrawCombatOverlays(SpriteBatch spriteBatch, Point mousePosition)

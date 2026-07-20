@@ -58,7 +58,15 @@ public sealed class Menus
 
     private static readonly (string Key, string Label)[] Tabs =
     {
-        ("gameplay", "GAMEPLAY"), ("options", "OPTIONS"), ("keybinds", "KEYBINDS"),
+        ("gameplay", "GAMEPLAY"), ("options", "OPTIONS"), ("quickview", "TAB MENU"), ("keybinds", "KEYBINDS"),
+    };
+
+    private static readonly (string Key, string Label, string Description)[] QuickViewOptions =
+    {
+        ("TabShowWeaponStats", "SHOW WEAPON STATS", "Damage, fire rate, projectiles, and defensive ratings"),
+        ("TabShowActiveQuests", "SHOW ACTIVE TRACKED QUESTS", "The four incomplete quests closest to completion"),
+        ("TabShowAllQuests", "SHOW ALL QUESTS", "Every persistent quest and its current progress"),
+        ("TabShowCosmetics", "SHOW COSMETIC CONFIGURATION", "Current body, edge, projectile, and design choices"),
     };
 
     /// <summary>Same contract as GameSession.LootCrateScissorRasterizerState -- clips the scrolled keybinds list to the settings panel.</summary>
@@ -82,6 +90,32 @@ public sealed class Menus
         "HighContrast" => GameProfile.Profile.HighContrast,
         _ => false,
     };
+
+    private static bool GetQuickViewToggle(string key) => key switch
+    {
+        "TabShowWeaponStats" => GameProfile.Profile.TabShowWeaponStats,
+        "TabShowActiveQuests" => GameProfile.Profile.TabShowActiveQuests,
+        "TabShowAllQuests" => GameProfile.Profile.TabShowAllQuests,
+        "TabShowCosmetics" => GameProfile.Profile.TabShowCosmetics,
+        _ => false,
+    };
+
+    /// <summary>Toggles one persisted Tab-menu section; the two quest scopes are alternatives.</summary>
+    public static bool? ToggleQuickViewOption(string key)
+    {
+        bool? enabled = GameProfile.Toggle(key);
+        if (enabled == true && key == "TabShowActiveQuests")
+        {
+            GameProfile.Profile.TabShowAllQuests = false;
+            GameProfile.SaveProfile();
+        }
+        else if (enabled == true && key == "TabShowAllQuests")
+        {
+            GameProfile.Profile.TabShowActiveQuests = false;
+            GameProfile.SaveProfile();
+        }
+        return enabled;
+    }
 
     private static int ClosestIndex(IReadOnlyList<double> levels, double current)
     {
@@ -124,6 +158,31 @@ public sealed class Menus
 
     private bool Activated(string name, Point mousePosition, bool mousePressed) =>
         mousePressed && _buttons.TryGetValue(name, out var rect) && rect.Contains(mousePosition);
+
+    private void Checkbox(SpriteBatch spriteBatch, string name, Rectangle rect, string label, string description,
+        bool active, Point mousePosition)
+    {
+        _buttons[name] = rect;
+        bool hovered = rect.Contains(mousePosition);
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised,
+            hovered ? UiTheme.Blue : active ? UiTheme.Green : UiTheme.Border, shadow: 3, hovered: hovered);
+        int boxSize = Math.Max(16, (int)(22 * UiTheme.DisplayScale(spriteBatch)));
+        var box = new Rectangle(rect.X + 10, rect.Center.Y - boxSize / 2, boxSize, boxSize);
+        Primitives2D.FillRect(spriteBatch, box, active ? UiTheme.Green : UiTheme.Ink);
+        Primitives2D.RectOutline(spriteBatch, box, active ? UiTheme.Cream : UiTheme.Border, 2);
+        if (active)
+        {
+            Primitives2D.Line(spriteBatch, new Vector2(box.X + box.Width * .20f, box.Center.Y),
+                new Vector2(box.X + box.Width * .43f, box.Bottom - box.Height * .22f), UiTheme.Ink, 2);
+            Primitives2D.Line(spriteBatch, new Vector2(box.X + box.Width * .43f, box.Bottom - box.Height * .22f),
+                new Vector2(box.Right - box.Width * .16f, box.Y + box.Height * .20f), UiTheme.Ink, 2);
+        }
+        float scale = UiTheme.DisplayScale(spriteBatch);
+        UiTheme.DrawText(spriteBatch, label, 10 * scale, UiTheme.Text,
+            new Vector2(box.Right + 10 * scale, rect.Y + 7 * scale));
+        UiTheme.DrawText(spriteBatch, description, 8 * scale, UiTheme.Muted,
+            new Vector2(box.Right + 10 * scale, rect.Bottom - 5 * scale), "bottomleft");
+    }
 
     private void Slider(SpriteBatch spriteBatch, string name, Rectangle rect, string label, string valueLabel,
         double value, double min, double max, Point mousePosition, Color accent)
@@ -240,6 +299,22 @@ public sealed class Menus
             UiTheme.DrawText(spriteBatch, "Native-resolution fullscreen (F11 also toggles this)", 8 * scale, UiTheme.Muted,
                 new Vector2(fullscreenRect.X + 10 * scale, fullscreenRect.Bottom - 4 * scale), "bottomleft");
         }
+        else if (_settingsTab == "quickview")
+        {
+            UiTheme.DrawText(spriteBatch, "CHOOSE WHAT APPEARS WHEN YOU PRESS TAB", 9 * scale, UiTheme.Cream,
+                new Vector2(settings.X + 14 * scale, bodyTop));
+            for (int index = 0; index < QuickViewOptions.Length; index++)
+            {
+                var (key, label, description) = QuickViewOptions[index];
+                float y = bodyTop + (24 + index * 57) * scale;
+                var rect = new Rectangle((int)(settings.X + 14 * scale), (int)y,
+                    (int)(settings.Width - 28 * scale), (int)(49 * scale));
+                Checkbox(spriteBatch, key, rect, label, description, GetQuickViewToggle(key), mousePosition);
+            }
+            if (!QuickViewOptions.Any(option => GetQuickViewToggle(option.Key)))
+                UiTheme.DrawText(spriteBatch, "TAB will show a short setup reminder until a section is selected.",
+                    8 * scale, UiTheme.Gold, new Vector2(settings.X + 14 * scale, bodyTop + 264 * scale));
+        }
         else
         {
             float rowH = 33 * scale;
@@ -312,7 +387,7 @@ public sealed class Menus
             }
         }
 
-        UiTheme.DrawText(spriteBatch, "TAB shows weapon stats during play", 9 * scale, UiTheme.Muted,
+        UiTheme.DrawText(spriteBatch, "Configure the in-run TAB menu under TAB MENU", 9 * scale, UiTheme.Muted,
             new Vector2(screenWidth / 2f, screenHeight * .82f), "center");
     }
 
@@ -403,6 +478,15 @@ public sealed class Menus
                     if (_activeSlider == "camera_zoom") GameProfile.Profile.CameraZoom = Math.Round(value, 2);
                     _sliderDirty = true;
                 }
+            }
+        }
+        else if (_settingsTab == "quickview")
+        {
+            foreach (var (key, _, _) in QuickViewOptions)
+            {
+                if (!Activated(key, mousePosition, mousePressed))
+                    continue;
+                ToggleQuickViewOption(key);
             }
         }
         else

@@ -274,7 +274,7 @@ public class RotBoiGame : Game
             GameProfile.SaveProfile();
         }
         if (Keybinds.Pressed("hud_toggle") && State == GameState.GameRun)
-            _session!.ToggleWeaponStats();
+            _session!.ToggleTabDetails();
     }
 
     /// <summary>Ported from main.py's update_camera_controls().</summary>

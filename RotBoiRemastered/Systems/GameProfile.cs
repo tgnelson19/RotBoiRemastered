@@ -29,6 +29,11 @@ public sealed class GameProfileData
     public bool DamageNumbers { get; set; } = true;
     public bool AimGuide { get; set; }
     public bool HighContrast { get; set; }
+    /// <summary>Sections included in the in-run details view opened with the HUD-detail key (Tab by default).</summary>
+    public bool TabShowWeaponStats { get; set; } = true;
+    public bool TabShowActiveQuests { get; set; }
+    public bool TabShowAllQuests { get; set; }
+    public bool TabShowCosmetics { get; set; }
     public double TextSize { get; set; } = 1.0;
     public double GuiScale { get; set; } = 1.0;
     public double DamageTextSize { get; set; } = 0.8;

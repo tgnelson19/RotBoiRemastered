@@ -25,16 +25,40 @@ public class InformationSheetTests
     }
 
     [Fact]
-    public void ToggleWeaponStats_DoesNotChangeArenaWidthOrTouchProfile()
+    public void ToggleTabDetails_DoesNotChangeArenaWidthOrTouchProfile()
     {
         var sheet = new InformationSheet(1920, 1080);
         int before = sheet.ArenaWidth;
         var profileBefore = GameProfile.Profile;
 
-        sheet.ToggleWeaponStats();
+        sheet.ToggleTabDetails();
 
         Assert.Equal(before, sheet.ArenaWidth);
         Assert.Same(profileBefore, GameProfile.Profile);
+    }
+
+    [Fact]
+    public void ActiveTrackedQuests_ReturnsFourIncompleteQuestsClosestToCompletion()
+    {
+        var profile = new GameProfileData();
+        profile.QuestProgress["enemies_defeated"] = 200; // Crowd Control: 80%; Harvester: 20%.
+        profile.QuestProgress["items_found"] = 7; // Curator: 87.5%; Full Shelf: 35%.
+        profile.CompletedQuests.Add("first_steps");
+
+        var quests = InformationSheet.ActiveTrackedQuests(profile);
+
+        Assert.Equal(4, quests.Count);
+        Assert.Equal("curator", quests[0].Key);
+        Assert.Equal("crowd_control", quests[1].Key);
+        Assert.DoesNotContain(quests, quest => quest.Key == "first_steps");
+    }
+
+    [Fact]
+    public void ActiveTrackedQuests_RespectsRequestedMaximum()
+    {
+        var quests = InformationSheet.ActiveTrackedQuests(new GameProfileData(), maximum: 2);
+
+        Assert.Equal(2, quests.Count);
     }
 
     [Fact]

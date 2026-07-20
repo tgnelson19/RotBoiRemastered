@@ -88,6 +88,30 @@ public class MenusTests : IDisposable
     }
 
     [Fact]
+    public void ToggleQuickViewOption_PersistsSelection()
+    {
+        Assert.False(GameProfile.Profile.TabShowCosmetics);
+
+        var result = Menus.ToggleQuickViewOption("TabShowCosmetics");
+
+        Assert.True(result);
+        Assert.True(GameProfile.Profile.TabShowCosmetics);
+        Assert.True(File.Exists(GameProfile.SavePath));
+    }
+
+    [Fact]
+    public void ToggleQuickViewOption_QuestScopesAreMutuallyExclusive()
+    {
+        Assert.True(Menus.ToggleQuickViewOption("TabShowActiveQuests"));
+        Assert.True(GameProfile.Profile.TabShowActiveQuests);
+
+        Assert.True(Menus.ToggleQuickViewOption("TabShowAllQuests"));
+
+        Assert.False(GameProfile.Profile.TabShowActiveQuests);
+        Assert.True(GameProfile.Profile.TabShowAllQuests);
+    }
+
+    [Fact]
     public void HandleResults_Enter_ReturnsRestart()
     {
         var menus = new Menus();
