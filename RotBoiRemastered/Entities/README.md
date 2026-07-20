@@ -262,4 +262,7 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   (Chemesthesis), and Malady (Phantasia). `sting` remains registered only as
   a compatibility/debug key. Every mapped finale owns a 40-second
   invulnerable spectacle, a 10-second harmless death animation, normal XP and
-  loot release, and `MetaProgression.RecordExtraction` path completion.
+    loot release, and `MetaProgression.RecordExtraction` path completion.
+  - Core-Forged loot gives `LootCrate` a pulsing path-colored glow and orbiting
+    particles. Equipped Core Forge types render as distinct concentric rings
+    around `Player`; duplicate pieces of the same Core share one ring.

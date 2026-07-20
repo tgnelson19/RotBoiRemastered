@@ -139,6 +139,7 @@ public sealed class GameSession
             State.Inventory[index] = index < GameProfile.Profile.CarriedInventory.Count
                 ? Items.Deserialize(GameProfile.Profile.CarriedInventory[index])
                 : null;
+        State.FillHealthForMilestone();
     }
 
     /// <summary>
@@ -808,7 +809,7 @@ public sealed class GameSession
             // RollDropCount roll that still runs (and could otherwise land
             // on 0) for every enemy, boss or not.
             string? defeatedBossKey = ReferenceEquals(enemy, State.ActiveBoss) ? (_activeBossKey ?? BossKeyFor(enemy)) : null;
-            var drops = Items.GenerateDrops(Items.RollDropCount(rng), rng);
+            var drops = Items.GenerateDrops(Items.RollDropCount(rng), rng, State.HardMode, GamePaths.Active().Key);
             if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng) is { } uniqueDrop)
                 drops.Add(uniqueDrop);
             if (drops.Count > 0)
@@ -938,7 +939,7 @@ public sealed class GameSession
         State.CurrentLevel += 1;
         State.PendingLevelUps += 1;
         State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
-        State.HealthPoints = State.MaxHealthPoints;
+        State.FillHealthForMilestone();
         GameProfile.IncrementQuest("levels_gained");
         return true;
     }
@@ -1622,6 +1623,8 @@ public sealed class GameSession
         else
             State.Stats[card.Name].Multiplicative.Add(modifier);
         State.CombinePlayerStats();
+        if (State.HardMode)
+            State.FillHealthForMilestone();
         State.NewRandoUps = false;
         State.PendingLevelUps = Math.Max(0, State.PendingLevelUps - 1);
         if (State.PendingLevelUps > 0)

@@ -66,6 +66,22 @@ public class MetaProgressionTests : IDisposable
         Assert.Equal(2, GameProfile.Profile.ExtractedRuns[^1].Level);
     }
 
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    public void CompletedPath_AwardsBaseTokensAndDoublesThemInHardMode(bool hardMode, int expectedTokens)
+    {
+        // Isolate the direct path-clear award from quest completion rewards
+        // (the first extraction otherwise completes its own one-token quest).
+        GameProfile.Profile.CompletedQuests = MetaProgression.Quests.Select(quest => quest.Key).ToList();
+        var state = new RunState();
+        state.SetHardMode(hardMode);
+
+        MetaProgression.RecordExtraction(state, "sound", completed: true);
+
+        Assert.Equal(expectedTokens, GameProfile.Profile.SoulTokens);
+    }
+
     [Fact]
     public void SyncCarriedItems_RoundTripsEquipmentAndInventoryIntoProfile()
     {

@@ -165,6 +165,7 @@ public sealed class RunState
     public int HighestLevel { get; set; }
     public double RunTimeSeconds { get; set; }
     public string RunOutcome { get; set; } = "DEFEATED";
+    public bool HardMode { get; private set; }
 
     public double PlayerSpeed { get; private set; }
     public float PlayerSize { get; private set; }
@@ -273,6 +274,7 @@ public sealed class RunState
     /// <summary>Ported from character.py's resetAllStats() (the characterStats.py-side fields only -- Player/world reset is Player.cs's job).</summary>
     public void Reset()
     {
+        HardMode = GameProfile.Profile.HardModeEnabled;
         PlayerSpeed = 2.1;
         PlayerSize = Simulation.TileSize * .75f;
         ApplyCosmetics();
@@ -382,6 +384,17 @@ public sealed class RunState
         };
         MetaProgression.ApplySkills(this);
         CombinePlayerStats();
+        FillHealthForMilestone();
+    }
+
+    /// <summary>Used by the Soul challenge station before a new run captures the persisted setting.</summary>
+    public void SetHardMode(bool enabled) => HardMode = enabled;
+
+    /// <summary>The only full restore used by Hard Mode: run start and purchased level-ups.</summary>
+    public void FillHealthForMilestone()
+    {
+        HealthPoints = MaxHealthPoints;
+        HealthRecoveryBuffer = 0;
     }
 
     /// <summary>Refresh gameplay-neutral wardrobe selections without resetting the run.</summary>
@@ -423,6 +436,11 @@ public sealed class RunState
     /// </summary>
     public void RecoverHealth()
     {
+        if (HardMode)
+        {
+            HealthRecoveryBuffer = 0;
+            return;
+        }
         if (HealthPoints >= MaxHealthPoints || Vitality <= 0)
         {
             HealthRecoveryBuffer = 0.0;
@@ -455,7 +473,9 @@ public sealed class RunState
         BulletPierce = Math.Clamp(Equipped("Bullet Pierce"), 1, 8);
         Defense = (int)Math.Round(Equipped("Defense"));
         MaxHealthPoints = Math.Clamp((int)Math.Round(Equipped("Health")), 1, 5000);
-        HealthPoints = Math.Min(MaxHealthPoints, HealthPoints + Math.Max(0, MaxHealthPoints - previousMaxHealth));
+        HealthPoints = Math.Min(MaxHealthPoints, HardMode
+            ? HealthPoints
+            : HealthPoints + Math.Max(0, MaxHealthPoints - previousMaxHealth));
         Vitality = Math.Clamp((int)Math.Round(Equipped("Vitality")), 0, 200);
         CritChance = Math.Clamp(Equipped("Crit Chance"), 0, .85);
         CritDamage = Math.Clamp(Equipped("Crit Damage"), 1, 5);

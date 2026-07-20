@@ -24,6 +24,8 @@ public class EquipmentBalanceTests : IDisposable
     }
 
     private static ItemDrop Epic(string name) => new(Items.DefinitionsByName[name], "Epic");
+    private static ItemDrop EpicCore(string core) =>
+        new(Items.DefinitionsByName["Iron Sword"], "Epic", "S", "Balanced", core);
 
     [Fact]
     public void WeaponArchetypes_FollowDamageAndRangeSpectrum()
@@ -100,6 +102,40 @@ public class EquipmentBalanceTests : IDisposable
             ["ring"] = null, ["accessory_1"] = null, ["accessory_2"] = null,
         });
         Assert.Equal(Items.MaxDefense, state.Defense);
+    }
+
+    [Fact]
+    public void CoreForgePackages_ApplyTheirRequestedCombatIdentities()
+    {
+        var plain = Epic("Iron Sword");
+        double Stat(string stat, double baseline, ItemDrop item) =>
+            Items.AdjustStat(stat, baseline, new ItemDrop?[] { item });
+
+        var rot = EpicCore("rot");
+        Assert.True(Stat("Defense", 0, rot) > Stat("Defense", 0, plain));
+        Assert.True(Stat("Health", 1000, rot) > Stat("Health", 1000, plain));
+        Assert.True(Stat("Bullet Damage", 100, rot) < Stat("Bullet Damage", 100, plain));
+        Assert.True(Stat("Player Speed", 2.1, rot) < Stat("Player Speed", 2.1, plain));
+
+        var malady = EpicCore("malady");
+        Assert.True(Stat("Bullet Speed", 4, malady) < Stat("Bullet Speed", 4, plain));
+        Assert.True(Stat("Attack Speed", 40, malady) > Stat("Attack Speed", 40, plain));
+        Assert.True(Stat("Bullet Damage", 100, malady) >= Stat("Bullet Damage", 100, plain) * 1.5);
+
+        var dissonance = EpicCore("dissonance");
+        Assert.True(Stat("Attack Speed", 40, dissonance) < Stat("Attack Speed", 40, plain));
+        Assert.True(Stat("Bullet Damage", 100, dissonance) > Stat("Bullet Damage", 100, plain));
+        Assert.True(Stat("Player Speed", 2.1, dissonance) < Stat("Player Speed", 2.1, plain));
+
+        var ache = EpicCore("ache");
+        Assert.Equal(3, Stat("Bullet Count", 1, ache));
+        Assert.True(Stat("Spread Angle", Math.PI / 8, ache) > 1.0);
+        Assert.True(Stat("Attack Speed", 40, ache) < Stat("Attack Speed", 40, plain));
+
+        var chronos = EpicCore("chronos");
+        Assert.Equal(2, Stat("Bullet Count", 1, chronos));
+        Assert.True(Stat("Defense", 0, chronos) > 0);
+        Assert.True(Stat("Attack Speed", 40, chronos) < Stat("Attack Speed", 40, plain));
     }
 
     [Fact]

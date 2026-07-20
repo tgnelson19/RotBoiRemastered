@@ -360,7 +360,9 @@ public sealed class InformationSheet
         var (pressureLabel, color, _) = Pressure(state);
         DrawSheetText(spriteBatch, pressureLabel, Px(10), color,
             new Vector2(rect.Right - Px(11), rect.Y + Px(14)), "topright");
-        DrawSheetText(spriteBatch, _tabDetailsOpen ? "Tab: close details" : "Tab: run details", Px(9), UiTheme.Muted,
+        string detailsHint = _tabDetailsOpen ? "Tab: close details" : "Tab: run details";
+        DrawSheetText(spriteBatch, state.HardMode ? $"HARD MODE  //  {detailsHint}" : detailsHint, Px(9),
+            state.HardMode ? UiTheme.Red : UiTheme.Muted,
             new Vector2(rect.X + Px(11), rect.Y + Px(36)));
 
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(52)),
@@ -906,8 +908,9 @@ public sealed class InformationSheet
     {
         var effects = Items.Effects(item);
         var statuses = Items.EffectiveStatusChances(item);
+        var coreForge = Items.CoreForgeFor(item);
         int width = Math.Min(Px(320), (int)(_screenWidth * .34));
-        int headerHeight = Px(74);
+        int headerHeight = Px(coreForge is null ? 74 : 94);
         int rowHeight = Px(38);
         // Wrapped up front (rather than drawn at a fixed one-line height) so
         // long flavor text -- e.g. Grimsbane's -- breaks onto extra lines
@@ -927,7 +930,8 @@ public sealed class InformationSheet
         var rect = new Rectangle(mousePosition.X - width - Px(12), mousePosition.Y + Px(10), width, height);
         rect = ClampToBounds(rect, new Rectangle(0, 0, _screenWidth, _totalHeight));
         Color rarity = UiTheme.RarityColors.TryGetValue(item.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, rarity, shadow: 7);
+        Color? coreColor = coreForge is not null ? GamePaths.PathsByKey[coreForge.PathKey].Accent : null;
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, coreColor ?? rarity, shadow: 7);
 
         // Same dark-backdrop-plus-shine treatment as ItemCards.DrawItemCard's
         // Unique branch, kept in sync manually since this header icon is a
@@ -946,6 +950,9 @@ public sealed class InformationSheet
         Color gradeColor = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
         DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  GRADE {item.Grade}  //  {item.Modifier.ToUpperInvariant()}", Px(9), gradeColor,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(40)));
+        if (coreForge is not null)
+            DrawSheetText(spriteBatch, $"✦  {coreForge.DisplayName.ToUpperInvariant()}  //  HARD MODE FORGED", Px(9), coreColor ?? UiTheme.Gold,
+                new Vector2(rect.X + Px(14), rect.Y + Px(68)));
 
         int y = rect.Y + headerHeight;
         foreach (var effect in effects)

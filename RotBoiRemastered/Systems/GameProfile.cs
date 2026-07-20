@@ -45,6 +45,8 @@ public sealed class GameProfileData
     public string ProjectileDesign { get; set; } = "bulb";
     /// <summary>Native-resolution fullscreen, toggled via F11 or the pause menu's OPTIONS tab (RotBoiGame.ApplyFullscreen). Defaults off -- windowed is friendlier for a desktop app that hasn't asked first.</summary>
     public bool Fullscreen { get; set; }
+    /// <summary>Selected only from the Soul's challenge altar and captured into each new RunState.</summary>
+    public bool HardModeEnabled { get; set; }
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();
@@ -80,7 +82,12 @@ public sealed class GameProfileData
 /// authored strength and avoid inventing an affix when an existing save is
 /// migrated.
 /// </summary>
-public sealed record StoredItemData(string Name, string Rarity, string Grade = "S", string Modifier = "Balanced");
+public sealed record StoredItemData(
+    string Name,
+    string Rarity,
+    string Grade = "S",
+    string Modifier = "Balanced",
+    string? CoreForge = null);
 
 public sealed class ExtractedRunData
 {

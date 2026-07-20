@@ -104,6 +104,23 @@ public class RunStateTests : IDisposable
     }
 
     [Fact]
+    public void HardMode_BlocksPassiveRecoveryAndHealthIncreaseHealing()
+    {
+        var state = new RunState();
+        state.SetHardMode(true);
+        state.HealthPoints = 500;
+
+        for (int index = 0; index < 240; index++)
+            state.RecoverHealth();
+        state.Stats["Health"].Additive.Add(200);
+        state.CombinePlayerStats();
+
+        Assert.Equal(1200, state.MaxHealthPoints);
+        Assert.Equal(500, state.HealthPoints);
+        Assert.Equal(0, state.HealthRecoveryBuffer);
+    }
+
+    [Fact]
     public void DreamState_AlterBelief_ClampsBetweenZeroAndTen()
     {
         var dream = new DreamState();

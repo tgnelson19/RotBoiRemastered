@@ -37,6 +37,8 @@ public sealed class LootCrate
     {
         if (Items.Count == 0)
             return UiTheme.Border;
+        if (CoreAccent is Color coreAccent)
+            return coreAccent;
         var rarityOrder = Upgrades.RarityOrder.ToList();
         var best = Items.OrderByDescending(item => rarityOrder.IndexOf(item.Rarity)).First();
         return UiTheme.RarityColors.TryGetValue(best.Rarity, out var color) ? color : UiTheme.Border;
@@ -44,6 +46,17 @@ public sealed class LootCrate
 
     /// <summary>"Unique" isn't in Upgrades.RarityOrder (crates can't roll one the normal way -- only a boss's fixed drop table grants one), so this is checked directly rather than through Tint()'s rarity-order ranking.</summary>
     public bool ContainsUnique => Items.Any(item => item.Rarity == "Unique");
+
+    public bool ContainsCoreForged => Items.Any(item => RotBoiRemastered.Systems.Items.CoreForgeFor(item) is not null);
+
+    public Color? CoreAccent
+    {
+        get
+        {
+            var core = Items.Select(RotBoiRemastered.Systems.Items.CoreForgeFor).FirstOrDefault(value => value is not null);
+            return core is not null ? GamePaths.PathsByKey[core.PathKey].Accent : null;
+        }
+    }
 
     /// <summary>
     /// This draws in its own unscaled SpriteBatch pass (see
@@ -71,6 +84,9 @@ public sealed class LootCrate
         float size = Size * camera.Zoom;
         var rect = new Rectangle((int)(screenCenter.X - size / 2f), (int)(screenCenter.Y - size / 2f), (int)size, (int)size);
         Color accent = Tint();
+
+        if (CoreAccent is Color coreAccent)
+            DrawCoreAura(spriteBatch, rect, coreAccent);
 
         var shadowRect = new Rectangle(rect.X + 4, (int)(rect.Bottom - rect.Height * 0.18f), rect.Width, (int)(rect.Height * 0.18f));
         Primitives2D.FillEllipse(spriteBatch, shadowRect, UiTheme.Shadow);
@@ -128,6 +144,29 @@ public sealed class LootCrate
                 var point = center + new Vector2(MathF.Cos(angle) * orbitRx, MathF.Sin(angle) * orbitRy);
                 Primitives2D.FillCircle(spriteBatch, point, dotRadius, UiTheme.Gold * alpha);
             }
+        }
+    }
+
+    /// <summary>Path-colored glow plus drifting motes for any crate carrying a Core-Forged item.</summary>
+    private static void DrawCoreAura(SpriteBatch spriteBatch, Rectangle rect, Color color)
+    {
+        double seconds = Environment.TickCount64 / 1000.0;
+        float pulse = .9f + .12f * MathF.Sin((float)seconds * 4f);
+        var center = rect.Center.ToVector2();
+        for (int layer = 3; layer >= 1; layer--)
+        {
+            float radius = rect.Width * (.62f + layer * .13f) * pulse;
+            Primitives2D.CircleOutline(spriteBatch, center, radius, color * (.16f + (3 - layer) * .08f), layer + 1);
+        }
+
+        const int particles = 12;
+        for (int index = 0; index < particles; index++)
+        {
+            float phase = index * MathHelper.TwoPi / particles + (float)seconds * (index % 2 == 0 ? .9f : -.7f);
+            float radius = rect.Width * (.75f + .18f * MathF.Sin((float)seconds * 1.7f + index));
+            var point = center + new Vector2(MathF.Cos(phase) * radius, MathF.Sin(phase) * radius * .62f);
+            float moteSize = 1.5f + (index % 3) * .7f;
+            Primitives2D.FillCircle(spriteBatch, point, moteSize, color * (.55f + .3f * MathF.Sin(phase + index)));
         }
     }
 }

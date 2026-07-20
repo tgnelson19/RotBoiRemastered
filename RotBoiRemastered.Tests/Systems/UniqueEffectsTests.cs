@@ -52,6 +52,19 @@ public class UniqueEffectsTests
     }
 
     [Fact]
+    public void OnPlayerHit_HardModeSuppressesDreadLifesteal()
+    {
+        var boss = new Beaudis(0, 0, 100, new Random(4));
+        var state = new RunState { HealthPoints = 500 };
+        state.SetHardMode(true);
+
+        for (int index = 0; index < 500; index++)
+            UniqueEffects.OnPlayerHit(boss, TestBullet(isCritical: true), BowOfDread(), state, new Random(index));
+
+        Assert.Equal(500, state.HealthPoints);
+    }
+
+    [Fact]
     public void OnPlayerHit_StacksBaneOnEveryHit_NoRollNeeded()
     {
         // Unlike Dread's chance-based procs, bane_on_hit is Grimsbane's

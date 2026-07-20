@@ -44,7 +44,7 @@ public static class UniqueEffects
                     // damage. Doesn't touch dread_on_hit's roll or state at all --
                     // that's the point of listing effects separately instead of
                     // cramming multiple behaviors into one case.
-                    if (rng.NextDouble() <= .10)
+                    if (!state.HardMode && rng.NextDouble() <= .10)
                     {
                         int heal = Math.Max(1, (int)Math.Round(bullet.Damage * .02));
                         state.HealthPoints = Math.Min(state.MaxHealthPoints, state.HealthPoints + heal);

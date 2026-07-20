@@ -73,4 +73,18 @@ public class ReforgeHandlerTests
         Assert.Same(before, state.Equipment["weapon"]);
         Assert.Equal(1, state.ExpCount);
     }
+
+    [Fact]
+    public void ReforgingNeverChangesCoreForgeOrRarity()
+    {
+        var (state, handler) = EquippedWeapon(grade: "F", modifier: "Bloody");
+        state.Equipment["weapon"] = state.Equipment["weapon"]! with { CoreForge = "dissonance" };
+        state.ExpCount = 500;
+
+        Assert.True(handler.TryUpgradeGrade(state));
+        Assert.True(handler.TryRerollModifier(state, new Random(3)));
+
+        Assert.Equal("dissonance", state.Equipment["weapon"]!.CoreForge);
+        Assert.Equal("Legendary", state.Equipment["weapon"]!.Rarity);
+    }
 }

@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -186,6 +187,13 @@ public sealed class ReforgeHandler
             new Vector2(rect.X + Px(20), rect.Y + Px(15)));
         UiTheme.DrawText(spriteBatch, $"{item.Rarity.ToUpperInvariant()} RARITY  //  GRADE {item.Grade} ({Items.GradePower(item.Grade):P0} STATS)",
             Px(11), grade, new Vector2(rect.X + Px(20), rect.Y + Px(51)));
+
+        var core = Items.CoreForgeFor(item);
+        if (core is not null)
+        {
+            Color coreColor = GamePaths.PathsByKey[core.PathKey].Accent;
+            UiTheme.DrawTag(spriteBatch, core.DisplayName, new Vector2(rect.Right - Px(170), rect.Y + Px(20)), coreColor, Px(10));
+        }
 
         var affix = Items.ModifierDefinition(item);
         UiTheme.DrawText(spriteBatch, $"{affix.Name.ToUpperInvariant()} MODIFIER", Px(15), UiTheme.Purple,

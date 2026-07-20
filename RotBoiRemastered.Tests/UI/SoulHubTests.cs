@@ -11,6 +11,32 @@ namespace RotBoiRemastered.Tests.UI;
 public sealed class SoulHubTests
 {
     [Fact]
+    public void ToggleHardMode_PersistsSelectionAndUpdatesCurrentSoulState()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-hard-mode-tests-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateSound(), 1280, 720, new Random(1));
+
+            SoulHub.ToggleHardMode(session);
+
+            Assert.True(GameProfile.Profile.HardModeEnabled);
+            Assert.True(session.State.HardMode);
+            Assert.True(File.Exists(GameProfile.SavePath));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void StationRadius_ClosesOnlyAfterPlayerWalksBeyondDismissalDistance()
     {
         var station = new Vector2(400, 300);

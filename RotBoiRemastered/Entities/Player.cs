@@ -163,6 +163,7 @@ public sealed class Player
         bool flashOn = state.PlayerInvulnerabilityTimer > 0 && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
         Color color = flashOn ? new Color(235, 245, 255) : state.PlayerColor;
         float drawSize = state.PlayerSize * sizeScale;
+        DrawCoreForgeRings(spriteBatch, state, camera.Lock, drawSize);
 
         // One fixed sprite slot, not a selectable list like ProjectileDesign
         // -- there's no wardrobe UI for alternate skins yet. Never rotated
@@ -190,5 +191,24 @@ public sealed class Player
         var inset = rect;
         inset.Inflate(-(int)(drawSize * .42f), -(int)(drawSize * .42f));
         Primitives2D.FillRect(spriteBatch, inset, UiTheme.Lighten(color, 45));
+    }
+
+    private static void DrawCoreForgeRings(SpriteBatch spriteBatch, RunState state, Vector2 center, float drawSize)
+    {
+        var pathOrder = GamePaths.Paths.Select((path, index) => (path.Key, index))
+            .ToDictionary(pair => pair.Key, pair => pair.index);
+        var cores = Items.EquippedCoreForges(state.Equipment.Values)
+            .OrderBy(core => pathOrder.GetValueOrDefault(core.PathKey))
+            .ToList();
+        if (cores.Count == 0)
+            return;
+
+        float pulse = .96f + .035f * MathF.Sin(Environment.TickCount64 / 260f);
+        for (int index = 0; index < cores.Count; index++)
+        {
+            float radius = drawSize * Math.Max(.58f, .82f - index * .06f) * pulse;
+            Color color = GamePaths.PathsByKey[cores[index].PathKey].Accent;
+            Primitives2D.CircleOutline(spriteBatch, center, radius, color * .88f, Math.Max(2, (int)(drawSize * .055f)));
+        }
     }
 }

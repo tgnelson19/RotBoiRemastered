@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -192,7 +193,12 @@ public static class ItemCards
     public static Rectangle DrawItemCard(SpriteBatch spriteBatch, Rectangle rect, ItemDrop item, bool hovered = false)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(item.Rarity, out var color) ? color : UiTheme.Border;
+        var core = Items.CoreForgeFor(item);
+        Color? coreColor = core is not null ? GamePaths.PathsByKey[core.PathKey].Accent : null;
         int cornerRadius = Math.Max(2, rect.Width / 8);
+
+        if (coreColor is Color glowColor)
+            DrawCoreGlow(spriteBatch, rect, glowColor, cornerRadius);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
         Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
 
@@ -203,7 +209,7 @@ public static class ItemCards
         bool isUnique = item.Rarity == "Unique";
         Color fill = isUnique ? (hovered ? UiTheme.Lighten(UiTheme.Ink, 14) : UiTheme.Ink) : (hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor);
         Primitives2D.FillRoundedRect(spriteBatch, rect, fill, cornerRadius);
-        Primitives2D.RoundedRectOutline(spriteBatch, rect, isUnique ? rarityColor : UiTheme.Ink,
+        Primitives2D.RoundedRectOutline(spriteBatch, rect, coreColor ?? (isUnique ? rarityColor : UiTheme.Ink),
             Math.Max(2, rect.Width / 14) + (isUnique ? 1 : 0), cornerRadius);
 
         var inner = rect;
@@ -223,7 +229,27 @@ public static class ItemCards
         Primitives2D.FillRoundedRect(spriteBatch, gradeBadge, UiTheme.Ink, Math.Max(2, badgeSize / 5));
         Primitives2D.RoundedRectOutline(spriteBatch, gradeBadge, gradeColor, Math.Max(1, badgeSize / 10), Math.Max(2, badgeSize / 5));
         UiTheme.DrawText(spriteBatch, item.Grade, Math.Max(8, badgeSize * .58), gradeColor, gradeBadge.Center.ToVector2(), "center");
+
+        if (coreColor is Color coreBadgeColor)
+        {
+            float pulse = .75f + .2f * MathF.Sin(Environment.TickCount64 / 210f);
+            Primitives2D.FillCircle(spriteBatch,
+                new Vector2(rect.X + badgeSize * .45f, rect.Y + badgeSize * .45f),
+                Math.Max(3, badgeSize * .20f), coreBadgeColor * pulse);
+        }
         return rect;
+    }
+
+    private static void DrawCoreGlow(SpriteBatch spriteBatch, Rectangle rect, Color color, int cornerRadius)
+    {
+        float pulse = .55f + .25f * MathF.Sin(Environment.TickCount64 / 240f);
+        for (int layer = 3; layer >= 1; layer--)
+        {
+            var glow = rect;
+            glow.Inflate(layer * 2, layer * 2);
+            Primitives2D.RoundedRectOutline(spriteBatch, glow, color * (pulse / (layer + 1)),
+                Math.Max(1, layer), cornerRadius + layer);
+        }
     }
 
     /// <summary>

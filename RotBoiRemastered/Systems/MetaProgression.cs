@@ -11,6 +11,7 @@ public sealed record QuestDefinition(
 public static class MetaProgression
 {
     public const int StorageCapacity = 10;
+    public const int PathCompletionTokenReward = 1;
 
     public static readonly IReadOnlyList<SkillNode> SkillNodes = new[]
     {
@@ -148,6 +149,7 @@ public static class MetaProgression
         GameProfile.IncrementQuest("runs_extracted");
         if (completed)
         {
+            GameProfile.Profile.SoulTokens += PathCompletionTokenReward * (state.HardMode ? 2 : 1);
             GameProfile.IncrementQuest("path_clears");
             GameProfile.Profile.PathMastery[path] = GameProfile.Profile.PathMastery.GetValueOrDefault(path) + 1;
         }

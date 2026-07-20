@@ -8,14 +8,18 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   icons (~15 branches) and rarity-backed mini card chrome, same shape as
   `ItemCards.cs`.
 - `ItemCards.cs` <- `itemCards.py`. **Done** -- procedural slot-type icons
-  and rarity-backed mini card chrome. Known difference: pygame's
+  and rarity-backed mini card chrome. Core-Forged cards retain rarity fill
+  while adding a pulsing path-colored outline and badge. Known difference: pygame's
   `border_radius` (rounded corners) has no `Primitives2D` equivalent yet, so
   the card and armor-icon corners render sharp instead of rounded (also
   true of `StatCards.cs`'s card chrome).
 - `LevelingHandler.cs` <- `levelingHandler.py`. **Done** -- upgrade-card
   draft screen, reroll button, stat-preview/recommendation logic.
 - `ReforgeHandler.cs`. **Done** -- full-screen equipped-item selection with
-  EXP-funded grade upgrades and modifier rerolls; rarity is read-only.
+  EXP-funded grade upgrades and modifier rerolls; rarity and Core Forge are
+  read-only and remain attached through either operation.
+- `SoulHub.cs` includes the northern Hard Mode station. Its persisted toggle
+  controls healing, completion rewards, and path-matched Core-Forged drops.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment

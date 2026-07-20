@@ -169,6 +169,19 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void PurchasedLevelUp_IsHardModesOnlyFullHeal()
+    {
+        var session = MakeSession(level: 0);
+        session.State.SetHardMode(true);
+        session.State.HealthPoints = 1;
+        session.State.ExpCount = session.State.ExpNeededForNextLevel;
+
+        Assert.True(session.TryPurchaseLevelUp());
+
+        Assert.Equal(session.State.MaxHealthPoints, session.State.HealthPoints);
+    }
+
+    [Fact]
     public void HandleDamagingEnemies_KillsWeakEnemy_AndAwardsExperience()
     {
         var session = MakeSession();

@@ -147,6 +147,116 @@ public class ItemsTests
     }
 
     [Fact]
+    public void CoreForgeCatalog_CoversEveryPathWithTheRequestedIdentity()
+    {
+        Assert.Equal(5, Items.CoreForges.Count);
+        Assert.Equal("rot", Items.CoreForgesByPathKey["touch"].Key);
+        Assert.Equal("malady", Items.CoreForgesByPathKey["phantasia"].Key);
+        Assert.Equal("dissonance", Items.CoreForgesByPathKey["sound"].Key);
+        Assert.Equal("ache", Items.CoreForgesByPathKey["chemesthesis"].Key);
+        Assert.Equal("chronos", Items.CoreForgesByPathKey["sight"].Key);
+    }
+
+    [Theory]
+    [InlineData("Common", 0)]
+    [InlineData("Rare", 0)]
+    [InlineData("Epic", .10)]
+    [InlineData("Legendary", .20)]
+    [InlineData("Mythical", .35)]
+    [InlineData("Unique", 0)]
+    public void CoreForgeChance_RequiresEpicOrHigherRegularRarity(string rarity, double expected) =>
+        Assert.Equal(expected, Items.CoreForgeChance(rarity));
+
+    [Fact]
+    public void RollCoreForge_RequiresHardModeAndUsesTheActivePathsCore()
+    {
+        var epic = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Epic", "S", "Balanced");
+        Assert.Null(Items.RollCoreForge(epic, hardMode: false, "touch", new Random(1)).CoreForge);
+
+        foreach (var core in Items.CoreForges)
+        {
+            var rolls = Enumerable.Range(0, 1_000)
+                .Select(_ => Items.RollCoreForge(epic, hardMode: true, core.PathKey, new Random(_ + 10)))
+                .Where(drop => drop.CoreForge is not null)
+                .ToList();
+            Assert.NotEmpty(rolls);
+            Assert.All(rolls, drop => Assert.Equal(core.Key, drop.CoreForge));
+        }
+    }
+
+    [Fact]
+    public void RollCoreForge_RarityRatesTrackTenTwentyAndThirtyFivePercent()
+    {
+        var definition = Items.DefinitionsByName["Iron Sword"];
+        var rng = new Random(904);
+        int RollCount(string rarity) => Enumerable.Range(0, 20_000)
+            .Count(_ => Items.RollCoreForge(new ItemDrop(definition, rarity), true, "sound", rng).CoreForge is not null);
+
+        Assert.InRange(RollCount("Epic"), 1_850, 2_150);
+        Assert.InRange(RollCount("Legendary"), 3_750, 4_250);
+        Assert.InRange(RollCount("Mythical"), 6_700, 7_300);
+    }
+
+    [Fact]
+    public void GenerateDrops_CoreForgesOnlyEligibleItemsInHardModeForThatPath()
+    {
+        var normal = Items.GenerateDrops(5_000, new Random(12), hardMode: false, pathKey: "touch");
+        var hard = Items.GenerateDrops(5_000, new Random(12), hardMode: true, pathKey: "touch");
+
+        Assert.All(normal, drop => Assert.Null(drop.CoreForge));
+        var coreDrops = hard.Where(drop => drop.CoreForge is not null).ToList();
+        Assert.NotEmpty(coreDrops);
+        Assert.All(coreDrops, drop =>
+        {
+            Assert.Equal("rot", drop.CoreForge);
+            Assert.Contains(drop.Rarity, new[] { "Epic", "Legendary", "Mythical" });
+        });
+    }
+
+    [Fact]
+    public void CoreForgeBonuses_AreExactAndDoNotShrinkWithGrade()
+    {
+        var definition = Items.DefinitionsByName["Iron Sword"];
+        var fAche = new ItemDrop(definition, "Epic", "F", "Balanced", "ache");
+        var sAche = new ItemDrop(definition, "Mythical", "S", "Balanced", "ache");
+
+        var fBonus = Items.Effects(fAche).Single(effect => effect.Stat == "Bullet Count");
+        var sBonus = Items.Effects(sAche).Single(effect => effect.Stat == "Bullet Count");
+
+        Assert.Equal(2, fBonus.Additive);
+        Assert.Equal(2, sBonus.Additive);
+    }
+
+    [Fact]
+    public void EquippedCoreForges_ReturnsOneRingIdentityPerDistinctCore()
+    {
+        var definition = Items.DefinitionsByName["Iron Sword"];
+        var equipment = new ItemDrop?[]
+        {
+            new(definition, "Epic", CoreForge: "rot"),
+            new(definition, "Legendary", CoreForge: "rot"),
+            new(definition, "Mythical", CoreForge: "chronos"),
+            null,
+        };
+
+        var cores = Items.EquippedCoreForges(equipment);
+
+        Assert.Equal(2, cores.Count);
+        Assert.Contains(cores, core => core.Key == "rot");
+        Assert.Contains(cores, core => core.Key == "chronos");
+    }
+
+    [Fact]
+    public void Serialize_RoundTripsCoreForgeIdentity()
+    {
+        var original = new ItemDrop(Items.DefinitionsByName["Iron Spear"], "Legendary", "A", "Fast", "chronos");
+
+        var restored = Items.Deserialize(Items.Serialize(original));
+
+        Assert.Equal(original, restored);
+    }
+
+    [Fact]
     public void GenerateDrops_IsReproducible()
     {
         var left = Items.GenerateDrops(4, rng: new Random(42));

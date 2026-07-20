@@ -2,6 +2,7 @@ using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
 
@@ -56,5 +57,16 @@ public class LootCrateTests
 
         Assert.False(withoutUnique.ContainsUnique);
         Assert.True(withUnique.ContainsUnique);
+    }
+
+    [Fact]
+    public void CoreForgedCrate_UsesItsPathAccentAndReportsSpecialContents()
+    {
+        var core = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Epic", "S", "Balanced", "rot");
+        var crate = new LootCrate(0, 0, new[] { core, Drop("Legendary") });
+
+        Assert.True(crate.ContainsCoreForged);
+        Assert.Equal(GamePaths.PathsByKey["touch"].Accent, crate.CoreAccent);
+        Assert.Equal(GamePaths.PathsByKey["touch"].Accent, crate.Tint());
     }
 }

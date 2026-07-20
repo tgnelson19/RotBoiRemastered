@@ -19,6 +19,17 @@ public sealed record ItemAffixDefinition(
     double Weight = 10);
 
 /// <summary>
+/// Hard-Mode-only path imprint. Unlike a normal affix, a core is immutable:
+/// reforging never creates, removes, or rerolls it.
+/// </summary>
+public sealed record CoreForgeDefinition(
+    string Key,
+    string DisplayName,
+    string PathKey,
+    string Description,
+    IReadOnlyList<ItemStatModifier> Modifiers);
+
+/// <summary>
 /// Authored equipment archetype. VisualKind drives the deliberately generic
 /// silhouette (dagger, sword, spear, bow, wand, vest, and so on) while the
 /// modifiers keep all balance data out of rendering code.
@@ -62,7 +73,8 @@ public sealed record ItemDrop(
     ItemDefinition Definition,
     string Rarity,
     string Grade = "S",
-    string Modifier = "Balanced")
+    string Modifier = "Balanced",
+    string? CoreForge = null)
 {
     public string Name => Definition.Name;
     public string SlotType => Definition.SlotType;
@@ -219,6 +231,30 @@ public static class Items
 
     public static readonly IReadOnlyDictionary<string, ItemAffixDefinition> AffixesByName =
         Affixes.ToDictionary(affix => affix.Name);
+
+    public static readonly IReadOnlyList<CoreForgeDefinition> CoreForges = new[]
+    {
+        new CoreForgeDefinition("rot", "Core of Rot", "touch",
+            "Massive health and defense at a slight cost to damage and movement.",
+            Mods(Add("Defense", 40), Add("Health", 400), Mult("Bullet Damage", 90), Mult("Player Speed", 92))),
+        new CoreForgeDefinition("malady", "Core of Malady", "phantasia",
+            "Slow, deliberate fire whose individual hits are devastating.",
+            Mods(Mult("Bullet Speed", 70), Mult("Attack Speed", 75), Mult("Bullet Damage", 160))),
+        new CoreForgeDefinition("dissonance", "Core of Dissonance", "sound",
+            "Damage and fire rate surge while movement becomes more deliberate.",
+            Mods(Mult("Attack Speed", 130), Mult("Bullet Damage", 125), Mult("Player Speed", 88))),
+        new CoreForgeDefinition("ache", "Core of Ache", "chemesthesis",
+            "Two additional shots erupt across a drastically wider, faster volley.",
+            Mods(Add("Bullet Count", 2), Add("Spread Angle", .70), Mult("Attack Speed", 120))),
+        new CoreForgeDefinition("chronos", "Core of Chronos", "sight",
+            "An additional shot joins modest gains to defense and fire rate.",
+            Mods(Add("Bullet Count", 1), Add("Defense", 12), Mult("Attack Speed", 112))),
+    };
+
+    public static readonly IReadOnlyDictionary<string, CoreForgeDefinition> CoreForgesByKey =
+        CoreForges.ToDictionary(core => core.Key);
+    public static readonly IReadOnlyDictionary<string, CoreForgeDefinition> CoreForgesByPathKey =
+        CoreForges.ToDictionary(core => core.PathKey);
 
     /// <summary>
     /// Weapons intentionally span a broad damage/range axis:
@@ -401,10 +437,37 @@ public static class Items
         return CreateRolledDrop(definition, Upgrades.RollRarity(rng), rng);
     }
 
-    public static List<ItemDrop> GenerateDrops(int count, Random? rng = null)
+    public static double CoreForgeChance(string rarity) => rarity switch
+    {
+        "Epic" => .10,
+        "Legendary" => .20,
+        "Mythical" => .35,
+        _ => 0,
+    };
+
+    public static bool IsCoreForgeEligible(ItemDrop drop) =>
+        drop.Rarity != "Unique" && CoreForgeChance(drop.Rarity) > 0;
+
+    /// <summary>Attempts the one immutable path-core roll made when an item first drops.</summary>
+    public static ItemDrop RollCoreForge(ItemDrop drop, bool hardMode, string pathKey, Random? rng = null)
     {
         rng ??= Random.Shared;
-        return Enumerable.Range(0, count).Select(_ => GenerateDrop(rng)).ToList();
+        if (drop.CoreForge is not null)
+            return drop;
+        if (!hardMode || !IsCoreForgeEligible(drop)
+            || !CoreForgesByPathKey.TryGetValue(pathKey, out var core)
+            || rng.NextDouble() >= CoreForgeChance(drop.Rarity))
+            return drop;
+        return drop with { CoreForge = core.Key };
+    }
+
+    public static List<ItemDrop> GenerateDrops(int count, Random? rng = null, bool hardMode = false, string? pathKey = null)
+    {
+        rng ??= Random.Shared;
+        return Enumerable.Range(0, count)
+            .Select(_ => GenerateDrop(rng))
+            .Select(drop => pathKey is null ? drop : RollCoreForge(drop, hardMode, pathKey, rng))
+            .ToList();
     }
 
     /// <summary>Rarity strengthens an item's identity without making drawbacks lethal. Unique contributes rarity power 1.0; the separate grade multiplier is applied later by Effects.</summary>
@@ -450,16 +513,36 @@ public static class Items
 
     public static ItemAffixDefinition ModifierDefinition(ItemDrop drop) => AffixFor(drop);
 
-    private static IEnumerable<ItemStatModifier> AllModifiers(ItemDrop drop) =>
+    public static CoreForgeDefinition? CoreForgeFor(ItemDrop drop) =>
+        drop.CoreForge is not null ? CoreForgesByKey.GetValueOrDefault(drop.CoreForge) : null;
+
+    public static IReadOnlyList<CoreForgeDefinition> EquippedCoreForges(IEnumerable<ItemDrop?> equipment) =>
+        equipment.Where(item => item is not null)
+            .Select(item => CoreForgeFor(item!))
+            .Where(core => core is not null)
+            .Cast<CoreForgeDefinition>()
+            .GroupBy(core => core.Key)
+            .Select(group => group.First())
+            .ToList();
+
+    private static IEnumerable<ItemStatModifier> StandardModifiers(ItemDrop drop) =>
         drop.Definition.Modifiers.Concat(AffixFor(drop).Modifiers);
 
     public static IReadOnlyList<ItemEffectView> Effects(ItemDrop drop)
     {
         double power = RarityPower(drop.Rarity) * GradePower(drop.Grade);
-        return AllModifiers(drop).Select(modifier => new ItemEffectView(
-            modifier.Stat,
-            modifier.Additive * power,
-            1 + (modifier.Multiplier - 1) * power)).ToList();
+        var effects = StandardModifiers(drop).Select(modifier => new ItemEffectView(
+                modifier.Stat,
+                modifier.Additive * power,
+                1 + (modifier.Multiplier - 1) * power))
+            .ToList();
+        // Core identity is an immutable endgame reward, not another quality-
+        // scaled affix. Exact promises such as Ache +2 shots and Chronos +1
+        // remain exact at every grade and eligible rarity.
+        if (CoreForgeFor(drop) is { } core)
+            effects.AddRange(core.Modifiers.Select(modifier =>
+                new ItemEffectView(modifier.Stat, modifier.Additive, modifier.Multiplier)));
+        return effects;
     }
 
     public static double AdjustStat(string stat, double value, IEnumerable<ItemDrop?> equipment)
@@ -503,7 +586,8 @@ public static class Items
         return result;
     }
 
-    public static StoredItemData Serialize(ItemDrop drop) => new(drop.Name, drop.Rarity, drop.Grade, drop.Modifier);
+    public static StoredItemData Serialize(ItemDrop drop) =>
+        new(drop.Name, drop.Rarity, drop.Grade, drop.Modifier, drop.CoreForge);
 
     /// <summary>Checked by name against Uniques first (their stored Rarity is always "Unique", which Upgrades.RarityOrder deliberately doesn't contain) before falling back to the regular, tiered-rarity-validated lookup.</summary>
     public static ItemDrop? Deserialize(StoredItemData? data)
@@ -513,17 +597,21 @@ public static class Items
         string storedGrade = data.Grade ?? "S";
         string grade = GradePowers.ContainsKey(storedGrade) ? storedGrade : "S";
         if (UniquesByName.TryGetValue(data.Name, out var unique))
-            return NormalizeDrop(new ItemDrop(unique, "Unique", grade, data.Modifier ?? "Balanced"));
+            return NormalizeDrop(new ItemDrop(unique, "Unique", grade, data.Modifier ?? "Balanced", data.CoreForge));
         return DefinitionsByName.TryGetValue(data.Name, out var definition) && Upgrades.RarityOrder.Contains(data.Rarity)
-            ? NormalizeDrop(new ItemDrop(definition, data.Rarity, grade, data.Modifier ?? "Balanced"))
+            ? NormalizeDrop(new ItemDrop(definition, data.Rarity, grade, data.Modifier ?? "Balanced", data.CoreForge))
             : null;
     }
 
     private static ItemDrop NormalizeDrop(ItemDrop drop)
     {
         var affix = AffixesByName.GetValueOrDefault(drop.Modifier);
-        return affix is not null && (affix.SlotType == drop.SlotType || affix.SlotType == "*")
+        var normalized = affix is not null && (affix.SlotType == drop.SlotType || affix.SlotType == "*")
             ? drop
             : drop with { Modifier = "Balanced" };
+        if (normalized.CoreForge is not null
+            && (!CoreForgesByKey.ContainsKey(normalized.CoreForge) || !IsCoreForgeEligible(normalized)))
+            normalized = normalized with { CoreForge = null };
+        return normalized;
     }
 }

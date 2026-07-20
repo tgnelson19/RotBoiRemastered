@@ -22,6 +22,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Y`: toggle player invincibility during boss practice
 - `F`: enter the Soul from the title screen
 - `F` near a station in the Soul: open its extraction, quest, or skill menu
+- `F` at the northern box in the Soul: toggle Hard Mode
 - `X` while paused after the midpoint boss: extract the current run and equipment
 - `Escape`: pause during a run or in the Soul; quit from the title screen
 - Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend that same EXP on equipped item grades or modifiers
@@ -63,6 +64,14 @@ item prepares that copy for the next run; it leaves storage when the run begins.
 Dying, restarting, or abandoning the run destroys carried items, while Soul-grid
 bonuses and other permanent progress remain intact. Hover equipment or nearby loot
 for its symbolic stat card, rarity-scaled tradeoffs, status effects, and flavor text.
+
+The northern Soul station toggles Hard Mode for future runs. Hard Mode disables
+all healing except the full heal granted when EXP is spent on a level, and path
+completion awards two Soul tokens instead of one. Epic and Legendary drops can
+become path-bound Core-Forged items at 10% and 20% respectively; Mythical drops
+use a 35% chance, while named Unique items remain unforgeable. Core-Forged gear
+adds a fixed path-specific stat package, glows in inventories and loot crates,
+and contributes a matching concentric aura while equipped.
 
 ## Run locally
 

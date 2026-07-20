@@ -91,6 +91,9 @@ public sealed class SoulHub
         _stationWorld["quests"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 4);
         _stationWorld["skills"] = session.PlayerWorldCenter + new Vector2(0, Simulation.TileSize * 4);
         _stationWorld["wardrobe"] = session.PlayerWorldCenter + new Vector2(-Simulation.TileSize * 4, Simulation.TileSize * 4);
+        // A standalone challenge box between the northern station and path
+        // portal ring. It toggles immediately rather than opening an overlay.
+        _stationWorld["hard_mode"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 8);
         _pathPortalWorld.Clear();
         var paths = GamePaths.Paths;
         for (int index = 0; index < paths.Count; index++)
@@ -252,7 +255,12 @@ public sealed class SoulHub
             }
             var nearby = NearbyStation(session);
             if (nearby is not null)
-                _overlay = nearby;
+            {
+                if (nearby == "hard_mode")
+                    ToggleHardMode(session);
+                else
+                    _overlay = nearby;
+            }
         }
         if (SidebarShown)
         {
@@ -278,6 +286,14 @@ public sealed class SoulHub
             break;
         }
         return null;
+    }
+
+    public static void ToggleHardMode(GameSession session)
+    {
+        bool enabled = !GameProfile.Profile.HardModeEnabled;
+        GameProfile.Profile.HardModeEnabled = enabled;
+        session.State.SetHardMode(enabled);
+        GameProfile.SaveProfile();
     }
 
     private string? NearbyStation(GameSession session) => _stationWorld
@@ -336,7 +352,7 @@ public sealed class SoulHub
         _uiScale = UiTheme.DisplayScale(session.ScreenWidth, session.ScreenHeight);
         UiTheme.DrawText(spriteBatch, "THE SOUL", Fs(27), UiTheme.Text, new Vector2(Px(22), Px(18)));
         UiTheme.DrawText(spriteBatch,
-            "SAFE GROUND  //  WALK TO A STATION OR PATH PORTAL  //  F INTERACT  //  O / P OR WHEEL ZOOM  //  X RESET  //  ESC OPTIONS",
+            $"SAFE GROUND  //  HARD MODE {(GameProfile.Profile.HardModeEnabled ? "ON" : "OFF")}  //  WALK TO A STATION OR PATH PORTAL  //  F INTERACT  //  ESC OPTIONS",
             Fs(9), UiTheme.Muted, new Vector2(Px(24), Px(54)));
         DrawNearbyPrompt(spriteBatch, session);
         if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
@@ -358,12 +374,22 @@ public sealed class SoulHub
             ["quests"] = ("QUEST ALTAR", UiTheme.Green),
             ["skills"] = ("SOUL GRID", UiTheme.Purple),
             ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
+            ["hard_mode"] = (GameProfile.Profile.HardModeEnabled ? "HARD MODE ON" : "HARD MODE OFF",
+                GameProfile.Profile.HardModeEnabled ? UiTheme.Red : UiTheme.Muted),
         };
         foreach (var (key, world) in _stationWorld)
         {
             var position = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
             var (label, accent) = labels[key];
-            var baseRect = new Rectangle((int)position.X - 28, (int)position.Y - 24, 56, 48);
+            int width = key == "hard_mode" ? 88 : 56;
+            var baseRect = new Rectangle((int)position.X - width / 2, (int)position.Y - 24, width, 48);
+            if (key == "hard_mode" && GameProfile.Profile.HardModeEnabled)
+            {
+                var glow = baseRect;
+                glow.Inflate(5, 5);
+                Primitives2D.RectOutline(spriteBatch, glow,
+                    Color.Lerp(UiTheme.Red, UiTheme.Gold, .35f + .25f * MathF.Sin((float)_seconds * 4f)), 3);
+            }
             Primitives2D.FillRect(spriteBatch, new Rectangle(baseRect.X + 5, baseRect.Y + 6, baseRect.Width, baseRect.Height), UiTheme.Shadow);
             Primitives2D.FillRect(spriteBatch, baseRect, UiTheme.PanelRaised);
             Primitives2D.RectOutline(spriteBatch, baseRect, accent, 3);
@@ -378,6 +404,8 @@ public sealed class SoulHub
         {
             ["storage"] = ("VAULT", UiTheme.Gold), ["quests"] = ("QUEST ALTAR", UiTheme.Green),
             ["skills"] = ("SOUL GRID", UiTheme.Purple), ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
+            ["hard_mode"] = (GameProfile.Profile.HardModeEnabled ? "DISABLE HARD MODE" : "ENABLE HARD MODE",
+                GameProfile.Profile.HardModeEnabled ? UiTheme.Red : UiTheme.Gold),
         };
         var nearby = NearbyStation(session);
         if (nearby is not null)
@@ -437,6 +465,9 @@ public sealed class SoulHub
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, path.Accent, shadow: 10);
         UiTheme.DrawText(spriteBatch, $"ENTER {path.Title}?", Fs(22), path.Accent, new Vector2(rect.Center.X, rect.Y + Px(26)), "center");
         UiTheme.DrawText(spriteBatch, path.Subtitle, Fs(11), UiTheme.Cream, new Vector2(rect.Center.X, rect.Y + Px(62)), "center");
+        if (GameProfile.Profile.HardModeEnabled)
+            UiTheme.DrawText(spriteBatch, "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS  //  CORE-FORGED DROPS",
+                Fs(9), UiTheme.Red, new Vector2(rect.Center.X, rect.Y + Px(86)), "center");
         UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", Fs(10), UiTheme.Muted,
             new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
     }

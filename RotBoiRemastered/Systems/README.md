@@ -8,6 +8,10 @@ port first since they were deliberately kept pygame-free in the Python original.
 - `Items.cs` <- `items.py`. **Done and expanded** -- rarity, independent
   weighted F-S grade, slot-exclusive weighted affixes, grade upgrades,
   modifier rerolls, save migration, and one shared effect-scaling pipeline.
+  It also owns the five path-bound Core-Forged packages. In Hard Mode, Epic,
+  Legendary, and Mythical regular drops roll 10%, 20%, and 35% Core chances;
+  Unique items are excluded. Core effects are fixed additions after normal
+  rarity/grade scaling so exact bonuses such as Ache's +2 bullets remain exact.
 - `Keybinds.cs` <- `keybinds.py` (action -> key map, persisted like GameProfile)
 - `GameProfile.cs` <- `gameProfile.py` (swap JSON-on-disk for the same shape;
   consider `System.Text.Json` + a settings folder under `%AppData%`)
@@ -27,6 +31,9 @@ port first since they were deliberately kept pygame-free in the Python original.
   rather than ~80 flat fields. `PlayerBuildSnapshot` (record) +
   `BuildSnapshot()` were added for `Entities/Rot.cs`'s Envy phase --
   ported from `characterStats.py`'s `player_build_snapshot()`.
+  `HardMode` is captured from the profile at run reset. It suppresses passive
+  vitality recovery, lifesteal, and healing from maximum-health changes;
+  `FillHealthForMilestone` is the single gameplay heal used when buying a level.
 - `GameSession.cs` <- `character.py`'s "handling*"/"update*"/"draw*" free
   functions + `resetAllStats()`/`combarinoPlayerStats()`/
   `handleLevelingProcess()`. **Done for the non-boss gameplay loop**: bullet
