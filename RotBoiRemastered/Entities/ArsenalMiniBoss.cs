@@ -149,7 +149,12 @@ public sealed class ArsenalMiniBoss : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        float walk = Moved ? MathF.Sin(Age * .15f) : 0f;
+        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .2f), 0f, 1f) * MathF.PI) : 0f;
+        int width = (int)(Size * (1f + Math.Abs(walk) * .045f + attack * .1f));
+        int height = (int)(Size * (1f - Math.Abs(walk) * .035f - attack * .07f));
+        int bob = (int)(Math.Abs(walk) * Size * .045f);
+        var rect = new Rectangle((int)(screenPosition.X + Size / 2f - width / 2f), (int)(screenPosition.Y + Size - height - bob), width, height);
         Color[] phaseColors = { UiTheme.Gold, UiTheme.Red, UiTheme.Purple };
 
         // Mini-bosses deliberately use a rigid, low-spectacle silhouette so the
@@ -165,6 +170,11 @@ public sealed class ArsenalMiniBoss : Enemy
         {
             var notchRect = new Rectangle(rect.X + 8 + notch * 10, rect.Bottom - 14, 6, 6);
             Primitives2D.FillRect(spriteBatch, notchRect, phaseColors[Phase]);
+        }
+        if (attack > .05f)
+        {
+            float radius = Size * (.46f + attack * .22f);
+            Primitives2D.CircleOutline(spriteBatch, rect.Center.ToVector2(), radius, phaseColors[Phase], Math.Max(2, (int)(Size * .035f)));
         }
         if (Invulnerable)
         {

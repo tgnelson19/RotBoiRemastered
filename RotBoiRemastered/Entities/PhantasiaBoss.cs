@@ -54,6 +54,8 @@ public sealed class Offering
 /// </summary>
 public abstract class PhantasiaBoss : PathChaseBoss
 {
+    protected override bool VisualSurvivalActive => ActTransitionTimer > 0 || PhaseProtectionTimer > 0 || base.VisualSurvivalActive;
+    protected virtual bool UsesDreamRules => true;
     /// <summary>Ported from bossTypes.py's module-level `COMMANDMENT_SIGILS` -- shared by every `PhantasiaBoss` subclass, indexed via `PhantasiaSigilConfig.PhaseSigils`.</summary>
     public static readonly IReadOnlyList<(string Name, Vector2[][] Strokes)> CommandmentSigils = new (string, Vector2[][])[]
     {
@@ -171,7 +173,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
     protected override void UpdatePhase()
     {
-        if (DebugPhaseLocked)
+        if (DebugPhaseLocked || FinaleActive)
             return;
         int count = Config.PhaseLabels.Count;
         double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
@@ -201,7 +203,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
             ActTransitionTimer = ActTransitionDuration;
             PhaseProtectionTimer = ActTransitionDuration;
         }
-        if (Phase == Config.PhaseLabels.Count)
+        if (UsesDreamRules && Phase == Config.PhaseLabels.Count)
             PlaceOfferings();
     }
 
@@ -282,6 +284,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
     public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
+        if (Dying || FinaleActive)
+            return new HitResult(false, false, 0, true);
         if (ActTransitionTimer > 0 || PhaseProtectionTimer > 0)
             return new HitResult(false, false, 0, true);
         int previousHp = Hp;
@@ -298,10 +302,16 @@ public abstract class PhantasiaBoss : PathChaseBoss
     /// Belief/rest-phase/offering-pickup bookkeeping. Ported from
     /// _update_special_rules. A null `context.DreamState` (a caller that
     /// doesn't care about this subsystem) is a documented no-op, same
-    /// reasoning as `Rot.UpdateTerrain`'s null `BossAfflictions` guard.
+    /// reasoning as `Ache.UpdateTerrain`'s null `BossAfflictions` guard.
     /// </summary>
     protected virtual void UpdateSpecialRules(float playerX, float playerY, double dt, EnemyUpdateContext context)
     {
+        if (!UsesDreamRules)
+        {
+            RestActive = false;
+            RestViolationLatched = false;
+            return;
+        }
         if (context.DreamState is null)
             return;
         CurrentBelief = context.DreamState.Belief;
@@ -341,8 +351,13 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
     public override void Update(EnemyUpdateContext context)
     {
+        if (UpdateDeathSpectacle())
+            return;
         double dt = Seconds();
+        if (UpdateFinaleSequence(dt))
+            return;
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+        VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
         PhaseProtectionTimer = Math.Max(0.0, PhaseProtectionTimer - dt);
         SigilTransitionTimer = Math.Max(0.0, SigilTransitionTimer - dt);
@@ -502,6 +517,44 @@ public abstract class PhantasiaBoss : PathChaseBoss
         DrawCommandmentSigil(spriteBatch, center, Size * .3f, Math.Max(.05, 1 - transition), null, 255, transition * Math.PI);
     }
 
+    protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        float walkSway = Moved ? MathF.Sin(Age * .055f) * Size * .035f : 0f;
+        var center = screenPosition + new Vector2(Size / 2f + walkSway, Size / 2f);
+        if (Dying)
+        {
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size, new Color(116, 82, 181), PhaseAccent, 18);
+            return;
+        }
+
+        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .62f), 0f, 1f) * MathF.PI) : 0f;
+        float separation = VisualSurvivalActive ? 1.65f : 1f;
+        float turn = Age * .0032f;
+        Color baseColor = Color.Lerp(Config.FinalBoss ? Config.FinalBodyColor : Config.BodyColor, PhaseAccent, .16f);
+        Color bright = UiTheme.Lighten(baseColor, 44);
+
+        var baseCenter = center + new Vector2(0, Size * .31f * separation);
+        BossVisuals.Cube(spriteBatch, baseCenter, Size * .58f, baseColor, bright, -turn);
+        var pillarCenter = center - new Vector2(0, Size * .18f * separation + attack * Size * .08f);
+        BossVisuals.Cube(spriteBatch, pillarCenter, Size * .48f, UiTheme.Lighten(baseColor, 18), PhaseAccent, turn);
+        var pillar = new Rectangle((int)(pillarCenter.X - Size * .16f), (int)(pillarCenter.Y - Size * .43f), (int)(Size * .32f), (int)(Size * .64f));
+        Primitives2D.FillRect(spriteBatch, pillar, baseColor);
+        Primitives2D.RectOutline(spriteBatch, pillar, UiTheme.Ink, Math.Max(2, (int)(Size * .035f)));
+        Primitives2D.Line(spriteBatch, new Vector2(pillar.Left + 3, pillar.Top + 3), new Vector2(pillar.Right - 3, pillar.Top + 3), bright, 2);
+
+        BossVisuals.OrbitingCubes(spriteBatch, center, Age, Config.FinalBoss ? 14 : 10, Size * .72f, Size * .1f,
+            PhaseAccent, UiTheme.Cream, separation, .5f);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            float armAngle = turn * .7f + side * MathF.PI * .5f;
+            var arm = center + new Vector2(side * Size * .68f * separation, MathF.Sin(armAngle) * Size * (.18f + attack * .12f));
+            BossVisuals.Cube(spriteBatch, arm, Size * .3f, PhaseAccent, UiTheme.Cream, armAngle);
+        }
+        DrawCommandmentSigil(spriteBatch, pillarCenter, Size * .19f, 1.0, null, 220, -turn * .4f);
+        DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .83f), (int)(Size * .92f), 6));
+    }
+
     protected virtual void DrawActTransition(SpriteBatch spriteBatch)
     {
         var viewport = spriteBatch.GraphicsDevice.Viewport;
@@ -525,17 +578,11 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        DrawDreamCourt(spriteBatch, camera, playerWorldPosition, screenShake);
-        if (!HasCustomDreamBody)
-        {
-            base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-            DrawMaskAndHalos(spriteBatch, camera, playerWorldPosition, screenShake);
-        }
-        else
-        {
-            DrawPathArena(spriteBatch, camera, playerWorldPosition, screenShake);
-            DrawDreamBody(spriteBatch, camera, playerWorldPosition, screenShake);
-        }
+        if (!Dying)
+            DrawDreamCourt(spriteBatch, camera, playerWorldPosition, screenShake);
+        base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (Dying)
+            return;
 
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
@@ -553,7 +600,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
         }
 
         var viewport = spriteBatch.GraphicsDevice.Viewport;
-        if ((!Config.FinalBoss && Phase == 2) || (Config.FinalBoss && (Phase == 3 || Phase == 9)))
+        if (UsesDreamRules && ((!Config.FinalBoss && Phase == 2) || (Config.FinalBoss && (Phase == 3 || Phase == 9))))
         {
             int width = Math.Min((int)(viewport.Width * .48f), 620);
             var banner = new Rectangle(viewport.Width / 2 - width / 2, (int)(viewport.Height * .13f), width, 42);
@@ -567,12 +614,12 @@ public abstract class PhantasiaBoss : PathChaseBoss
             int width = Math.Min((int)(viewport.Width * .56f), 680);
             var banner = new Rectangle(viewport.Width / 2 - width / 2, viewport.Height - 32 - 66, width, 66);
             UiTheme.DrawPanel(spriteBatch, banner, UiTheme.Panel, PhaseAccent, shadow: 6);
-            string sigilName = CommandmentSigils[SigilConfig.PhaseSigils[Phase - 1]].Name;
+            string sigilName = UsesDreamRules ? CommandmentSigils[SigilConfig.PhaseSigils[Phase - 1]].Name : "PHANTASIA";
             UiTheme.DrawText(spriteBatch, $"{sigilName} // {PhaseLabel}", 13, PhaseAccent, new Vector2(banner.Center.X, banner.Y + 12), "midtop");
             UiTheme.DrawText(spriteBatch, PhaseFlavor, 9, UiTheme.Cream, new Vector2(banner.Center.X, banner.Bottom - 12), "midbottom");
         }
 
-        if (Config.FinalBoss && Phase == Config.PhaseLabels.Count)
+        if (UsesDreamRules && Config.FinalBoss && Phase == Config.PhaseLabels.Count)
         {
             float tile = Simulation.TileSize;
             foreach (var offering in OfferingPositions)
@@ -586,7 +633,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
             }
         }
 
-        if (RestActive)
+        if (UsesDreamRules && RestActive)
             UiTheme.DrawText(spriteBatch, "REST // DO NOT FIRE", 16, UiTheme.Cream, new Vector2(viewport.Width / 2f, viewport.Height * .18f), "center");
 
         if (ActTransitionTimer > 0)

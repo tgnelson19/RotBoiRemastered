@@ -52,7 +52,7 @@ public static class GamePaths
             "beaudis", "dissonance", new Color(207, 191, 151), new EnemyStyle()),
         new GamePath("touch", "PATH OF TOUCH", "THE WEIGHT BELOW",
             "A cramped prison sewer of heavy bodies and slow, punishing shots.",
-            "bair", "sting", new Color(91, 132, 74), new EnemyStyle(
+            "bair", "rot", new Color(91, 132, 74), new EnemyStyle(
                 Speed: .70, Size: 1.22, Health: 1.65, Damage: 1.28,
                 AttackCooldown: 1.48, Awareness: .92, Experience: 1.22,
                 ProjectileSpeed: .68, ProjectileSize: 1.24, ProjectileDamage: 1.28,
@@ -69,7 +69,7 @@ public static class GamePaths
                 Tags: new[] { "sighted", "quick", "close_range" })),
         new GamePath("chemesthesis", "PATH OF CHEMESTHESIS", "THE BURNING FIELD",
             "Durable carriers seed long-lived, mostly unaimed hazards everywhere.",
-            "kage", "rot", new Color(207, 83, 45), new EnemyStyle(
+            "kage", "ache", new Color(207, 83, 45), new EnemyStyle(
                 Speed: .92, Size: 1.06, Health: 2.15, Damage: 1.02,
                 AttackCooldown: .94, Awareness: 1.05, Experience: 1.34,
                 ProjectileSpeed: .62, ProjectileSize: 1.08, ProjectileDamage: .88,

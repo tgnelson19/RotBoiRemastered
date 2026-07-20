@@ -105,6 +105,7 @@ public class PlagueTouchBoss : PathChaseBoss
     public int PatternRotation { get; set; }
     public double PhaseAnnouncementTimer { get; set; } = 3.0;
     private float _pathAngle;
+    protected override bool VisualSurvivalActive => PhaseAnnouncementTimer > 1.65 || base.VisualSurvivalActive;
 
     public PlagueTouchBoss(float worldX, float worldY, Battleground battleground, PathChaseBossConfig config,
         PlagueSigilConfig sigilConfig, Random? rng = null)
@@ -119,7 +120,7 @@ public class PlagueTouchBoss : PathChaseBoss
 
     protected override void UpdatePhase()
     {
-        if (DebugPhaseLocked)
+        if (DebugPhaseLocked || FinaleActive)
             return;
         int count = Config.PhaseLabels.Count;
         double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
@@ -152,6 +153,8 @@ public class PlagueTouchBoss : PathChaseBoss
 
     public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
+        if (Dying || FinaleActive)
+            return new HitResult(false, false, 0, true);
         if (partId.StartsWith("portal:"))
         {
             int index = int.Parse(partId["portal:".Length..]);
@@ -293,20 +296,62 @@ public class PlagueTouchBoss : PathChaseBoss
 
     public sealed override void Update(EnemyUpdateContext context)
     {
+        if (UpdateDeathSpectacle())
+            return;
         double dt = Seconds();
+        if (UpdateFinaleSequence(dt))
+            return;
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+        VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         UpdatePhase();
         AdvanceAge();
         MovementStep(context.PlayerWorldX, context.PlayerWorldY, context.Battleground);
+        FinishMovementTracking();
         UpdateTouchPortals(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (EntranceRemaining <= 0 && AttackCooldown <= 0)
         {
             FirePlaguePattern(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink);
+            MarkAttack(.58f);
             AttackCooldown = AttackCooldownMax!.Value * Math.Max(.4f, 1f - .055f * (Phase - 1));
         }
+    }
+
+    protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        float walkRoll = Moved ? MathF.Sin(Age * .045f) * Size * .018f : 0f;
+        var center = screenPosition + new Vector2(Size / 2f, Size / 2f + walkRoll);
+        if (Dying)
+        {
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size, new Color(111, 69, 43), new Color(211, 84, 42), 15);
+            return;
+        }
+
+        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI) : 0f;
+        float detach = VisualSurvivalActive ? 1.5f : 1f;
+        Color mud = new(105, 70, 43);
+        Color orange = new(211, 116, 46);
+        Color red = new(157, 55, 39);
+        BossVisuals.Cube(spriteBatch, center + new Vector2(0, attack * Size * .05f), Size * .64f, mud, orange, Age * .0018f);
+
+        int blobCount = Config.FinalBoss ? 13 : 9;
+        for (int index = 0; index < blobCount; index++)
+        {
+            float cycle = (Age * (.006f + attack * .01f) + index * .173f) % 1f;
+            float angle = index * 2.399f + Age * .0016f;
+            float radius = Size * (.16f + cycle * .66f) * detach;
+            float roll = MathF.Sin(cycle * MathF.PI) * Size * .42f;
+            var point = center + new Vector2(MathF.Cos(angle) * radius, -Size * .5f + cycle * Size * 1.05f - roll * .28f);
+            float blob = Size * (.065f + .045f * (1f - cycle));
+            Color color = index % 3 == 0 ? red : index % 2 == 0 ? orange : new Color(132, 82, 43);
+            Primitives2D.FillCircle(spriteBatch, point + new Vector2(3, 4), blob + 3, UiTheme.Shadow);
+            Primitives2D.FillCircle(spriteBatch, point, blob, color);
+            Primitives2D.CircleOutline(spriteBatch, point, blob, UiTheme.Ink, Math.Max(2, (int)(blob * .18f)), 18);
+        }
+        DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .72f), (int)(Size * .92f), 6));
     }
 
     private string DrawPlagueSigil(SpriteBatch spriteBatch, Vector2 center, float radius)
@@ -326,18 +371,14 @@ public class PlagueTouchBoss : PathChaseBoss
 
     public sealed override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        foreach (var portal in TouchPortals)
-            portal.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (!Dying)
+            foreach (var portal in TouchPortals)
+                portal.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (Dying)
+            return;
         var screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        // Layered stone plates make Touch feel massive rather than fluid.
-        foreach (float inset in new[] { 0f, Size * .14f, Size * .28f })
-        {
-            var plate = rect;
-            plate.Inflate(-(int)inset, -(int)inset);
-            Primitives2D.RectOutline(spriteBatch, plate, UiTheme.Ink, Math.Max(3, (int)(Size * .055f)));
-        }
         string sigil = DrawPlagueSigil(spriteBatch, rect.Center.ToVector2(), Size * .32f);
         if (PhaseAnnouncementTimer > 0)
         {

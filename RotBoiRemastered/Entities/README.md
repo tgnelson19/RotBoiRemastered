@@ -100,8 +100,9 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   on `TakeDamage`, and the death fade. `GameSession.cs` now really spawns
   it on the natural level-10 trigger (previously a documented no-op), sets
   `BeaudisDefeated` on death, and has boss debug hotkeys
-  (`HandleBossDebugControls`, pattern-matched against `Beaudis` since
-  `RunState.ActiveBoss` is untyped and it's the only boss ported so far).
+  (`HandleBossDebugControls`, pattern-matched against `Beaudis` because
+  `RunState.ActiveBoss` is untyped and this encounter retains dedicated
+  convenience controls).
   `Entities/Enemy.cs`'s `TransitionCleanupRequested`/`TransitionCleanupOwner`
   (previously declared directly on `ArsenalMiniBoss`, its only prior
   setter) were promoted to the base class so `GameSession`'s cleanup logic
@@ -111,8 +112,8 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   owner set." See `Beaudis.cs`'s doc comment for the specific dead-in-this-
   port fields (`damagePhaseHistory`, `perfectStagger`,
   `staggerRecoveryRemaining`, `runeSilenceRemaining`, ...) shared in name
-  only with Dissonance, dropped until that boss and the still-deferred
-  `drawBossHealthBar` HUD function actually need a shared contract for them.
+  only with Dissonance and intentionally kept local to the encounters that
+  use them. The shared boss HUD now consumes the common enemy/boss contract.
 
 - **`Dissonance.cs`** <- `bossTypes.py`'s `Dissonance` (the run's level-20
   final boss; ~1780 lines on its own, by far the most complex single class
@@ -125,7 +126,10 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   (`RoutePlayerBullet`), and the full visual spectacle (rotating 3D-
   projected cube with aura, motion trail, arena boundary/mask/rune
   inscription, death spectacle, phase-announcement bubble, act-transition
-  veil, perfect-break flash). `GameSession.cs` now spawns it on the natural
+  veil, perfect-break flash). Its stable purple/blue faces, deep black core,
+  and four gently orbiting satellite cubes now identify the oldest, composed
+  Keeper of the First Chord; phase accents stay on runes and warning trim.
+  `GameSession.cs` now spawns it on the natural
   level-20 trigger (and the hidden debug-summon hotkey, matching Python:
   the debug key always resolves to the *final* boss, never Beaudis),
   clamps player movement inside `ArenaRadius`, routes portal-hit player
@@ -160,23 +164,24 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   (the star-shaped-exterior-blackout helper, previously private to
   `Dissonance.cs`, now shared since `PathChaseBoss` needs the identical
   technique for its own arena shapes).
-  - **`Ishe.cs`/`Chronos.cs`** -- "THE NEAR HORIZON"/"THE LAST SECOND," a
-    simple rush-pattern pair with no phase-attack override (stock
-    `PathChaseBoss` dispatch) beyond a sight-symbol icon drawn over the
-    body. The simplest possible full pair, useful as the base class's own
-    test bed.
-  - **`TouchPortal.cs`/`PlagueTouchBoss.cs`/`Bair.cs`/`Sting.cs`** -- the
-    Touch content path's mid/final bosses ("THE FIRST LOCK"/"THE THING THE
-    PRISON KEPT"). `TouchPortal` (a `ProjectilePortal` subclass -- which
-    had to become unsealed and gained a first `virtual Draw` for this)
-    marches along the arena wall and gates phase transitions.
-    `PlagueTouchBoss` fully overrides `Update`/`Draw` (its own portal-driven
-    combat and movement, not the base's chase-the-player behavior) but
-    still calls `base.Draw` for the shared arena rendering. `PlagueSigils.All`
-    holds the ten shared plague sigils Bair/Sting's `phaseSigils` index into.
+  - **`Ishe.cs`/`Chronos.cs`** -- Ishe retains Sight's small rush-pattern
+    lesson. Chronos is now a seven-movement slow/heavy encounter built from
+    five-to-eight-segment laser tentacles. Each full route telegraphs for
+    1.5–2.35 seconds, the half-health Still Second phase omits three adjacent
+    arms as a safe opening, and King's Attrition is a 40-second finale. The
+    literal clock/lens body was replaced by one player-like light-blue cube
+    rotating in three dimensions inside slow oscillating aura bands.
+  - **`TouchPortal.cs`/`PlagueTouchBoss.cs`/`Bair.cs`/`Sting.cs`** retain the
+    original Touch midpoint and legacy final-boss implementation for old
+    debug/profile compatibility. Natural Touch progression now ends with
+    **`TouchRot.cs`**, a portal-free seven-phase Rot encounter using slow
+    fronts, bombs, and ground-level sludge pools with explicit safe wedges.
+    Its large brown-green slab is drawn behind a foreground pool so it reads
+    as half-submerged while brown/red/green cubes fall into absorption ripples.
   - **`SinChemesthesisBoss.cs`/`Kage.cs`/`Rot.cs`** -- the Chemesthesis
-    content path's mid/final bosses ("THE FIRST REACTION"/"THE FIELD THAT
-    REMAINS"). Unlike Ishe/Bair/Sting, this family has a real
+    content path's midpoint and Ache finale (`Ache` remains in the historical
+    `Rot.cs` filename so the identity change does not overwrite user work).
+    Unlike the other path families, this family has a real
     stagger/fracture system: `SinChemesthesisBoss` re-adds the
     `Stagger`/`MaxStagger`/`IsStaggered`/etc. fields `PathChaseBoss.cs`
     dropped as dead-in-that-family (see that class's doc comment) since
@@ -200,7 +205,8 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     offscreen `pygame.Surface`, which is mathematically identical once
     there's no surface-level compositing effect to preserve (confirmed for
     `_draw_field_diagram`'s seven procedural sin-motif diagrams too, same
-    reasoning). `Rot.cs` adds a persistent-terrain subsystem on top: mutable
+    reasoning). The historical `Rot.cs` also retains reusable persistent-
+    terrain primitives: mutable
     `CrystalWall`/`CleansingVent` classes (not records -- fields like
     `Remaining`/`Warning`/`Rect` mutate every frame), `MovementObstacles()`
     (consumed by `Player.Move`'s new `obstacles` parameter, wired through
@@ -209,13 +215,18 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     already-existing `RunState.BossAfflictions` (exposure/pull -- cleansing
     vents call `BossAfflictions.Reset()`) and the newly-added
     `RunState.BuildSnapshot()`/`PlayerBuildSnapshot` (ported from
-    `characterStats.py`'s `player_build_snapshot()`; Rot's Envy phase reads
-    `PlayerBuildSnapshot.DominantOffense` to pick an attack). Both new
-    fields live on `EnemyUpdateContext` (`Camera`/`BossAfflictions`/
+    `characterStats.py`'s `player_build_snapshot()`). Ache's active encounter
+    replaces the old readable sin rotation with independently selected
+    wrong-way mines, offset bombs, contamination pools, and telegraphed
+    lashes; Reflex Storm and Overload provide its invulnerable survival exams.
+    Its compact orange core now has exactly three blue 3D orbiting arm-cubes;
+    this widened, asymmetrical constellation is the visual contract for its
+    refusal to follow any command.
+    Those optional context fields live on `EnemyUpdateContext` (`Camera`/`BossAfflictions`/
     `PlayerBuildSnapshot`, all nullable -- see that type's doc comment) and
     are populated by `GameSession.UpdateEnemies`.
   - **`PhantasiaBoss.cs`/`Hypno.cs`/`Malady.cs`** -- the Phantasia content
-    path's mid/final bosses ("THE ORNATE SUGGESTION"/"THE DREAM MADE ILL"),
+    path's midpoint and Empress of Inspiration finale,
     the last of `bossTypes.py`'s five boss families. Shares
     `SinChemesthesisBoss`'s overall shape (per-family `Config`/`SigilConfig`
     records, act transitions, phase-health floor, abstract
@@ -236,28 +247,19 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     Update tick and every Draw-side belief read uses that instead. Two
     confirmed-dead fields dropped from `Malady` (`vitalitySuppressed`,
     `puppetFacing` -- written throughout but never read by any method).
-    `Malady.cs` layers a projectile-portal formation system (reusing
-    `ProjectilePortal`), a delay-queued "flowing chain" shot sequence,
-    survival phases that block damage while a timer runs out, a post-lethal
-    "collapse" choreography instead of dying outright, and a fully custom
-    procedural puppet-body render (`HasCustomDreamBody`/`DrawDreamBody`
+    Hypno keeps the belief/rule/illusion lesson. Malady explicitly disables
+    that inherited rule UI and instead layers portal-authored petal floods,
+    delay-queued flowing tentacles, radial safe wedges, and telegraphed laser
+    aisles. Intermission blocks damage at half health, Apotheosis runs for
+    forty seconds at zero health, and a ten-second expanding collapse follows.
+    It also owns a fully custom
+    procedural indigo-pillar/obsidian-slab render (`HasCustomDreamBody`/`DrawDreamBody`
     hooks on the base class -- ported from Python's
     `getattr(self, "_draw_dream_body", None)` duck-typed dispatch).
 - **`BossCatalog.cs`** <- `BossDefinition`/`BossCatalog`/`BOSS_CATALOG`.
-  **Done** for all ten bosses in `bossTypes.py` (`beaudis`/`dissonance`/
-  `ishe`/`chronos`/`bair`/`sting`/`kage`/`rot`/`hypno`/`malady`) -- same
-  `EnemyFactory`-delegate/`CreateDefault()` cleanup as `EnemyCatalog.cs`.
-  Not wired into `GameSession`'s actual spawn flow (which constructs
-  `Beaudis`/`Dissonance` directly): `gamePaths.py`'s per-path boss-key
-  selection -- the thing that would ever ask the catalog for
-  `ishe`/`bair`/`kage`/etc. -- isn't ported, so this stays standalone
-  infrastructure ready for whenever that selection exists, same reasoning
-  as `EnemyCatalog.cs` before `GameSession` existed.
-
-## Explicitly deferred (not in Entities/ yet)
-
-`bossTypes.py`'s ~4750 lines are now fully ported (all five boss families).
-What's left is `gamePaths.py`'s per-path boss content-key selection (which
-boss variant counts as "the mid/final boss" on the active path -- always
-the "sound" path's Beaudis/Dissonance here), which stays a documented
-no-op -- see `GamePaths.cs`'s doc comments for specifics.
+  **Done** and wired into `GameSession` for every selected path. The active
+  level-20 mapping is Dissonance (Sound), Rot (Touch), Chronos (Sight), Ache
+  (Chemesthesis), and Malady (Phantasia). `sting` remains registered only as
+  a compatibility/debug key. Every mapped finale owns a 40-second
+  invulnerable spectacle, a 10-second harmless death animation, normal XP and
+  loot release, and `MetaProgression.RecordExtraction` path completion.

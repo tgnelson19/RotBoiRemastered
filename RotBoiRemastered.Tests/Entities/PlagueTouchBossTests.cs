@@ -26,7 +26,7 @@ public class PlagueTouchBossTests
     public void Constructor_Sting_UsesFinalStatsAndTenPhases()
     {
         var sting = new Sting(1000, 1000, MakeBattleground(), new Random(1));
-        Assert.Equal(48000, sting.Hp);
+        Assert.Equal(240000, sting.Hp);
         Assert.Equal("BLOOD", sting.PhaseLabel);
     }
 

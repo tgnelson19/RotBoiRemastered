@@ -8,7 +8,7 @@ using RotBoiRemastered.World;
 namespace RotBoiRemastered.Entities;
 
 /// <summary>
-/// The run's level-20 final boss -- nine phases across three "acts," each
+/// The oldest ancient core and the run's level-20 Sound final boss -- nine phases across three "acts," each
 /// with its own attack pattern and locomotion identity, tied to nine Elder
 /// Futhark runes. Ported from bossTypes.py's Dissonance (~1780 lines, by far
 /// the most complex single class in the codebase -- see Entities/README.md
@@ -65,7 +65,8 @@ namespace RotBoiRemastered.Entities;
 public sealed class Dissonance : Enemy
 {
     public const string BossName = "DISSONANCE";
-    public const string Subtitle = "THE ROT AT THE CENTER";
+    public const string Subtitle = "KEEPER OF THE FIRST CHORD";
+    public const int OrbitingCubeCount = 4;
 
     public static readonly IReadOnlyDictionary<int, (string Name, Vector2[][] Strokes)> PhaseRunes =
         new Dictionary<int, (string, Vector2[][])>
@@ -128,15 +129,15 @@ public sealed class Dissonance : Enemy
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("BOLSTER", "I did not expect a challenger...", UiTheme.Purple),
-            [2] = ("PREPARE", "Leave at once.", UiTheme.Cream),
-            [3] = ("RETALIATE", "...", UiTheme.Gold),
-            [4] = ("CONTEMPLATION", "Your pulse betrays you.", UiTheme.Red),
-            [5] = ("MIRROR", "Eons surpass years...", UiTheme.Gold),
-            [6] = ("DOMINATE", "LEAVE.", UiTheme.Cream),
-            [7] = ("REVOLVE", "All paths return to me.", UiTheme.Blue),
-            [8] = ("DISPLAY", "Even light bends inward.", UiTheme.Purple),
-            [9] = ("GRANDEUR", "YOU BRING UPON YOURSELF A FATE WORSE THAN DEATH.", UiTheme.Red),
+            [1] = ("ANCESTRAL HEARTH", "Othala recalls the first gathering: a sound with purpose.", UiTheme.Purple),
+            [2] = ("PROCESSIONAL ROAD", "Raidho conducts every voice along a deliberate road.", UiTheme.Cream),
+            [3] = ("KENAZ REFRAIN", "Keep the ancient torch audible beneath the gathering noise.", UiTheme.Gold),
+            [4] = ("HAGALAZ CACOPHONY", "The present fractures meaning into a thousand empty echoes.", UiTheme.Red),
+            [5] = ("YEW OVERTONE", "Eihwaz preserves one clear interval between its branches.", UiTheme.Gold),
+            [6] = ("SOWILO RESONANCE", "The first chord passes onward; its silence passes with it.", UiTheme.Cream),
+            [7] = ("TIWAZ DEFENSE", "A noble spear bars the road to the power humanity squandered.", UiTheme.Blue),
+            [8] = ("MEANINGLESS DRONE", "Dagaz repeats the present until imitation consumes intent.", UiTheme.Purple),
+            [9] = ("JERA LAST CHORD", "Remember every phrase. Prove that meaning can still survive.", UiTheme.Red),
         };
 
     public sealed class VisualParticle
@@ -177,8 +178,8 @@ public sealed class Dissonance : Enemy
     private readonly List<int> _damagePhaseHistory = new() { 1 };
     public int NextSurvivalPhase { get; set; } = 3;
     public Color PhaseAccent { get; private set; } = UiTheme.Purple;
-    public string PhaseLabel { get; private set; } = "BOLSTER";
-    public string PhaseFlavor { get; private set; } = "I did not expect a challenger...";
+    public string PhaseLabel { get; private set; } = "ANCESTRAL HEARTH";
+    public string PhaseFlavor { get; private set; } = "Othala recalls the first gathering: a sound with purpose.";
     public double PhaseAnnouncementTimer { get; set; } = 3.2;
     public double PhaseProtectionTimer { get; set; }
     public double PhaseElapsed { get; set; }
@@ -242,7 +243,7 @@ public sealed class Dissonance : Enemy
     private double _motionTrailCooldown;
 
     public double ActTransitionTimer { get; set; } = 2.2;
-    public string ActTitle { get; set; } = "ACT I // THE CYCLE";
+    public string ActTitle { get; set; } = "ACT I // THE FIRST CHORD";
     public double HitFlash { get; set; }
     public double PerfectBreakFlash { get; set; }
     public double ShakeStrength { get; set; }
@@ -255,7 +256,7 @@ public sealed class Dissonance : Enemy
     public double DeathBurstDuration { get; } = 10.0;
     public bool DebugPhaseLocked { get; set; }
 
-    public double SurvivalDuration { get; } = 30.0;
+    public double SurvivalDuration { get; } = 40.0;
     public double SurvivalRemaining { get; set; }
     public bool SurvivalActive { get; private set; }
     public double SurvivalCooldown { get; set; } = .2;
@@ -275,7 +276,7 @@ public sealed class Dissonance : Enemy
     private Vector2? _mirrorJumpEchoOrigin;
 
     public Dissonance(float worldX, float worldY, float awarenessRange, Battleground battleground, Random? rng = null)
-        : base(worldX, worldY, .72f, Simulation.TileSize * 1.9f, UiTheme.Purple, 520, 135000, 900, 5, awarenessRange, "dissonance")
+        : base(worldX, worldY, .72f, Simulation.TileSize * 1.9f, UiTheme.Purple, 550, 150000, 900, 5, awarenessRange, "dissonance")
     {
         _rng = rng ?? Random.Shared;
         ArenaCenter = new Vector2(battleground.Width * Simulation.TileSize / 2f, battleground.Height * Simulation.TileSize / 2f);
@@ -510,7 +511,7 @@ public sealed class Dissonance : Enemy
         PhaseAnnouncementTimer = 5.0;
         PhaseProtectionTimer = CinematicTransitionsEnabled ? 5.0 : 0.0;
         SurvivalActive = SurvivalPhaseSet.Contains(phase);
-        SurvivalRemaining = SurvivalActive ? (phase == 9 ? 30.0 : 20.0) : 0.0;
+        SurvivalRemaining = SurvivalActive ? (phase == 9 ? SurvivalDuration : 20.0) : 0.0;
         SurvivalCooldown = .2;
         _bossBurstQueue.Clear();
         if (CinematicTransitionsEnabled)
@@ -528,7 +529,7 @@ public sealed class Dissonance : Enemy
         if (phase is 4 or 7)
         {
             ActTransitionTimer = 2.2;
-            ActTitle = phase == 4 ? "ACT II // THE FRACTURE" : "ACT III // THE RETURN";
+            ActTitle = phase == 4 ? "ACT II // THE EMPTY DRONE" : "ACT III // THE DEFENSE";
         }
         switch (phase)
         {
@@ -1706,8 +1707,8 @@ public sealed class Dissonance : Enemy
             Primitives2D.Arc(spriteBatch, arcRect, start, start + MathF.PI * 1.18f, color, Math.Max(1, (int)(Size * .022f)));
         }
 
-        int shardCount = 4 + Phase / 3;
-        float orbit = Age * (.016f + Phase * .0008f);
+        int shardCount = 3;
+        float orbit = Age * .006f;
         for (int index = 0; index < shardCount; index++)
         {
             float angle = orbit + index * 2f * MathF.PI / shardCount;
@@ -1795,7 +1796,7 @@ public sealed class Dissonance : Enemy
             return 0.0;
         if (SurvivalActive)
         {
-            double duration = Phase == 9 ? 30.0 : 20.0;
+            double duration = Phase == 9 ? SurvivalDuration : 20.0;
             return Math.Clamp(SurvivalRemaining / duration, 0.0, 1.0);
         }
         return Math.Clamp(1.0 - PhaseElapsed / PhaseTimeLimit, 0.0, 1.0);
@@ -2013,6 +2014,11 @@ public sealed class Dissonance : Enemy
 
         var rectCenter = rect.Center.ToVector2();
         DrawCubeAura(spriteBatch, rectCenter, PhaseAccent);
+        // Four gently depth-scaled satellites make the oldest core feel composed:
+        // its power is ordered around it rather than sprayed outward as debris.
+        float orbitSpread = SurvivalActive ? 1.35f : 1f;
+        BossVisuals.OrbitingCubes(spriteBatch, rectCenter, Age, OrbitingCubeCount, Size * .78f, Size * .16f,
+            new Color(105, 75, 196), new Color(64, 142, 214), orbitSpread, .28f, frontLayer: false);
         var (vertices, faces) = CubeGeometry(rectCenter, Size * .43f, Age, Phase);
         double entranceSpread = Math.Max(0.0, EntranceRemaining / EntranceDuration) * 2.8;
         double deathProgress = Dying ? Math.Max(0.0, 1 - DeathRemaining / DeathBurstDuration) : 0.0;
@@ -2037,7 +2043,10 @@ public sealed class Dissonance : Enemy
         {
             var points = projectedFaces[faceIndex];
             int shimmer = (int)(8 * (1 + Math.Sin(Age * .025 + faceIndex * 1.7)));
-            var faceColor = UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer);
+            Color ancestralFace = faceIndex % 2 == 0 ? new Color(91, 62, 181) : new Color(51, 120, 198);
+            var faceColor = HitFlash > 0 || IsStaggered
+                ? UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer)
+                : UiTheme.Lighten(Color.Lerp(ancestralFace, PhaseAccent, .12f), 5 + faceIndex * 5 + shimmer);
             Primitives2D.FillPolygon(spriteBatch, points, faceColor);
             Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, Math.Max(3, (int)(Size * .045f)));
             Primitives2D.Line(spriteBatch, points[0], points[1], UiTheme.Lighten(PhaseAccent, 35), Math.Max(1, (int)(Size * .012f)));
@@ -2050,15 +2059,17 @@ public sealed class Dissonance : Enemy
         Primitives2D.FillRect(spriteBatch, coreInflated, UiTheme.Ink);
         Primitives2D.FillRect(spriteBatch, core, UiTheme.Void);
         Primitives2D.RectOutline(spriteBatch, core, PhaseAccent, Math.Max(2, (int)(Size * .035f)));
-        var innerPulse = core;
-        int pulseInsetW = (int)(core.Width * (.64f + .08f * MathF.Sin(Age * .045f)));
-        int pulseInsetH = (int)(core.Height * (.64f + .08f * MathF.Sin(Age * .045f)));
-        innerPulse.Inflate(-pulseInsetW, -pulseInsetH);
+        float pulseScale = .28f + .06f * MathF.Sin(Age * .045f);
+        var innerPulse = new Rectangle((int)(rectCenter.X - core.Width * pulseScale / 2f),
+            (int)(rectCenter.Y - core.Height * pulseScale / 2f), Math.Max(2, (int)(core.Width * pulseScale)),
+            Math.Max(2, (int)(core.Height * pulseScale)));
         Primitives2D.RectOutline(spriteBatch, innerPulse, PhaseAccent, 1);
         int deathRune = Dying || (Phase == 9 && SurvivalActive) ? 9 : Phase;
         string runeName = DrawRune(spriteBatch, rectCenter, coreRadius, deathRune);
         UiTheme.DrawText(spriteBatch, runeName, Math.Max(8, Size * .075), PhaseAccent,
             new Vector2(rect.Center.X, core.Bottom + Size * .045f), "midtop");
+        BossVisuals.OrbitingCubes(spriteBatch, rectCenter, Age, OrbitingCubeCount, Size * .78f, Size * .16f,
+            new Color(105, 75, 196), new Color(64, 142, 214), orbitSpread, .28f, frontLayer: true);
 
         if (PhaseAnnouncementTimer > 0)
             DrawPhaseAnnouncement(spriteBatch, rect);

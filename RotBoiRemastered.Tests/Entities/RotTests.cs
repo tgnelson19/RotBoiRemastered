@@ -4,258 +4,218 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
 
-/// <summary>Ported from bossTypes.py's Rot (no dedicated Python test file to mirror).</summary>
+public class AcheTests
+{
+    private static Battleground MakeBattleground() => Battleground.GenerateSound();
+
+    private static EnemyUpdateContext Context(Ache boss, Battleground battleground) => new()
+    {
+        PlayerWorldX = boss.WorldX + 600,
+        PlayerWorldY = boss.WorldY + 120,
+        Battleground = battleground,
+        BossAfflictions = new BossAfflictions(),
+    };
+
+    private static void ClearOpening(Ache boss, EnemyUpdateContext context)
+    {
+        boss.EntranceRemaining = 0;
+        for (int tick = 0; tick < 400 && boss.TakeDamage(0).Blocked; tick++)
+            boss.Update(context);
+    }
+
+    [Fact]
+    public void Constructor_UsesCorrectChemesthesisIdentityAndBalance()
+    {
+        var boss = new Ache(1000, 1000, MakeBattleground(), new Random(1));
+
+        Assert.Equal(280000, boss.MaxHp);
+        Assert.Equal("ACHE", boss.BossDisplayName);
+        Assert.Equal("MISFIRE", boss.PhaseLabel);
+        Assert.Equal("THE UNCOMMANDED CORE", Ache.AcheConfig.Subtitle);
+        Assert.Equal(3, Ache.OrbitingArmCount);
+        Assert.Equal("PHANTOM", Ache.AcheSinConfig.SinSigils[0].Name);
+        Assert.Equal("UNBOUND", Ache.AcheSinConfig.SinSigils[^1].Name);
+        Assert.True(Ache.AcheConfig.FinalBodyScale < Chronos.ChronosConfig.FinalBodyScale);
+        Assert.Equal(8, Ache.AcheConfig.PhaseLabels.Count);
+    }
+
+    [Fact]
+    public void HalfHealth_StartsInvulnerableReflexStorm()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Ache(1000, 1000, battleground, new Random(2));
+        var context = Context(boss, battleground);
+        ClearOpening(boss, context);
+        boss.DebugPhaseLocked = false;
+        boss.DebugSetPhase(3);
+        boss.DebugPhaseLocked = false;
+
+        boss.TakeDamage(boss.MaxHp);
+
+        Assert.True(boss.MidpointSurvivalActive);
+        Assert.Equal("REFLEX STORM", boss.PhaseLabel);
+        Assert.Equal(boss.MaxHp / 2, boss.Hp);
+        Assert.True(boss.TakeDamage(1000).Blocked);
+    }
+
+    [Fact]
+    public void HugeOpeningHitStopsAtFirstChaoticLesson()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Ache(1000, 1000, battleground, new Random(2));
+        var context = Context(boss, battleground);
+        ClearOpening(boss, context);
+
+        boss.TakeDamage(boss.MaxHp);
+
+        Assert.Equal((int)(boss.MaxHp * .84), boss.Hp);
+        Assert.False(boss.MidpointSurvivalActive);
+    }
+
+    [Fact]
+    public void ChaosPatternsRemainReactableAndUseNoPortals()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Ache(1000, 1000, battleground, new Random(4));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(7);
+
+        for (int tick = 0; tick < 1800; tick++)
+            boss.Update(context);
+
+        Assert.NotEmpty(context.ProjectileSink);
+        Assert.All(context.ProjectileSink, shot => Assert.DoesNotContain("portal", shot.Owner));
+        Assert.Contains(context.ProjectileSink, shot => shot.Path == "laser" && shot.TelegraphDuration >= 1.2f);
+        Assert.Contains(context.ProjectileSink, shot => shot.Path is "mine" or "pool" or "bomb");
+        Assert.Contains(context.ProjectileSink, shot => shot.Speed <= .4f || shot.TelegraphDuration >= 1.2f);
+    }
+
+    [Fact]
+    public void Overload_IsFortySecondsThenTenSecondDeath()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Ache(1000, 1000, battleground, new Random(5));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(8);
+
+        Assert.True(boss.FinaleActive);
+        Assert.Equal(40.0, boss.FinaleRemaining);
+        Assert.True(boss.TakeDamage(1000).Blocked);
+
+        for (int tick = 0; tick < 5000 && !boss.Dying; tick++)
+            boss.Update(context);
+        Assert.True(boss.Dying);
+        Assert.Equal(10.0, boss.DeathDuration);
+
+        for (int tick = 0; tick < 1300 && !boss.IsDead(); tick++)
+            boss.Update(context);
+        Assert.True(boss.IsDead());
+    }
+}
+
 public class RotTests
 {
     private static Battleground MakeBattleground() => Battleground.GenerateSound();
 
-    private static EnemyUpdateContext MakeContext(float playerX, float playerY, Battleground battleground,
-        BossAfflictions? afflictions = null, PlayerBuildSnapshot? buildSnapshot = null) => new()
+    private static EnemyUpdateContext Context(Rot boss, Battleground battleground) => new()
     {
-        PlayerWorldX = playerX, PlayerWorldY = playerY, Battleground = battleground,
-        BossAfflictions = afflictions, PlayerBuildSnapshot = buildSnapshot,
+        PlayerWorldX = boss.ArenaCenter.X + boss.ArenaRadius * .78f,
+        PlayerWorldY = boss.ArenaCenter.Y,
+        Battleground = battleground,
     };
 
     [Fact]
-    public void Constructor_UsesFinalStatsAndSevenPhasesAndFourVents()
+    public void Constructor_UsesTouchIdentityAndSluggishFinalBalance()
     {
-        var rot = new Rot(1000, 1000, MakeBattleground(), new Random(1));
-        Assert.Equal(48000, rot.Hp);
-        Assert.Equal(1, rot.Phase);
-        Assert.Equal("CROWN", rot.PhaseLabel);
-        Assert.Equal(4, rot.CleansingVents.Count);
-        Assert.Empty(rot.CrystalWalls);
+        var boss = new Rot(1000, 1000, MakeBattleground(), new Random(1));
+
+        Assert.Equal(330000, boss.MaxHp);
+        Assert.Equal("ROT", boss.BossDisplayName);
+        Assert.Equal("SEEP", boss.PhaseLabel);
+        Assert.Equal("THE BURIED ANCIENT", Rot.RotConfig.Subtitle);
+        Assert.Equal(16, Rot.AbsorptionParticleCount);
+        Assert.Equal(22, Rot.FinaleAbsorptionParticleCount);
+        Assert.True(Rot.RotConfig.FinalBodyScale > Malady.MaladyConfig.FinalBodyScale);
+        Assert.Equal("square", Rot.RotConfig.ArenaShape);
+        Assert.True(Rot.RotConfig.MovementSpeed < .05);
     }
 
     [Fact]
-    public void TakeDamage_BlockedDuringInitialActTransition()
-    {
-        var rot = new Rot(1000, 1000, MakeBattleground(), new Random(1));
-        var result = rot.TakeDamage(1000);
-        Assert.True(result.Blocked);
-        Assert.False(result.Applied);
-    }
-
-    private static void ClearActTransition(Rot rot, EnemyUpdateContext context)
-    {
-        for (int i = 0; i < 400 && rot.TakeDamage(0).Blocked; i++)
-            rot.Update(context);
-    }
-
-    [Fact]
-    public void UpdateTerrain_VentTriggeredByExposure_ResetsAfflictionsAndGrowsWall()
+    public void HalfHealth_StartsChokingStillnessAndBlocksDamage()
     {
         var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var vent = rot.CleansingVents[0];
-        var afflictions = new BossAfflictions();
-        afflictions.Apply("pull", duration: 1.0, strength: .1, exposure: 1.0);
-        var context = MakeContext(vent.X, vent.Y, battleground, afflictions);
+        var boss = new Rot(1000, 1000, battleground, new Random(2));
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(3);
+        boss.DebugPhaseLocked = false;
 
-        rot.Update(context);
+        boss.TakeDamage(boss.MaxHp);
 
-        Assert.Equal(1, rot.VentsUsed);
-        Assert.Single(rot.CrystalWalls);
-        Assert.Equal(0.0, afflictions.Exposure);
-        Assert.True(rot.PeakExposure >= 1.0);
+        Assert.True(boss.MidpointSurvivalActive);
+        Assert.Equal("CHOKING STILLNESS", boss.PhaseLabel);
+        Assert.Equal(boss.MaxHp / 2, boss.Hp);
+        Assert.True(boss.TakeDamage(5000).Blocked);
     }
 
     [Fact]
-    public void MovementObstacles_IncludesFreshlyGrownNonWarningWall()
+    public void HugeOpeningHitStopsAtSeepGate()
+    {
+        var boss = new Rot(1000, 1000, MakeBattleground(), new Random(2));
+        boss.EntranceRemaining = 0;
+
+        boss.TakeDamage(boss.MaxHp);
+
+        Assert.Equal((int)Math.Round(boss.MaxHp * .84), boss.Hp);
+        Assert.False(boss.MidpointSurvivalActive);
+    }
+
+    [Fact]
+    public void RotCreatesGroundLavaWithLongWarningsAndOuterSafeCorridor()
     {
         var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var vent = rot.CleansingVents[0];
-        var afflictions = new BossAfflictions();
-        afflictions.Apply("pull", duration: 1.0, strength: .1, exposure: 1.0);
-        var context = MakeContext(vent.X, vent.Y, battleground, afflictions);
-        rot.Update(context);
+        var boss = new Rot(1000, 1000, battleground, new Random(3));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(5);
 
-        var obstacles = rot.MovementObstacles();
-
-        Assert.Single(obstacles);
-        Assert.Equal(rot.CrystalWalls[0].Rect, obstacles[0]);
-    }
-
-    [Fact]
-    public void GetScreenHitboxes_IncludesBrittleCrystalWallEntry()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var vent = rot.CleansingVents[0];
-        var afflictions = new BossAfflictions();
-        afflictions.Apply("pull", duration: 1.0, strength: .1, exposure: 1.0);
-        var context = MakeContext(vent.X, vent.Y, battleground, afflictions);
-        rot.Update(context);
-        Assert.Equal("brittle", rot.CrystalWalls[0].Kind); // patternRotation starts at 0 -> brittle
-
-        var hitboxes = rot.GetScreenHitboxes(new Camera(), new Microsoft.Xna.Framework.Vector2(rot.WorldX, rot.WorldY), Microsoft.Xna.Framework.Vector2.Zero);
-
-        Assert.Contains(hitboxes, h => h.Part == "crystal:0");
-    }
-
-    [Fact]
-    public void TakeDamage_CrystalPart_DamagesOnlyThatWallAndPopsWhenDepleted()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var vent = rot.CleansingVents[0];
-        var afflictions = new BossAfflictions();
-        afflictions.Apply("pull", duration: 1.0, strength: .1, exposure: 1.0);
-        var context = MakeContext(vent.X, vent.Y, battleground, afflictions);
-        rot.Update(context);
-        ClearActTransition(rot, context);
-        int hpBefore = rot.Hp;
-
-        var result = rot.TakeDamage(500, "crystal:0");
-
-        Assert.True(result.Applied);
-        Assert.Equal(hpBefore, rot.Hp); // crystal hits never touch the boss's own HP
-        Assert.Empty(rot.CrystalWalls); // 420 hp brittle wall popped by a 500-damage hit
-    }
-
-    [Fact]
-    public void TakeDamage_InvalidCrystalIndex_IsBlocked()
-    {
-        var rot = new Rot(1000, 1000, MakeBattleground(), new Random(1));
-        var result = rot.TakeDamage(500, "crystal:0");
-        Assert.True(result.Blocked);
-    }
-
-    [Fact]
-    public void SetSinPhase_ClearsCrystalWalls()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var vent = rot.CleansingVents[0];
-        var afflictions = new BossAfflictions();
-        afflictions.Apply("pull", duration: 1.0, strength: .1, exposure: 1.0);
-        var context = MakeContext(vent.X, vent.Y, battleground, afflictions);
-        rot.Update(context);
-        Assert.NotEmpty(rot.CrystalWalls);
-
-        rot.DebugSetPhase(2);
-
-        Assert.Empty(rot.CrystalWalls);
-    }
-
-    private static void FireUntilProjectiles(Rot boss, EnemyUpdateContext context)
-    {
-        for (int i = 0; i < 400 && context.ProjectileSink.Count == 0; i++)
+        for (int tick = 0; tick < 350 && context.ProjectileSink.Count == 0; tick++)
             boss.Update(context);
-        Assert.NotEmpty(context.ProjectileSink);
+
+        var pools = context.ProjectileSink.Where(shot => shot.Owner == "rot_touch_floor_lava").ToList();
+        Assert.NotEmpty(pools);
+        Assert.All(pools, pool =>
+        {
+            Assert.Equal("pool", pool.Path);
+            Assert.True(pool.TelegraphDuration >= 1.6f);
+            float angle = MathF.Atan2(pool.WorldY + pool.Size / 2f - boss.ArenaCenter.Y,
+                pool.WorldX + pool.Size / 2f - boss.ArenaCenter.X);
+            float difference = MathF.Abs(MathF.Atan2(MathF.Sin(angle - boss.SafeCorridorAngle), MathF.Cos(angle - boss.SafeCorridorAngle)));
+            Assert.True(difference >= .65f);
+        });
     }
 
     [Fact]
-    public void FireSinPattern_PhaseOne_PrideParallelLanes()
+    public void Burial_IsFortySecondsThenTenSecondExpandingDeath()
     {
         var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var context = MakeContext(rot.WorldX + 500, rot.WorldY, battleground);
+        var boss = new Rot(1000, 1000, battleground, new Random(4));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(7);
 
-        FireUntilProjectiles(rot, context);
+        Assert.True(boss.FinaleActive);
+        Assert.Equal(40.0, boss.FinaleRemaining);
+        Assert.True(boss.TakeDamage(1000).Blocked);
 
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_pride_crown" && p.Path == "laser");
-    }
+        for (int tick = 0; tick < 5000 && !boss.Dying; tick++)
+            boss.Update(context);
+        Assert.True(boss.Dying);
+        Assert.Equal(10.0, boss.DeathDuration);
 
-    [Fact]
-    public void FireSinPattern_PhaseTwo_GreedHoardAndOrbitingCoins()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        rot.DebugSetPhase(2);
-        var context = MakeContext(rot.WorldX + 500, rot.WorldY, battleground);
-
-        FireUntilProjectiles(rot, context);
-
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_greed_hoard" && p.Shape == "mine");
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_greed_coin" && p.Path == "orbit");
-    }
-
-    [Fact]
-    public void FireSinPattern_PhaseThree_LustPullAffliction()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        rot.DebugSetPhase(3);
-        var context = MakeContext(rot.WorldX + 500, rot.WorldY, battleground);
-
-        FireUntilProjectiles(rot, context);
-
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_lust_pull" && p.Affliction == "pull");
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_lust_lure" && p.Path == "bomb");
-    }
-
-    [Fact]
-    public void FireSinPattern_PhaseFour_EnvyReadsPlayerBuildSnapshotDominantOffense()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        rot.DebugSetPhase(4);
-        var build = new PlayerBuildSnapshot(
-            new Dictionary<string, int>(), new Dictionary<string, int>(),
-            new Dictionary<string, double> { ["projectile_count"] = 5 }, "critical");
-        var context = MakeContext(rot.WorldX + 500, rot.WorldY, battleground, buildSnapshot: build);
-
-        FireUntilProjectiles(rot, context);
-
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_envy_critical" && p.Path == "laser");
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_envy_reflection");
-    }
-
-    [Fact]
-    public void FireSinPattern_PhaseSix_WrathFanAndCrossedLanes()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        rot.DebugSetPhase(6);
-        var context = MakeContext(rot.WorldX + 500, rot.WorldY, battleground);
-
-        FireUntilProjectiles(rot, context);
-
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_wrath_retort");
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_wrath_answer" && p.Path == "laser");
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_wrath_cross" && p.Path == "laser");
-    }
-
-    [Fact]
-    public void FireSinPattern_PhaseSeven_SlothAppliesSlowAffliction()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        rot.DebugSetPhase(7);
-        var context = MakeContext(rot.WorldX + 500, rot.WorldY, battleground);
-
-        FireUntilProjectiles(rot, context);
-
-        Assert.Contains(context.ProjectileSink, p => p.Owner == "rot_chemesthesis_sloth_rot" && p.Affliction == "slow");
-    }
-
-    [Fact]
-    public void ChallengeResults_DefaultsToAllCleanWhenNothingHappened()
-    {
-        var rot = new Rot(1000, 1000, MakeBattleground(), new Random(1));
-        var results = rot.ChallengeResults();
-        Assert.True(results["clean_traversal"]);
-        Assert.True(results["vent_discipline"]);
-        Assert.True(results["uncontaminated"]);
-    }
-
-    [Fact]
-    public void ChallengeResults_ReflectsExposureAndVentUsage()
-    {
-        var battleground = MakeBattleground();
-        var rot = new Rot(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
-        var vent = rot.CleansingVents[0];
-        var afflictions = new BossAfflictions();
-        afflictions.Apply("pull", duration: 1.0, strength: .1, exposure: 5.0);
-        var context = MakeContext(vent.X, vent.Y, battleground, afflictions);
-        rot.Update(context);
-
-        var results = rot.ChallengeResults();
-
-        Assert.False(results["clean_traversal"]); // peakExposure 5.0 > 3.0
-        Assert.False(results["uncontaminated"]); // peakExposure 5.0 > .25
-        Assert.True(results["vent_discipline"]); // ventsUsed 1 <= 1
+        for (int tick = 0; tick < 1300 && !boss.IsDead(); tick++)
+            boss.Update(context);
+        Assert.True(boss.IsDead());
     }
 }

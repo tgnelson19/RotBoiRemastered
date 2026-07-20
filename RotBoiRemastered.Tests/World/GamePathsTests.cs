@@ -27,9 +27,9 @@ public class GamePathsTests
         var expected = new Dictionary<string, (string MidBoss, string FinalBoss)>
         {
             ["sound"] = ("beaudis", "dissonance"),
-            ["touch"] = ("bair", "sting"),
+            ["touch"] = ("bair", "rot"),
             ["sight"] = ("ishe", "chronos"),
-            ["chemesthesis"] = ("kage", "rot"),
+            ["chemesthesis"] = ("kage", "ache"),
             ["phantasia"] = ("hypno", "malady"),
         };
         foreach (var (key, (midBoss, finalBoss)) in expected)

@@ -6,11 +6,11 @@ level-10 lesson and a level-20 examination built from the same pacing grammar:
 
 | Path | Level 10: HP / contact / phases | Its one survival | Level 20: HP / contact / phases | Survival phases |
 | --- | --- | --- | --- | --- |
-| Sound | Beaudis: 50,000 / 220 / 5 | Endure, 14s at 50% HP | Dissonance: 150,000 / 550 / 9 | 20s at 67%, 20s at 33%, Jera 30s at 0% |
-| Touch | Bair: 110,000 / 380 / 5 | Ruin, 14s at 50% HP | Rot: 330,000 / 980 / 7 | Burial, 30s at 0% |
-| Sight | Ishe: 80,000 / 300 / 4 | Flash, 12s at 50% HP | Chronos: 240,000 / 780 / 7 | Still Second 18s at 50%, Afterimage 30s at 0% |
-| Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 280,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 30s at 0% |
-| Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | The House 22s at 50%, Enough 32s at 0% |
+| Sound | Beaudis: 50,000 / 220 / 5 | Endure, 14s at 50% HP | Dissonance: 150,000 / 550 / 9 | 20s at 67%, 20s at 33%, Jera 40s at 0% |
+| Touch | Bair: 110,000 / 380 / 5 | Ruin, 14s at 50% HP | Rot: 330,000 / 980 / 7 | Choking Stillness 22s at 50%, Burial 40s at 0% |
+| Sight | Ishe: 80,000 / 300 / 4 | Flash, 12s at 50% HP | Chronos: 240,000 / 780 / 7 | Still Second 20s at 50%, King's Attrition 40s at 0% |
+| Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 280,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 40s at 0% |
+| Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | Intermission 22s at 50%, Apotheosis 40s at 0% |
 
 Each midpoint has almost exactly one third of its paired finale's raw health,
 less than half its contact pressure, fewer movements, and exactly one invulnerable
@@ -49,15 +49,20 @@ and only coarse phase pips distinguish its state.
 
 ## Dissonance — level 20
 
-Dissonance is the true name and final form of the original nine-phase encounter.
+Dissonance is the oldest ancient core and the true name of the original nine-phase encounter.
+Sound once let humanity coordinate and build; repetition without intent reduced that gift
+to a wearing drone. The encounter therefore presents Dissonance as a respectful warden
+testing whether an emissary can still distinguish meaning from imitation.
 It keeps the dedicated circular arena, portal interception/routing, rune disruption,
 stagger and fracture systems, three survival phases, act transitions, Jera finale,
 and ten-second death spectacle.
 
-Dissonance alone retains the fluid visual language. In addition to the rotating
-perspective cube, rune interpolation, orbiting shards, arena waves, particles, and
-cinematic transitions, it now leaves smoothly fading phase-colored motion echoes.
-This effect is not shared with mini-bosses or Beaudis.
+Dissonance is a composed purple-and-blue perspective cube around a deep black center.
+Four much smaller cubes orbit slowly on a shallow three-dimensional ellipse. Rune
+interpolation, arena waves, restrained particles, and smoothly fading echoes communicate
+age and mastery, while the body palette remains stable through every phase. Phase color
+belongs to the current rune and its warning trim; it never repaints the ancient itself.
+This keeps Dissonance noble and readable rather than making it look volatile.
 
 The final fight expects twenty drafted upgrades and is tuned to 150,000 HP, 550
 contact damage, 0.72 movement speed, 360 stagger, a 1.3x final-boss projectile
@@ -72,9 +77,15 @@ so their formations remain a constant threat for the entire survival timer.
 
 ### Acts and survival phases
 
-- Act I uses phases 1–3 and unlocks its 20-second survival at two-thirds health.
-- Act II uses phases 4–6 and unlocks its 20-second survival at one-third health.
-- Act III uses phases 7–9 and unlocks the 30-second Jera survival at zero health.
+- Act I, **The First Chord**, uses Ancestral Hearth, Processional Road, and the
+  20-second Kenaz Refrain at two-thirds health.
+- Act II, **The Empty Drone**, uses Hagalaz Cacophony, Yew Overtone, and the
+  20-second Sowilo Resonance at one-third health.
+- Act III, **The Defense**, uses Tiwaz Defense, Meaningless Drone, and the
+  40-second Jera Last Chord at zero health.
+
+The revised names remove the former deception framing. Dissonance is defending
+purposeful ancient resonance from modern repetition that has lost its meaning.
 
 Only completing Jera begins Dissonance's existing finale collapse. This sequence is
 not reused by Beaudis.
@@ -96,9 +107,15 @@ greater of 0.25 damage or 10% of their pre-defense value (before casual-mode sca
 ## Kage and Ache — Path of Chemesthesis
 
 Kage introduces Chemesthesis through four composite-sin patterns. Ache completes the
-path in a larger jagged arena as three orange cubes orbiting a split scarlet/blue core.
-The cubes depth-sort across the core, spread on attacks, jolt with movement, and open
-into a much wider, faster constellation during its survival spectacles.
+path in a larger jagged arena as one deliberately small orange-and-blue oscillating core.
+Exactly three blue perspective cubes orbit it as unruly arms. Their connectors, depth
+sorting, unequal orbit speed, and widened survival constellation make the silhouette
+feel powerful but incapable of following a common command.
+
+Ache's collision-born origin is reflected in overlapping visual systems rather than an
+ancestral court: orange and blue never fully blend, its old sin-sigil labels have become
+Phantom, Border, Recoil, Reflex, Trespass, Splinter, Static, and Unbound, and each attack
+appears to answer a threat or territorial violation that may not exist.
 
 Kage has three damage movements around one midpoint survival:
 
@@ -107,18 +124,17 @@ Kage has three damage movements around one midpoint survival:
 3. **Stagnant Mirror** combines Sloth and Envy in a 14-second half-health survival.
 4. **Lure** combines Lust and Avarice in wide tempting lanes and a targeted bomb.
 
-Ache has six damage movements and two survival movements. **Pinprick**, **Crossed
-Nerves**, and **Misstep** lead into the 20-second **Reflex Storm** at half health;
-**Aftershock**, **Fracture**, and **White Ache** lead into the 30-second **Overload**
-at zero health. Completing Overload begins a 10-second constellation collapse.
+Ache has six damage movements and two survival movements. **Misfire**, **Crossed
+Nerves**, and **Wrong Way** lead into the 20-second **Reflex Storm** at half health;
+**Aftershock**, **Fracture**, and **White Ache** lead into the 40-second **Overload**
+at zero health. Completing Overload begins a 10-second expanding constellation collapse.
 
-Its small orange projectiles always launch as opposite-amplitude sinusoidal pairs,
-forming moving helixes. These deal only 105–130 base damage and are intended to be
-occasionally tanked. Straight laser walls and traveling lightning bolts deal 690–820
-base damage. Lightning telegraphs its complete multi-angle route before its active head
-travels through the bends, so large hits are avoidable but costly mistakes. Ache has
-280,000 health—less than Rot or Malady—but is invulnerable during both
-survival movements.
+Ache selects each attack independently instead of exposing a learnable rotation.
+Wrong-way fans travel slowly and settle into mines, bombs deliberately land around the
+player rather than directly on them, contamination pools announce themselves for 1.25
+seconds, and the fight's 720–790 damage lashes show their complete route before becoming
+dangerous. Ache uses no projectile portals. Its randomness chooses the next problem;
+telegraphs and low projectile speeds still give the player time to solve it.
 
 Chemesthesis hazards can apply **Exposure**, a temporary movement-pressure meter that
 decays after avoiding contaminated terrain. These effects never reduce movement below
@@ -126,35 +142,39 @@ decays after avoiding contaminated terrain. These effects never reduce movement 
 
 ## Hypno and Malady — Path of Phantasia
 
-Hypno now teaches five paired commandment concepts through **Idol**, **Spoken Rule**,
-**Inheritance**, **Chosen**, and **Offering**. Chosen is its one 14-second half-health
-survival, and Offering returns control to a damage finish. Malady expands that language into ten
-health-gated phases: Authority, Image, Reverence, Rest, Lineage, Mercy, Fidelity,
-Ownership, Truth, and Contentment.
+Hypno remains Phantasia's midpoint lesson. Malady expands the path into ten flowing
+movements: **Overture**, **Petal Flood**, **Impossible Engine**, **Ribbon Court**,
+**Tentacle Garden**, **Intermission**, **Luminous Tide**, **Violet Cathedral**,
+**Soul Incursion**, and **Apotheosis**.
 
-Malady uses three theatrical acts: **The Doctrine** (phases 1–3), **The Covenant**
-(phases 4–6), and **The Testimony** (phases 7–10). Curtain transitions clear the
-projectile field, protect the boss, and draw the next commandment sigil before the
-court returns.
+As the youngest and most powerful ancient, Malady should look generative rather than
+merely royal. Impossible Engine turns inspiration into novel machinery; Soul Incursion
+makes her attempt to recover lost power through the player's imagination explicit.
 
-Phantasia's shared meter is **Belief**. Real hostile projectiles carry a stable cream
-center mark; visually dense false projectiles are harmless and use a hollow muted
-center. Following false rules, breaking Rest, or accepting finale offerings raises
-Belief. Correct interpretation grants Clarity, which accelerates Belief decay. Higher
-Belief adds mask echoes, false halos, and extra court ornamentation without changing
-the real-threat marker.
+Malady uses three theatrical acts: The First Idea, Invention, and The Human Soul.
+Curtain transitions clear the projectile field, protect the boss, and redraw the
+court before the next movement begins. Intermission is a 22-second half-health
+survival; Apotheosis is the 40-second zero-health finale.
 
-Malady's commandment mechanics include shifting authoritative projectile origins,
-mirrored false courts, protected names, a six-beat attack/Rest rhythm, inherited
-splitting projectiles, a harmless mercy procession, route-like Fidelity lasers,
-build-scaled stolen volleys, one true witness among false lasers, and four optional
-Contentment offerings that permanently intensify the finale pattern.
+Hypno retains Phantasia's shared **Belief** lesson, false rules, Rest, and offerings.
+Malady deliberately disables those inherited mechanics. Her identity is divine novelty,
+not deception: every dangerous formation is real, every large hit is honestly marked,
+and the challenge is navigating beauty without letting density hide the intended shore.
 
-All ten commandments have supersampled geometric sigils. The court renders several
-counter-rotating manuscript rings, floating diamonds, an ivory ceremonial mask, ten
-orbiting halo seals, Belief-driven false masks, illuminated rule banners, and ornate
-phase cards. This is intentionally the game's most visually chaotic boss, but its
-collision truth remains consistent.
+Malady's mechanics are portal-authored petal floods, slow curved ribbon chains,
+splitting projectile tentacles, player-facing openings in radial flowers, and fully
+telegraphed cathedral lasers with adjacent aisles left empty. Ground pools stay on the
+inner 64% of the arena so the outer court always offers a less threatened shore.
+Apotheosis cycles floods, tentacles, portal phrases, and laser arches for forty seconds.
+
+Malady is a tall indigo cubic pillar moving independently above a square-cornered 3D
+obsidian slab anchored permanently at the center of the room. The slab is arena scenery,
+not part of Malady's moving body or hitbox. A vertical
+magenta-white inspiration slit and three luminous nodes keep the center legible, while
+ten to eighteen independent perspective cubes continuously assemble possible bodies
+around it. Breathing elliptical auras and incomplete arcs suggest ideas radiating from
+the source. The pillar barely leans when moving; attacks rearrange the constellation
+instead, preserving the Empress's composure and scale.
 
 ## Shared path-arena overhaul
 
@@ -186,66 +206,80 @@ require eight separate hits to disable, and fire paired slow heavy shots.
 Ruin is the single 14-second half-health survival; Silence is the damageable finish.
 
 Rot is Touch's complete level-20 encounter. Its seven stages of accumulation are
-**Seep**, **Silt**, **Slump**, **Bloom**, **Sinkhole**, **Miasma**, and **Burial**.
+**Seep**, **Silt**, **Slump**, **Choking Stillness**, **Bloom**, **Miasma**, and **Burial**.
 The fight uses only static and extremely slow pathed movement inside Touch's rigid
 square arena. Slow edge-reaching fronts, orbiting clots, long-lived sludge pools,
 spores, sweeps, and advancing mud banks progressively remove open ground.
 
+Rot's second-oldest status is expressed through inertia instead of ornament. The other
+ancients made it a guardian because moving it would risk a battle, so none of its major
+motions should look hurried: the puddle, room, and projectiles move while the burden stays.
+
 Rot has 330,000 visible health, one body hitbox, no breakable appendages, no stagger
-damage multiplier, and no alternate weak point. Its body is a shadowed semicircle of
-vibrating cubes sinking through a mud shelf while detached cubes fall, shrink, and
-dissolve. There is deliberately no bright core that reads as a damage target.
+damage multiplier, and no alternate weak point. Its body is one enormous brown-green
+cubic slab drawn behind a foreground pool so the lower half is visibly submerged.
+Brown, red, and green cubes appear above it, fall, shrink, and vanish at the waterline;
+absorption ripples and colored cracks imply that discarded matter feeds the ancient.
+There is deliberately no bright core that reads as a weak point.
 
-Mud banks are untargetable environmental geometry. They telegraph in cream for 1.8
-seconds, become solid, and in Sinkhole and Burial advance toward the arena center
-before stopping with a traversable channel. Active banks are capped at eight.
+Poison-floor pools render beneath bosses, projectiles, and the player. They telegraph
+for at least 1.65 seconds and occupy only inner rings while every formation omits a
+broad wedge aimed toward the player's current outer corridor. Slow sludge fronts use
+the same three-lane opening, and three-second bombs land on the threatened side of the
+arena rather than inside that corridor.
 
-The first six Rot stages are damage movements. Reaching zero health unlocks **Burial**
-as a 30-second invulnerable survival spectacle; completing it clears the mud and begins
-the ten-second collapse. Bair's Ruin teaches the square-lane pressure without reusing
-this finale.
+**Choking Stillness** is a 22-second invulnerable half-health survival with Rot static
+near the center. Reaching zero health unlocks **Burial** as a 40-second invulnerable
+spectacle; completing it clears hostile projectiles and begins the ten-second expanding
+collapse before the Touch path reward is released.
 
 ## Ishe and Chronos — Path of Sight
 
 Ishe introduces Sight's **Glimpse**, **Blink**, **Flash**, and **Afterglow** through
 four short, fast movements. Flash is its one 12-second half-health survival; Afterglow
-returns to a final aimed volley. Chronos completes the path as the smallest, fastest,
-and lowest-health final boss: a light-blue portal cube whose body gradient, idle orbit, movement
-trail, attack flare, and staggered afterimages are all made from square particles.
+returns to a final aimed volley. Chronos inverts that lesson: the King of Attrition is
+slow, directive, and heavy. The body is one simple light-blue perspective cube, visually
+related to the player's square body but enlarged and rotating on three axes. Breathing
+elliptical auras and sparse square motes oscillate around it; there is no clock face or
+literal lens to compete with attack telegraphs.
 
-Chronos has five mobile damage movements and two survival movements:
+Chronos defeated Queen Valia by degrading reaction rather than concealing intent. The
+phase sequence repeatedly shows complete routes, makes the player solve them while tired,
+then introduces the same single Thorn of Time that pierced the former ruler's core.
 
-1. **Tick** fires a narrow five-shot fan.
-2. **Crosscut** rotates a dense radial volley with a consistent two-shot opening.
-3. **Blink** overlaps two narrow fans while Chronos jumps between positions.
-4. **Still Second** is the fight's only static movement, an 18-second midpoint
-   survival built from rotating rings with visible openings.
-5. **Quicken** uses seven small alternating sine shots.
-6. **Parallax** crosses two predictions while leaving the exact aimed line open.
-7. **Afterimage** is a 30-second high-speed chase. Every new volley marks its old
-   firing origin and repeats the exact same angles 1.7 seconds later; the opening also
-   replays up to eight volleys previously seen during the fight.
+Chronos has five damage movements and two survival movements:
 
-No Chronos attack creates a pool, wall, mine, laser, or other persistent field hazard.
-Its pressure comes entirely from small 96–145 damage projectiles, short firing
-intervals, pursuit, and readable gaps. At 240,000 health, it is deliberately more
-fragile than the other path finales. Completing Afterimage starts a ten-second portal
-collapse in which the cube shrinks while seventy-two bright square fragments spread
-outward before the reward is released.
+1. **Directive** shows two segmented laser-tentacles around a central opening.
+2. **Crosscut** bends two heavier routes across one another after a longer warning.
+3. **Wearying Lash** declares three seven-segment flails before any segment strikes.
+4. **Still Second** is a 20-second midpoint survival: ten possible arms are shown,
+   but the three closest to the player's escape angle are always absent.
+5. **Parallax** combines the learned opening with one large independent flail.
+6. **Thorn of Time** alternates a twelve-arm crown with the fabled single eight-segment
+   killing line. The Thorn is fixed when declared and remains harmless for 2.35 seconds.
+7. **King's Attrition** is the 40-second finale, cycling directive pairs, crowns, rear
+   lashes, and the Thorn until the player's reactions are tested one final time.
 
-### Recommended polish order
+Every tentacle is a chain of five to eight finite laser segments. The full chain remains
+harmless for 1.5–2.35 seconds, then every segment activates together for less than a
+second. Chronos does not create pools, walls, mines, or surprise contact jumps. Its
+pressure comes from 730–1,260 damage declared routes and choosing the empty route in time.
+Completing King's Attrition begins a ten-second expanding square-fragment collapse before the
+Sight path reward is released.
 
-1. Playtest arena dimensions and moving-boundary containment before tuning damage.
-2. Playtest Chronos's radial openings at low movement speed and without dash upgrades;
-   widen the gaps before reducing projectile density if baseline builds struggle.
-3. Add themed portal subclasses for Chemesthesis and Phantasia. Chemical vents should
-   move unpredictably along the jagged edge; dream apertures should follow atomic
-   ellipses and mix real and illusory volleys.
-4. Add shared act-transition cleanup and phase-timer rules to the common arena contract,
-   then remove remaining duplicated transition code.
-5. Profile projectile counts and alpha surfaces during Malady. Preserve its visual
-   maximalism, but cap expensive translucent layers independently from gameplay shots.
-6. Add portal-interception tests per path before allowing every themed portal to reroute
-   player bullets.
-7. Tune movement modes only after every boss can be practiced phase-by-phase; scripted
-   paths should remain deterministic enough to learn even when their visuals are wild.
+### Visual-direction comments and playtest suggestions
+
+1. Keep each core's silhouette readable in grayscale: Dissonance's black center,
+   Malady's tall pillar, Ache's three arms, Rot's submerged slab, and Chronos's lone cube
+   should identify the boss before phase color is considered. The procedural renders now
+   enforce those silhouettes directly.
+2. Reserve fast visual motion for Ache and the outer layers of Malady. Dissonance's
+   satellites, Rot's slab, and Chronos's body should remain composed so their authority
+   comes from the arena and attacks rather than frantic animation.
+3. Playtest Chronos's 2.35-second Thorn warning without dash upgrades. If it still feels
+   unfair, widen the line's lateral escape rather than lowering its signature damage.
+4. Profile Malady's eighteen-cube finale constellation on low-end hardware. Cosmetic
+   cube count can be reduced independently of gameplay projectile count if necessary.
+5. Sound is the clearest future polish opportunity: give Dissonance purposeful chords
+   against a flat drone, Ache three disagreeing pulses, Rot a low sub-bass absorption,
+   Malady resolving harmonic swells, and Chronos a long warning tone with one hard impact.

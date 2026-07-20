@@ -4,7 +4,7 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Entities;
 
-/// <summary>"THE THING THE PRISON KEPT" -- the Touch content path's final boss. Ported from bossTypes.py's Sting.</summary>
+/// <summary>"THE THING THE PRISON KEPT" -- the legacy Touch finale retained for debug/profile compatibility. Ported from bossTypes.py's Sting.</summary>
 public sealed class Sting : PlagueTouchBoss
 {
     public static readonly PathChaseBossConfig StingConfig = BaseConfig with

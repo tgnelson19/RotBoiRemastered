@@ -31,10 +31,12 @@ public class DissonanceTests
     public void Constructor_SetsBossIdentityAndDeploysPhaseOnePortals()
     {
         var boss = MakeBoss();
-        Assert.Equal(135000, boss.Hp);
-        Assert.Equal(135000, boss.MaxHp);
+        Assert.Equal(150000, boss.Hp);
+        Assert.Equal(150000, boss.MaxHp);
         Assert.Equal(1, boss.Phase);
-        Assert.Equal("BOLSTER", boss.PhaseLabel);
+        Assert.Equal("ANCESTRAL HEARTH", boss.PhaseLabel);
+        Assert.Equal("KEEPER OF THE FIRST CHORD", Dissonance.Subtitle);
+        Assert.Equal(4, Dissonance.OrbitingCubeCount);
         Assert.Equal(3, boss.ProjectilePortals.Count);
     }
 
@@ -230,7 +232,7 @@ public class DissonanceTests
 
         Assert.NotEqual(1, boss.Phase);
         Assert.True(boss.PhaseForcedByTimer);
-        Assert.Equal(135000, boss.Hp); // no damage taken, so health gate never fires -- only the timer did
+        Assert.Equal(150000, boss.Hp); // no damage taken, so health gate never fires -- only the timer did
     }
 
     [Fact]
@@ -261,6 +263,19 @@ public class DissonanceTests
         Assert.True(boss.Dying);
         Assert.Equal(boss.DeathDuration, boss.DeathRemaining);
         Assert.Equal(1, boss.Hp);
+    }
+
+    [Fact]
+    public void JeraGrandFinaleLastsFortySecondsAndDeathLastsTen()
+    {
+        var boss = MakeBoss();
+
+        boss.DebugSetPhase(9);
+
+        Assert.Equal(40.0, boss.SurvivalDuration);
+        Assert.Equal(40.0, boss.SurvivalRemaining);
+        Assert.Equal(10.0, boss.DeathDuration);
+        Assert.True(boss.TakeDamage(1000).Blocked);
     }
 
     [Fact]

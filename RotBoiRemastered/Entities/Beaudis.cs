@@ -9,8 +9,7 @@ namespace RotBoiRemastered.Entities;
 /// <summary>
 /// The restrained midpoint echo fought in the ordinary world -- the run's
 /// level-10 gate boss. Ported from bossTypes.py's Beaudis (the first of
-/// fifteen boss classes in that ~4750-line file; see Entities/README.md's
-/// "Explicitly deferred" section for why only this one is ported so far).
+/// fifteen boss classes in that ~4750-line file).
 ///
 /// Cleanup vs. the Python original:
 /// - `damagePhaseHistory`, `SURVIVAL_PHASES`, `finalFlavorItalic`,
@@ -19,13 +18,9 @@ namespace RotBoiRemastered.Entities;
 ///   `__init__` but never read anywhere in Beaudis's own body (confirmed by
 ///   reading the full class) -- they're either vestigial (never used by
 ///   any boss), or fields Beaudis shares in *name* with Dissonance (which
-///   does use them meaningfully) purely so a still-deferred, boss-agnostic
-///   HUD function (character.py's `drawBossHealthBar`, not part of
-///   informationSheet.py, not yet ported) can read them across boss types
-///   without an AttributeError. Introducing a shared base-boss contract for
-///   fields only one currently-ported boss ever touches would be designing
-///   for a hypothetical -- revisit once Dissonance and that HUD function
-///   are both ported and the right shared shape is actually known.
+///   does use them meaningfully) purely so Python's boss-agnostic HUD could
+///   read them without an AttributeError. The C# HUD now consumes the smaller
+///   common contract and encounter-specific state remains on Dissonance.
 /// - `self.posX, self.posY = bG.world_to_screen(...)` assignments at the end
 ///   of every `updateEnemy` branch are dropped -- a same-frame cache for
 ///   Python's combined update-and-draw call, made unnecessary by this

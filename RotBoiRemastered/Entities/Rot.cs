@@ -7,7 +7,7 @@ using RotBoiRemastered.World;
 namespace RotBoiRemastered.Entities;
 
 /// <summary>
-/// A brittle or reinforced terrain obstacle Rot grows across the arena.
+/// A brittle or reinforced terrain obstacle left by an Ache aftershock.
 /// Ported from bossTypes.py's per-instance `crystalWalls` dict literals --
 /// a small mutable class instead, since `Remaining`/`Warning`/`Rect` mutate
 /// every frame (see <see cref="RunState.BossAfflictions"/> for the same
@@ -36,42 +36,47 @@ public sealed class CleansingVent
 }
 
 /// <summary>
-/// "THE FIELD THAT REMAINS" -- the final boss of the Chemesthesis content
-/// path. Ported from bossTypes.py's Rot. Adds a persistent-terrain
-/// subsystem (crystal walls that block player movement and can be shot
-/// down, cleansing vents that reset the player's exposure/pull afflictions
-/// at the cost of sealing off a route) on top of Kage's shared sin-pattern
-/// plumbing.
+/// Chemesthesis's uncommanded collision-born core. Ache never presents a stable
+/// rotation: each attack is chosen independently, but every heavy hit has a
+/// telegraph and its unaimed mistakes travel slowly enough to react to.
 /// </summary>
-public sealed class Rot : Kage
+public sealed class Ache : Kage
 {
-    public static readonly PathChaseBossConfig RotConfig = KageConfig with
+    public const int OrbitingArmCount = 3;
+    protected override bool VisualSurvivalActive => MidpointSurvivalActive || FinaleActive || base.VisualSurvivalActive;
+
+    public static readonly PathChaseBossConfig AcheConfig = KageConfig with
     {
-        BossName = "ROT", Subtitle = "THE FIELD THAT REMAINS", FinalBoss = true,
-        OwnerPrefix = "rot_chemesthesis",
-        FinalBodyColor = new Color(122, 47, 36), FinalAccentColor = new Color(210, 85, 36),
-        FinalBodyScale = 2.5, FinalCooldownSeconds = 1.35, FinalShotSpeed = .38, FinalShotScale = .29,
-        MovementSpeed = .07,
-        MovementModes = new[] { "static", "path", "chase", "static", "path", "chase", "static" },
-        PhaseLabels = new[] { "CROWN", "HOARD", "PULL", "BORROWED SHAPE", "CONSUMPTION", "RETORT", "THE ROT" },
+        BossName = "ACHE", Subtitle = "THE UNCOMMANDED CORE", FinalBoss = true,
+        OwnerPrefix = "ache_chemesthesis",
+        FinalBodyColor = new Color(232, 112, 31), FinalAccentColor = new Color(54, 143, 218),
+        FinalBodyScale = 1.6, FinalCooldownSeconds = 1.45, FinalShotSpeed = .34, FinalShotScale = .27,
+        MovementSpeed = .21,
+        MovementModes = new[] { "chase", "path", "chase", "static", "path", "chase", "path", "static" },
+        PhaseLabels = new[]
+        {
+            "MISFIRE", "CROSSED NERVES", "WRONG WAY", "REFLEX STORM",
+            "AFTERSHOCK", "FRACTURE", "WHITE ACHE", "OVERLOAD",
+        },
+        FinalHealth = 280000, FinalContactDamage = 880, FinalRewardExperience = 840,
     };
 
-    public static readonly SinSigilConfig RotSinConfig = new(
+    public static readonly SinSigilConfig AcheSinConfig = new(
         PhaseFlavors: new[]
         {
-            "There is room for only one above.", "Nothing is enough.",
-            "Every nerve bends toward desire.", "Your strength looks better on me.",
-            "The field must feed.", "Every wound demands an answer.",
-            "Rest. Become part of the garden.",
+            "Ache answers an attacker that was never there.", "Three arms dispute where the border should be.",
+            "The core recoils from a future that never happened.", "No command survives contact with the storm.",
+            "Unclaimed ground is punished for trespass.", "Power splits wherever obedience should begin.",
+            "Every warning points toward a different phantom.", "Forty seconds of power without a master.",
         },
         PhaseColors: new[]
         {
-            new Color(232, 196, 84), new Color(211, 145, 45), new Color(216, 80, 112), new Color(111, 155, 88),
-            new Color(153, 77, 42), new Color(224, 55, 35), new Color(91, 117, 52),
+            new Color(232, 122, 36), new Color(57, 146, 218), new Color(82, 176, 228), new Color(244, 226, 174),
+            new Color(209, 72, 45), new Color(65, 129, 214), new Color(207, 234, 240), new Color(232, 86, 32),
         },
         SinSigils: new (string, Vector2[][])[]
         {
-            ("PRIDE", new[]
+            ("PHANTOM", new[]
             {
                 new[]
                 {
@@ -81,7 +86,7 @@ public sealed class Rot : Kage
                 new[] { new Vector2(-.58f, .28f), new Vector2(.58f, .28f) },
                 new[] { new Vector2(0, -.72f), new Vector2(0, .68f) },
             }),
-            ("GREED", new[]
+            ("BORDER", new[]
             {
                 new[]
                 {
@@ -91,7 +96,7 @@ public sealed class Rot : Kage
                 new[] { new Vector2(-.42f, -.06f), new Vector2(0, .28f), new Vector2(.42f, -.06f) },
                 new[] { new Vector2(0, -.42f), new Vector2(0, .74f) },
             }),
-            ("LUST", new[]
+            ("RECOIL", new[]
             {
                 new[]
                 {
@@ -100,7 +105,7 @@ public sealed class Rot : Kage
                 },
                 new[] { new Vector2(-.72f, 0), new Vector2(.72f, 0) },
             }),
-            ("ENVY", new[]
+            ("REFLEX", new[]
             {
                 new[]
                 {
@@ -114,20 +119,20 @@ public sealed class Rot : Kage
                 },
                 new[] { new Vector2(-.36f, 0), new Vector2(.36f, 0) },
             }),
-            ("GLUTTONY", new[]
+            ("TRESPASS", new[]
             {
                 new[] { new Vector2(-.7f, -.34f), new Vector2(-.34f, -.68f), new Vector2(.34f, -.68f), new Vector2(.7f, -.34f) },
                 new[] { new Vector2(-.7f, .34f), new Vector2(-.34f, .68f), new Vector2(.34f, .68f), new Vector2(.7f, .34f) },
                 new[] { new Vector2(-.7f, -.34f), new Vector2(-.28f, 0), new Vector2(-.7f, .34f) },
                 new[] { new Vector2(.7f, -.34f), new Vector2(.28f, 0), new Vector2(.7f, .34f) },
             }),
-            ("WRATH", new[]
+            ("SPLINTER", new[]
             {
                 new[] { new Vector2(-.58f, -.7f), new Vector2(.1f, -.08f), new Vector2(-.18f, .08f), new Vector2(.58f, .7f) },
                 new[] { new Vector2(.58f, -.7f), new Vector2(-.1f, -.08f), new Vector2(.18f, .08f), new Vector2(-.58f, .7f) },
                 new[] { new Vector2(-.72f, 0), new Vector2(.72f, 0) },
             }),
-            ("SLOTH", new[]
+            ("STATIC", new[]
             {
                 new[]
                 {
@@ -137,8 +142,14 @@ public sealed class Rot : Kage
                 new[] { new Vector2(0, -.76f), new Vector2(0, -.56f) },
                 new[] { new Vector2(-.48f, .62f), new Vector2(0, .76f), new Vector2(.48f, .62f) },
             }),
+            ("UNBOUND", new[]
+            {
+                new[] { new Vector2(-.72f, -.62f), new Vector2(.62f, .72f) },
+                new[] { new Vector2(.72f, -.62f), new Vector2(-.62f, .72f) },
+                new[] { new Vector2(-.7f, .12f), new Vector2(-.18f, -.18f), new Vector2(.22f, .22f), new Vector2(.7f, -.12f) },
+            }),
         },
-        ActMetadata: new Dictionary<int, string> { [3] = "ACT II // TEMPTATION", [5] = "ACT III // SATURATION" });
+        ActMetadata: new Dictionary<int, string> { [4] = "REFLEX STORM", [5] = "ACT II // UNCLAIMED GROUND", [8] = "OVERLOAD" });
 
     private readonly List<CrystalWall> _crystalWalls = new();
     private readonly List<CleansingVent> _cleansingVents = new();
@@ -151,22 +162,136 @@ public sealed class Rot : Kage
     public double PeakExposure { get; private set; }
     protected override double ConsumedCrystalPulse => _consumedCrystalPulse;
 
-    public Rot(float worldX, float worldY, Battleground battleground, Random? rng = null)
-        : base(worldX, worldY, battleground, RotConfig, RotSinConfig, rng)
+    public bool MidpointSurvivalActive { get; private set; }
+    public bool MidpointSurvivalCleared { get; private set; }
+    public double MidpointSurvivalDuration { get; } = 20.0;
+    public double MidpointSurvivalRemaining { get; private set; }
+    private double _survivalCooldown;
+
+    public Ache(float worldX, float worldY, Battleground battleground, Random? rng = null)
+        : base(worldX, worldY, battleground, AcheConfig, AcheSinConfig, rng)
     {
-        ActTitle = "ACT I // APPETITE";
+        ActTitle = "ACT I // GHOST THREAT";
         ActTransitionTimer = ActTransitionDuration;
         PhaseProtectionTimer = ActTransitionDuration;
-        var center = Center();
-        for (int index = 0; index < 4; index++)
+    }
+
+    protected override double DamageFloorRatio() => Phase switch
+    {
+        1 => .84,
+        2 => .67,
+        3 or 4 => .50,
+        5 => .25,
+        6 => .12,
+        _ => 0.0,
+    };
+
+    private void BeginMidpointSurvival()
+    {
+        if (MidpointSurvivalActive || MidpointSurvivalCleared)
+            return;
+        Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+        SetSinPhase(4);
+        MidpointSurvivalActive = true;
+        MidpointSurvivalRemaining = MidpointSurvivalDuration;
+        _survivalCooldown = .25;
+        TransitionCleanupRequested = true;
+    }
+
+    protected override void UpdatePhase()
+    {
+        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive)
+            return;
+        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
+        int desired;
+        if (!MidpointSurvivalCleared)
         {
-            float angle = index * MathF.PI / 2f + MathF.PI / 4f;
-            _cleansingVents.Add(new CleansingVent
+            if (ratio <= .5)
             {
-                X = center.X + MathF.Cos(angle) * Simulation.TileSize * 5.7f,
-                Y = center.Y + MathF.Sin(angle) * Simulation.TileSize * 5.7f,
-                Angle = angle, Cooldown = 0.0, Flash = 0.0,
-            });
+                BeginMidpointSurvival();
+                return;
+            }
+            desired = ratio > .84 ? 1 : ratio > .67 ? 2 : 3;
+        }
+        else
+        {
+            desired = ratio > .25 ? 5 : ratio > .12 ? 6 : 7;
+        }
+        if (desired != Phase)
+            SetSinPhase(desired);
+    }
+
+    public override void DebugSetPhase(int phase)
+    {
+        phase = Math.Clamp(phase, 1, 8);
+        DebugPhaseLocked = true;
+        MidpointSurvivalActive = false;
+        if (phase >= 5)
+            MidpointSurvivalCleared = true;
+        SetSinPhase(phase);
+        AttackCooldown = 0f;
+        if (phase == 4)
+        {
+            MidpointSurvivalActive = true;
+            MidpointSurvivalRemaining = MidpointSurvivalDuration;
+            _survivalCooldown = 0;
+        }
+        else if (phase == 8 && !FinaleActive)
+        {
+            BeginFinaleSequence();
+        }
+    }
+
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
+    {
+        if (MidpointSurvivalActive || FinaleActive || Dying)
+            return new HitResult(false, false, 0, true);
+        if (partId.StartsWith("crystal:"))
+            return base.TakeDamage(amount, partId, source);
+
+        int floor = Math.Max(0, (int)Math.Round(MaxHp * DamageFloorRatio()));
+        double permitted = floor > 0 ? Math.Max(0, Hp - floor) : amount;
+        if (floor > 0 && permitted <= 0)
+        {
+            UpdatePhase();
+            return new HitResult(false, false, 0, true);
+        }
+        var result = base.TakeDamage(floor > 0 ? Math.Min(amount, permitted) : amount, partId, source);
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
+            BeginMidpointSurvival();
+        if (FinaleActive)
+            SetSinPhase(8);
+        return new HitResult(result.Applied, false, result.Amount, result.Blocked);
+    }
+
+    public override void Update(EnemyUpdateContext context)
+    {
+        if (!MidpointSurvivalActive)
+        {
+            base.Update(context);
+            return;
+        }
+
+        double dt = Seconds();
+        EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+        VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
+        ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
+        PhaseProtectionTimer = Math.Max(0.0, PhaseProtectionTimer - dt);
+        PhaseElapsed += dt;
+        AdvanceAge();
+        MidpointSurvivalRemaining = Math.Max(0.0, MidpointSurvivalRemaining - dt);
+        _survivalCooldown -= dt;
+        if (EntranceRemaining <= 0 && ActTransitionTimer <= 0 && _survivalCooldown <= 0)
+        {
+            FireSinPattern(context.PlayerWorldX, context.PlayerWorldY, context);
+            _survivalCooldown = 1.75 + Rng.NextDouble() * .8;
+        }
+        if (MidpointSurvivalRemaining <= 0 && !DebugPhaseLocked)
+        {
+            MidpointSurvivalActive = false;
+            MidpointSurvivalCleared = true;
+            Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+            SetSinPhase(5);
         }
     }
 
@@ -174,8 +299,12 @@ public sealed class Rot : Kage
     {
         base.SetSinPhase(phase);
         _crystalWalls.Clear();
-        if (Phase == 7)
+        if (Phase == 8)
+        {
             _compressionCooldown = 5.0;
+            ActTransitionTimer = 0.0;
+            PhaseProtectionTimer = 0.0;
+        }
     }
 
     /// <summary>Ported from _camera_cardinal_angle: the on-screen "right" direction, rotated by quarter turns, expressed in world space.</summary>
@@ -250,17 +379,7 @@ public sealed class Rot : Kage
             }
         }
 
-        if (Phase == 7 && ActTransitionTimer <= 0)
-        {
-            _compressionCooldown -= dt;
-            if (_compressionCooldown <= 0)
-            {
-                float angle = CameraCardinalAngle(context.Camera, PatternRotation % 2);
-                GrowCrystalWall(angle, 11.0, "reinforced", 6.2f, true);
-                GrowCrystalWall(angle + MathF.PI, 11.0, "reinforced", 6.2f, true);
-                _compressionCooldown = 12.0;
-            }
-        }
+        _compressionCooldown = Math.Max(0.0, _compressionCooldown - dt);
     }
 
     public override IReadOnlyList<Rectangle> MovementObstacles() =>
@@ -302,6 +421,57 @@ public sealed class Rot : Kage
         if (wall.Hp <= 0)
             _crystalWalls.RemoveAt(index);
         return new HitResult(true, false, applied);
+    }
+
+    protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        Vector2 center = screen + new Vector2(Size / 2f, Size / 2f);
+        Color orange = new(234, 111, 29);
+        Color deepOrange = new(178, 67, 26);
+        Color blue = new(48, 139, 219);
+
+        if (Dying)
+        {
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size * 1.2f, orange, blue, 10);
+            return;
+        }
+
+        float attackPulse = VisualAttackTimer > 0
+            ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI)
+            : 0f;
+        float survivalSpread = VisualSurvivalActive ? 1.58f : 1f;
+        float oscillation = 1f + MathF.Sin(Age * .09f) * .08f + attackPulse * .12f;
+        float coreExtent = Size * .29f * oscillation;
+        Vector2 jittered = center + new Vector2(MathF.Sin(Age * .19f) * 2.8f, MathF.Sin(Age * .137f + 1.1f) * 2.4f);
+
+        var arms = new List<(Vector2 Center, float Angle, float Depth)>();
+        for (int index = 0; index < OrbitingArmCount; index++)
+        {
+            float angle = Age * (.028f + index * .002f) + index * MathF.Tau / OrbitingArmCount;
+            float radius = Size * (.68f + .08f * MathF.Sin(Age * .043f + index * 1.7f)) * survivalSpread;
+            var armCenter = jittered + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius * .54f);
+            arms.Add((armCenter, angle, MathF.Sin(angle)));
+            Primitives2D.Line(spriteBatch, jittered, armCenter, UiTheme.Ink, Math.Max(4, (int)(Size * .07f)));
+            Primitives2D.Line(spriteBatch, jittered, armCenter, blue * .72f, Math.Max(1, (int)(Size * .025f)));
+        }
+
+        foreach (var arm in arms.Where(arm => arm.Depth < 0).OrderBy(arm => arm.Depth))
+            BossVisuals.RotatingCube3D(spriteBatch, arm.Center, Size * .12f, blue, new Color(75, 183, 235), orange,
+                -arm.Angle * 1.3f, arm.Angle * .73f, Age * .013f);
+
+        BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
+            Age * .041f, .58f + MathF.Sin(Age * .021f) * .32f, MathF.Sin(Age * .017f) * .18f);
+        float energyRadius = Size * (.075f + .012f * MathF.Sin(Age * .11f));
+        Primitives2D.FillCircle(spriteBatch, jittered, (int)energyRadius + 5, UiTheme.Ink);
+        Primitives2D.FillCircle(spriteBatch, jittered, Math.Max(2, (int)energyRadius), blue);
+        Primitives2D.CircleOutline(spriteBatch, jittered, energyRadius * 1.45f, UiTheme.Cream, 2);
+
+        foreach (var arm in arms.Where(arm => arm.Depth >= 0).OrderBy(arm => arm.Depth))
+            BossVisuals.RotatingCube3D(spriteBatch, arm.Center, Size * .12f, blue, new Color(75, 183, 235), orange,
+                -arm.Angle * 1.3f, arm.Angle * .73f, Age * .013f);
+
+        DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .78f), (int)(Size * .92f), 6));
     }
 
     protected override void DrawPersistentTerrain(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -379,102 +549,115 @@ public sealed class Rot : Kage
         ["uncontaminated"] = PeakExposure <= .25,
     };
 
+    private void ContaminationPool(List<EnemyProjectile> sink, Vector2 position, float damage = 310, float lifetime = 9f)
+    {
+        float size = Simulation.TileSize * (2.0f + (float)Rng.NextDouble() * .9f);
+        sink.Add(new EnemyProjectile(position.X - size / 2f, position.Y - size / 2f, 0f, 0f, damage, size,
+            color: new Color(139, 50, 158), shape: "pool", path: "pool", lifetime: lifetime,
+            owner: "ache_chemesthesis_contamination", ignoreWalls: true)
+        {
+            TelegraphDuration = 1.25f,
+            PersistentHazard = true,
+            Affliction = "slow",
+            AfflictionDuration = 1.1,
+            AfflictionStrength = .12,
+            Exposure = .65,
+        });
+    }
+
+    private void TelegraphLash(List<EnemyProjectile> sink, Vector2 origin, float direction, float damage,
+        string suffix, float angularSpeed = 0f)
+    {
+        sink.Add(new EnemyProjectile(origin.X, origin.Y, direction, 0f, damage, Size * .13f,
+            travelRange: Simulation.TileSize * 30f, color: PhaseAccent, shape: "laser", path: "laser",
+            lifetime: 2.35f, angularSpeed: angularSpeed, owner: $"ache_chemesthesis_{suffix}", ignoreWalls: true)
+        {
+            TelegraphDuration = 1.25f,
+        });
+    }
+
+    private void SlowWrongWayBurst(List<EnemyProjectile> sink, float aimed)
+    {
+        float wrong = aimed + MathF.PI + (float)(Rng.NextDouble() * 1.4 - .7);
+        int count = 5 + Rng.Next(4);
+        for (int index = 0; index < count; index++)
+        {
+            float offset = (index - (count - 1) / 2f) * (.22f + (float)Rng.NextDouble() * .12f);
+            Shot(sink, wrong + offset, .22f + (float)Rng.NextDouble() * .18f, 315,
+                scale: .22f + (float)Rng.NextDouble() * .08f, shape: "mine", path: "mine",
+                lifetime: 16f, speedDecay: .015f, ownerSuffix: "wrong_way_hazard",
+                affliction: "slow", afflictionDuration: 1.2, afflictionStrength: .1, exposure: .5);
+        }
+    }
+
     protected override void FireSinPattern(float playerX, float playerY, EnemyUpdateContext context)
     {
         var center = Center();
         float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
         var sink = context.ProjectileSink;
-        switch (Phase)
+        int availablePatterns = Phase >= 6 || MidpointSurvivalActive || FinaleActive ? 6 : Phase >= 3 ? 5 : 3;
+        int pattern = Rng.Next(availablePatterns);
+
+        switch (pattern)
         {
-            case 1: // Pride
+            case 0: // Deliberately fires away from the player and leaves slow debris behind.
+                SlowWrongWayBurst(sink, aimed);
+                break;
+            case 1: // A reactable prediction: the exact route is harmless for 1.25 seconds.
             {
-                float laneAngle = CameraCardinalAngle(context.Camera, PatternRotation % 2);
-                ParallelLanes(sink, laneAngle, 3, Simulation.TileSize * 2.4f, 330, "pride_crown");
-                PatternRotation++;
+                float predictionError = (float)(Rng.NextDouble() * .5 - .25);
+                TelegraphLash(sink, center, aimed + predictionError, 720, "predicted_lash");
+                if (Phase >= 5)
+                    TelegraphLash(sink, center, aimed + MathF.PI + predictionError, 680, "reverse_lash");
                 break;
             }
-            case 2: // Greed
+            case 2: // Bombs land around, not directly on, the current player position.
             {
-                Radial(sink, 9, .25f, 315, "greed_hoard", mine: true);
-                for (int index = 0; index < 3; index++)
+                int bombs = Phase >= 5 ? 3 : 2;
+                for (int index = 0; index < bombs; index++)
                 {
-                    Shot(sink, index * 2f * MathF.PI / 3f, 0f, 290, scale: .20f, shape: "mine", path: "orbit",
-                        lifetime: 12f, orbitRadius: Simulation.TileSize * (3.2f + index), angularSpeed: .26f + index * .05f,
-                        ownerSuffix: "greed_coin");
+                    float angle = (float)(Rng.NextDouble() * MathF.Tau);
+                    float distance = Simulation.TileSize * (1.6f + (float)Rng.NextDouble() * 2.2f);
+                    Bomb(sink, playerX + MathF.Cos(angle) * distance, playerY + MathF.Sin(angle) * distance,
+                        520, "discord_bomb");
                 }
-                GrowCrystalWall(CameraCardinalAngle(context.Camera, PatternRotation % 4));
                 break;
             }
-            case 3: // Lust
+            case 3: // Uneven ring with a broad, randomly rotating opening.
             {
-                for (int index = 0; index < 9; index++)
+                int count = 13;
+                int gap = Rng.Next(count);
+                for (int index = 0; index < count; index++)
                 {
-                    float offset = -1.3f + 2.6f * index / 8f;
-                    Shot(sink, aimed + offset, .62f, 325, ownerSuffix: "lust_pull", affliction: "pull",
-                        afflictionDuration: 1.4, afflictionStrength: .32, exposure: .8, afflictionSource: center);
+                    int distance = Math.Min((index - gap + count) % count, (gap - index + count) % count);
+                    if (distance <= 1)
+                        continue;
+                    float direction = index * MathF.Tau / count + (float)Rng.NextDouble() * .08f;
+                    Shot(sink, direction, .34f + (index % 3) * .07f, 350, ownerSuffix: "discord_ring");
                 }
-                Bomb(sink, playerX, playerY, 340, "lust_lure");
                 break;
             }
-            case 4: // Envy
+            case 4: // The visible pool warning is the only reliable part of the choice.
             {
-                var build = context.PlayerBuildSnapshot;
-                string identity = build?.DominantOffense ?? "power";
-                double projectileCountStat = build is not null ? build.Stats.GetValueOrDefault("projectile_count") : 1.0;
-                int count = Math.Clamp((int)Math.Round(projectileCountStat), 3, 9);
-                if (identity == "critical")
-                    Laser(sink, aimed, 375, "envy_critical");
-                else if (identity == "tempo")
-                    Fan(sink, aimed, count, .55f, 1.38f, 300, "envy_tempo");
-                else if (identity == "precision")
-                    Fan(sink, aimed, 3, .22f, 1.65f, 350, "envy_precision");
-                else
-                    Fan(sink, aimed, count, .9f, 1.05f, 335, $"envy_{identity}");
-                Fan(sink, aimed + MathF.PI, count, .9f, .62f, 310, "envy_reflection");
+                float angle = (float)(Rng.NextDouble() * MathF.Tau);
+                float radius = ArenaRadius * (.18f + (float)Rng.NextDouble() * .55f);
+                ContaminationPool(sink, ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius);
+                SlowWrongWayBurst(sink, aimed);
                 break;
             }
-            case 5: // Gluttony
-            {
-                if (_crystalWalls.Count > 0)
-                {
-                    _crystalWalls.RemoveAt(0);
-                    Stagger = Math.Max(0.0, Stagger - MaxStagger * .25);
-                    _consumedCrystalPulse = 1.0;
-                }
-                Bomb(sink, playerX, playerY, 390, "gluttony_feast");
-                Radial(sink, 7, .32f, 325, "gluttony_morsel", mine: true);
+            default: // Crossed nerves: two curved warnings sweep only after being fully shown.
+                TelegraphLash(sink, center, aimed - .72f, 760, "crossed_nerves_left", .11f);
+                TelegraphLash(sink, center, aimed + .72f, 760, "crossed_nerves_right", -.11f);
+                ContaminationPool(sink, new Vector2(playerX, playerY), 325, 7.5f);
                 break;
-            }
-            case 6: // Wrath
-            {
-                Fan(sink, aimed, 7, .65f, 1.2f, 370, "wrath_retort");
-                float laneAngle = CameraCardinalAngle(context.Camera, PatternRotation % 2);
-                ParallelLanes(sink, laneAngle, 2, Simulation.TileSize * 3.2f, 360, "wrath_answer");
-                ParallelLanes(sink, laneAngle + MathF.PI / 2f, 2, Simulation.TileSize * 3.2f, 360, "wrath_cross");
-                PatternRotation++;
-                break;
-            }
-            default: // Sloth: persistent rot plus callbacks from the other sins.
-            {
-                Radial(sink, 12, .16f, 335, "sloth_rot", mine: true);
-                int start = Math.Max(0, sink.Count - 12);
-                for (int index = start; index < sink.Count; index++)
-                {
-                    sink[index].Affliction = "slow";
-                    sink[index].AfflictionDuration = 2.1;
-                    sink[index].AfflictionStrength = .16;
-                    sink[index].Exposure = 1.15;
-                }
-                int callback = PatternRotation % 3;
-                if (callback == 0)
-                    Laser(sink, aimed, 345, "rot_crown", .08f);
-                else if (callback == 1)
-                    Bomb(sink, playerX, playerY, 355, "rot_feast");
-                else
-                    Fan(sink, aimed, 7, 1.5f, .72f, 345, "rot_desire");
-                break;
-            }
         }
-        MarkAttack(.58f);
+
+        if (FinaleActive && PatternRotation % 2 == 0)
+        {
+            float angle = (float)(Rng.NextDouble() * MathF.Tau);
+            TelegraphLash(sink, center, angle, 790, "overload_callback", Rng.Next(2) == 0 ? .13f : -.13f);
+        }
+        PatternRotation++;
+        MarkAttack(.66f);
     }
 }

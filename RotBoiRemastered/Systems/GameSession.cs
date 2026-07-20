@@ -656,7 +656,7 @@ public sealed class GameSession
             PathChaseBoss pathBoss => (pathBoss.ArenaCenter, pathBoss.ArenaRadius),
             _ => null,
         };
-        bool bossDying = State.ActiveBoss is Beaudis { Dying: true } or Dissonance { Dying: true };
+        bool bossDying = DeathSpectacleActive(State.ActiveBoss);
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             if (arena.HasValue)
@@ -700,8 +700,12 @@ public sealed class GameSession
         rng ??= Random.Shared;
         var enemyGrid = new SpatialHash<Enemy>(Math.Max(64, (int)(Simulation.TileSize * 2)));
         foreach (var enemy in State.EnemyHolster)
+        {
+            if (ReferenceEquals(enemy, State.ActiveBoss) && DeathSpectacleActive(enemy))
+                continue;
             foreach (var (_, hitbox) in enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake))
                 enemyGrid.Insert(enemy, hitbox);
+        }
 
         var deadEnemies = new HashSet<Enemy>();
         foreach (var bullet in State.BulletHolster)
@@ -837,9 +841,14 @@ public sealed class GameSession
     private static string? BossKeyFor(Enemy enemy) => enemy switch
     {
         Beaudis => "beaudis", Dissonance => "dissonance", Chronos => "chronos", Ishe => "ishe",
-        Bair => "bair", Sting => "sting", Rot => "rot", Kage => "kage", Hypno => "hypno", Malady => "malady",
+        Bair => "bair", Sting => "sting", Rot => "rot", Ache => "ache", Kage => "kage", Hypno => "hypno", Malady => "malady",
         _ => null,
     };
+
+    private static bool DeathSpectacleActive(object? boss) => boss is
+        Beaudis { Dying: true }
+        or Dissonance { Dying: true }
+        or PathChaseBoss { Dying: true };
 
     // ----- Damage text / experience / loot -----
 
@@ -931,10 +940,9 @@ public sealed class GameSession
     /// <summary>
     /// Dev/testing hotkeys. Ported from character.py's handlingBossDebugControls().
     /// `boss.debug_set_phase`/`hasattr(boss, "runeCannonCooldown")` were duck-typed
-    /// across every boss type in Python -- pattern-matched against `Beaudis`
-    /// here since `ActiveBoss` is untyped and it's the only boss ported so
-    /// far, so the "C" rune-cannon hotkey (Dissonance-only in Python) is a
-    /// no-op until that boss exists.
+    /// across every boss type in Python. Here the controls are explicitly
+    /// dispatched to Beaudis, Dissonance, or the shared PathChaseBoss family;
+    /// the "C" rune-cannon hotkey remains Dissonance-specific.
     ///
     /// Gated behind BossDebugInvincible (the "Y" dev-toggle, see RunState's
     /// "Hidden debug hotkey state" doc comment) -- unlike Python, these raw
@@ -1312,7 +1320,7 @@ public sealed class GameSession
 
     private void DrawBossHealthBar(SpriteBatch spriteBatch)
     {
-        if (State.ActiveBoss is not Enemy boss || boss.Hp <= 0)
+        if (State.ActiveBoss is not Enemy boss || boss.Hp <= 0 || DeathSpectacleActive(boss))
             return;
         var phase = State.ActiveBoss switch
         {
@@ -1504,6 +1512,8 @@ public sealed class GameSession
 
         foreach (var enemy in State.EnemyHolster)
         {
+            if (ReferenceEquals(enemy, State.ActiveBoss) && DeathSpectacleActive(enemy))
+                continue;
             var hitboxes = enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake);
             Rectangle? collidedHitbox = null;
             foreach (var (_, hitbox) in hitboxes)

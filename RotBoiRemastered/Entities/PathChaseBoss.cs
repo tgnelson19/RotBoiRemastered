@@ -45,7 +45,13 @@ public sealed record PathChaseBossConfig(
     double ShotRangeTiles,
     string ArenaShape,
     double ArenaScale,
-    IReadOnlyList<string> MovementModes)
+    IReadOnlyList<string> MovementModes,
+    int MidHealth = 29000,
+    int FinalHealth = 240000,
+    int MidContactDamage = 270,
+    int FinalContactDamage = 780,
+    double MidRewardExperience = 280,
+    double FinalRewardExperience = 760)
 {
     public static readonly PathChaseBossConfig Default = new(
         BossName: "PATH BOSS", Subtitle: "CONTENT PLACEHOLDER",
@@ -62,10 +68,9 @@ public sealed record PathChaseBossConfig(
 }
 
 /// <summary>
-/// Shared base for alternate mid/final bosses on non-"sound" content paths
-/// (see `gamePaths.py`'s `boss_key()` -- not wired to path selection in this
-/// port yet, so these bosses aren't reachable through natural gameplay
-/// triggers, same as in Python until that per-path selection exists).
+/// Shared base for the alternate mid/final bosses used by the non-"sound"
+/// content paths. Natural path selection is mapped by <c>GamePaths</c> and
+/// <c>BossCatalog</c>; legacy bosses can still be selected by their debug keys.
 ///
 /// Cleanup vs. the Python original:
 /// - `stagger`/`maxStagger`/`isStaggered`/`perfectStagger`/
@@ -74,9 +79,8 @@ public sealed record PathChaseBossConfig(
 ///   by `PathChaseBoss` itself, `Ishe`/`Chronos`, or the Touch family
 ///   (`PlagueTouchBoss`/`Bair`/`Sting`) -- confirmed by reading every
 ///   method on all of them. They're only meaningful on
-///   `SinChemesthesisBoss` (which has a real stagger system), not yet
-///   ported (see Entities/README.md). Dropped here; revisit if that family
-///   is ever ported and needs to share this base's stagger fields.
+///   `SinChemesthesisBoss` (which owns its real stagger system). They remain
+///   out of this base so other path families do not carry unused state.
 /// - `ArenaCenter`/`ArenaRadius` are computed once from an explicit
 ///   `Battleground` constructor parameter (same cleanup as `Dissonance`'s
 ///   `_arena_center()` -> cached field) instead of reading a
@@ -99,14 +103,29 @@ public class PathChaseBoss : Enemy
     public double PhaseElapsed { get; set; }
     public double PhaseTimeLimit { get; }
     protected readonly float[] ArenaSeed;
+    public bool Dying { get; protected set; }
+    public double DeathRemaining { get; protected set; }
+    public double DeathDuration { get; }
+    public bool FinaleActive { get; protected set; }
+    public double FinaleRemaining { get; protected set; }
+    public double FinaleDuration { get; } = 40.0;
+    public double VisualTransitionRemaining { get; protected set; }
+
+    protected virtual bool VisualSurvivalActive => EntranceRemaining > 0 || VisualTransitionRemaining > 0 || FinaleActive;
+    protected virtual bool UsesSharedDeathSpectacle => true;
+    protected virtual bool UsesFinaleSequence => Config.FinalBoss;
+    protected float DeathProgress => Dying ? (float)Math.Clamp(1.0 - DeathRemaining / DeathDuration, 0.0, 1.0) : 0f;
+    public double FinaleProgress => FinaleActive ? Math.Clamp(1.0 - FinaleRemaining / FinaleDuration, 0.0, 1.0) : 0.0;
 
     public PathChaseBoss(float worldX, float worldY, Battleground battleground, PathChaseBossConfig config, Random? rng = null)
         : base(worldX, worldY,
             (float)(config.MovementSpeed * (config.FinalBoss ? 1.16 : 1.0)),
             Simulation.TileSize * (float)(config.FinalBoss ? config.FinalBodyScale : config.BodyScale),
             config.FinalBoss ? config.FinalBodyColor : config.BodyColor,
-            config.FinalBoss ? 360 : 270, config.FinalBoss ? 48000 : 29000,
-            config.FinalBoss ? 520 : 280, config.FinalBoss ? 4.0 : 3.3,
+            config.FinalBoss ? config.FinalContactDamage : config.MidContactDamage,
+            config.FinalBoss ? config.FinalHealth : config.MidHealth,
+            config.FinalBoss ? config.FinalRewardExperience : config.MidRewardExperience,
+            config.FinalBoss ? 4.0 : 3.3,
             float.PositiveInfinity, $"{config.OwnerPrefix}_boss", "hard")
     {
         Config = config;
@@ -119,6 +138,7 @@ public class PathChaseBoss : Enemy
         AttackCooldownMax = Simulation.FrameRate * (float)(config.FinalBoss ? config.FinalCooldownSeconds : config.CooldownSeconds);
         ArenaRadius = Simulation.TileSize * (float)config.ArenaScale;
         PhaseTimeLimit = config.FinalBoss ? 28.0 : 24.0;
+        DeathDuration = config.FinalBoss ? 10.0 : 2.8;
         ArenaSeed = Enumerable.Range(0, 28).Select(_ => (float)(Rng.NextDouble() * .3 - .15)).ToArray();
     }
 
@@ -128,6 +148,71 @@ public class PathChaseBoss : Enemy
     protected static double Seconds() => Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
 
     protected Vector2 Center() => new(WorldX + Size / 2f, WorldY + Size / 2f);
+
+    protected bool UpdateDeathSpectacle()
+    {
+        if (!Dying)
+            return false;
+        AdvanceAge();
+        DeathRemaining = Math.Max(0.0, DeathRemaining - Seconds());
+        if (DeathRemaining <= 0)
+            Hp = 0;
+        return true;
+    }
+
+    protected void BeginFinaleSequence()
+    {
+        if (FinaleActive || Dying)
+            return;
+        Hp = 1;
+        FinaleActive = true;
+        FinaleRemaining = FinaleDuration;
+        PhaseElapsed = 0.0;
+        VisualTransitionRemaining = 1.8;
+        TransitionCleanupRequested = true;
+    }
+
+    protected bool UpdateFinaleSequence(double dt)
+    {
+        if (!FinaleActive)
+            return false;
+        FinaleRemaining = Math.Max(0.0, FinaleRemaining - dt);
+        if (FinaleRemaining > 0)
+            return false;
+        FinaleActive = false;
+        BeginDeathSpectacle();
+        return true;
+    }
+
+    protected void BeginDeathSpectacle()
+    {
+        if (Dying)
+            return;
+        Hp = 1;
+        Dying = true;
+        DeathRemaining = DeathDuration;
+        TransitionCleanupRequested = true;
+    }
+
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
+    {
+        if (Dying || FinaleActive)
+            return new HitResult(false, false, 0, true);
+        var result = base.TakeDamage(amount, partId, source);
+        if (result.Killed && UsesFinaleSequence)
+        {
+            BeginFinaleSequence();
+            return new HitResult(result.Applied, false, result.Amount, result.Blocked);
+        }
+        if (result.Killed && UsesSharedDeathSpectacle)
+        {
+            BeginDeathSpectacle();
+            return new HitResult(result.Applied, false, result.Amount, result.Blocked);
+        }
+        return result;
+    }
+
+    public override bool IsDead() => Dying ? DeathRemaining <= 0 : Hp <= 0;
 
     protected List<Vector2> ArenaVertices()
     {
@@ -254,7 +339,7 @@ public class PathChaseBoss : Enemy
 
     protected virtual void UpdatePhase()
     {
-        if (DebugPhaseLocked)
+        if (DebugPhaseLocked || FinaleActive)
             return;
         double ratio = Math.Max(0.0, (double)Hp / MaxHp);
         int newPhase = ratio <= .34 ? 3 : ratio <= .67 ? 2 : 1;
@@ -263,6 +348,7 @@ public class PathChaseBoss : Enemy
             Phase = newPhase;
             PhaseLabel = Config.PhaseLabels[newPhase - 1];
             AttackCooldown = Math.Min(AttackCooldown!.Value, Simulation.FrameRate * .7f);
+            VisualTransitionRemaining = 1.2;
         }
     }
 
@@ -324,8 +410,13 @@ public class PathChaseBoss : Enemy
 
     public override void Update(EnemyUpdateContext context)
     {
+        if (UpdateDeathSpectacle())
+            return;
         double dt = Seconds();
+        if (UpdateFinaleSequence(dt))
+            return;
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+        VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
         UpdatePhase();
         string mode = Config.MovementModes[(Phase - 1) % Config.MovementModes.Count];
@@ -400,21 +491,43 @@ public class PathChaseBoss : Enemy
         Primitives2D.FillCircle(spriteBatch, vertices[markerIndex], 5, UiTheme.Cream);
     }
 
+    protected virtual void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        float walkBob = Moved ? MathF.Sin(Age * .24f) * Size * .035f : 0f;
+        var center = rect.Center.ToVector2() + new Vector2(0, walkBob);
+        if (Dying)
+        {
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size, new Color(67, 157, 211), new Color(244, 142, 50));
+            return;
+        }
+        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .42f), 0f, 1f) * MathF.PI) : 0f;
+        float detach = VisualSurvivalActive ? 1.55f : 1f;
+        float coreSize = Size * (.58f + attack * .09f);
+        BossVisuals.OrbitingCubes(spriteBatch, center, Age, Config.FinalBoss ? 8 : 6, Size * .58f, Size * .18f,
+            new Color(67, 157, 211), new Color(244, 142, 50), detach, 1.15f + attack * 2.4f);
+        BossVisuals.Cube(spriteBatch, center, coreSize, new Color(54, 139, 204), new Color(246, 151, 57), Age * .009f);
+        var core = new Rectangle((int)(center.X - coreSize * .15f), (int)(center.Y - coreSize * .15f), (int)(coreSize * .3f), (int)(coreSize * .3f));
+        Primitives2D.FillRect(spriteBatch, core, new Color(246, 151, 57));
+        Primitives2D.RectOutline(spriteBatch, core, UiTheme.Ink, 2);
+        DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .65f), (int)(Size * .92f), 6));
+    }
+
+    protected void DrawBossHealth(SpriteBatch spriteBatch, Rectangle bar)
+    {
+        if (Hp >= MaxHp || Dying)
+            return;
+        Primitives2D.FillRect(spriteBatch, bar, UiTheme.Ink);
+        var fill = bar;
+        fill.Inflate(-1, -1);
+        fill.Width = (int)(fill.Width * Math.Max(0f, (float)Hp / MaxHp));
+        Primitives2D.FillRect(spriteBatch, fill, PhaseAccent);
+    }
+
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         DrawPathArena(spriteBatch, camera, playerWorldPosition, screenShake);
-        base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        var inset = rect;
-        inset.Inflate(-(int)(Size * .34f), -(int)(Size * .34f));
-        Primitives2D.FillEllipse(spriteBatch, inset, UiTheme.Ink);
-        Primitives2D.EllipseOutline(spriteBatch, inset, PhaseAccent, Math.Max(3, (int)(Size * .06f)));
-        foreach (float offset in new[] { -.22f, .22f })
-        {
-            float x = rect.Center.X + rect.Width * offset;
-            Primitives2D.Line(spriteBatch, new Vector2(x, rect.Y + rect.Height * .22f), new Vector2(x, rect.Bottom - rect.Height * .18f),
-                UiTheme.Lighten(PhaseAccent, 42), 3);
-        }
+        DrawBossBody(spriteBatch, camera, playerWorldPosition, screenShake);
     }
 }

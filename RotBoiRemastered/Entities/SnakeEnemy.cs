@@ -133,7 +133,8 @@ public sealed class SnakeEnemy : Enemy
         {
             var segment = _segments[i];
             Vector2 screenPos = camera.WorldToScreen(new Vector2(segment.X, segment.Y), playerWorldPosition, screenShake);
-            var rect = new Rectangle((int)screenPos.X, (int)screenPos.Y, (int)SegmentSize, (int)SegmentSize);
+            float slither = Moved ? MathF.Sin(Age * .18f - i * .72f) * SegmentSize * .09f : MathF.Sin(Age * .035f + i) * 1.2f;
+            var rect = new Rectangle((int)(screenPos.X + slither), (int)(screenPos.Y - Math.Abs(slither) * .18f), (int)SegmentSize, (int)SegmentSize);
             Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 3, rect.Y + 3, rect.Width, rect.Height), UiTheme.Shadow);
             Primitives2D.FillRect(spriteBatch, rect, new Color(72, 145, 104));
             Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, (int)(SegmentSize * .09f)));
@@ -145,13 +146,27 @@ public sealed class SnakeEnemy : Enemy
         }
 
         Vector2 headScreenPos = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var headRect = new Rectangle((int)headScreenPos.X, (int)headScreenPos.Y, (int)HeadSize, (int)HeadSize);
+        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .25f), 0f, 1f) * MathF.PI) : 0f;
+        float headBob = Moved ? Math.Abs(MathF.Sin(Age * .18f)) * HeadSize * .055f : MathF.Sin(Age * .035f) * 1.5f;
+        int headWidth = (int)(HeadSize * (1f + attack * .16f));
+        int headHeight = (int)(HeadSize * (1f - attack * .1f));
+        var headRect = new Rectangle((int)(headScreenPos.X + HeadSize / 2f - headWidth / 2f),
+            (int)(headScreenPos.Y + HeadSize - headHeight - headBob), headWidth, headHeight);
         Primitives2D.FillRect(spriteBatch, new Rectangle(headRect.X + 5, headRect.Y + 5, headRect.Width, headRect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, headRect, UiTheme.Purple);
         Primitives2D.RectOutline(spriteBatch, headRect, UiTheme.Ink, Math.Max(3, (int)(HeadSize * .09f)));
         int eyeSize = Math.Max(3, (int)(HeadSize * .12f));
         Primitives2D.FillRect(spriteBatch, new Rectangle((int)(headRect.X + headRect.Width * .25f), (int)(headRect.Y + headRect.Height * .27f), eyeSize, eyeSize), UiTheme.Text);
         Primitives2D.FillRect(spriteBatch, new Rectangle((int)(headRect.Right - headRect.Width * .25f - eyeSize), (int)(headRect.Y + headRect.Height * .27f), eyeSize, eyeSize), UiTheme.Text);
+        if (attack > .05f)
+        {
+            var muzzle = new Vector2(headRect.Center.X, headRect.Top - HeadSize * (.12f + attack * .16f));
+            Primitives2D.FillPolygon(spriteBatch, new[]
+            {
+                muzzle + new Vector2(0, -HeadSize * .11f), muzzle + new Vector2(HeadSize * .08f, 0),
+                muzzle + new Vector2(0, HeadSize * .11f), muzzle + new Vector2(-HeadSize * .08f, 0),
+            }, UiTheme.Cream);
+        }
         if (_segments.Count > 0)
         {
             var outline = headRect;

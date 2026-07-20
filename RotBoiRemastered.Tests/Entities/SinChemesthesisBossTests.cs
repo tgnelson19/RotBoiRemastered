@@ -7,7 +7,7 @@ namespace RotBoiRemastered.Tests.Entities;
 /// Ported from bossTypes.py's SinChemesthesisBoss (no dedicated Python test
 /// file to mirror). Exercises the shared stagger/phase/sigil-transition base
 /// via Kage, since SinChemesthesisBoss itself is abstract (never
-/// instantiated directly in Python either -- Kage and Rot are its only
+/// instantiated directly in Python either -- Kage and Ache are its only
 /// concrete subclasses).
 /// </summary>
 public class SinChemesthesisBossTests

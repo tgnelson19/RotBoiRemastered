@@ -24,10 +24,9 @@ public sealed record PlayerBuildSnapshot(
 /// Ported from characterStats.py's `dreamState` dict + its free functions
 /// (`alter_belief`/`update_dream_state`) -- module-level dict and functions
 /// become instance state and methods on one class, same cleanup as every
-/// other stateful module ported so far. Currently a no-op in practice since
-/// nothing sets a nonzero `EnemyProjectile.BeliefGain`/`ClarityGain` without
-/// bossTypes.py's boss projectiles (not yet ported), but the mechanism is
-/// ready for them.
+/// other stateful module ported so far. Phantasia projectiles can now supply
+/// nonzero `EnemyProjectile.BeliefGain`/`ClarityGain`; encounters that do not
+/// use dream rules leave those values at zero.
 /// </summary>
 public sealed class DreamState
 {

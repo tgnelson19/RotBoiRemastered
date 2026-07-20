@@ -14,6 +14,7 @@ public class BossCatalogTests
     [InlineData("bair", typeof(Bair))]
     [InlineData("sting", typeof(Sting))]
     [InlineData("kage", typeof(Kage))]
+    [InlineData("ache", typeof(Ache))]
     [InlineData("rot", typeof(Rot))]
     [InlineData("hypno", typeof(Hypno))]
     [InlineData("malady", typeof(Malady))]

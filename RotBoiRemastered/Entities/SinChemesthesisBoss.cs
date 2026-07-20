@@ -10,7 +10,7 @@ namespace RotBoiRemastered.Entities;
 /// <summary>
 /// Per-family sin-motif content: seven-sins flavor/color text, sigil stroke
 /// data, and act-transition metadata. Ported from bossTypes.py's
-/// `SinChemesthesisBoss`/`Kage`/`Rot` class attributes (`phaseFlavors`,
+/// `SinChemesthesisBoss`/`Kage`/`Ache` class attributes (`phaseFlavors`,
 /// `phaseColors`, `SIN_SIGILS`, `ACT_METADATA`) -- kept as a small composed
 /// record (same reasoning as `PlagueSigilConfig`) rather than folded into
 /// `PathChaseBossConfig`, since only this one family needs it.
@@ -23,7 +23,7 @@ public sealed record SinSigilConfig(
 
 /// <summary>
 /// Shared seven-sins pattern language for the Chemesthesis bosses (Kage,
-/// Rot). Ported from bossTypes.py's `SinChemesthesisBoss`.
+/// Ache). Ported from bossTypes.py's `SinChemesthesisBoss`.
 ///
 /// Unlike the rest of the `PathChaseBoss` family (Ishe/Chronos, the Touch
 /// bosses), this family has a real stagger/fracture system -- a hit that
@@ -36,6 +36,7 @@ public sealed record SinSigilConfig(
 /// </summary>
 public abstract class SinChemesthesisBoss : PathChaseBoss
 {
+    protected override bool VisualSurvivalActive => ActTransitionTimer > 0 || PhaseProtectionTimer > 0 || IsStaggered || base.VisualSurvivalActive;
     protected SinSigilConfig SinConfig { get; }
 
     public static readonly PathChaseBossConfig BaseConfig = PathChaseBossConfig.Default with
@@ -60,6 +61,10 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
     public bool IsStaggered { get; protected set; }
 
     protected virtual double ConsumedCrystalPulse => 0.0;
+    protected virtual double DamageFloorRatio() =>
+        Phase < Config.PhaseLabels.Count
+            ? (double)(Config.PhaseLabels.Count - Phase) / Config.PhaseLabels.Count
+            : 0.0;
 
     protected SinChemesthesisBoss(float worldX, float worldY, Battleground battleground,
         PathChaseBossConfig config, SinSigilConfig sinConfig, Random? rng = null)
@@ -72,7 +77,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     protected override void UpdatePhase()
     {
-        if (DebugPhaseLocked)
+        if (DebugPhaseLocked || FinaleActive)
             return;
         int count = Config.PhaseLabels.Count;
         double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
@@ -201,6 +206,8 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
+        if (Dying || FinaleActive)
+            return new HitResult(false, false, 0, true);
         if (PhaseProtectionTimer > 0 || ActTransitionTimer > 0)
             return new HitResult(false, false, 0, true);
         if (partId.StartsWith("crystal:"))
@@ -218,9 +225,9 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
                 TransitionCleanupRequested = true;
             }
         }
-        if (!DebugPhaseLocked && Phase < Config.PhaseLabels.Count)
+        if (!DebugPhaseLocked)
         {
-            double threshold = MaxHp * (double)(Config.PhaseLabels.Count - Phase) / Config.PhaseLabels.Count;
+            double threshold = MaxHp * DamageFloorRatio();
             Hp = Math.Max(Hp, (int)threshold);
         }
         int applied = Math.Max(0, previousHp - Hp);
@@ -247,8 +254,13 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     public override void Update(EnemyUpdateContext context)
     {
+        if (UpdateDeathSpectacle())
+            return;
         double dt = Seconds();
+        if (UpdateFinaleSequence(dt))
+            return;
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+        VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
         PhaseProtectionTimer = Math.Max(0.0, PhaseProtectionTimer - dt);
         PhaseElapsed += dt;
@@ -400,49 +412,54 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         DrawPersistentTerrain(spriteBatch, camera, playerWorldPosition, screenShake);
     }
 
-    private void DrawChemicalBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        float pulse = .5f + .5f * MathF.Sin(Age * .04f);
-        int pipCount = Config.FinalBoss ? 7 : 4;
-        float pipRadius = Size * .62f;
-        for (int index = 0; index < pipCount; index++)
+        var center = rect.Center.ToVector2();
+        if (Dying)
         {
-            float angle = -MathF.PI / 2f + index * 2f * MathF.PI / pipCount;
-            var point = new Vector2(rect.Center.X + MathF.Cos(angle) * pipRadius, rect.Center.Y + MathF.Sin(angle) * pipRadius);
-            bool active = index < Phase;
-            Color color = active ? PhaseAccent : UiTheme.Border;
-            Primitives2D.FillCircle(spriteBatch, point, Math.Max(4, (int)(Size * .065f)), UiTheme.Ink);
-            Primitives2D.FillCircle(spriteBatch, point, Math.Max(2, (int)(Size * (.034f + .008f * pulse))), color);
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Simulation.TileSize * 1.4f,
+                new Color(232, 116, 34), new Color(154, 62, 210), 16);
+            return;
         }
 
-        var vessel = rect;
-        vessel.Inflate(-(int)(Size * .58f), -(int)(Size * .24f));
-        var vesselOuter = vessel;
-        vesselOuter.Inflate(6, 6);
-        Primitives2D.FillRect(spriteBatch, vesselOuter, UiTheme.Ink);
-        Primitives2D.FillRect(spriteBatch, vessel, UiTheme.Void);
-        float fillHeight = vessel.Height * (float)Math.Min(1.0, (double)Phase / Math.Max(1, Config.PhaseLabels.Count));
-        var fluid = new Rectangle(vessel.X, (int)(vessel.Bottom - fillHeight), vessel.Width, (int)fillHeight);
-        Primitives2D.FillRect(spriteBatch, fluid, PhaseAccent);
-        Primitives2D.Line(spriteBatch, new Vector2(vessel.X + vessel.Width * .28f, vessel.Y + 5),
-            new Vector2(vessel.X + vessel.Width * .28f, vessel.Bottom - 5), UiTheme.Cream, 2);
-
-        double transition = SigilTransitionTimer / SigilTransitionDuration;
-        var rectCenter = new Vector2(rect.Center.X, rect.Center.Y);
-        if (transition > 0 && PreviousSigilPhase != Phase)
+        float pulse = .5f + .5f * MathF.Sin(Age * .08f);
+        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI) : 0f;
+        float cubeSize = Simulation.TileSize * (1f + attack * .16f);
+        float jitterX = MathF.Sin(Age * .17f) * 3.5f + MathF.Sin(Age * .071f) * 2f;
+        float jitterY = MathF.Sin(Age * .133f + 1.2f) * 3f;
+        var jittered = center + new Vector2(jitterX, jitterY);
+        Color purple = new(157, 69, 214);
+        Color orange = new(232, 116, 34);
+        for (int ring = 3; ring >= 1; ring--)
         {
-            DrawSigil(spriteBatch, rectCenter, Size * .34f, 1.0, -transition * Math.PI * .35, (int)(120 * transition), PreviousSigilPhase);
+            float radius = cubeSize * (.72f + ring * .17f + pulse * .05f);
+            Primitives2D.CircleOutline(spriteBatch, jittered, radius, purple * (.12f + ring * .07f), 3 + ring, 32);
         }
-        DrawSigil(spriteBatch, rectCenter, Size * .36f, Math.Max(0.05, 1 - transition), transition * Math.PI * .55, 255, Phase);
+        int sparks = Config.FinalBoss ? 18 : 13;
+        float spread = VisualSurvivalActive ? 1.65f : 1f;
+        for (int index = 0; index < sparks; index++)
+        {
+            float angle = index * 2.399f + Age * (.018f + index % 3 * .004f);
+            float radius = cubeSize * (.62f + (index % 5) * .15f) * spread;
+            var point = jittered + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle * 1.17f) * radius * .68f);
+            int sparkSize = 2 + index % 3;
+            Primitives2D.FillRect(spriteBatch, new Rectangle((int)point.X - sparkSize, (int)point.Y - sparkSize, sparkSize * 2, sparkSize * 2),
+                index % 4 == 0 ? UiTheme.Cream : purple);
+        }
+        BossVisuals.Cube(spriteBatch, jittered, cubeSize, orange, purple, Age * .035f);
+        var inner = new Rectangle((int)(jittered.X - cubeSize * .13f), (int)(jittered.Y - cubeSize * .13f), (int)(cubeSize * .26f), (int)(cubeSize * .26f));
+        Primitives2D.FillRect(spriteBatch, inner, purple);
+        Primitives2D.RectOutline(spriteBatch, inner, UiTheme.Cream, 2);
 
         if (ConsumedCrystalPulse > 0)
         {
             float radius = Size * (1.0f + (float)(1 - ConsumedCrystalPulse) * .65f);
-            var pulseRect = new Rectangle((int)(rect.Center.X - radius), (int)(rect.Center.Y - radius), (int)(radius * 2), (int)(radius * 2));
+            var pulseRect = new Rectangle((int)(center.X - radius), (int)(center.Y - radius), (int)(radius * 2), (int)(radius * 2));
             Primitives2D.EllipseOutline(spriteBatch, pulseRect, UiTheme.Cream, Math.Max(2, (int)(5 * ConsumedCrystalPulse)));
         }
+        DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .66f), (int)(Size * .92f), 6));
     }
 
     /// <summary>
@@ -509,9 +526,11 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        DrawFieldDiagram(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (!Dying)
+            DrawFieldDiagram(spriteBatch, camera, playerWorldPosition, screenShake);
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        DrawChemicalBody(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (Dying)
+            return;
         if (ActTransitionTimer <= 0)
             return;
 

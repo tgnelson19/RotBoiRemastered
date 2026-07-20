@@ -200,7 +200,7 @@ public static class Items
 
         new ItemDefinition("Bow of Dread", "weapon", "Every arrow carries a whisper of Dread, leaving struck enemies slowed and exposed -- and the bow itself feeds on the fear it causes.",
             "bow", Mods(Mult("Bullet Damage", 135), Mult("Bullet Range", 185), Mult("Bullet Speed", 120)),
-            EffectIds: new[] { "dread_on_hit", "dread_lifesteal" }, DropsFromBossKey: "sting", DropChance: .12,
+            EffectIds: new[] { "dread_on_hit", "dread_lifesteal" }, DropsFromBossKey: "rot", DropChance: .12,
             EffectFlavorText: "On Hit: afflicts Dread, slowing the target and raising damage taken."),
 
         new ItemDefinition("Grimsbane", "weapon",

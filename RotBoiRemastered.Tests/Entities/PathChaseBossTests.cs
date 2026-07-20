@@ -34,7 +34,7 @@ public class PathChaseBossTests
         var battleground = MakeBattleground();
         var ishe = new Ishe(1000, 1000, battleground, new Random(1));
         var chronos = new Chronos(1000, 1000, battleground, new Random(1));
-        Assert.Equal(48000, chronos.Hp);
+        Assert.Equal(240000, chronos.Hp);
         Assert.True(chronos.Size > ishe.Size);
     }
 
@@ -112,6 +112,28 @@ public class PathChaseBossTests
             boss.Update(context);
 
         Assert.NotEmpty(context.ProjectileSink);
+    }
+
+    [Fact]
+    public void LethalDamage_PlaysRewardSpectacleBeforeBossReportsDead()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Ishe(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
+        var context = MakeContext(boss.WorldX + 500, boss.WorldY, battleground);
+
+        var result = boss.TakeDamage(1_000_000);
+
+        Assert.True(result.Applied);
+        Assert.False(result.Killed);
+        Assert.True(boss.Dying);
+        Assert.False(boss.IsDead());
+        Assert.True(boss.TransitionCleanupRequested);
+
+        for (int tick = 0; tick < 500 && !boss.IsDead(); tick++)
+            boss.Update(context);
+
+        Assert.True(boss.IsDead());
+        Assert.Equal(0, boss.Hp);
     }
 
     [Fact]

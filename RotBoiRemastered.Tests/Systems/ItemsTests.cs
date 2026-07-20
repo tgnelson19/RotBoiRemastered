@@ -110,7 +110,7 @@ public class ItemsTests
     public void RollUniqueDrop_CanDropForItsBossKey_AsFixedPowerUniqueRarity()
     {
         var rng = new Random(7);
-        var drops = Enumerable.Range(0, 500).Select(_ => Items.RollUniqueDrop("sting", rng)).Where(drop => drop is not null).ToList();
+        var drops = Enumerable.Range(0, 500).Select(_ => Items.RollUniqueDrop("rot", rng)).Where(drop => drop is not null).ToList();
 
         Assert.NotEmpty(drops);
         Assert.All(drops, drop =>

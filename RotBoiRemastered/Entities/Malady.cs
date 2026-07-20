@@ -7,12 +7,12 @@ using RotBoiRemastered.World;
 namespace RotBoiRemastered.Entities;
 
 /// <summary>
-/// "THE DREAM MADE ILL" -- the final boss of the Phantasia content path.
+/// Empress Malady, youngest and strongest ancient core -- the final boss of the Phantasia content path.
 /// Ported from bossTypes.py's Malady. Adds a projectile-portal formation
 /// system (reusing <see cref="ProjectilePortal"/>), a delay-queued "flowing
 /// chain" shot sequence, survival phases that suppress damage while a
 /// timer runs out, a post-lethal "collapse" death choreography instead of
-/// dying outright, and a fully custom procedural puppet-body render
+/// dying outright, and a fully custom procedural pillar-and-slab render
 /// (replacing `PhantasiaBoss`'s generic arena+ellipse+mask body via
 /// <see cref="HasCustomDreamBody"/>).
 ///
@@ -25,34 +25,40 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class Malady : PhantasiaBoss
 {
-    private static readonly Dictionary<int, double> SurvivalPhases = new() { [4] = 13.0, [7] = 15.0 };
+    public const int IdleBodyCubeCount = 10;
+    public const int FinaleBodyCubeCount = 18;
+    protected override bool UsesDreamRules => false;
+    protected override bool UsesSharedDeathSpectacle => false;
+    protected override bool VisualSurvivalActive => SurvivalActive || FinaleActive || base.VisualSurvivalActive;
+    private static readonly Dictionary<int, double> SurvivalPhases = new() { [6] = 22.0 };
     private static readonly int[] PortalCounts = { 3, 4, 3, 4, 5, 3, 6, 4, 5, 6 };
     private static readonly string[] PortalPaths =
         { "orbit", "figure8", "wave", "square", "tornado", "orbit", "square", "figure8", "wave", "tornado" };
 
     public static readonly PathChaseBossConfig MaladyConfig = BaseConfig with
     {
-        BossName = "MALADY", Subtitle = "THE DREAM MADE ILL", FinalBoss = true,
+        BossName = "MALADY", Subtitle = "EMPRESS OF INSPIRATION", FinalBoss = true,
         OwnerPrefix = "malady_phantasia",
         PhaseLabels = new[]
         {
-            "THRONE", "GRAVEN HALL", "THE NAME", "SABBATH", "THE HOUSE",
-            "THE UNSTRUCK", "THE VOW", "MINE AND YOURS", "THE WITNESS", "ENOUGH",
+            "OVERTURE", "PETAL FLOOD", "IMPOSSIBLE ENGINE", "RIBBON COURT", "TENTACLE GARDEN",
+            "INTERMISSION", "LUMINOUS TIDE", "VIOLET CATHEDRAL", "SOUL INCURSION", "APOTHEOSIS",
         },
-        FinalBodyColor = new Color(99, 48, 126), FinalAccentColor = new Color(225, 95, 178),
-        FinalBodyScale = 2.35, FinalCooldownSeconds = 1.25,
-        MovementSpeed = .25, ArenaScale = 13.5,
-        MovementModes = new[] { "static", "path", "chase", "static", "path", "chase", "path", "static", "chase", "path" },
+        FinalBodyColor = new Color(67, 42, 119), FinalAccentColor = new Color(213, 103, 231),
+        FinalBodyScale = 2.55, FinalCooldownSeconds = 1.25,
+        MovementSpeed = .15, ArenaScale = 13.5,
+        MovementModes = new[] { "path", "path", "static", "path", "path", "static", "path", "static", "path", "static" },
+        FinalHealth = 320000, FinalContactDamage = 900, FinalRewardExperience = 880,
     };
 
     public static readonly PhantasiaSigilConfig MaladySigilConfig = new(
         PhaseFlavors: new[]
         {
-            "Kneel to the source.", "An image need not be real to wound.",
-            "Do not spend what you cannot name.", "On the seventh beat, be still.",
-            "Every child carries the first design.", "Power is proven by what it spares.",
-            "A chosen path remembers betrayal.", "Possession is merely a change of color.",
-            "Only one witness keeps its line.", "Was what you carried ever not enough?",
+            "A first impossible idea blossoms, and leaves one untouched lane.", "Even inspiration at flood leaves a shore for the worthy.",
+            "Novel machinery assembles itself from color and intent.", "Each ribbon sketches an invention no human has named.",
+            "The Empress reaches inward on slow, beautiful tendrils.", "Breathe in the still point between thoughts.",
+            "Madness bends around one luminous absence.", "Violet arches make a cathedral from unreal geometry.",
+            "She slips through imagination toward the Human Soul.", "The youngest ancient unveils every divine terror at once.",
         },
         PhaseColors: new[]
         {
@@ -61,7 +67,7 @@ public sealed class Malady : PhantasiaBoss
             new Color(244, 244, 232), new Color(220, 71, 133),
         },
         PhaseSigils: Enumerable.Range(0, 10).ToArray(),
-        ActMetadata: new Dictionary<int, string> { [4] = "ACT II // THE COVENANT", [7] = "ACT III // THE TESTIMONY" });
+        ActMetadata: new Dictionary<int, string> { [4] = "ACT II // INVENTION", [7] = "ACT III // THE HUMAN SOUL" });
 
     private readonly record struct ChainEvent(double Delay, Vector2 Origin, float Direction, float Speed, float Damage);
 
@@ -69,8 +75,8 @@ public sealed class Malady : PhantasiaBoss
     private int _portalFormationPhase;
     private List<ChainEvent> _sequenceQueue = new();
     private double _poolCooldown = 1.2;
-    private readonly float[] _puppetMotion = { 0f, 0f };
-    private float _puppetMotionStrength;
+    private readonly float[] _pillarMotion = { 0f, 0f };
+    private float _pillarMotionStrength;
 
     public bool SurvivalActive { get; private set; }
     public double SurvivalRemaining { get; private set; }
@@ -78,14 +84,14 @@ public sealed class Malady : PhantasiaBoss
     public float AttackAimAngle { get; private set; }
     public double AttackAnimationDuration { get; } = .72;
     public float AttackAnticipation { get; private set; }
-    public bool Collapsing { get; private set; }
-    public double CollapseDuration { get; } = 3.6;
-    public double CollapseRemaining { get; private set; }
+    public bool Collapsing => Dying;
+    public double CollapseDuration => DeathDuration;
+    public double CollapseRemaining => DeathRemaining;
 
     public Malady(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, MaladyConfig, MaladySigilConfig, rng)
     {
-        ActTitle = "ACT I // THE DOCTRINE";
+        ActTitle = "ACT I // THE FIRST IDEA";
         ActTransitionTimer = ActTransitionDuration;
         PhaseProtectionTimer = ActTransitionDuration;
     }
@@ -100,23 +106,18 @@ public sealed class Malady : PhantasiaBoss
         SurvivalRemaining = duration;
     }
 
+    public override void DebugSetPhase(int phase)
+    {
+        base.DebugSetPhase(phase);
+        if (Phase == Config.PhaseLabels.Count && !FinaleActive)
+            BeginFinaleSequence();
+    }
+
     public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
-        if (SurvivalActive || Collapsing)
+        if (SurvivalActive || FinaleActive || Dying)
             return new HitResult(false, false, 0, true);
-        var result = base.TakeDamage(amount, partId, source);
-        if (result.Killed)
-        {
-            Hp = 1;
-            Collapsing = true;
-            CollapseRemaining = CollapseDuration;
-            _sequenceQueue.Clear();
-            ClearMaladyPortals();
-            TransitionCleanupRequested = true;
-            PhaseAnnouncementTimer = 0.0;
-            return new HitResult(result.Applied, false, result.Amount, result.Blocked);
-        }
-        return result;
+        return base.TakeDamage(amount, partId, source);
     }
 
     private string AttackPoseForPhase() => Phase switch
@@ -222,7 +223,7 @@ public sealed class Malady : PhantasiaBoss
         portal.FirePatternBurst(sink, target, waves, waveInterval: .12f, damage: 325, color: PhaseAccent, ownerSuffix: "dream_burst");
     }
 
-    private void UpdatePuppetMotion(float previousX, float previousY, Camera? camera)
+    private void UpdatePillarMotion(float previousX, float previousY, Camera? camera)
     {
         if (camera is null)
             return;
@@ -232,15 +233,15 @@ public sealed class Malady : PhantasiaBoss
         if (magnitude > .005f)
         {
             float targetX = screenDelta.X / magnitude, targetY = screenDelta.Y / magnitude;
-            _puppetMotion[0] += (targetX - _puppetMotion[0]) * .22f;
-            _puppetMotion[1] += (targetY - _puppetMotion[1]) * .22f;
-            _puppetMotionStrength += (1.0f - _puppetMotionStrength) * .18f;
+            _pillarMotion[0] += (targetX - _pillarMotion[0]) * .22f;
+            _pillarMotion[1] += (targetY - _pillarMotion[1]) * .22f;
+            _pillarMotionStrength += (1.0f - _pillarMotionStrength) * .18f;
         }
         else
         {
-            _puppetMotion[0] *= .86f;
-            _puppetMotion[1] *= .86f;
-            _puppetMotionStrength *= .84f;
+            _pillarMotion[0] *= .86f;
+            _pillarMotion[1] *= .86f;
+            _pillarMotionStrength *= .84f;
         }
     }
 
@@ -248,14 +249,9 @@ public sealed class Malady : PhantasiaBoss
     {
         double dt = Seconds();
         float previousX = WorldX, previousY = WorldY;
-        if (Collapsing)
+        if (Dying)
         {
-            AdvanceAge();
-            CollapseRemaining = Math.Max(0.0, CollapseRemaining - dt);
-            PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
-            AttackAnticipation = 0f;
-            if (CollapseRemaining <= 0)
-                Hp = 0;
+            base.Update(context);
             return;
         }
 
@@ -286,16 +282,15 @@ public sealed class Malady : PhantasiaBoss
                 SurvivalRemaining = Math.Max(0.0, SurvivalRemaining - dt);
                 if (SurvivalRemaining <= 0)
                 {
-                    int phaseCount = Config.PhaseLabels.Count;
-                    Hp = (int)(MaxHp * (double)(phaseCount - Phase) / phaseCount);
                     SurvivalActive = false;
-                    UpdatePhase();
+                    Hp = Math.Max(1, (int)Math.Round(MaxHp * .4));
+                    SetDreamPhase(7);
                 }
             }
         }
 
         base.Update(context);
-        UpdatePuppetMotion(previousX, previousY, context.Camera);
+        UpdatePillarMotion(previousX, previousY, context.Camera);
         float anticipationWindow = Simulation.FrameRate * .34f;
         if (EntranceRemaining <= 0 && ActTransitionTimer <= 0 && AttackCooldown > 0 && AttackCooldown <= anticipationWindow)
         {
@@ -310,6 +305,30 @@ public sealed class Malady : PhantasiaBoss
         }
     }
 
+    private void RadialWithGap(List<EnemyProjectile> sink, Vector2 origin, Vector2 safeTarget, int count,
+        int gapHalfWidth, float speed, float damage, string suffix, string path = "linear")
+    {
+        float safeAngle = MathF.Atan2(safeTarget.Y - origin.Y, safeTarget.X - origin.X);
+        float step = MathF.Tau / count;
+        int safeIndex = (int)MathF.Round(((safeAngle % MathF.Tau + MathF.Tau) % MathF.Tau) / step) % count;
+        for (int index = 0; index < count; index++)
+        {
+            int distance = Math.Min((index - safeIndex + count) % count, (safeIndex - index + count) % count);
+            if (distance <= gapHalfWidth)
+                continue;
+            ShotFrom(sink, origin, index * step + PatternRotation * .11f, speed, damage, suffix,
+                shape: "diamond", path: path, belief: .25);
+        }
+    }
+
+    private void PortalTentacle(List<EnemyProjectile> sink, int portalIndex, Vector2 target, float arc, string suffix,
+        int count = 22, float speed = .68f)
+    {
+        var origin = PortalOrigin(portalIndex);
+        float aimed = MathF.Atan2(target.Y - origin.Y, target.X - origin.X);
+        QueueChain(origin, aimed - arc / 2f, arc, count, interval: .052, speed: speed, damage: 350);
+    }
+
     protected override void FirePhantasiaPattern(float playerX, float playerY, EnemyUpdateContext context)
     {
         var center = Center();
@@ -318,108 +337,100 @@ public sealed class Malady : PhantasiaBoss
         AttackAimAngle = aimed;
         AttackPose = AttackPoseForPhase();
         var sink = context.ProjectileSink;
+
         switch (Phase)
         {
-            case 1: // Authority: one of four thrones speaks true.
-            {
-                int throne = PatternRotation % 4;
-                for (int index = 0; index < 4; index++)
-                    FanFrom(sink, PortalOrigin(index), target, 4, .62f, .92f, 330, "authority", illusion: index != throne);
+            case 1: // Petals open around a lane pointing directly at the player.
+                RadialWithGap(sink, center, target, 14, 1, .58f, 320, "overture_petals", "sine");
                 break;
-            }
-            case 2: // Image: four graven copies, one real.
-            {
-                for (int index = 0; index < 4; index++)
+            case 2: // Alternating portals flood inward but preserve the player's current shore.
+                for (int index = PatternRotation % 2; index < ProjectilePortals.Count; index += 2)
+                    RadialWithGap(sink, PortalOrigin(index), target, 10, 1, .62f, 325, "petal_flood", "sine");
+                break;
+            case 3: // Two immense actuator arcs assemble an impossible engine around the open seam.
+                PortalTentacle(sink, PatternRotation, target, 2.35f, "impossible_engine_left", 24, .64f);
+                PortalTentacle(sink, PatternRotation + 2, target, -2.35f, "impossible_engine_right", 24, .64f);
+                break;
+            case 4: // Long ribbons arrive slowly enough to follow through the court.
+                for (int index = 0; index < Math.Min(4, ProjectilePortals.Count); index++)
+                    PortalTentacle(sink, index, target, index % 2 == 0 ? 1.8f : -1.8f, "ribbon_court", 18, .7f);
+                break;
+            case 5: // Splitting tendrils grow outward, never spawning directly inside the marked opening.
+                for (int index = -2; index <= 2; index++)
                 {
-                    float angle = index * MathF.PI / 2f + MathF.PI / 4f;
-                    var origin = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Simulation.TileSize * 3f;
-                    RadialFrom(sink, origin, 6, .7f, 320, "image", illusion: index != PatternRotation % 4);
-                }
-                break;
-            }
-            case 3: // The Name: a truth-or-lie banner backed by a real volley.
-            {
-                RuleTruth = PatternRotation % 3 != 1;
-                RuleText = RuleTruth ? "PRESERVE THE NAME" : "BREAK THE NAME";
-                LaserFrom(sink, PortalOrigin(PatternRotation), aimed, 350, "name", illusion: !RuleTruth);
-                FanFrom(sink, center, target, 7, 1.4f, .72f, 325, "reverence");
-                break;
-            }
-            case 4: // Sabbath: a slow sweeping chain plus a portal phrase (REST is enforced by the base class).
-            {
-                var origin = PortalOrigin(PatternRotation);
-                float sweep = MathF.Atan2(target.Y - origin.Y, target.X - origin.X) - .95f;
-                QueueChain(origin, sweep, 1.9f, count: 18, interval: .05, speed: .68f);
-                UpdateSequences(sink, 0.0);
-                FirePortalPhrase(sink, target, wide: true);
-                break;
-            }
-            case 5: // The House: shots that fracture across two generations.
-            {
-                for (int index = 0; index < 5; index++)
-                {
-                    var shot = ShotFrom(sink, center, aimed + (index - 2) * .3f, .8f, 330, "lineage");
-                    shot.SplitCount = 3;
-                    shot.SplitAt = Simulation.TileSize * (2.8f + index * .55f);
+                    if (index == 0)
+                        continue;
+                    var shot = ShotFrom(sink, center, aimed + index * .38f, .62f, 335, "tentacle_garden", path: "sine");
+                    shot.SplitCount = 2;
+                    shot.SplitAt = Simulation.TileSize * (3.2f + Math.Abs(index) * .7f);
                     shot.SplitGeneration = 2;
                 }
                 break;
-            }
-            case 6: // The Unstruck: a real fan behind a harmless, damageless procession.
-            {
-                FanFrom(sink, center, target, 3, .3f, 1.0f, 350, "mercy");
-                for (int index = 0; index < 12; index++)
-                    ShotFrom(sink, center, index * 2f * MathF.PI / 12f, .42f, 0, "procession", illusion: true);
+            case 6: // Halfway survival: a flower closes everywhere except a broad, player-facing wedge.
+                RadialWithGap(sink, center, target, 20, 2, .52f, 340, "intermission_flower", "sine");
+                PortalTentacle(sink, PatternRotation, target, PatternRotation % 2 == 0 ? 1.7f : -1.7f,
+                    "intermission_tentacle", 20, .62f);
                 break;
-            }
-            case 7: // The Vow: half the portals lie inward, one chosen chain answers true.
+            case 7:
+                RadialWithGap(sink, center, target, 18, 2, .68f, 355, "luminous_tide", "sine");
+                FirePortalPhrase(sink, target, wide: true);
+                break;
+            case 8: // A cathedral of fully telegraphed portal lasers leaves two adjacent aisles open.
             {
-                int chosen = PatternRotation % Math.Max(1, ProjectilePortals.Count);
-                for (int index = 0; index < ProjectilePortals.Count; index += 2)
+                int count = Math.Max(1, ProjectilePortals.Count);
+                float playerAngle = MathF.Atan2(playerY - ArenaCenter.Y, playerX - ArenaCenter.X);
+                int aisle = (int)MathF.Round(((playerAngle % MathF.Tau + MathF.Tau) % MathF.Tau) / (MathF.Tau / count)) % count;
+                for (int index = 0; index < count; index++)
                 {
+                    int distance = Math.Min((index - aisle + count) % count, (aisle - index + count) % count);
+                    if (distance <= 1)
+                        continue;
                     var origin = PortalOrigin(index);
-                    float inward = MathF.Atan2(center.Y - origin.Y, center.X - origin.X);
-                    LaserFrom(sink, origin, inward, 355, "vow", illusion: index == chosen);
+                    LaserFrom(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X), 390, "violet_cathedral");
                 }
-                var chainOrigin = PortalOrigin(chosen);
-                float tangent = MathF.Atan2(center.Y - chainOrigin.Y, center.X - chainOrigin.X) + MathF.PI / 2f;
-                QueueChain(chainOrigin, tangent - .7f, 1.4f, count: 20, interval: .045, speed: .82f, damage: 345);
-                UpdateSequences(sink, 0.0);
-                FirePortalPhrase(sink, target);
                 break;
             }
-            case 8: // Mine And Yours: a real ring of "stolen" shots beside a harmless "unowned" one, sized off the player's own build.
-            {
-                var build = context.PlayerBuildSnapshot;
-                double projectileCountStat = build?.Stats.GetValueOrDefault("projectile_count") ?? 1.0;
-                int count = Math.Clamp((int)Math.Round(projectileCountStat) + 2, 4, 10);
-                RadialFrom(sink, center, count, .82f, 345, "stolen");
-                RadialFrom(sink, center, count, .45f, 0, "unowned", illusion: true);
+            case 9:
+                for (int index = 0; index < 3; index++)
+                    PortalTentacle(sink, PatternRotation + index * 2, target, (index - 1) * 2.1f, "soul_invasion_tentacle", 26, .72f);
+                RadialWithGap(sink, center, target, 22, 2, .6f, 365, "soul_invasion_bloom");
                 break;
-            }
-            case 9: // The Witness: one of five lasers is real.
+            default: // Apotheosis cycles the fight's signature ideas for the full forty seconds.
             {
-                int trueIndex = PatternRotation % 5;
-                TruthIndex = trueIndex;
-                for (int index = 0; index < 5; index++)
-                    LaserFrom(sink, center, aimed + (index - 2) * .34f, 370, "witness", illusion: index != trueIndex);
-                break;
-            }
-            default: // Enough: intensity scales with how many offerings were accepted.
-            {
-                int intensity = AcceptedOfferings.Count;
-                RadialFrom(sink, center, 10 + intensity * 2, .62f + intensity * .08f, 350, "enough");
-                FanFrom(sink, center, target, 5 + intensity, 1.25f, 1.0f, 365, "covetous", path: "sine");
+                int movement = PatternRotation % 3;
+                if (movement == 0)
+                {
+                    RadialWithGap(sink, center, target, 24, 2, .7f, 390, "apotheosis_flood", "sine");
+                    FirePortalPhrase(sink, target, wide: true);
+                }
+                else if (movement == 1)
+                {
+                    for (int index = 0; index < 4; index++)
+                        PortalTentacle(sink, PatternRotation + index, target, index % 2 == 0 ? 2.4f : -2.4f,
+                            "apotheosis_tentacle", 24, .74f);
+                }
+                else
+                {
+                    RadialWithGap(sink, center, target, 28, 3, .58f, 380, "apotheosis_corolla");
+                    for (int index = 0; index < ProjectilePortals.Count; index += 2)
+                    {
+                        var origin = PortalOrigin(index);
+                        LaserFrom(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X), 410, "apotheosis_laser");
+                    }
+                }
                 break;
             }
         }
         if (!SurvivalPhases.ContainsKey(Phase) && PatternRotation % 2 == 0)
-            FirePortalPhrase(sink, target, wide: Phase >= 8);
+            FirePortalPhrase(sink, target, wide: Phase >= 7);
         PatternRotation++;
-        MarkAttack(.62f);
+        MarkAttack(.72f);
     }
 
     protected override bool HasCustomDreamBody => true;
+
+    protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+        => DrawDreamBody(spriteBatch, camera, playerWorldPosition, screenShake);
 
     private static Vector2[] OffsetPoints(IReadOnlyList<Vector2> points, float x, float y) =>
         points.Select(p => p + new Vector2(x, y)).ToArray();
@@ -515,8 +526,8 @@ public sealed class Malady : PhantasiaBoss
     private void DrawPuppetArm(SpriteBatch spriteBatch, Camera camera, Vector2 core, int side, Color bodyColor, float attackAmount, float reassembly = 0.0f)
     {
         float size = Size;
-        float driftX = -_puppetMotion[0] * size * .2f * _puppetMotionStrength;
-        float driftY = -_puppetMotion[1] * size * .13f * _puppetMotionStrength;
+        float driftX = -_pillarMotion[0] * size * .2f * _pillarMotionStrength;
+        float driftY = -_pillarMotion[1] * size * .13f * _pillarMotionStrength;
         float idle = Age * .018f + side * 1.7f;
         var shoulder = new Vector2(core.X + side * size * .3f, core.Y - size * .15f);
         var points = new[]
@@ -591,7 +602,7 @@ public sealed class Malady : PhantasiaBoss
     private void DrawSurvivalDance(SpriteBatch spriteBatch, Vector2 core, Color bodyColor)
     {
         float size = Size;
-        bool finale = Phase == 7;
+        bool finale = FinaleActive;
         int count = finale ? 12 : 8;
         float speed = finale ? .031f : .022f;
         for (int index = 0; index < count; index++)
@@ -665,14 +676,14 @@ public sealed class Malady : PhantasiaBoss
     /// Update-mutates/Draw-only-reads split already established for every
     /// other entity in this port (see Enemy.cs's doc comment).
     /// </summary>
-    protected override void DrawDreamBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    private void DrawLegacyPuppetBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         float attackProgress = Math.Min(1.0f, VisualAttackTimer / Math.Max(1f, Simulation.FrameRate * (float)AttackAnimationDuration));
         float attackAmount = Math.Max(MathF.Sin(attackProgress * MathF.PI), AttackAnticipation * .62f);
-        float stillness = 1.0f - Math.Min(1.0f, _puppetMotionStrength);
+        float stillness = 1.0f - Math.Min(1.0f, _pillarMotionStrength);
         float bob = MathF.Sin(Age * .025f) * Size * .035f * (.45f + stillness * .55f);
-        float leanX = _puppetMotion[0] * Size * .07f * _puppetMotionStrength;
-        float leanY = _puppetMotion[1] * Size * .035f * _puppetMotionStrength;
+        float leanX = _pillarMotion[0] * Size * .07f * _pillarMotionStrength;
+        float leanY = _pillarMotion[1] * Size * .035f * _pillarMotionStrength;
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var core = new Vector2(screenPosition.X + Size / 2f + leanX, screenPosition.Y + Size * .47f + bob + leanY);
         Color bodyColor = Color.Lerp(Config.FinalBodyColor, PhaseAccent, .18f);
@@ -701,7 +712,7 @@ public sealed class Malady : PhantasiaBoss
             DrawPuppetArm(spriteBatch, camera, core, 1, bodyColor, attackAmount, reassembly);
         }
 
-        float baseShift = -_puppetMotion[0] * Size * .08f * _puppetMotionStrength - reassembly * Size * .12f;
+        float baseShift = -_pillarMotion[0] * Size * .08f * _pillarMotionStrength - reassembly * Size * .12f;
         float baseY = core.Y + Size * .35f;
         var leftBase = new[]
         {
@@ -770,19 +781,116 @@ public sealed class Malady : PhantasiaBoss
         }
     }
 
+    /// <summary>
+    /// Malady's imperial silhouette: a tall indigo core floating over an
+    /// obsidian foundation while loose cubes continuously invent and abandon
+    /// possible bodies around it. Attack motion changes the constellation,
+    /// never the Empress's composed central posture.
+    /// </summary>
+    protected override void DrawDreamBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        float bob = MathF.Sin(Age * .018f) * Size * .035f;
+        Vector2 core = screen + new Vector2(Size / 2f - _pillarMotion[0] * Size * .045f * _pillarMotionStrength,
+            Size * .45f + bob - _pillarMotion[1] * Size * .025f * _pillarMotionStrength);
+        Color indigo = new(62, 39, 116);
+        Color violet = new(105, 59, 164);
+        Color luminous = Color.Lerp(new Color(218, 104, 232), PhaseAccent, .36f);
+        float spectacle = FinaleActive ? 1.58f : SurvivalActive ? 1.3f : 1f;
+        float attack = Math.Max(AttackAnticipation,
+            VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .72f), 0f, 1f) * MathF.PI) : 0f);
+
+        // The slab belongs to the room, not Malady's hitbox or locomotion.
+        // Anchor it to the arena center and align its square footprint with
+        // the rotating world axes so it remains a stationary floor landmark.
+        Vector2 slabCenter = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
+        Vector2 slabAxisX = camera.WorldVectorToScreen(Vector2.UnitX);
+        Vector2 slabAxisY = camera.WorldVectorToScreen(Vector2.UnitY);
+        BossVisuals.FloorSlab(spriteBatch, slabCenter, slabAxisX, slabAxisY, Size * 1.55f, Size * .13f,
+            new Color(18, 15, 25), new Color(77, 58, 103));
+
+        if (Dying)
+        {
+            BossVisuals.OscillatingAura(spriteBatch, core, Age, Size * (1f + DeathProgress * 2.2f), luminous, 7, 2.1f);
+            for (int ray = 0; ray < 8; ray++)
+            {
+                float angle = ray * MathF.PI / 4f - Age * .009f;
+                var end = core + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Size * (1.1f + DeathProgress * 2.5f);
+                Primitives2D.Line(spriteBatch, core, end, UiTheme.Ink, 7);
+                Primitives2D.Line(spriteBatch, core, end, luminous, 2);
+            }
+            BossVisuals.Disassemble(spriteBatch, core, Age, DeathProgress, Size * 1.35f, indigo, luminous, 24);
+            return;
+        }
+
+        BossVisuals.OscillatingAura(spriteBatch, core, Age, Size * .72f * spectacle, luminous,
+            FinaleActive ? 8 : 5, .78f);
+        for (int wave = 0; wave < (FinaleActive ? 7 : 4); wave++)
+        {
+            float width = Size * (.78f + wave * .24f) * spectacle;
+            float height = Size * (.28f + wave * .09f);
+            var phrase = new Rectangle((int)(core.X - width), (int)(core.Y - height), (int)(width * 2), (int)(height * 2));
+            float start = Age * (.004f + wave * .0006f) + wave * .72f;
+            Primitives2D.Arc(spriteBatch, phrase, start, start + MathF.PI * .78f,
+                (wave % 2 == 0 ? luminous : UiTheme.Cream) * (.22f + wave * .045f), 2 + wave % 2);
+        }
+
+        int cubeCount = FinaleActive ? FinaleBodyCubeCount : SurvivalActive ? 14 : IdleBodyCubeCount;
+        var floating = new List<(Vector2 Center, float Angle, float Depth, float Extent)>();
+        float aimBias = AttackPose == "laser" ? AttackAimAngle : Age * .006f;
+        for (int index = 0; index < cubeCount; index++)
+        {
+            float angle = index * 2.399963f + Age * (index % 2 == 0 ? .009f : -.007f) + aimBias * attack * .2f;
+            float radius = Size * (.42f + (index % 5) * .11f) * spectacle * (1f + attack * .18f);
+            float column = ((index % 4) - 1.5f) * Size * .18f;
+            var point = core + new Vector2(MathF.Cos(angle) * radius, column + MathF.Sin(angle) * radius * .42f);
+            floating.Add((point, angle, MathF.Sin(angle), Size * (.07f + index % 3 * .018f)));
+        }
+
+        foreach (var cube in floating.Where(cube => cube.Depth < 0).OrderBy(cube => cube.Depth))
+            BossVisuals.RotatingCube3D(spriteBatch, cube.Center, cube.Extent, indigo, violet, luminous,
+                cube.Angle, cube.Angle * .53f, Age * .006f);
+
+        BossVisuals.Cuboid(spriteBatch, core, Size * .5f, Size * 1.02f, indigo, luminous,
+            MathF.Sin(Age * .005f) * .65f);
+        var inspirationSlit = new Rectangle((int)(core.X - Size * .055f), (int)(core.Y - Size * .35f),
+            Math.Max(4, (int)(Size * .11f)), Math.Max(8, (int)(Size * .7f)));
+        Primitives2D.FillRect(spriteBatch, inspirationSlit, UiTheme.Ink);
+        var light = inspirationSlit;
+        light.Inflate(-3, -4);
+        Primitives2D.FillRect(spriteBatch, light, luminous);
+        for (int node = 0; node < 3; node++)
+        {
+            float y = core.Y - Size * .48f + node * Size * .48f;
+            float nodePulse = Size * (.04f + .008f * MathF.Sin(Age * .05f + node));
+            Primitives2D.FillCircle(spriteBatch, new Vector2(core.X, y), Math.Max(3, (int)nodePulse + 4), UiTheme.Ink);
+            Primitives2D.FillCircle(spriteBatch, new Vector2(core.X, y), Math.Max(2, (int)nodePulse), UiTheme.Cream);
+        }
+
+        foreach (var cube in floating.Where(cube => cube.Depth >= 0).OrderBy(cube => cube.Depth))
+            BossVisuals.RotatingCube3D(spriteBatch, cube.Center, cube.Extent, indigo, violet, luminous,
+                cube.Angle, cube.Angle * .53f, Age * .006f);
+
+        DrawBossHealth(spriteBatch, new Rectangle((int)(core.X - Size * .46f), (int)(core.Y - Size * .75f),
+            (int)(Size * .92f), 6));
+    }
+
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        foreach (var portal in ProjectilePortals)
-            portal.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        if (SurvivalActive)
+        if (!Dying)
+            foreach (var portal in ProjectilePortals)
+                portal.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (SurvivalActive || FinaleActive)
         {
             var viewport = spriteBatch.GraphicsDevice.Viewport;
             int width = Math.Min((int)(viewport.Width * .42f), 520);
             var banner = new Rectangle(viewport.Width / 2 - width / 2, (int)(viewport.Height * .21f), width, 54);
             UiTheme.DrawPanel(spriteBatch, banner, UiTheme.PanelRaised, PhaseAccent, shadow: 5);
-            UiTheme.DrawText(spriteBatch, $"SURVIVE  {SurvivalRemaining:00.0}", 16, UiTheme.Cream, new Vector2(banner.Center.X, banner.Y + 16), "center");
-            UiTheme.DrawText(spriteBatch, "VITALITY SEALED", 9, PhaseAccent, new Vector2(banner.Center.X, banner.Bottom - 11), "center");
+            double remaining = FinaleActive ? FinaleRemaining : SurvivalRemaining;
+            UiTheme.DrawText(spriteBatch, $"SURVIVE  {remaining:00.0}", 16, UiTheme.Cream, new Vector2(banner.Center.X, banner.Y + 16), "center");
+            UiTheme.DrawText(spriteBatch, FinaleActive ? "APOTHEOSIS // VITALITY SEALED" : "INTERMISSION // VITALITY SEALED",
+                9, PhaseAccent, new Vector2(banner.Center.X, banner.Bottom - 11), "center");
         }
     }
 }
