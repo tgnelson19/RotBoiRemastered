@@ -37,6 +37,31 @@ public sealed class SoulHubTests
     }
 
     [Fact]
+    public void AdjustNewGamePlus_StopsAtThePathsUnlockedTier()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-ng-plus-tests-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            GameProfile.Profile.NewGamePlusUnlocked["sound"] = 2;
+
+            Assert.True(SoulHub.AdjustNewGamePlus("sound", 1));
+            Assert.True(SoulHub.AdjustNewGamePlus("sound", 1));
+            Assert.False(SoulHub.AdjustNewGamePlus("sound", 1));
+            Assert.Equal(2, NewGamePlus.SelectedLevel("sound"));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void StationRadius_ClosesOnlyAfterPlayerWalksBeyondDismissalDistance()
     {
         var station = new Vector2(400, 300);

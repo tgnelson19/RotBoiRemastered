@@ -365,14 +365,14 @@ public static class Items
     /// first-declared one that gets returned -- RollUniqueDrop only ever
     /// hands back one item per kill even if several uniques are eligible.
     /// </summary>
-    public static ItemDrop? RollUniqueDrop(string bossKey, Random? rng = null)
+    public static ItemDrop? RollUniqueDrop(string bossKey, Random? rng = null, int newGamePlusLevel = 0)
     {
         rng ??= Random.Shared;
         var candidates = Uniques.Where(unique => unique.DropsFromBossKey == bossKey).OrderBy(_ => rng.NextDouble());
         foreach (var candidate in candidates)
         {
             if (rng.NextDouble() <= candidate.DropChance)
-                return CreateRolledDrop(candidate, "Unique", rng);
+                return CreateRolledDrop(candidate, "Unique", rng, newGamePlusLevel);
         }
         return null;
     }
@@ -400,11 +400,26 @@ public static class Items
         return WeightedChoice(DropCounts, DropCountWeights, rng);
     }
 
-    public static string RollGrade(Random? rng = null)
+    private static IReadOnlyList<double> ImproveWeights(IReadOnlyList<double> baseWeights, int newGamePlusLevel, double rankBoost)
+    {
+        int level = NewGamePlus.ClampLevel(newGamePlusLevel);
+        double factor = 1 + rankBoost * level;
+        return baseWeights.Select((weight, rank) => weight * Math.Pow(factor, rank)).ToList();
+    }
+
+    public static string RollGrade(Random? rng = null, int newGamePlusLevel = 0)
     {
         rng ??= Random.Shared;
-        var weights = GradeOrder.Select(grade => GradeWeights[grade]).ToList();
+        var weights = ImproveWeights(GradeOrder.Select(grade => GradeWeights[grade]).ToList(), newGamePlusLevel, .15);
         return WeightedChoice(GradeOrder, weights, rng);
+    }
+
+    public static string RollItemRarity(Random? rng = null, int newGamePlusLevel = 0)
+    {
+        rng ??= Random.Shared;
+        var weights = ImproveWeights(Upgrades.RarityOrder.Select(rarity => Upgrades.RarityWeights[rarity]).ToList(),
+            newGamePlusLevel, .18);
+        return WeightedChoice(Upgrades.RarityOrder, weights, rng);
     }
 
     public static IReadOnlyList<ItemAffixDefinition> AffixesFor(string slotType) =>
@@ -421,52 +436,58 @@ public static class Items
             : WeightedChoice(candidates, candidates.Select(affix => affix.Weight).ToList(), rng).Name;
     }
 
-    private static ItemDrop CreateRolledDrop(ItemDefinition definition, string rarity, Random rng) =>
-        new(definition, rarity, RollGrade(rng), RollModifier(definition.SlotType, rng));
+    private static ItemDrop CreateRolledDrop(ItemDefinition definition, string rarity, Random rng, int newGamePlusLevel = 0) =>
+        new(definition, rarity, RollGrade(rng, newGamePlusLevel), RollModifier(definition.SlotType, rng));
 
-    public static ItemDrop GenerateDrop(ItemDefinition definition, string rarity, Random? rng = null)
+    public static ItemDrop GenerateDrop(ItemDefinition definition, string rarity, Random? rng = null, int newGamePlusLevel = 0)
     {
         rng ??= Random.Shared;
-        return CreateRolledDrop(definition, rarity, rng);
+        return CreateRolledDrop(definition, rarity, rng, newGamePlusLevel);
     }
 
-    public static ItemDrop GenerateDrop(Random? rng = null)
+    public static ItemDrop GenerateDrop(Random? rng = null, int newGamePlusLevel = 0)
     {
         rng ??= Random.Shared;
         var definition = Definitions[rng.Next(Definitions.Count)];
-        return CreateRolledDrop(definition, Upgrades.RollRarity(rng), rng);
+        return CreateRolledDrop(definition, RollItemRarity(rng, newGamePlusLevel), rng, newGamePlusLevel);
     }
 
-    public static double CoreForgeChance(string rarity) => rarity switch
+    public static double CoreForgeChance(string rarity, int newGamePlusLevel = 0)
     {
-        "Epic" => .10,
-        "Legendary" => .20,
-        "Mythical" => .35,
-        _ => 0,
-    };
+        double baseChance = rarity switch
+        {
+            "Epic" => .10,
+            "Legendary" => .20,
+            "Mythical" => .35,
+            _ => 0,
+        };
+        return Math.Min(.90, baseChance * (1 + .25 * NewGamePlus.ClampLevel(newGamePlusLevel)));
+    }
 
     public static bool IsCoreForgeEligible(ItemDrop drop) =>
         drop.Rarity != "Unique" && CoreForgeChance(drop.Rarity) > 0;
 
     /// <summary>Attempts the one immutable path-core roll made when an item first drops.</summary>
-    public static ItemDrop RollCoreForge(ItemDrop drop, bool hardMode, string pathKey, Random? rng = null)
+    public static ItemDrop RollCoreForge(ItemDrop drop, bool hardMode, string pathKey, Random? rng = null,
+        int newGamePlusLevel = 0)
     {
         rng ??= Random.Shared;
         if (drop.CoreForge is not null)
             return drop;
         if (!hardMode || !IsCoreForgeEligible(drop)
             || !CoreForgesByPathKey.TryGetValue(pathKey, out var core)
-            || rng.NextDouble() >= CoreForgeChance(drop.Rarity))
+            || rng.NextDouble() >= CoreForgeChance(drop.Rarity, newGamePlusLevel))
             return drop;
         return drop with { CoreForge = core.Key };
     }
 
-    public static List<ItemDrop> GenerateDrops(int count, Random? rng = null, bool hardMode = false, string? pathKey = null)
+    public static List<ItemDrop> GenerateDrops(int count, Random? rng = null, bool hardMode = false, string? pathKey = null,
+        int newGamePlusLevel = 0)
     {
         rng ??= Random.Shared;
         return Enumerable.Range(0, count)
-            .Select(_ => GenerateDrop(rng))
-            .Select(drop => pathKey is null ? drop : RollCoreForge(drop, hardMode, pathKey, rng))
+            .Select(_ => GenerateDrop(rng, newGamePlusLevel))
+            .Select(drop => pathKey is null ? drop : RollCoreForge(drop, hardMode, pathKey, rng, newGamePlusLevel))
             .ToList();
     }
 

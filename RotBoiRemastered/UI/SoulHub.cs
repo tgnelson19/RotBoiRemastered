@@ -50,6 +50,8 @@ public sealed class SoulHub
     private string? _enteringPortalKey;
     private double _portalAnimationStart;
     private Vector2 _portalTravelStart;
+    private Rectangle _ngMinusRect;
+    private Rectangle _ngPlusRect;
     private float _playerDrawScale = 1f;
     private float _uiScale = 1f;
     private int Px(float value) => Math.Max(1, (int)MathF.Round(value * _uiScale));
@@ -225,6 +227,14 @@ public sealed class SoulHub
                 _confirmingPortalKey = null;
                 return null;
             }
+            bool lowerTier = keysPressed.Contains(Keys.Left) || keysPressed.Contains(Keys.A)
+                || (mousePressed && _ngMinusRect.Contains(mouse));
+            bool higherTier = keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D)
+                || (mousePressed && _ngPlusRect.Contains(mouse));
+            if (lowerTier)
+                AdjustNewGamePlus(_confirmingPortalKey, -1);
+            if (higherTier)
+                AdjustNewGamePlus(_confirmingPortalKey, 1);
             if (keysPressed.Contains(Keys.F))
             {
                 _enteringPortalKey = _confirmingPortalKey;
@@ -296,6 +306,9 @@ public sealed class SoulHub
         GameProfile.SaveProfile();
     }
 
+    public static bool AdjustNewGamePlus(string pathKey, int direction) =>
+        NewGamePlus.AdjustSelection(pathKey, direction);
+
     private string? NearbyStation(GameSession session) => _stationWorld
         .Where(station => WithinStationRadius(session.PlayerWorldCenter, station.Value, StationOpenRadiusTiles))
         .OrderBy(station => Vector2.DistanceSquared(station.Value, session.PlayerWorldCenter))
@@ -356,7 +369,7 @@ public sealed class SoulHub
             Fs(9), UiTheme.Muted, new Vector2(Px(24), Px(54)));
         DrawNearbyPrompt(spriteBatch, session);
         if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
-        if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session);
+        if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session, mouse, mouseDown);
         // Drawn last so the dragged-item icon (part of this call, see
         // InformationSheet.DrawCarriedLoadout) always renders on top, wherever the
         // cursor currently is -- including over the Vault panel drawn just above.
@@ -448,26 +461,54 @@ public sealed class SoulHub
                 Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .62f, path.Accent, 2);
             }
             UiTheme.DrawText(spriteBatch, path.Title, 10, path.Accent, new Vector2(screen.X, screen.Y + radius + 8), "midtop");
+            int selectedNg = NewGamePlus.SelectedLevel(path.Key);
+            int unlockedNg = NewGamePlus.UnlockedLevel(path.Key);
+            string ngLabel = unlockedNg == 0
+                ? "NORMAL  //  COMPLETE TO UNLOCK NG+"
+                : selectedNg == 0 ? $"NORMAL  //  NG+{unlockedNg} UNLOCKED" : $"NG+{selectedNg}  //  MAX {unlockedNg}";
+            UiTheme.DrawText(spriteBatch, ngLabel,
+                8, selectedNg == 0 ? UiTheme.Muted : UiTheme.Gold,
+                new Vector2(screen.X, screen.Y + radius + 25), "midtop");
             // Suppressed while confirming/entering that same portal -- the center
             // confirmation panel (DrawPortalConfirm) already explains the prompt.
             if (path.Key == nearbyPortal && path.Key != _confirmingPortalKey && _enteringPortalKey is null)
-                UiTheme.DrawText(spriteBatch, "F  //  ENTER", 9, UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 26), "midtop");
+                UiTheme.DrawText(spriteBatch, "F  //  ENTER", 9, UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 42), "midtop");
         }
     }
 
     /// <summary>Centered "ENTER {PATH}?" modal shown while _confirmingPortalKey is set -- F commits, walking away or Escape cancels (Escape via OverlayOpen/CloseOverlay in Core/RotBoiGame.cs).</summary>
-    private void DrawPortalConfirm(SpriteBatch spriteBatch, GameSession session)
+    private void DrawPortalConfirm(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
         var path = GamePaths.PathsByKey[_confirmingPortalKey!];
-        int width = (int)(session.ScreenWidth * .34f), height = (int)(session.ScreenHeight * .2f);
-        var rect = new Rectangle(session.ScreenWidth / 2 - width / 2, (int)(session.ScreenHeight * .32f), width, height);
+        int selected = NewGamePlus.SelectedLevel(path.Key);
+        int unlocked = NewGamePlus.UnlockedLevel(path.Key);
+        int width = (int)(session.ScreenWidth * .42f), height = (int)(session.ScreenHeight * .29f);
+        var rect = new Rectangle(session.ScreenWidth / 2 - width / 2, (int)(session.ScreenHeight * .28f), width, height);
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight), UiTheme.Void * .55f);
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, path.Accent, shadow: 10);
         UiTheme.DrawText(spriteBatch, $"ENTER {path.Title}?", Fs(22), path.Accent, new Vector2(rect.Center.X, rect.Y + Px(26)), "center");
         UiTheme.DrawText(spriteBatch, path.Subtitle, Fs(11), UiTheme.Cream, new Vector2(rect.Center.X, rect.Y + Px(62)), "center");
+
+        _ngMinusRect = new Rectangle(rect.Center.X - Px(105), rect.Y + Px(79), Px(42), Px(30));
+        _ngPlusRect = new Rectangle(rect.Center.X + Px(63), rect.Y + Px(79), Px(42), Px(30));
+        UiTheme.DrawButton(spriteBatch, _ngMinusRect, "-", mouse, mouseDown, enabled: selected > 0,
+            accentColor: path.Accent, textSize: Fs(16));
+        UiTheme.DrawButton(spriteBatch, _ngPlusRect, "+", mouse, mouseDown, enabled: selected < unlocked,
+            accentColor: path.Accent, textSize: Fs(16));
+        string tier = selected == 0 ? "NORMAL" : $"NG+{selected}";
+        UiTheme.DrawText(spriteBatch, tier, Fs(18), selected == 0 ? UiTheme.Cream : UiTheme.Gold,
+            new Vector2(rect.Center.X, rect.Y + Px(85)), "midtop");
+        UiTheme.DrawText(spriteBatch,
+            $"ENEMIES x{NewGamePlus.EnemyMultiplier(selected):0.##}  //  CLEAR REWARD x{NewGamePlus.RewardMultiplier(selected)}  //  UNLOCKED TO NG+{unlocked}",
+            Fs(9), UiTheme.Muted, new Vector2(rect.Center.X, rect.Y + Px(116)), "midtop");
+        UiTheme.DrawText(spriteBatch, unlocked == 0
+                ? "COMPLETE THIS PATH TO UNLOCK NG+1"
+                : "A / D OR ARROWS  //  SELECT TIER",
+            Fs(9), unlocked == 0 ? UiTheme.Red : path.Accent,
+            new Vector2(rect.Center.X, rect.Y + Px(138)), "midtop");
         if (GameProfile.Profile.HardModeEnabled)
             UiTheme.DrawText(spriteBatch, "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS  //  CORE-FORGED DROPS",
-                Fs(9), UiTheme.Red, new Vector2(rect.Center.X, rect.Y + Px(86)), "center");
+                Fs(9), UiTheme.Red, new Vector2(rect.Center.X, rect.Y + Px(160)), "midtop");
         UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", Fs(10), UiTheme.Muted,
             new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
     }

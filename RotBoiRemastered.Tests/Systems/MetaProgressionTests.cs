@@ -82,6 +82,25 @@ public class MetaProgressionTests : IDisposable
         Assert.Equal(expectedTokens, GameProfile.Profile.SoulTokens);
     }
 
+    [Theory]
+    [InlineData(1, false, 2)]
+    [InlineData(3, false, 8)]
+    [InlineData(3, true, 16)]
+    public void CompletedNewGamePlusPath_DoublesClearRewardPerTierAndUnlocksTheNextTier(
+        int level, bool hardMode, int expectedTokens)
+    {
+        GameProfile.Profile.CompletedQuests = MetaProgression.Quests.Select(quest => quest.Key).ToList();
+        var state = new RunState();
+        state.SetHardMode(hardMode);
+        state.SetNewGamePlusLevel(level);
+
+        MetaProgression.RecordExtraction(state, "sound", completed: true);
+
+        Assert.Equal(expectedTokens, GameProfile.Profile.SoulTokens);
+        Assert.Equal(Math.Min(7, level + 1), NewGamePlus.UnlockedLevel("sound"));
+        Assert.Equal(level, GameProfile.Profile.ExtractedRuns[0].NewGamePlusLevel);
+    }
+
     [Fact]
     public void SyncCarriedItems_RoundTripsEquipmentAndInventoryIntoProfile()
     {

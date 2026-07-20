@@ -15,6 +15,11 @@ port first since they were deliberately kept pygame-free in the Python original.
 - `Keybinds.cs` <- `keybinds.py` (action -> key map, persisted like GameProfile)
 - `GameProfile.cs` <- `gameProfile.py` (swap JSON-on-disk for the same shape;
   consider `System.Text.Json` + a settings folder under `%AppData%`)
+- `NewGamePlus.cs` owns the independent per-path NG+0-7 ladder. A clear
+  unlocks only the next tier for that path; run reset captures the selected
+  tier. Enemy health/effective damage use `1.5^tier`, completion rewards use
+  `2^tier`, and item grade, rarity, and Core chances receive tier-aware rolls.
+  Unlock and selection dictionaries are normalized for old or malformed saves.
 - `StatTrack.cs` <- the shape shared by characterStats.py's
   `collectiveStats`/`collectiveAddStats`/`collectiveMultStats` dicts. **Done**
   -- one object (base value + additive stack + multiplicative stack) per

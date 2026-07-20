@@ -73,6 +73,14 @@ use a 35% chance, while named Unique items remain unforgeable. Core-Forged gear
 adds a fixed path-specific stat package, glows in inventories and loot crates,
 and contributes a matching concentric aura while equipped.
 
+Every Soul path portal also has a per-path New Game Plus selector. Completing
+the normal path unlocks NG+1 for that path; completing each tier unlocks only
+the next, through NG+7. Each tier multiplies enemy health and incoming enemy
+damage by 1.5, doubles the direct path-clear Soul-token reward, and shifts item
+rarity and F-S grade rolls upward. Core-Forged chances also rise at every NG+
+tier. Hard Mode remains an independent toggle and its reward multiplier stacks
+with NG+.
+
 ## Run locally
 
 Requires the .NET 9 SDK. Restore the pinned MonoGame content tool once, then run:

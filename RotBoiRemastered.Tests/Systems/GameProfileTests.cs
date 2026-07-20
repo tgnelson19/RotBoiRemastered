@@ -38,6 +38,8 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.ProjectileColor, profile.ProjectileColor);
         Assert.Equal(defaults.ProjectileDesign, profile.ProjectileDesign);
         Assert.Empty(profile.Keybinds);
+        Assert.Empty(profile.NewGamePlusUnlocked);
+        Assert.Empty(profile.SelectedNewGamePlus);
     }
 
     [Fact]
@@ -104,6 +106,8 @@ public class GameProfileTests : IDisposable
                 TabShowActiveQuests = true,
                 TabShowCosmetics = true,
                 Keybinds = new Dictionary<string, int?> { ["dash"] = 42, ["move_up"] = null },
+                NewGamePlusUnlocked = new Dictionary<string, int> { ["sound"] = 4 },
+                SelectedNewGamePlus = new Dictionary<string, int> { ["sound"] = 3 },
             };
             GameProfile.SavePath = path;
 
@@ -121,12 +125,46 @@ public class GameProfileTests : IDisposable
             Assert.True(reloaded.TabShowCosmetics);
             Assert.Equal(42, reloaded.Keybinds["dash"]);
             Assert.Null(reloaded.Keybinds["move_up"]);
+            Assert.Equal(4, reloaded.NewGamePlusUnlocked["sound"]);
+            Assert.Equal(3, reloaded.SelectedNewGamePlus["sound"]);
         }
         finally
         {
             GameProfile.Profile = original;
             GameProfile.SavePath = originalSavePath;
         }
+    }
+
+    [Fact]
+    public void NewGamePlusSaveData_IsMigrationSafeAndClampedToUnlocksAndTierSeven()
+    {
+        string oldPath = Path.Combine(_tempDir, "old-profile.json");
+        File.WriteAllText(oldPath, """{"BestLevel":5}""");
+        var oldProfile = GameProfile.LoadProfile(oldPath);
+        Assert.Empty(oldProfile.NewGamePlusUnlocked);
+        Assert.Empty(oldProfile.SelectedNewGamePlus);
+
+        string invalidPath = Path.Combine(_tempDir, "invalid-ng.json");
+        File.WriteAllText(invalidPath,
+            """{"NewGamePlusUnlocked":{"sound":99,"touch":2},"SelectedNewGamePlus":{"sound":99,"touch":7,"sight":4}}""");
+        var normalized = GameProfile.LoadProfile(invalidPath);
+
+        Assert.Equal(7, normalized.NewGamePlusUnlocked["sound"]);
+        Assert.Equal(7, normalized.SelectedNewGamePlus["sound"]);
+        Assert.Equal(2, normalized.SelectedNewGamePlus["touch"]);
+        Assert.Equal(0, normalized.SelectedNewGamePlus["sight"]);
+    }
+
+    [Fact]
+    public void PreNewGamePlusPathMastery_UnlocksTierOneButDoesNotInferHigherTiers()
+    {
+        string path = Path.Combine(_tempDir, "pre-ng-profile.json");
+        File.WriteAllText(path, """{"PathMastery":{"sound":5,"touch":0}}""");
+
+        var migrated = GameProfile.LoadProfile(path);
+
+        Assert.Equal(1, migrated.NewGamePlusUnlocked["sound"]);
+        Assert.Equal(0, NewGamePlus.ClampLevel(migrated.NewGamePlusUnlocked.GetValueOrDefault("touch")));
     }
 
     [Fact]

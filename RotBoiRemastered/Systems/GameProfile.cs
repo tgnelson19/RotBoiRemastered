@@ -74,6 +74,10 @@ public sealed class GameProfileData
     public List<ExtractedRunData> ExtractedRuns { get; set; } = new();
     public List<string> DiscoveredItems { get; set; } = new();
     public Dictionary<string, int> PathMastery { get; set; } = new();
+    /// <summary>Highest selectable NG+ tier per path. Missing means only the normal path is available.</summary>
+    public Dictionary<string, int> NewGamePlusUnlocked { get; set; } = new();
+    /// <summary>Last selected NG+ tier per path, clamped against NewGamePlusUnlocked when read.</summary>
+    public Dictionary<string, int> SelectedNewGamePlus { get; set; } = new();
 }
 
 /// <summary>
@@ -98,6 +102,7 @@ public sealed class ExtractedRunData
     public int Level { get; set; }
     public int Kills { get; set; }
     public double Seconds { get; set; }
+    public int NewGamePlusLevel { get; set; }
 }
 
 /// <summary>
@@ -202,6 +207,20 @@ public static class GameProfile
         profile.ExtractedRuns ??= new();
         profile.DiscoveredItems ??= new();
         profile.PathMastery ??= new();
+        profile.NewGamePlusUnlocked ??= new();
+        profile.SelectedNewGamePlus ??= new();
+        // Pre-NG+ saves already recorded ordinary clears in PathMastery. Preserve
+        // that accomplishment by opening NG+1, but never infer higher tiers from
+        // the old repeat-clear count because those clears had no NG+ difficulty.
+        foreach (var (pathKey, clears) in profile.PathMastery)
+            if (clears > 0 && profile.NewGamePlusUnlocked.GetValueOrDefault(pathKey) < 1)
+                profile.NewGamePlusUnlocked[pathKey] = 1;
+        foreach (string pathKey in profile.NewGamePlusUnlocked.Keys.ToList())
+            profile.NewGamePlusUnlocked[pathKey] = NewGamePlus.ClampLevel(profile.NewGamePlusUnlocked[pathKey]);
+        foreach (string pathKey in profile.SelectedNewGamePlus.Keys.ToList())
+            profile.SelectedNewGamePlus[pathKey] = Math.Min(
+                NewGamePlus.ClampLevel(profile.NewGamePlusUnlocked.GetValueOrDefault(pathKey)),
+                NewGamePlus.ClampLevel(profile.SelectedNewGamePlus[pathKey]));
     }
 
     public static bool SaveProfile(string? path = null)

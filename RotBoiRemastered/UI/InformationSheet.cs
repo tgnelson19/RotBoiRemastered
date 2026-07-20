@@ -361,8 +361,14 @@ public sealed class InformationSheet
         DrawSheetText(spriteBatch, pressureLabel, Px(10), color,
             new Vector2(rect.Right - Px(11), rect.Y + Px(14)), "topright");
         string detailsHint = _tabDetailsOpen ? "Tab: close details" : "Tab: run details";
-        DrawSheetText(spriteBatch, state.HardMode ? $"HARD MODE  //  {detailsHint}" : detailsHint, Px(9),
-            state.HardMode ? UiTheme.Red : UiTheme.Muted,
+        string challenge = string.Join("  //  ", new[]
+        {
+            state.NewGamePlusLevel > 0 ? $"NG+{state.NewGamePlusLevel}" : null,
+            state.HardMode ? "HARD MODE" : null,
+            detailsHint,
+        }.Where(label => label is not null));
+        DrawSheetText(spriteBatch, challenge, Px(9),
+            state.HardMode ? UiTheme.Red : state.NewGamePlusLevel > 0 ? UiTheme.Gold : UiTheme.Muted,
             new Vector2(rect.X + Px(11), rect.Y + Px(36)));
 
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(52)),

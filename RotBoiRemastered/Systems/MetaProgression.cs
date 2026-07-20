@@ -142,6 +142,7 @@ public static class MetaProgression
             Level = state.CurrentLevel,
             Kills = state.NumOfEnemiesKilled,
             Seconds = state.RunTimeSeconds,
+            NewGamePlusLevel = state.NewGamePlusLevel,
         };
         GameProfile.Profile.ExtractedRuns.Insert(0, run);
         if (GameProfile.Profile.ExtractedRuns.Count > 10)
@@ -149,9 +150,12 @@ public static class MetaProgression
         GameProfile.IncrementQuest("runs_extracted");
         if (completed)
         {
-            GameProfile.Profile.SoulTokens += PathCompletionTokenReward * (state.HardMode ? 2 : 1);
+            GameProfile.Profile.SoulTokens += PathCompletionTokenReward
+                * (state.HardMode ? 2 : 1)
+                * NewGamePlus.RewardMultiplier(state.NewGamePlusLevel);
             GameProfile.IncrementQuest("path_clears");
             GameProfile.Profile.PathMastery[path] = GameProfile.Profile.PathMastery.GetValueOrDefault(path) + 1;
+            NewGamePlus.RecordCompletion(path, state.NewGamePlusLevel);
         }
         GameProfile.SaveProfile();
     }

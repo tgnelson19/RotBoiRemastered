@@ -306,6 +306,31 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void HurtPlayer_NewGamePlusScalesIncomingDamageBeforeDefenseAndAssist()
+    {
+        bool originalCasual = GameProfile.Profile.CasualMode;
+        try
+        {
+            GameProfile.Profile.CasualMode = false;
+            var session = MakeSession();
+            session.State.SetNewGamePlusLevel(1);
+            session.State.GracePeriod = 0;
+            session.State.PlayerInvulnerabilityTimer = 0;
+            var enemy = new Enemy(session.Player.WorldX, session.Player.WorldY, speed: 0, size: 40,
+                Color.Red, damage: 100, hp: 100, expValue: 5, difficulty: 1, awarenessRange: 300f);
+            session.State.EnemyHolster.Add(enemy);
+
+            session.HurtPlayer();
+
+            Assert.Equal(session.State.MaxHealthPoints - 150, session.State.HealthPoints);
+        }
+        finally
+        {
+            GameProfile.Profile.CasualMode = originalCasual;
+        }
+    }
+
+    [Fact]
     public void SelectBountyTarget_NoEnemies_ReturnsNull()
     {
         var session = MakeSession();

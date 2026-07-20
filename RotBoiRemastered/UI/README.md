@@ -20,6 +20,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   read-only and remain attached through either operation.
 - `SoulHub.cs` includes the northern Hard Mode station. Its persisted toggle
   controls healing, completion rewards, and path-matched Core-Forged drops.
+  Each path portal's confirmation panel also provides mouse or A/D/arrow NG+
+  selection, shows enemy and reward multipliers, and disables tiers that have
+  not yet been unlocked by clearing the preceding tier on that path.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment

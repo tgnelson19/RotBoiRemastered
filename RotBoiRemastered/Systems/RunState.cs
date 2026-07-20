@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Systems;
 
@@ -166,6 +167,7 @@ public sealed class RunState
     public double RunTimeSeconds { get; set; }
     public string RunOutcome { get; set; } = "DEFEATED";
     public bool HardMode { get; private set; }
+    public int NewGamePlusLevel { get; private set; }
 
     public double PlayerSpeed { get; private set; }
     public float PlayerSize { get; private set; }
@@ -275,6 +277,7 @@ public sealed class RunState
     public void Reset()
     {
         HardMode = GameProfile.Profile.HardModeEnabled;
+        NewGamePlusLevel = NewGamePlus.SelectedLevel(GamePaths.Active().Key);
         PlayerSpeed = 2.1;
         PlayerSize = Simulation.TileSize * .75f;
         ApplyCosmetics();
@@ -389,6 +392,8 @@ public sealed class RunState
 
     /// <summary>Used by the Soul challenge station before a new run captures the persisted setting.</summary>
     public void SetHardMode(bool enabled) => HardMode = enabled;
+
+    public void SetNewGamePlusLevel(int level) => NewGamePlusLevel = NewGamePlus.ClampLevel(level);
 
     /// <summary>The only full restore used by Hard Mode: run start and purchased level-ups.</summary>
     public void FillHealthForMilestone()

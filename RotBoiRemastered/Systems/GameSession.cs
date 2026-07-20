@@ -413,7 +413,7 @@ public sealed class GameSession
                     rng, key: key, minDistanceTiles: outsideAwarenessTiles);
                 if (miniboss is not null)
                 {
-                    GamePaths.ApplyEnemyIdentity(miniboss);
+                    ApplyRunDifficulty(miniboss);
                     State.EnemyHolster.Add(miniboss);
                 }
                 State.GuaranteedMiniBossesSpawned.Add(key);
@@ -451,7 +451,7 @@ public sealed class GameSession
             {
                 var (key, group) = encounterResult.Value;
                 foreach (var enemy in group)
-                    GamePaths.ApplyEnemyIdentity(enemy);
+                    ApplyRunDifficulty(enemy);
                 double groupThreat = group.Sum(e => e.ThreatCost);
                 if (State.EnemyHolster.Count + group.Count <= State.EnemyCap && currentThreat + groupThreat <= State.EnemyPopulationThreatCap)
                 {
@@ -506,6 +506,7 @@ public sealed class GameSession
         }
 
         var boss = factory(spawnRect.X, spawnRect.Y, rng);
+        ApplyRunDifficulty(boss);
         State.EnemyHolster.Add(boss);
         State.ActiveBoss = boss;
         _activeBossKey = bossKey;
@@ -513,6 +514,13 @@ public sealed class GameSession
         State.CurrEnemyCount = 1;
         State.EnemySpawningEnabled = false;
         State.GracePeriod = Simulation.FrameRate * 2;
+    }
+
+    /// <summary>Applies path identity first, then the selected run's NG+ health multiplier exactly once.</summary>
+    private void ApplyRunDifficulty(Enemy enemy)
+    {
+        GamePaths.ApplyEnemyIdentity(enemy);
+        NewGamePlus.ApplyEnemyHealth(enemy, State.NewGamePlusLevel);
     }
 
     /// <summary>
@@ -613,7 +621,7 @@ public sealed class GameSession
             }
             foreach (var enemy in group)
             {
-                GamePaths.ApplyEnemyIdentity(enemy);
+                ApplyRunDifficulty(enemy);
                 currentThreat = State.EnemyHolster.Sum(e => e.ThreatCost);
                 if (State.EnemyHolster.Count >= State.EnemyCap)
                     break;
@@ -809,8 +817,9 @@ public sealed class GameSession
             // RollDropCount roll that still runs (and could otherwise land
             // on 0) for every enemy, boss or not.
             string? defeatedBossKey = ReferenceEquals(enemy, State.ActiveBoss) ? (_activeBossKey ?? BossKeyFor(enemy)) : null;
-            var drops = Items.GenerateDrops(Items.RollDropCount(rng), rng, State.HardMode, GamePaths.Active().Key);
-            if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng) is { } uniqueDrop)
+            var drops = Items.GenerateDrops(Items.RollDropCount(rng), rng, State.HardMode, GamePaths.Active().Key,
+                State.NewGamePlusLevel);
+            if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng, State.NewGamePlusLevel) is { } uniqueDrop)
                 drops.Add(uniqueDrop);
             if (drops.Count > 0)
                 SpawnLootCrate(enemy.WorldX, enemy.WorldY, drops);
@@ -1518,7 +1527,8 @@ public sealed class GameSession
             }
             if (!projectile.PersistentHazard)
                 projectile.RemFlag = true;
-            double trueDamage = HostileDamageAfterDefense(projectile.Damage, State.Defense);
+            double trueDamage = HostileDamageAfterDefense(
+                NewGamePlus.ScaleEnemyDamage(projectile.Damage, State.NewGamePlusLevel), State.Defense);
             if (casualMode)
                 trueDamage = Math.Round(trueDamage * .8);
             State.DamageTextList.Add(new DamageText(Player.WorldX, Player.WorldY, UiTheme.Red, trueDamage, Simulation.TileSize, Simulation.FrameRate));
@@ -1545,7 +1555,8 @@ public sealed class GameSession
                 continue;
 
             var hitbox2 = collidedHitbox.Value;
-            double trueDamage = HostileDamageAfterDefense(enemy.Damage, State.Defense);
+            double trueDamage = HostileDamageAfterDefense(
+                NewGamePlus.ScaleEnemyDamage(enemy.Damage, State.NewGamePlusLevel), State.Defense);
             if (casualMode)
                 trueDamage = Math.Round(trueDamage * .8);
             State.DamageTextList.Add(new DamageText(Player.WorldX, Player.WorldY, UiTheme.Red, trueDamage, Simulation.TileSize, Simulation.FrameRate));

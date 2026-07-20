@@ -140,6 +140,8 @@ public class Enemy
     public Dictionary<string, StatusEffectState> StatusEffects { get; } = new();
     public double StatusDotBuffer { get; set; }
     public double StatusControlResistance { get; set; }
+    /// <summary>Guards the run-level NG+ health transform against recursive/double application.</summary>
+    public int NewGamePlusLevelApplied { get; set; }
 
     /// <summary>
     /// Set by a boss/miniboss to request that GameSession purge live enemy
