@@ -6,6 +6,19 @@ namespace RotBoiRemastered.Systems;
 public sealed record ItemStatModifier(string Stat, double Additive = 0, double Multiplier = 1);
 
 /// <summary>
+/// A rerollable affix kept separate from both the authored item definition
+/// and its rarity. SlotType makes the pools explicit: weapon affixes cannot
+/// silently appear on armor, rings, or accessories and vice versa.
+/// </summary>
+public sealed record ItemAffixDefinition(
+    string Name,
+    string SlotType,
+    string Description,
+    IReadOnlyList<ItemStatModifier> Modifiers,
+    IReadOnlyDictionary<string, double>? StatusChances = null,
+    double Weight = 10);
+
+/// <summary>
 /// Authored equipment archetype. VisualKind drives the deliberately generic
 /// silhouette (dagger, sword, spear, bow, wand, vest, and so on) while the
 /// modifiers keep all balance data out of rendering code.
@@ -45,10 +58,15 @@ public sealed record ItemDefinition(
     double DropChance = .12,
     string? EffectFlavorText = null);
 
-public sealed record ItemDrop(ItemDefinition Definition, string Rarity)
+public sealed record ItemDrop(
+    ItemDefinition Definition,
+    string Rarity,
+    string Grade = "S",
+    string Modifier = "Balanced")
 {
     public string Name => Definition.Name;
     public string SlotType => Definition.SlotType;
+    public string DisplayName => Modifier == "Balanced" ? Name : $"{Modifier} {Name}";
 }
 
 public sealed record ItemEffectView(string Stat, double Additive, double Multiplier)
@@ -93,6 +111,38 @@ public static class Items
     public static readonly IReadOnlyList<string> SlotTypes =
         new[] { "weapon", "armor", "ring", "accessory" };
 
+    /// <summary>
+    /// Grade is independent from rarity and scales the final authored item
+    /// and affix deltas toward neutral. Weights total 100; S is exactly 2%,
+    /// or one roll in fifty on average.
+    /// </summary>
+    public static readonly IReadOnlyList<string> GradeOrder =
+        new[] { "F", "D", "C", "B", "A", "S" };
+    public static readonly IReadOnlyDictionary<string, double> GradePowers =
+        new Dictionary<string, double>
+        {
+            ["F"] = .60, ["D"] = .70, ["C"] = .80,
+            ["B"] = .90, ["A"] = .95, ["S"] = 1.00,
+        };
+    public static readonly IReadOnlyDictionary<string, double> GradeWeights =
+        new Dictionary<string, double>
+        {
+            ["F"] = 34, ["D"] = 26, ["C"] = 19,
+            ["B"] = 12, ["A"] = 7, ["S"] = 2,
+        };
+    public static readonly IReadOnlyDictionary<string, int> GradeUpgradeCosts =
+        new Dictionary<string, int>
+        {
+            ["F"] = 35, ["D"] = 60, ["C"] = 100,
+            ["B"] = 160, ["A"] = 250,
+        };
+    public static readonly IReadOnlyDictionary<string, int> ModifierRerollCosts =
+        new Dictionary<string, int>
+        {
+            ["F"] = 25, ["D"] = 30, ["C"] = 40,
+            ["B"] = 55, ["A"] = 75, ["S"] = 100,
+        };
+
     private static ItemStatModifier Add(string stat, double value) => new(stat, Additive: value);
     /// <summary>
     /// Takes a percentage, not a raw ratio -- Mult("Bullet Range", 78) means
@@ -115,6 +165,60 @@ public static class Items
     private static IReadOnlyList<ItemStatModifier> Mods(params ItemStatModifier[] modifiers) => modifiers;
     private static IReadOnlyDictionary<string, double> Status(string kind, double chance) =>
         new Dictionary<string, double> { [kind] = chance };
+
+    /// <summary>
+    /// Placeholder affix catalog. Every non-weapon equipment family has at
+    /// least four exclusive choices, giving the reforge system useful data
+    /// now without coupling it to future bespoke effect code.
+    /// </summary>
+    public static readonly IReadOnlyList<ItemAffixDefinition> Affixes = new[]
+    {
+        new ItemAffixDefinition("Balanced", "*", "No additional strengths or drawbacks.", Mods(), Weight: 20),
+
+        new ItemAffixDefinition("Lazy", "weapon", "Slow projectiles linger farther and land harder.",
+            Mods(Mult("Bullet Speed", 72), Mult("Bullet Range", 130), Mult("Bullet Damage", 122)), Weight: 18),
+        new ItemAffixDefinition("Fast", "weapon", "Quick projectiles trade reach and impact for velocity.",
+            Mods(Mult("Bullet Speed", 140), Mult("Bullet Range", 75), Mult("Bullet Damage", 84)), Weight: 18),
+        new ItemAffixDefinition("Bloody", "weapon", "A cruel edge adds damage and a chance to bleed.",
+            Mods(Mult("Bullet Damage", 106)), Status("bleed", .12), Weight: 12),
+        new ItemAffixDefinition("Scattershot", "weapon", "Adds a projectile but makes every shot smaller and lighter.",
+            Mods(Add("Bullet Count", 1), Mult("Bullet Size", 82), Mult("Bullet Damage", 78)), Weight: 12),
+        new ItemAffixDefinition("Giantkiller", "weapon", "Massive, slow attacks favor deliberate hits.",
+            Mods(Mult("Bullet Damage", 135), Mult("Bullet Size", 130), Mult("Attack Speed", 78)), Weight: 8),
+        new ItemAffixDefinition("Godly", "weapon", "A rare all-around blessing with no direct tradeoff.",
+            Mods(Mult("Bullet Damage", 108), Mult("Bullet Speed", 108), Mult("Bullet Range", 108),
+                Mult("Attack Speed", 108), Add("Bullet Count", .25)), Weight: 2),
+
+        new ItemAffixDefinition("Tanky", "armor", "Health and defense rise at the cost of movement.",
+            Mods(Add("Health", 180), Add("Defense", 20), Mult("Player Speed", 88)), Weight: 18),
+        new ItemAffixDefinition("Fleet", "armor", "Light construction favors speed and recovery over protection.",
+            Mods(Mult("Player Speed", 122), Add("Vitality", 8), Add("Defense", -8)), Weight: 18),
+        new ItemAffixDefinition("Regenerative", "armor", "A steady restorative weave bolsters health and vitality.",
+            Mods(Add("Health", 100), Add("Vitality", 18), Add("Defense", 8)), Weight: 12),
+        new ItemAffixDefinition("Godforged", "armor", "A broad blessing improves every defensive pillar.",
+            Mods(Add("Health", 120), Add("Defense", 12), Add("Vitality", 10), Mult("Player Speed", 104)), Weight: 2),
+
+        new ItemAffixDefinition("Sharpsighted", "ring", "Precision and distant lethality improve together.",
+            Mods(Add("Crit Chance", .10), Add("Crit Damage", .25), Mult("Bullet Range", 110)), Weight: 18),
+        new ItemAffixDefinition("Echoing", "ring", "Occasional extra shots arrive faster but strike more softly.",
+            Mods(Add("Bullet Count", .50), Mult("Attack Speed", 110), Mult("Bullet Damage", 92)), Weight: 15),
+        new ItemAffixDefinition("Vampiric", "ring", "Violence feeds recovery and carries a trace of bleed.",
+            Mods(Add("Vitality", 12), Mult("Bullet Damage", 106)), Status("bleed", .06), Weight: 10),
+        new ItemAffixDefinition("Sovereign", "ring", "A measured blessing improves core offensive stats.",
+            Mods(Mult("Bullet Damage", 106), Mult("Bullet Speed", 106), Add("Crit Chance", .04)), Weight: 2),
+
+        new ItemAffixDefinition("Sage", "accessory", "Experience comes faster, but hard-won knowledge is physically taxing.",
+            Mods(Mult("Exp Multiplier", 120), Mult("Aura Size", 115), Add("Health", -50)), Weight: 15),
+        new ItemAffixDefinition("Magnetic", "accessory", "A wide collection aura trades away a little movement.",
+            Mods(Mult("Aura Size", 145), Mult("Exp Multiplier", 108), Mult("Player Speed", 95)), Weight: 18),
+        new ItemAffixDefinition("Giant", "accessory", "Projectiles swell in size and damage while losing speed.",
+            Mods(Mult("Bullet Size", 140), Mult("Bullet Damage", 112), Mult("Bullet Speed", 85)), Weight: 12),
+        new ItemAffixDefinition("Windborne", "accessory", "Movement and collection improve at the cost of maximum health.",
+            Mods(Mult("Player Speed", 118), Mult("Aura Size", 110), Add("Health", -80)), Weight: 10),
+    };
+
+    public static readonly IReadOnlyDictionary<string, ItemAffixDefinition> AffixesByName =
+        Affixes.ToDictionary(affix => affix.Name);
 
     /// <summary>
     /// Weapons intentionally span a broad damage/range axis:
@@ -182,10 +286,11 @@ public static class Items
         Definitions.ToDictionary(definition => definition.Name);
 
     /// <summary>
-    /// Fixed-stat named items (see ItemDefinition's doc comment) -- never
-    /// rolled by GenerateDrop/GenerateDrops, never rarity-scaled (RarityPower
-    /// treats "Unique" as a full, un-diminished 1.0), only obtainable via
-    /// RollUniqueDrop when the boss named in DropsFromBossKey is defeated.
+    /// Named boss items (see ItemDefinition's doc comment) -- never rolled by
+    /// GenerateDrop/GenerateDrops and always retain Unique rarity power 1.0,
+    /// but still roll the same independent grade and slot affix as every
+    /// other dropped item. Only obtainable via RollUniqueDrop when the boss
+    /// named in DropsFromBossKey is defeated.
     /// </summary>
     public static readonly IReadOnlyList<ItemDefinition> Uniques = new[]
     {
@@ -231,7 +336,7 @@ public static class Items
         foreach (var candidate in candidates)
         {
             if (rng.NextDouble() <= candidate.DropChance)
-                return new ItemDrop(candidate, "Unique");
+                return CreateRolledDrop(candidate, "Unique", rng);
         }
         return null;
     }
@@ -259,10 +364,41 @@ public static class Items
         return WeightedChoice(DropCounts, DropCountWeights, rng);
     }
 
+    public static string RollGrade(Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        var weights = GradeOrder.Select(grade => GradeWeights[grade]).ToList();
+        return WeightedChoice(GradeOrder, weights, rng);
+    }
+
+    public static IReadOnlyList<ItemAffixDefinition> AffixesFor(string slotType) =>
+        Affixes.Where(affix => affix.SlotType == slotType || affix.SlotType == "*").ToList();
+
+    public static string RollModifier(string slotType, Random? rng = null, string? excluding = null)
+    {
+        rng ??= Random.Shared;
+        var candidates = AffixesFor(slotType)
+            .Where(affix => affix.Name != excluding)
+            .ToList();
+        return candidates.Count == 0
+            ? "Balanced"
+            : WeightedChoice(candidates, candidates.Select(affix => affix.Weight).ToList(), rng).Name;
+    }
+
+    private static ItemDrop CreateRolledDrop(ItemDefinition definition, string rarity, Random rng) =>
+        new(definition, rarity, RollGrade(rng), RollModifier(definition.SlotType, rng));
+
+    public static ItemDrop GenerateDrop(ItemDefinition definition, string rarity, Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        return CreateRolledDrop(definition, rarity, rng);
+    }
+
     public static ItemDrop GenerateDrop(Random? rng = null)
     {
         rng ??= Random.Shared;
-        return new ItemDrop(Definitions[rng.Next(Definitions.Count)], Upgrades.RollRarity(rng));
+        var definition = Definitions[rng.Next(Definitions.Count)];
+        return CreateRolledDrop(definition, Upgrades.RollRarity(rng), rng);
     }
 
     public static List<ItemDrop> GenerateDrops(int count, Random? rng = null)
@@ -271,7 +407,7 @@ public static class Items
         return Enumerable.Range(0, count).Select(_ => GenerateDrop(rng)).ToList();
     }
 
-    /// <summary>Rarity strengthens an item's identity without making drawbacks lethal. "Unique" is fixed at a full, un-diminished 1.0 -- see Items.Uniques' doc comment.</summary>
+    /// <summary>Rarity strengthens an item's identity without making drawbacks lethal. Unique contributes rarity power 1.0; the separate grade multiplier is applied later by Effects.</summary>
     public static double RarityPower(string rarity) => rarity switch
     {
         "Common" => .65,
@@ -283,10 +419,44 @@ public static class Items
         _ => .65,
     };
 
+    public static double GradePower(string grade) => GradePowers.GetValueOrDefault(grade, 1.0);
+
+    public static bool CanUpgradeGrade(ItemDrop drop) => GradeUpgradeCosts.ContainsKey(drop.Grade);
+
+    public static int? GradeUpgradeCost(ItemDrop drop) =>
+        GradeUpgradeCosts.TryGetValue(drop.Grade, out int cost) ? cost : null;
+
+    public static int ModifierRerollCost(ItemDrop drop) =>
+        ModifierRerollCosts.GetValueOrDefault(drop.Grade, ModifierRerollCosts["S"]);
+
+    public static ItemDrop UpgradeGrade(ItemDrop drop)
+    {
+        int index = GradeOrder.ToList().IndexOf(drop.Grade);
+        return index >= 0 && index < GradeOrder.Count - 1
+            ? drop with { Grade = GradeOrder[index + 1] }
+            : drop;
+    }
+
+    public static ItemDrop RerollModifier(ItemDrop drop, Random? rng = null) =>
+        drop with { Modifier = RollModifier(drop.SlotType, rng, drop.Modifier) };
+
+    private static ItemAffixDefinition AffixFor(ItemDrop drop)
+    {
+        if (AffixesByName.TryGetValue(drop.Modifier, out var affix)
+            && (affix.SlotType == drop.SlotType || affix.SlotType == "*"))
+            return affix;
+        return AffixesByName["Balanced"];
+    }
+
+    public static ItemAffixDefinition ModifierDefinition(ItemDrop drop) => AffixFor(drop);
+
+    private static IEnumerable<ItemStatModifier> AllModifiers(ItemDrop drop) =>
+        drop.Definition.Modifiers.Concat(AffixFor(drop).Modifiers);
+
     public static IReadOnlyList<ItemEffectView> Effects(ItemDrop drop)
     {
-        double power = RarityPower(drop.Rarity);
-        return drop.Definition.Modifiers.Select(modifier => new ItemEffectView(
+        double power = RarityPower(drop.Rarity) * GradePower(drop.Grade);
+        return AllModifiers(drop).Select(modifier => new ItemEffectView(
             modifier.Stat,
             modifier.Additive * power,
             1 + (modifier.Multiplier - 1) * power)).ToList();
@@ -316,26 +486,44 @@ public static class Items
         var result = new Dictionary<string, double>();
         foreach (var drop in equipment.Where(item => item is not null).Cast<ItemDrop>())
         {
-            if (drop.Definition.StatusChances is null)
-                continue;
-            double power = RarityPower(drop.Rarity);
-            foreach (var (kind, chance) in drop.Definition.StatusChances)
-                result[kind] = Math.Min(.65, result.GetValueOrDefault(kind) + chance * power);
+            foreach (var (kind, chance) in EffectiveStatusChances(drop))
+                result[kind] = Math.Min(.65, result.GetValueOrDefault(kind) + chance);
         }
         return result;
     }
 
-    public static StoredItemData Serialize(ItemDrop drop) => new(drop.Name, drop.Rarity);
+    public static IReadOnlyDictionary<string, double> EffectiveStatusChances(ItemDrop drop)
+    {
+        var result = new Dictionary<string, double>();
+        double power = RarityPower(drop.Rarity) * GradePower(drop.Grade);
+        var sources = new[] { drop.Definition.StatusChances, AffixFor(drop).StatusChances };
+        foreach (var source in sources.Where(source => source is not null))
+            foreach (var (kind, chance) in source!)
+                result[kind] = Math.Min(.65, result.GetValueOrDefault(kind) + chance * power);
+        return result;
+    }
+
+    public static StoredItemData Serialize(ItemDrop drop) => new(drop.Name, drop.Rarity, drop.Grade, drop.Modifier);
 
     /// <summary>Checked by name against Uniques first (their stored Rarity is always "Unique", which Upgrades.RarityOrder deliberately doesn't contain) before falling back to the regular, tiered-rarity-validated lookup.</summary>
     public static ItemDrop? Deserialize(StoredItemData? data)
     {
         if (data is null)
             return null;
+        string storedGrade = data.Grade ?? "S";
+        string grade = GradePowers.ContainsKey(storedGrade) ? storedGrade : "S";
         if (UniquesByName.TryGetValue(data.Name, out var unique))
-            return new ItemDrop(unique, "Unique");
+            return NormalizeDrop(new ItemDrop(unique, "Unique", grade, data.Modifier ?? "Balanced"));
         return DefinitionsByName.TryGetValue(data.Name, out var definition) && Upgrades.RarityOrder.Contains(data.Rarity)
-            ? new ItemDrop(definition, data.Rarity)
+            ? NormalizeDrop(new ItemDrop(definition, data.Rarity, grade, data.Modifier ?? "Balanced"))
             : null;
+    }
+
+    private static ItemDrop NormalizeDrop(ItemDrop drop)
+    {
+        var affix = AffixesByName.GetValueOrDefault(drop.Modifier);
+        return affix is not null && (affix.SlotType == drop.SlotType || affix.SlotType == "*")
+            ? drop
+            : drop with { Modifier = "Balanced" };
     }
 }

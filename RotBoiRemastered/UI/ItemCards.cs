@@ -216,6 +216,13 @@ public static class ItemCards
 
         if (isUnique)
             DrawUniqueSheen(spriteBatch, rect);
+
+        Color gradeColor = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Muted);
+        int badgeSize = Math.Max(12, rect.Width / 3);
+        var gradeBadge = new Rectangle(rect.Right - badgeSize, rect.Bottom - badgeSize, badgeSize, badgeSize);
+        Primitives2D.FillRoundedRect(spriteBatch, gradeBadge, UiTheme.Ink, Math.Max(2, badgeSize / 5));
+        Primitives2D.RoundedRectOutline(spriteBatch, gradeBadge, gradeColor, Math.Max(1, badgeSize / 10), Math.Max(2, badgeSize / 5));
+        UiTheme.DrawText(spriteBatch, item.Grade, Math.Max(8, badgeSize * .58), gradeColor, gradeBadge.Center.ToVector2(), "center");
         return rect;
     }
 

@@ -9,6 +9,7 @@ public enum GameState
     TitleScreen,
     GameRun,
     Leveling,
+    Reforging,
     Paused,
     Results,
     Soul,

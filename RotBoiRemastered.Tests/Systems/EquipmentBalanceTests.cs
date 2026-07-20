@@ -59,14 +59,12 @@ public class EquipmentBalanceTests : IDisposable
     }
 
     [Fact]
-    public void Grimsbane_CarriesBleed_AtFullFixedUniquePower()
+    public void Grimsbane_CarriesBleed_AtUniqueRarityAndDefaultSGrade()
     {
         var grimsbane = new ItemDrop(Items.UniquesByName["Grimsbane"], "Unique");
-        // Unique power is always fixed at 1.0 (see Items.RarityPower), so
-        // whatever bleed chance is authored on Grimsbane comes through
-        // unscaled -- no Epic/Legendary roll to account for like a regular
-        // item's StatusChances would need. Reads the authored chance rather
-        // than hardcoding it, so this stays valid as that number gets tuned.
+        // The explicit constructor defaults to S grade, while Unique rarity
+        // contributes power 1.0, so the authored chance comes through
+        // unscaled. Naturally dropped uniques still roll F-S like every item.
         double authoredChance = grimsbane.Definition.StatusChances!["bleed"];
         Assert.Equal(authoredChance, Items.StatusChances(new ItemDrop?[] { grimsbane }).GetValueOrDefault("bleed"));
     }

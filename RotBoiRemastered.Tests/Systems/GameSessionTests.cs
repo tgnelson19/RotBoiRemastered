@@ -148,17 +148,24 @@ public class GameSessionTests
     }
 
     [Fact]
-    public void ExpForPlayer_EnoughExperience_TriggersLevelUp()
+    public void ExpForPlayer_EnoughExperience_IsStoredUntilPlayerPurchasesLevelUp()
     {
         var session = MakeSession(level: 0);
+        double cost = session.State.ExpNeededForNextLevel;
         session.State.ExperienceList.Add(new ExperienceBubble(
-            session.Player.WorldX, session.Player.WorldY, value: session.State.ExpNeededForNextLevel, difficultyDead: 1));
+            session.Player.WorldX, session.Player.WorldY, value: cost, difficultyDead: 1));
 
-        bool leveledUp = session.ExpForPlayer();
+        session.ExpForPlayer();
 
-        Assert.True(leveledUp);
+        Assert.Equal(0, session.State.CurrentLevel);
+        Assert.Equal(0, session.State.PendingLevelUps);
+        Assert.Equal(cost, session.State.ExpCount);
+        Assert.True(session.CanPurchaseLevelUp);
+
+        Assert.True(session.TryPurchaseLevelUp());
         Assert.Equal(1, session.State.CurrentLevel);
         Assert.Equal(1, session.State.PendingLevelUps);
+        Assert.Equal(0, session.State.ExpCount);
     }
 
     [Fact]

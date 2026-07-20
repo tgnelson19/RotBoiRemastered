@@ -24,6 +24,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `F` near a station in the Soul: open its extraction, quest, or skill menu
 - `X` while paused after the midpoint boss: extract the current run and equipment
 - `Escape`: pause during a run or in the Soul; quit from the title screen
+- Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend that same EXP on equipped item grades or modifiers
 - `F11`: switch between windowed and borderless fullscreen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
 

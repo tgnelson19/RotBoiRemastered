@@ -45,6 +45,7 @@ public sealed class GameSession
     public Battleground Battleground { get; private set; }
     public Camera Camera { get; } = new();
     public LevelingHandler LevelingHandler { get; private set; }
+    public ReforgeHandler ReforgeHandler { get; private set; }
     public InformationSheet InformationSheet { get; private set; }
     public int ScreenWidth { get; private set; }
     public int ScreenHeight { get; private set; }
@@ -78,6 +79,7 @@ public sealed class GameSession
         ScreenHeight = screenHeight;
         Player = new Player(battleground.SpawnPosition.X, battleground.SpawnPosition.Y);
         LevelingHandler = new LevelingHandler(screenWidth, screenHeight, rng);
+        ReforgeHandler = new ReforgeHandler(screenWidth, screenHeight);
         InformationSheet = new InformationSheet(screenWidth, screenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
         Camera.ConfigureViewport(screenWidth, screenHeight, GameProfile.Profile.CameraZoom, resetZoom: true);
@@ -93,6 +95,7 @@ public sealed class GameSession
         Camera.SetAngle(0);
         ScreenShake = Vector2.Zero;
         LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
+        ReforgeHandler = new ReforgeHandler(ScreenWidth, ScreenHeight);
         InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
         Camera.ConfigureViewport(ScreenWidth, ScreenHeight, GameProfile.Profile.CameraZoom, resetZoom: true);
@@ -105,6 +108,7 @@ public sealed class GameSession
         ScreenWidth = screenWidth;
         ScreenHeight = screenHeight;
         LevelingHandler.UpdateLayout(screenWidth, screenHeight);
+        ReforgeHandler.UpdateLayout(screenWidth, screenHeight);
         InformationSheet.SyncLayout(screenWidth, screenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
         Camera.ConfigureViewport(screenWidth, screenHeight, GameProfile.Profile.CameraZoom);
@@ -886,29 +890,20 @@ public sealed class GameSession
             bubble.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
     }
 
-    /// <summary>Ported from character.py's expForPlayer(). Returns true if a level-up was triggered (caller should switch to the Leveling state).</summary>
-    public bool ExpForPlayer()
+    /// <summary>
+    /// Collects touching experience bubbles into the stored EXP bank. It no
+    /// longer consumes thresholds or opens the level-up screen: the player
+    /// explicitly chooses that through TryPurchaseLevelUp.
+    /// </summary>
+    public void ExpForPlayer()
     {
         var playerRect = Player.WorldRect(State);
-        bool enteredLeveling = false;
         foreach (var bubble in State.ExperienceList.ToList())
         {
             var bubbleRect = bubble.WorldRect();
             if (playerRect.Intersects(bubbleRect))
             {
                 State.ExpCount += bubble.Value;
-                while (State.CurrentLevel < Progression.MaxLevel && State.ExpCount >= State.ExpNeededForNextLevel)
-                {
-                    State.CurrentLevel += 1;
-                    State.PendingLevelUps += 1;
-                    GameProfile.IncrementQuest("levels_gained");
-                    State.ExpCount -= State.ExpNeededForNextLevel;
-                    State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
-                    State.HealthPoints = State.MaxHealthPoints;
-                    enteredLeveling = true;
-                }
-                if (State.CurrentLevel >= Progression.MaxLevel)
-                    State.ExpCount = Math.Min(State.ExpCount, State.ExpNeededForNextLevel);
                 State.ExperienceList.Remove(bubble);
                 continue;
             }
@@ -929,7 +924,23 @@ public sealed class GameSession
                 bubble.NaturalSpawn = true;
             }
         }
-        return enteredLeveling;
+    }
+
+    public bool CanPurchaseLevelUp =>
+        State.CurrentLevel < Progression.MaxLevel && State.ExpCount >= State.ExpNeededForNextLevel;
+
+    /// <summary>Consumes one threshold and queues exactly one card draft.</summary>
+    public bool TryPurchaseLevelUp()
+    {
+        if (!CanPurchaseLevelUp)
+            return false;
+        State.ExpCount -= State.ExpNeededForNextLevel;
+        State.CurrentLevel += 1;
+        State.PendingLevelUps += 1;
+        State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
+        State.HealthPoints = State.MaxHealthPoints;
+        GameProfile.IncrementQuest("levels_gained");
+        return true;
     }
 
     /// <summary>Dev/testing hotkey. Ported from character.py's debugForceLevelUp().</summary>
@@ -1436,6 +1447,9 @@ public sealed class GameSession
     public void DrawInformationSheet(SpriteBatch spriteBatch, Point mousePosition) =>
         InformationSheet.DrawSheet(spriteBatch, State, PlayerWorldCenter, SelectBountyTarget(), mousePosition);
 
+    public SidebarAction HandleInformationSheetAction(Point mousePosition, bool mousePressed) =>
+        InformationSheet.HandleAction(State, mousePosition, mousePressed);
+
     /// <summary>Convenience wrapper: call once per frame, after <see cref="DrawInformationSheet"/>.</summary>
     public void HandleInformationSheetDrag(Point mousePosition, bool mouseDown, bool mousePressed) =>
         InformationSheet.HandleDrag(State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed);
@@ -1587,6 +1601,12 @@ public sealed class GameSession
         }
         LevelingHandler.DrawCards(spriteBatch, BuildLevelUpStatSnapshot(), mousePosition, mouseDown);
     }
+
+    public void DrawReforgeScreen(SpriteBatch spriteBatch, Point mousePosition, bool mouseDown) =>
+        ReforgeHandler.Draw(spriteBatch, State, mousePosition, mouseDown);
+
+    public ReforgeOutcome HandleReforgeInput(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed,
+        Random? rng = null) => ReforgeHandler.HandleInput(keysPressed, mousePosition, mousePressed, State, rng);
 
     public LevelUpOutcome HandleLevelingInput(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mouseDown, Random? rng = null)
     {

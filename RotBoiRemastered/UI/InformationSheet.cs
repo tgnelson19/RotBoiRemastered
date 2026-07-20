@@ -7,6 +7,8 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
+public enum SidebarAction { None, LevelUp, Reforge }
+
 /// <summary>
 /// Friendly, outcome-first run sidebar with collectible upgrade icon cards.
 /// Ported from informationSheet.py.
@@ -117,6 +119,8 @@ public sealed class InformationSheet
     private IReadOnlyList<Rectangle> _vaultSlotRects = Array.Empty<Rectangle>();
     private bool _allowWorldDrop = true;
     private bool _tabDetailsOpen;
+    private Rectangle _levelUpButtonRect;
+    private Rectangle _reforgeButtonRect;
 
     public int ArenaWidth => _posX;
     public bool DragInProgress { get; private set; }
@@ -390,20 +394,55 @@ public sealed class InformationSheet
         return rect.Bottom + _padding;
     }
 
-    private int DrawStatus(SpriteBatch spriteBatch, RunState state, int y)
+    private int DrawStatus(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
     {
         Color healthColor = state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
-        var rect = Panel(spriteBatch, y, Px(96), healthColor);
+        var rect = Panel(spriteBatch, y, Px(136), healthColor);
         Bar(spriteBatch, rect, rect.Y + Px(7), "HEALTH", state.HealthPoints, state.MaxHealthPoints, healthColor,
             $"{state.HealthPoints} / {state.MaxHealthPoints}");
         double dashValue = Math.Max(0, state.DashCooldownMax - state.CurrDashCooldown);
         string dashText = state.CurrDashCooldown <= 0 ? "READY" : $"{state.CurrDashCooldown / Simulation.FrameRate:F1} sec";
         Bar(spriteBatch, rect, rect.Y + Px(35), "DASH", dashValue, state.DashCooldownMax, UiTheme.Blue, dashText);
         double percent = state.ExpCount / Math.Max(1, state.ExpNeededForNextLevel) * 100;
-        string pickText = percent >= 82 ? $"SOON / {percent:F0}%" : $"{percent:F0}%";
-        Bar(spriteBatch, rect, rect.Y + Px(63), "NEXT PICK", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
+        bool canLevel = state.CurrentLevel < Progression.MaxLevel && state.ExpCount >= state.ExpNeededForNextLevel;
+        string pickText = canLevel ? "READY" : percent >= 82 ? $"SOON / {percent:F0}%" : $"{percent:F0}%";
+        Bar(spriteBatch, rect, rect.Y + Px(63), "STORED EXP", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
             pickText);
+
+        int gap = Px(6);
+        int buttonY = rect.Y + Px(96);
+        int buttonWidth = (rect.Width - Px(22) - gap) / 2;
+        _levelUpButtonRect = new Rectangle(rect.X + Px(11), buttonY, buttonWidth, Px(30));
+        _reforgeButtonRect = new Rectangle(_levelUpButtonRect.Right + gap, buttonY, buttonWidth, Px(30));
+
+        if (canLevel)
+        {
+            double pulse = (Math.Sin(state.RunTimeSeconds * 5.5) + 1) / 2;
+            var glow = _levelUpButtonRect;
+            glow.Inflate(Px(3), Px(3));
+            Primitives2D.RoundedRectOutline(spriteBatch, glow, Color.Lerp(UiTheme.Gold, Color.White, (float)(pulse * .45)),
+                Px(2), Px(5));
+        }
+        string levelLabel = state.CurrentLevel >= Progression.MaxLevel ? "MAX LEVEL" : $"LEVEL  {Math.Ceiling(state.ExpNeededForNextLevel):0} XP";
+        UiTheme.DrawButton(spriteBatch, _levelUpButtonRect, levelLabel, mousePosition,
+            enabled: canLevel, accentColor: UiTheme.Gold, textSize: Px(8));
+        bool hasEquipment = state.Equipment.Values.Any(item => item is not null);
+        UiTheme.DrawButton(spriteBatch, _reforgeButtonRect, "REFORGE", mousePosition,
+            enabled: hasEquipment, accentColor: UiTheme.Purple, textSize: Px(8));
         return rect.Bottom + _padding;
+    }
+
+    /// <summary>Reads the action rects populated by the preceding DrawSheet frame.</summary>
+    public SidebarAction HandleAction(RunState state, Point mousePosition, bool mousePressed)
+    {
+        if (!mousePressed || DragInProgress)
+            return SidebarAction.None;
+        if (_levelUpButtonRect.Contains(mousePosition)
+            && state.CurrentLevel < Progression.MaxLevel && state.ExpCount >= state.ExpNeededForNextLevel)
+            return SidebarAction.LevelUp;
+        if (_reforgeButtonRect.Contains(mousePosition) && state.Equipment.Values.Any(item => item is not null))
+            return SidebarAction.Reforge;
+        return SidebarAction.None;
     }
 
     private int DrawInventory(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
@@ -866,7 +905,7 @@ public sealed class InformationSheet
     private void DrawItemTooltip(SpriteBatch spriteBatch, Point mousePosition, ItemDrop item)
     {
         var effects = Items.Effects(item);
-        var statuses = item.Definition.StatusChances ?? new Dictionary<string, double>();
+        var statuses = Items.EffectiveStatusChances(item);
         int width = Math.Min(Px(320), (int)(_screenWidth * .34));
         int headerHeight = Px(74);
         int rowHeight = Px(38);
@@ -902,9 +941,10 @@ public sealed class InformationSheet
         ItemCards.DrawItemSymbol(spriteBatch, item.SlotType, symbolInner, isUnique ? UiTheme.Gold : UiTheme.Ink, item.Definition.VisualKind, item.Name);
         if (isUnique)
             ItemCards.DrawUniqueSheen(spriteBatch, symbolRect);
-        DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(15), UiTheme.Text,
+        DrawSheetText(spriteBatch, item.DisplayName.ToUpperInvariant(), Px(15), UiTheme.Text,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(14)));
-        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.SlotType.ToUpperInvariant()}", Px(9), rarity,
+        Color gradeColor = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
+        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  GRADE {item.Grade}  //  {item.Modifier.ToUpperInvariant()}", Px(9), gradeColor,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(40)));
 
         int y = rect.Y + headerHeight;
@@ -923,8 +963,7 @@ public sealed class InformationSheet
         }
         foreach (var (kind, chance) in statuses)
         {
-            double scaled = chance * Items.RarityPower(item.Rarity) * 100;
-            DrawSheetText(spriteBatch, $"✦  {kind.ToUpperInvariant()}  {scaled:0}% ON HIT", Px(11), UiTheme.Green,
+            DrawSheetText(spriteBatch, $"✦  {kind.ToUpperInvariant()}  {chance * 100:0}% ON HIT", Px(11), UiTheme.Green,
                 new Vector2(rect.X + Px(16), y + Px(5)));
             y += Px(30);
         }
@@ -962,7 +1001,7 @@ public sealed class InformationSheet
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
 
         int y = DrawRunSummary(spriteBatch, state);
-        y = DrawStatus(spriteBatch, state, y);
+        y = DrawStatus(spriteBatch, state, mousePosition, y);
         y = DrawInventory(spriteBatch, state, mousePosition, y);
         y = DrawStash(spriteBatch, state, mousePosition, y);
         if (state.NearbyCrate is not null && y + Px(70) < _totalHeight - Px(82))

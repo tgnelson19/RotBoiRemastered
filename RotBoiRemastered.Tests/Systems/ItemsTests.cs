@@ -48,7 +48,102 @@ public class ItemsTests
             var drop = Items.GenerateDrop(rng);
             Assert.Contains(drop.SlotType, Items.SlotTypes);
             Assert.Contains(drop.Rarity, Upgrades.RarityWeights.Keys);
+            Assert.Contains(drop.Grade, Items.GradeOrder);
+            Assert.Contains(Items.AffixesFor(drop.SlotType), affix => affix.Name == drop.Modifier);
         }
+    }
+
+    [Fact]
+    public void GradeCatalog_HasRequestedPowerCurveAndOneInFiftySWeight()
+    {
+        Assert.Equal(new[] { "F", "D", "C", "B", "A", "S" }, Items.GradeOrder);
+        Assert.Equal(.60, Items.GradePowers["F"]);
+        Assert.Equal(.70, Items.GradePowers["D"]);
+        Assert.Equal(.80, Items.GradePowers["C"]);
+        Assert.Equal(.90, Items.GradePowers["B"]);
+        Assert.Equal(.95, Items.GradePowers["A"]);
+        Assert.Equal(1.00, Items.GradePowers["S"]);
+        Assert.Equal(100, Items.GradeWeights.Values.Sum());
+        Assert.Equal(2, Items.GradeWeights["S"]);
+    }
+
+    [Fact]
+    public void RollGrade_IsWeightedTowardLowGrades_WithApproximatelyTwoPercentS()
+    {
+        var rng = new Random(2026);
+        var counts = Items.GradeOrder.ToDictionary(grade => grade, _ => 0);
+        for (int index = 0; index < 100_000; index++)
+            counts[Items.RollGrade(rng)]++;
+
+        Assert.True(counts["F"] > counts["D"]);
+        Assert.True(counts["D"] > counts["C"]);
+        Assert.True(counts["C"] > counts["B"]);
+        Assert.True(counts["B"] > counts["A"]);
+        Assert.True(counts["A"] > counts["S"]);
+        Assert.InRange(counts["S"], 1_800, 2_200);
+    }
+
+    [Fact]
+    public void GradeScalesItemDeltaSeparatelyFromRarity()
+    {
+        var definition = Items.DefinitionsByName["Iron Sword"];
+        var f = new ItemDrop(definition, "Epic", "F", "Balanced");
+        var s = new ItemDrop(definition, "Epic", "S", "Balanced");
+
+        double fDamage = Items.AdjustStat("Bullet Damage", 100, new ItemDrop?[] { f });
+        double sDamage = Items.AdjustStat("Bullet Damage", 100, new ItemDrop?[] { s });
+
+        Assert.Equal(.60, (fDamage - 100) / (sDamage - 100), precision: 10);
+        Assert.Equal(f.Rarity, s.Rarity);
+    }
+
+    [Fact]
+    public void LazyAndFastWeaponModifiers_PullProjectileStatsInOppositeDirections()
+    {
+        var definition = Items.DefinitionsByName["Iron Sword"];
+        var lazy = new ItemDrop(definition, "Epic", "S", "Lazy");
+        var fast = new ItemDrop(definition, "Epic", "S", "Fast");
+        var equipmentLazy = new ItemDrop?[] { lazy };
+        var equipmentFast = new ItemDrop?[] { fast };
+
+        Assert.True(Items.AdjustStat("Bullet Speed", 4, equipmentLazy) < Items.AdjustStat("Bullet Speed", 4, equipmentFast));
+        Assert.True(Items.AdjustStat("Bullet Range", 250, equipmentLazy) > Items.AdjustStat("Bullet Range", 250, equipmentFast));
+        Assert.True(Items.AdjustStat("Bullet Damage", 100, equipmentLazy) > Items.AdjustStat("Bullet Damage", 100, equipmentFast));
+    }
+
+    [Fact]
+    public void ArmorRingAndAccessory_HaveExclusiveMultiStatModifierPools()
+    {
+        foreach (string slot in new[] { "armor", "ring", "accessory" })
+        {
+            var exclusive = Items.Affixes.Where(affix => affix.SlotType == slot).ToList();
+            Assert.True(exclusive.Count >= 2, $"{slot} needs at least two exclusive affixes.");
+            Assert.All(exclusive, affix => Assert.True(affix.Modifiers.Count >= 2,
+                $"{affix.Name} should demonstrate at least two stat changes."));
+        }
+    }
+
+    [Fact]
+    public void Serialize_RoundTripsGradeAndModifier()
+    {
+        var original = new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Legendary", "B", "Lazy");
+
+        var restored = Items.Deserialize(Items.Serialize(original));
+
+        Assert.Equal(original, restored);
+    }
+
+    [Fact]
+    public void Deserialize_OldTwoFieldSaveMigratesWithoutNerfingExistingItem()
+    {
+        var stored = System.Text.Json.JsonSerializer.Deserialize<StoredItemData>(
+            "{\"Name\":\"Iron Sword\",\"Rarity\":\"Epic\"}");
+
+        var restored = Items.Deserialize(stored);
+
+        Assert.NotNull(restored);
+        Assert.Equal("S", restored!.Grade);
+        Assert.Equal("Balanced", restored.Modifier);
     }
 
     [Fact]
@@ -107,7 +202,7 @@ public class ItemsTests
     }
 
     [Fact]
-    public void RollUniqueDrop_CanDropForItsBossKey_AsFixedPowerUniqueRarity()
+    public void RollUniqueDrop_CanDropForItsBossKey_WithUniqueRarityAndIndependentGrade()
     {
         var rng = new Random(7);
         var drops = Enumerable.Range(0, 500).Select(_ => Items.RollUniqueDrop("rot", rng)).Where(drop => drop is not null).ToList();
@@ -117,11 +212,13 @@ public class ItemsTests
         {
             Assert.Equal("Unique", drop!.Rarity);
             Assert.Equal("Bow of Dread", drop.Name);
+            Assert.Contains(drop.Grade, Items.GradeOrder);
+            Assert.Contains(Items.AffixesFor("weapon"), affix => affix.Name == drop.Modifier);
         });
     }
 
     [Fact]
-    public void RarityPower_UniqueIsFixedAtFullPower_NotScaledLikeAnUnrecognizedRarity()
+    public void RarityPower_UniqueContributesFullPowerBeforeIndependentGradeScaling()
     {
         Assert.Equal(1.0, Items.RarityPower("Unique"));
     }

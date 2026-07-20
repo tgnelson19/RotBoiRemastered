@@ -48,6 +48,16 @@ public static class UiTheme
         ["Unique"] = new Color(224, 96, 43),
     };
 
+    public static readonly IReadOnlyDictionary<string, Color> GradeColors = new Dictionary<string, Color>
+    {
+        ["F"] = Muted,
+        ["D"] = new Color(170, 126, 82),
+        ["C"] = new Color(190, 195, 202),
+        ["B"] = Blue,
+        ["A"] = Purple,
+        ["S"] = Gold,
+    };
+
     public const int ReferenceWidth = 1920;
     public const int ReferenceHeight = 1080;
     public const float MinDisplayScale = .6f;

@@ -74,7 +74,13 @@ public sealed class GameProfileData
     public Dictionary<string, int> PathMastery { get; set; } = new();
 }
 
-public sealed record StoredItemData(string Name, string Rarity);
+/// <summary>
+/// Persisted item identity. Grade and Modifier were added after the original
+/// two-field save shape; their defaults deliberately preserve the old item's
+/// authored strength and avoid inventing an affix when an existing save is
+/// migrated.
+/// </summary>
+public sealed record StoredItemData(string Name, string Rarity, string Grade = "S", string Modifier = "Balanced");
 
 public sealed class ExtractedRunData
 {

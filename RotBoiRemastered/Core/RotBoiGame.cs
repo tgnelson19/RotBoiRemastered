@@ -175,6 +175,9 @@ public class RotBoiGame : Game
             case GameState.Leveling:
                 UpdateLeveling();
                 break;
+            case GameState.Reforging:
+                UpdateReforging();
+                break;
             case GameState.Paused:
                 UpdatePaused();
                 break;
@@ -336,6 +339,18 @@ public class RotBoiGame : Game
         var session = _session!;
         session.State.RunTimeSeconds += Math.Min(gameTime.ElapsedGameTime.TotalMilliseconds, 50) / 1000.0;
 
+        var sidebarAction = session.HandleInformationSheetAction(InputState.MousePosition, InputState.MousePressed);
+        if (sidebarAction == SidebarAction.LevelUp && session.TryPurchaseLevelUp())
+        {
+            State = GameState.Leveling;
+            return;
+        }
+        if (sidebarAction == SidebarAction.Reforge)
+        {
+            State = GameState.Reforging;
+            return;
+        }
+
         bool moveUp = Keybinds.Held("move_up"), moveDown = Keybinds.Held("move_down");
         bool moveLeft = Keybinds.Held("move_left"), moveRight = Keybinds.Held("move_right");
         session.MovePlayer(moveLeft, moveRight, moveUp, moveDown,
@@ -361,7 +376,7 @@ public class RotBoiGame : Game
 
         session.UpdateDamageTexts();
         session.UpdateExperience();
-        bool enteredLeveling = session.ExpForPlayer();
+        session.ExpForPlayer();
         session.UpdateCrateInteraction();
         session.RecoverPlayerHealth();
 
@@ -377,14 +392,19 @@ public class RotBoiGame : Game
             State = GameState.Results;
             return;
         }
-        if (enteredLeveling)
-            State = GameState.Leveling;
     }
 
     private void UpdateLeveling()
     {
         var outcome = _session!.HandleLevelingInput(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown);
         if (outcome == LevelUpOutcome.ReturnToGame)
+            State = GameState.GameRun;
+    }
+
+    private void UpdateReforging()
+    {
+        var outcome = _session!.HandleReforgeInput(InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
+        if (outcome == ReforgeOutcome.Closed)
             State = GameState.GameRun;
     }
 
@@ -504,6 +524,9 @@ public class RotBoiGame : Game
             case GameState.Leveling:
                 DrawLeveling();
                 break;
+            case GameState.Reforging:
+                DrawReforging();
+                break;
             case GameState.TitleScreen:
                 DrawTitleScreen();
                 break;
@@ -571,6 +594,14 @@ public class RotBoiGame : Game
         GraphicsDevice.Clear(UiTheme.Void);
         _spriteBatch.Begin();
         _session!.DrawLevelingScreen(_spriteBatch, InputState.MousePosition, InputState.MouseDown);
+        _spriteBatch.End();
+    }
+
+    private void DrawReforging()
+    {
+        GraphicsDevice.Clear(UiTheme.Void);
+        _spriteBatch.Begin();
+        _session!.DrawReforgeScreen(_spriteBatch, InputState.MousePosition, InputState.MouseDown);
         _spriteBatch.End();
     }
 

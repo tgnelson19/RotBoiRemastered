@@ -5,7 +5,9 @@ port first since they were deliberately kept pygame-free in the Python original.
 
 - `Upgrades.cs` <- `upgrades.py` (frozen dataclasses -> C# records; keep the same
   weighted-rarity-roll shape, including the injectable RNG for test determinism)
-- `Items.cs` <- `items.py`
+- `Items.cs` <- `items.py`. **Done and expanded** -- rarity, independent
+  weighted F-S grade, slot-exclusive weighted affixes, grade upgrades,
+  modifier rerolls, save migration, and one shared effect-scaling pipeline.
 - `Keybinds.cs` <- `keybinds.py` (action -> key map, persisted like GameProfile)
 - `GameProfile.cs` <- `gameProfile.py` (swap JSON-on-disk for the same shape;
   consider `System.Text.Json` + a settings folder under `%AppData%`)
@@ -30,7 +32,8 @@ port first since they were deliberately kept pygame-free in the Python original.
   `handleLevelingProcess()`. **Done for the non-boss gameplay loop**: bullet
   firing/movement, non-boss enemy spawning (via `Entities/EnemyCatalog.cs`
   directly, not gamePaths.py's per-path wrapper) and update/draw, bullet-
-  enemy collision and death handling, XP pickup and leveling handoff, loot
+  enemy collision and death handling, stored-XP pickup plus explicit paid
+  leveling handoff, EXP-funded equipped-item reforging, loot
   crate pickup, player damage-taking. One session object owns the player,
   run state, battleground, camera, leveling screen, and (now)
   `UI/InformationSheet.cs`'s sidebar HUD, and orchestrates them each frame

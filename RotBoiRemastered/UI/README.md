@@ -14,6 +14,8 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   true of `StatCards.cs`'s card chrome).
 - `LevelingHandler.cs` <- `levelingHandler.py`. **Done** -- upgrade-card
   draft screen, reroll button, stat-preview/recommendation logic.
+- `ReforgeHandler.cs`. **Done** -- full-screen equipped-item selection with
+  EXP-funded grade upgrades and modifier rerolls; rarity is read-only.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment

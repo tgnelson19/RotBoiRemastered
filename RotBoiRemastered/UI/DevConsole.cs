@@ -137,7 +137,7 @@ public sealed class DevConsole
     {
         if (!TryParseItemArgs(tokens, "/spawn", out int count, out var definition, out string rarity))
             return default;
-        var drops = Enumerable.Range(0, count).Select(_ => new ItemDrop(definition, rarity)).ToList();
+        var drops = Enumerable.Range(0, count).Select(_ => Items.GenerateDrop(definition, rarity)).ToList();
         session.SpawnLootCrate(session.PlayerWorldCenter.X, session.PlayerWorldCenter.Y, drops);
         Log($"Spawned {count}x {definition.Name} ({rarity}).");
         return default;
@@ -153,7 +153,7 @@ public sealed class DevConsole
         {
             if (inventory[i] is not null)
                 continue;
-            inventory[i] = new ItemDrop(definition, rarity);
+            inventory[i] = Items.GenerateDrop(definition, rarity);
             given++;
         }
         Log(given == count
@@ -184,7 +184,7 @@ public sealed class DevConsole
     private ConsoleResult HandleLevelUp(GameSession session)
     {
         session.DebugForceLevelUp();
-        Log("Forced a level up.");
+        Log("Added enough stored EXP for a level up.");
         return default;
     }
 
