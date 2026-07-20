@@ -10,7 +10,7 @@ level-10 lesson and a level-20 examination built from the same pacing grammar:
 | Touch | Bair: 110,000 / 380 / 5 | Ruin, 14s at 50% HP | Rot: 330,000 / 980 / 7 | Choking Stillness 22s at 50%, Burial 40s at 0% |
 | Sight | Ishe: 80,000 / 300 / 4 | Flash, 12s at 50% HP | Chronos: 240,000 / 780 / 7 | Still Second 20s at 50%, King's Attrition 40s at 0% |
 | Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 280,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 40s at 0% |
-| Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | Intermission 22s at 50%, Apotheosis 40s at 0% |
+| Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | Intermission 18s at 50%, Apotheosis 30s at 0% |
 
 Each midpoint has almost exactly one third of its paired finale's raw health,
 less than half its contact pressure, fewer movements, and exactly one invulnerable
@@ -153,28 +153,30 @@ makes her attempt to recover lost power through the player's imagination explici
 
 Malady uses three theatrical acts: The First Idea, Invention, and The Human Soul.
 Curtain transitions clear the projectile field, protect the boss, and redraw the
-court before the next movement begins. Intermission is a 22-second half-health
-survival; Apotheosis is the 40-second zero-health finale.
+court before the next movement begins. Intermission is an 18-second half-health
+survival; Apotheosis is the 30-second zero-health finale.
 
 Hypno retains Phantasia's shared **Belief** lesson, false rules, Rest, and offerings.
 Malady deliberately disables those inherited mechanics. Her identity is divine novelty,
 not deception: every dangerous formation is real, every large hit is honestly marked,
 and the challenge is navigating beauty without letting density hide the intended shore.
 
-Malady's mechanics are portal-authored petal floods, slow curved ribbon chains,
-splitting projectile tentacles, player-facing openings in radial flowers, and fully
-telegraphed cathedral lasers with adjacent aisles left empty. Ground pools stay on the
-inner 64% of the arena so the outer court always offers a less threatened shore.
-Apotheosis cycles floods, tentacles, portal phrases, and laser arches for forty seconds.
+Malady's mechanics are portal-authored petal floods, rigid twin portal gears, slow
+curved ribbon chains, splitting projectile tentacles, player-facing openings in radial
+flowers, and fully telegraphed cathedral lasers with adjacent aisles left empty. Ground
+pools stay on the inner 64% of the arena so the outer court always offers a less
+threatened shore.
+Apotheosis cycles floods, tentacles, portal phrases, and laser arches for thirty seconds.
 
-Malady is a tall indigo cubic pillar moving independently above a square-cornered 3D
-obsidian slab anchored permanently at the center of the room. The slab is arena scenery,
-not part of Malady's moving body or hitbox. A vertical
+Malady is a tall indigo cubic pillar moving freely above the court, with no solid
+foundation to imply that she is rooted or that scenery belongs to her hitbox. A vertical
 magenta-white inspiration slit and three luminous nodes keep the center legible, while
-ten to eighteen independent perspective cubes continuously assemble possible bodies
-around it. Breathing elliptical auras and incomplete arcs suggest ideas radiating from
-the source. The pillar barely leans when moving; attacks rearrange the constellation
-instead, preserving the Empress's composure and scale.
+ten to eighteen independent perspective cubes compose a phase-specific body grammar:
+blossom, spiral, engine lattice, ribbon, branches, empty ring, tide, cathedral columns,
+and inward soul spiral. During Apotheosis those grammars recombine with each attack.
+Breathing elliptical auras and incomplete arcs suggest ideas radiating from the source.
+The pillar barely leans when moving; attacks rearrange the constellation instead,
+preserving the Empress's composure and scale.
 
 ## Shared path-arena overhaul
 

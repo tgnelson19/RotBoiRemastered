@@ -250,17 +250,17 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     Hypno keeps the belief/rule/illusion lesson. Malady explicitly disables
     that inherited rule UI and instead layers portal-authored petal floods,
     delay-queued flowing tentacles, radial safe wedges, and telegraphed laser
-    aisles. Intermission blocks damage at half health, Apotheosis runs for
-    forty seconds at zero health, and a ten-second expanding collapse follows.
-    It also owns a fully custom
-    procedural indigo-pillar/obsidian-slab render (`HasCustomDreamBody`/`DrawDreamBody`
-    hooks on the base class -- ported from Python's
-    `getattr(self, "_draw_dream_body", None)` duck-typed dispatch).
+    aisles. Intermission blocks damage for eighteen seconds at half health,
+    Apotheosis runs for thirty seconds at zero health, and a ten-second
+    expanding collapse follows. It also owns a fully custom procedural
+    floating indigo-pillar render with phase-authored cube constellations
+    (`HasCustomDreamBody`/`DrawDreamBody` hooks on the base class -- ported
+    from Python's `getattr(self, "_draw_dream_body", None)` duck-typed dispatch).
 - **`BossCatalog.cs`** <- `BossDefinition`/`BossCatalog`/`BOSS_CATALOG`.
   **Done** and wired into `GameSession` for every selected path. The active
   level-20 mapping is Dissonance (Sound), Rot (Touch), Chronos (Sight), Ache
   (Chemesthesis), and Malady (Phantasia). `sting` remains registered only as
-  a compatibility/debug key. Every mapped finale owns a 40-second
+  a compatibility/debug key. Every mapped finale owns a configurable
   invulnerable spectacle, a 10-second harmless death animation, normal XP and
     loot release, and `MetaProgression.RecordExtraction` path completion.
   - Core-Forged loot gives `LootCrate` a pulsing path-colored glow and orbiting

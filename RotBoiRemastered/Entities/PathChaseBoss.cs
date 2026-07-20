@@ -51,7 +51,8 @@ public sealed record PathChaseBossConfig(
     int MidContactDamage = 270,
     int FinalContactDamage = 780,
     double MidRewardExperience = 280,
-    double FinalRewardExperience = 760)
+    double FinalRewardExperience = 760,
+    double FinaleDuration = 40.0)
 {
     public static readonly PathChaseBossConfig Default = new(
         BossName: "PATH BOSS", Subtitle: "CONTENT PLACEHOLDER",
@@ -108,7 +109,7 @@ public class PathChaseBoss : Enemy
     public double DeathDuration { get; }
     public bool FinaleActive { get; protected set; }
     public double FinaleRemaining { get; protected set; }
-    public double FinaleDuration { get; } = 40.0;
+    public double FinaleDuration { get; }
     public double VisualTransitionRemaining { get; protected set; }
 
     protected virtual bool VisualSurvivalActive => EntranceRemaining > 0 || VisualTransitionRemaining > 0 || FinaleActive;
@@ -139,6 +140,7 @@ public class PathChaseBoss : Enemy
         ArenaRadius = Simulation.TileSize * (float)config.ArenaScale;
         PhaseTimeLimit = config.FinalBoss ? 28.0 : 24.0;
         DeathDuration = config.FinalBoss ? 10.0 : 2.8;
+        FinaleDuration = config.FinaleDuration;
         ArenaSeed = Enumerable.Range(0, 28).Select(_ => (float)(Rng.NextDouble() * .3 - .15)).ToArray();
     }
 

@@ -58,7 +58,7 @@ public class MaladyTests
         boss.DebugSetPhase(6);
 
         Assert.True(boss.SurvivalActive);
-        Assert.Equal(22.0, boss.SurvivalRemaining);
+        Assert.Equal(18.0, boss.SurvivalRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
     }
 
@@ -139,11 +139,48 @@ public class MaladyTests
             Assert.Equal("laser", laser.Path);
             Assert.True(laser.TelegraphDuration >= 1.0f);
         });
-        Assert.True(lasers.Count <= boss.ProjectilePortals.Count - 2); // adjacent aisles remain open
+        Assert.Equal(6, boss.ProjectilePortals.Count);
+        Assert.Equal(boss.ProjectilePortals.Count - 2, lasers.Count); // exactly two adjacent aisles remain open
+        Assert.Equal("laser", boss.AttackPose);
     }
 
     [Fact]
-    public void Apotheosis_IsFortySecondsThenTenSecondCollapse()
+    public void ImpossibleEngineUsesRigidGearsAndRadialPose()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(3));
+        boss.DebugSetPhase(3);
+        var context = Context(boss, battleground);
+
+        for (int tick = 0; tick < 700 && !context.ProjectileSink.Any(
+                 shot => shot.Owner == "malady_phantasia_impossible_engine_drive"); tick++)
+            boss.Update(context);
+
+        var teeth = context.ProjectileSink.Where(shot =>
+            shot.Owner?.StartsWith("malady_phantasia_impossible_engine_") == true).ToList();
+        Assert.NotEmpty(teeth);
+        Assert.All(teeth, shot => Assert.Equal("linear", shot.Path));
+        Assert.Equal("radial", boss.AttackPose);
+    }
+
+    [Fact]
+    public void RibbonCourtUsesNamedChainsAndMatchingAttackPose()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(5));
+        boss.DebugSetPhase(4);
+        var context = Context(boss, battleground);
+
+        for (int tick = 0; tick < 700 && !context.ProjectileSink.Any(
+                 shot => shot.Owner == "malady_phantasia_ribbon_court"); tick++)
+            boss.Update(context);
+
+        Assert.Contains(context.ProjectileSink, shot => shot.Owner == "malady_phantasia_ribbon_court");
+        Assert.Equal("chain", boss.AttackPose);
+    }
+
+    [Fact]
+    public void Apotheosis_IsThirtySecondsThenTenSecondCollapse()
     {
         var battleground = MakeBattleground();
         var boss = new Malady(1000, 1000, battleground, new Random(5));
@@ -152,7 +189,7 @@ public class MaladyTests
         boss.DebugSetPhase(10);
 
         Assert.True(boss.FinaleActive);
-        Assert.Equal(40.0, boss.FinaleRemaining);
+        Assert.Equal(30.0, boss.FinaleRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
         for (int tick = 0; tick < 5000 && !boss.Collapsing; tick++)

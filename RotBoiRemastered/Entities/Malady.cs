@@ -12,7 +12,7 @@ namespace RotBoiRemastered.Entities;
 /// system (reusing <see cref="ProjectilePortal"/>), a delay-queued "flowing
 /// chain" shot sequence, survival phases that suppress damage while a
 /// timer runs out, a post-lethal "collapse" death choreography instead of
-/// dying outright, and a fully custom procedural pillar-and-slab render
+/// dying outright, and a fully custom procedural floating-pillar render
 /// (replacing `PhantasiaBoss`'s generic arena+ellipse+mask body via
 /// <see cref="HasCustomDreamBody"/>).
 ///
@@ -30,8 +30,8 @@ public sealed class Malady : PhantasiaBoss
     protected override bool UsesDreamRules => false;
     protected override bool UsesSharedDeathSpectacle => false;
     protected override bool VisualSurvivalActive => SurvivalActive || FinaleActive || base.VisualSurvivalActive;
-    private static readonly Dictionary<int, double> SurvivalPhases = new() { [6] = 22.0 };
-    private static readonly int[] PortalCounts = { 3, 4, 3, 4, 5, 3, 6, 4, 5, 6 };
+    private static readonly Dictionary<int, double> SurvivalPhases = new() { [6] = 18.0 };
+    private static readonly int[] PortalCounts = { 3, 4, 3, 4, 5, 3, 6, 6, 5, 6 };
     private static readonly string[] PortalPaths =
         { "orbit", "figure8", "wave", "square", "tornado", "orbit", "square", "figure8", "wave", "tornado" };
 
@@ -49,6 +49,7 @@ public sealed class Malady : PhantasiaBoss
         MovementSpeed = .15, ArenaScale = 13.5,
         MovementModes = new[] { "path", "path", "static", "path", "path", "static", "path", "static", "path", "static" },
         FinalHealth = 320000, FinalContactDamage = 900, FinalRewardExperience = 880,
+        FinaleDuration = 30.0,
     };
 
     public static readonly PhantasiaSigilConfig MaladySigilConfig = new(
@@ -69,7 +70,7 @@ public sealed class Malady : PhantasiaBoss
         PhaseSigils: Enumerable.Range(0, 10).ToArray(),
         ActMetadata: new Dictionary<int, string> { [4] = "ACT II // INVENTION", [7] = "ACT III // THE HUMAN SOUL" });
 
-    private readonly record struct ChainEvent(double Delay, Vector2 Origin, float Direction, float Speed, float Damage);
+    private readonly record struct ChainEvent(double Delay, Vector2 Origin, float Direction, float Speed, float Damage, string Suffix);
 
     public List<ProjectilePortal> ProjectilePortals { get; } = new();
     private int _portalFormationPhase;
@@ -122,9 +123,11 @@ public sealed class Malady : PhantasiaBoss
 
     private string AttackPoseForPhase() => Phase switch
     {
-        3 or 7 or 9 => "laser",
-        4 or 5 => "chain",
-        2 or 8 => "radial",
+        2 or 6 or 7 => "radial",
+        3 => "radial",
+        4 or 5 or 9 => "chain",
+        8 => "laser",
+        10 => (PatternRotation % 3) switch { 0 => "radial", 1 => "chain", _ => "laser" },
         _ => "burst",
     };
 
@@ -180,13 +183,14 @@ public sealed class Malady : PhantasiaBoss
         return pool;
     }
 
-    private void QueueChain(Vector2 origin, float startAngle, float arc, int count = 16, double interval = .055, float speed = .74f, float damage = 335)
+    private void QueueChain(Vector2 origin, float startAngle, float arc, string suffix,
+        int count = 16, double interval = .055, float speed = .74f, float damage = 335)
     {
         for (int index = 0; index < count; index++)
         {
             float fraction = index / (float)Math.Max(1, count - 1);
             _sequenceQueue.Add(new ChainEvent(index * interval, origin, startAngle + arc * fraction,
-                speed * (1.0f - .18f * MathF.Sin(fraction * MathF.PI)), damage));
+                speed * (1.0f - .18f * MathF.Sin(fraction * MathF.PI)), damage, suffix));
         }
     }
 
@@ -198,7 +202,7 @@ public sealed class Malady : PhantasiaBoss
             double delay = chainEvent.Delay - dt;
             if (delay <= 0)
             {
-                ShotFrom(sink, chainEvent.Origin, chainEvent.Direction, chainEvent.Speed, chainEvent.Damage, "flowing_chain",
+                ShotFrom(sink, chainEvent.Origin, chainEvent.Direction, chainEvent.Speed, chainEvent.Damage, chainEvent.Suffix,
                     shape: "diamond", belief: .38, sizeScale: .82f);
             }
             else
@@ -268,7 +272,7 @@ public sealed class Malady : PhantasiaBoss
         if (EntranceRemaining <= 0 && ActTransitionTimer <= 0)
         {
             _poolCooldown -= dt;
-            double poolRate = SurvivalActive ? 1.65 : 4.2;
+            double poolRate = SurvivalActive ? 2.4 : 4.2;
             if (_poolCooldown <= 0 && (SurvivalActive || Phase is 2 or 5 or 8 or 10))
             {
                 float angle = (float)(Rng.NextDouble() * 2 * Math.PI);
@@ -326,7 +330,7 @@ public sealed class Malady : PhantasiaBoss
     {
         var origin = PortalOrigin(portalIndex);
         float aimed = MathF.Atan2(target.Y - origin.Y, target.X - origin.X);
-        QueueChain(origin, aimed - arc / 2f, arc, count, interval: .052, speed: speed, damage: 350);
+        QueueChain(origin, aimed - arc / 2f, arc, suffix, count, interval: .052, speed: speed, damage: 350);
     }
 
     protected override void FirePhantasiaPattern(float playerX, float playerY, EnemyUpdateContext context)
@@ -347,13 +351,15 @@ public sealed class Malady : PhantasiaBoss
                 for (int index = PatternRotation % 2; index < ProjectilePortals.Count; index += 2)
                     RadialWithGap(sink, PortalOrigin(index), target, 10, 1, .62f, 325, "petal_flood", "sine");
                 break;
-            case 3: // Two immense actuator arcs assemble an impossible engine around the open seam.
-                PortalTentacle(sink, PatternRotation, target, 2.35f, "impossible_engine_left", 24, .64f);
-                PortalTentacle(sink, PatternRotation + 2, target, -2.35f, "impossible_engine_right", 24, .64f);
+            case 3: // Two rigid portal gears turn around player-facing runs of missing teeth.
+                RadialWithGap(sink, PortalOrigin(PatternRotation), target, 16, 2, .56f, 340,
+                    "impossible_engine_drive", "linear");
+                RadialWithGap(sink, PortalOrigin(PatternRotation + 1), target, 16, 2, .56f, 340,
+                    "impossible_engine_counterdrive", "linear");
                 break;
             case 4: // Long ribbons arrive slowly enough to follow through the court.
                 for (int index = 0; index < Math.Min(4, ProjectilePortals.Count); index++)
-                    PortalTentacle(sink, index, target, index % 2 == 0 ? 1.8f : -1.8f, "ribbon_court", 18, .7f);
+                    PortalTentacle(sink, index, target, index % 2 == 0 ? 1.8f : -1.8f, "ribbon_court", 14, .7f);
                 break;
             case 5: // Splitting tendrils grow outward, never spawning directly inside the marked opening.
                 for (int index = -2; index <= 2; index++)
@@ -366,10 +372,12 @@ public sealed class Malady : PhantasiaBoss
                     shot.SplitGeneration = 2;
                 }
                 break;
-            case 6: // Halfway survival: a flower closes everywhere except a broad, player-facing wedge.
-                RadialWithGap(sink, center, target, 20, 2, .52f, 340, "intermission_flower", "sine");
-                PortalTentacle(sink, PatternRotation, target, PatternRotation % 2 == 0 ? 1.7f : -1.7f,
-                    "intermission_tentacle", 20, .62f);
+            case 6: // A flower and one reaching thought alternate around a deliberately empty center.
+                if (PatternRotation % 2 == 0)
+                    RadialWithGap(sink, center, target, 20, 2, .52f, 340, "intermission_flower", "sine");
+                else
+                    PortalTentacle(sink, PatternRotation, target, PatternRotation % 4 == 1 ? 1.7f : -1.7f,
+                        "intermission_tentacle", 18, .62f);
                 break;
             case 7:
                 RadialWithGap(sink, center, target, 18, 2, .68f, 355, "luminous_tide", "sine");
@@ -380,10 +388,10 @@ public sealed class Malady : PhantasiaBoss
                 int count = Math.Max(1, ProjectilePortals.Count);
                 float playerAngle = MathF.Atan2(playerY - ArenaCenter.Y, playerX - ArenaCenter.X);
                 int aisle = (int)MathF.Round(((playerAngle % MathF.Tau + MathF.Tau) % MathF.Tau) / (MathF.Tau / count)) % count;
+                int neighbor = (aisle + (PatternRotation % 2 == 0 ? 1 : -1) + count) % count;
                 for (int index = 0; index < count; index++)
                 {
-                    int distance = Math.Min((index - aisle + count) % count, (aisle - index + count) % count);
-                    if (distance <= 1)
+                    if (index == aisle || index == neighbor)
                         continue;
                     var origin = PortalOrigin(index);
                     LaserFrom(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X), 390, "violet_cathedral");
@@ -392,10 +400,10 @@ public sealed class Malady : PhantasiaBoss
             }
             case 9:
                 for (int index = 0; index < 3; index++)
-                    PortalTentacle(sink, PatternRotation + index * 2, target, (index - 1) * 2.1f, "soul_invasion_tentacle", 26, .72f);
-                RadialWithGap(sink, center, target, 22, 2, .6f, 365, "soul_invasion_bloom");
+                    PortalTentacle(sink, PatternRotation + index * 2, target, (index - 1) * 2.1f, "soul_incursion_tentacle", 18, .72f);
+                RadialWithGap(sink, center, target, 22, 2, .6f, 365, "soul_incursion_bloom");
                 break;
-            default: // Apotheosis cycles the fight's signature ideas for the full forty seconds.
+            default: // Apotheosis cycles the fight's signature ideas for thirty final seconds.
             {
                 int movement = PatternRotation % 3;
                 if (movement == 0)
@@ -407,7 +415,7 @@ public sealed class Malady : PhantasiaBoss
                 {
                     for (int index = 0; index < 4; index++)
                         PortalTentacle(sink, PatternRotation + index, target, index % 2 == 0 ? 2.4f : -2.4f,
-                            "apotheosis_tentacle", 24, .74f);
+                            "apotheosis_tentacle", 16, .74f);
                 }
                 else
                 {
@@ -421,7 +429,7 @@ public sealed class Malady : PhantasiaBoss
                 break;
             }
         }
-        if (!SurvivalPhases.ContainsKey(Phase) && PatternRotation % 2 == 0)
+        if (!SurvivalPhases.ContainsKey(Phase) && Phase != 7 && PatternRotation % 2 == 0)
             FirePortalPhrase(sink, target, wide: Phase >= 7);
         PatternRotation++;
         MarkAttack(.72f);
@@ -782,11 +790,92 @@ public sealed class Malady : PhantasiaBoss
     }
 
     /// <summary>
-    /// Malady's imperial silhouette: a tall indigo core floating over an
-    /// obsidian foundation while loose cubes continuously invent and abandon
-    /// possible bodies around it. Attack motion changes the constellation,
-    /// never the Empress's composed central posture.
+    /// Malady's imperial silhouette: a tall indigo core surrounded by loose
+    /// cubes that compose a different visual grammar for every movement.
+    /// Attack motion changes the constellation, never the Empress's composed
+    /// central posture.
     /// </summary>
+    private (Vector2 Offset, float Angle, float Depth) ConstellationPoint(
+        int phase, int index, int count, float spectacle, float attack)
+    {
+        float size = Size;
+        float fraction = index / (float)Math.Max(1, count - 1);
+        float angle;
+        Vector2 offset;
+        switch (phase)
+        {
+            case 1: // A balanced blossom teaches that every formation has an opening.
+                angle = index * MathF.Tau / count + Age * (index % 2 == 0 ? .008f : -.006f);
+                float petalRadius = size * (.48f + .15f * (index % 2));
+                offset = new Vector2(MathF.Cos(angle) * petalRadius, MathF.Sin(angle) * petalRadius * .68f);
+                break;
+            case 2: // The blossom unspools into an expanding portal-authored spiral.
+                angle = index * .86f + Age * (index % 2 == 0 ? .01f : -.007f);
+                float floodRadius = size * (.3f + fraction * .55f);
+                offset = new Vector2(MathF.Cos(angle) * floodRadius, MathF.Sin(angle) * floodRadius * .62f);
+                break;
+            case 3: // A rigid lattice briefly arrests the organic motion: the impossible engine.
+            {
+                float column = index % 5 - 2f;
+                float rowCount = MathF.Ceiling(count / 5f);
+                float row = index / 5f - (rowCount - 1f) / 2f;
+                offset = new Vector2(column * size * .21f, row * size * .28f);
+                float turn = MathF.Sin(Age * .006f) * .13f + attack * .08f;
+                offset = new Vector2(offset.X * MathF.Cos(turn) - offset.Y * MathF.Sin(turn),
+                    offset.X * MathF.Sin(turn) + offset.Y * MathF.Cos(turn));
+                angle = turn + (index % 2 == 0 ? 0f : MathF.PI / 2f);
+                break;
+            }
+            case 4: // A single continuous S-curve makes the court read like written calligraphy.
+                angle = fraction * MathF.Tau + Age * .012f;
+                offset = new Vector2((fraction - .5f) * size * 1.62f,
+                    MathF.Sin(angle) * size * (.28f + attack * .08f));
+                break;
+            case 5: // Paired branches grow away from the core like invented anatomy.
+            {
+                int branch = index / 2;
+                int side = index % 2 == 0 ? -1 : 1;
+                float reach = size * (.3f + branch * .12f);
+                angle = side < 0 ? MathF.PI : 0f;
+                offset = new Vector2(side * reach,
+                    (branch - (count / 4f)) * size * .11f + MathF.Sin(Age * .014f + branch) * size * .08f);
+                break;
+            }
+            case 6: // The intermission is defined by the conspicuously empty center.
+                angle = index * MathF.Tau / count - Age * .006f;
+                float stillRadius = size * (.68f + .06f * (index % 2));
+                offset = new Vector2(MathF.Cos(angle) * stillRadius, MathF.Sin(angle) * stillRadius * .58f);
+                break;
+            case 7: // A broad horizontal wave replaces the closed intermission ring.
+                angle = fraction * MathF.Tau + Age * .015f;
+                offset = new Vector2((fraction - .5f) * size * 1.7f,
+                    MathF.Sin(angle) * size * .34f);
+                break;
+            case 8: // Paired vertical columns foreshadow the two open cathedral aisles.
+            {
+                int side = index % 2 == 0 ? -1 : 1;
+                int row = index / 2;
+                float rows = MathF.Ceiling(count / 2f);
+                angle = MathF.PI / 2f;
+                offset = new Vector2(side * size * (.48f + .07f * (row % 2)),
+                    (row - (rows - 1f) / 2f) * size * .27f);
+                break;
+            }
+            case 9: // The constellation folds inward as Malady reaches for the Human Soul.
+                angle = index * 2.399963f - Age * .009f;
+                float soulRadius = size * (.82f - fraction * .48f) * (1f - attack * .22f);
+                offset = new Vector2(MathF.Cos(angle) * soulRadius, MathF.Sin(angle) * soulRadius * .68f);
+                break;
+            default: // Before lethal damage, Apotheosis previews all geometries as a double crown.
+                angle = index * 2.399963f + Age * (index % 2 == 0 ? .012f : -.01f);
+                float crownRadius = size * (.48f + .18f * (index % 3));
+                offset = new Vector2(MathF.Cos(angle) * crownRadius, MathF.Sin(angle) * crownRadius * .62f);
+                break;
+        }
+        offset *= spectacle * (1f + attack * .1f);
+        return (offset, angle, offset.Y);
+    }
+
     protected override void DrawDreamBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
@@ -799,15 +888,6 @@ public sealed class Malady : PhantasiaBoss
         float spectacle = FinaleActive ? 1.58f : SurvivalActive ? 1.3f : 1f;
         float attack = Math.Max(AttackAnticipation,
             VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .72f), 0f, 1f) * MathF.PI) : 0f);
-
-        // The slab belongs to the room, not Malady's hitbox or locomotion.
-        // Anchor it to the arena center and align its square footprint with
-        // the rotating world axes so it remains a stationary floor landmark.
-        Vector2 slabCenter = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
-        Vector2 slabAxisX = camera.WorldVectorToScreen(Vector2.UnitX);
-        Vector2 slabAxisY = camera.WorldVectorToScreen(Vector2.UnitY);
-        BossVisuals.FloorSlab(spriteBatch, slabCenter, slabAxisX, slabAxisY, Size * 1.55f, Size * .13f,
-            new Color(18, 15, 25), new Color(77, 58, 103));
 
         if (Dying)
         {
@@ -837,14 +917,14 @@ public sealed class Malady : PhantasiaBoss
 
         int cubeCount = FinaleActive ? FinaleBodyCubeCount : SurvivalActive ? 14 : IdleBodyCubeCount;
         var floating = new List<(Vector2 Center, float Angle, float Depth, float Extent)>();
-        float aimBias = AttackPose == "laser" ? AttackAimAngle : Age * .006f;
+        int constellationPhase = FinaleActive
+            ? (PatternRotation % 3) switch { 0 => 2, 1 => 5, _ => 8 }
+            : Phase;
         for (int index = 0; index < cubeCount; index++)
         {
-            float angle = index * 2.399963f + Age * (index % 2 == 0 ? .009f : -.007f) + aimBias * attack * .2f;
-            float radius = Size * (.42f + (index % 5) * .11f) * spectacle * (1f + attack * .18f);
-            float column = ((index % 4) - 1.5f) * Size * .18f;
-            var point = core + new Vector2(MathF.Cos(angle) * radius, column + MathF.Sin(angle) * radius * .42f);
-            floating.Add((point, angle, MathF.Sin(angle), Size * (.07f + index % 3 * .018f)));
+            var composition = ConstellationPoint(constellationPhase, index, cubeCount, spectacle, attack);
+            floating.Add((core + composition.Offset, composition.Angle, composition.Depth,
+                Size * (.07f + index % 3 * .018f)));
         }
 
         foreach (var cube in floating.Where(cube => cube.Depth < 0).OrderBy(cube => cube.Depth))
