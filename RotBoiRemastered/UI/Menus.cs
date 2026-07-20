@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -228,7 +229,11 @@ public sealed class Menus
             Slider(spriteBatch, "damage_text_size", damageRect, "DAMAGE TEXT SIZE", $"{GameProfile.Profile.DamageTextSize * 100:0}%",
                 GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, mousePosition, UiTheme.Red);
 
-            var fullscreenRect = new Rectangle(sliderX, damageRect.Bottom + rowGap, sliderWidth, (int)(42 * scale));
+            var cameraRect = new Rectangle(sliderX, damageRect.Bottom + rowGap, sliderWidth, rowHeight);
+            Slider(spriteBatch, "camera_zoom", cameraRect, "DEFAULT CAMERA ZOOM", $"{GameProfile.Profile.CameraZoom * 100:0}%",
+                GameProfile.Profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale, mousePosition, UiTheme.Purple);
+
+            var fullscreenRect = new Rectangle(sliderX, cameraRect.Bottom + rowGap, sliderWidth, (int)(42 * scale));
             bool fullscreen = GameProfile.Profile.Fullscreen;
             Button(spriteBatch, "fullscreen", fullscreenRect, $"FULLSCREEN  //  {(fullscreen ? "ON" : "OFF")}",
                 mousePosition, mouseDown, fullscreen ? UiTheme.Green : UiTheme.Border);
@@ -395,6 +400,7 @@ public sealed class Menus
                     double value = SliderValue(slider.Track, mousePosition.X, slider.Min, slider.Max);
                     if (_activeSlider == "damage_text_size") GameProfile.Profile.DamageTextSize = Math.Round(value, 2);
                     if (_activeSlider == "text_size") GameProfile.Profile.TextSize = Math.Round(value, 2);
+                    if (_activeSlider == "camera_zoom") GameProfile.Profile.CameraZoom = Math.Round(value, 2);
                     _sliderDirty = true;
                 }
             }

@@ -297,22 +297,26 @@ public sealed class DevConsole
     {
         if (!_open)
             return;
-        int panelHeight = (int)(screenHeight * .32f);
+        float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
+        int Px(float value) => Math.Max(1, (int)MathF.Round(value * scale));
+        int panelHeight = Math.Max(Px(190), (int)(screenHeight * .32f));
         var panel = new Rectangle(0, 0, screenWidth, panelHeight);
         Primitives2D.FillRect(spriteBatch, panel, UiTheme.Void * .92f);
-        Primitives2D.Line(spriteBatch, new Vector2(0, panelHeight), new Vector2(screenWidth, panelHeight), UiTheme.Border, 2);
+        Primitives2D.Line(spriteBatch, new Vector2(0, panelHeight), new Vector2(screenWidth, panelHeight), UiTheme.Border, Px(2));
 
-        int y = 10;
-        int shown = Math.Min(VisibleHistoryLines, _history.Count);
+        int y = Px(10), lineStep = Px(18), inputHeight = Px(30);
+        int capacity = Math.Max(1, (panelHeight - inputHeight - Px(14)) / lineStep);
+        int shown = Math.Min(Math.Min(VisibleHistoryLines, capacity), _history.Count);
         for (int index = _history.Count - shown; index < _history.Count; index++)
         {
-            UiTheme.DrawText(spriteBatch, _history[index], 12, UiTheme.Cream, new Vector2(12, y));
-            y += 18;
+            UiTheme.DrawText(spriteBatch, _history[index], 12 * scale, UiTheme.Cream, new Vector2(Px(12), y));
+            y += lineStep;
         }
 
-        var inputRect = new Rectangle(0, panelHeight - 30, screenWidth, 30);
+        var inputRect = new Rectangle(0, panelHeight - inputHeight, screenWidth, inputHeight);
         Primitives2D.FillRect(spriteBatch, inputRect, UiTheme.Panel);
         bool caretOn = (int)(_seconds * 2) % 2 == 0;
-        UiTheme.DrawText(spriteBatch, $"> {_buffer}{(caretOn ? "_" : "")}", 13, UiTheme.Text, new Vector2(12, inputRect.Y + 6));
+        UiTheme.DrawText(spriteBatch, $"> {_buffer}{(caretOn ? "_" : "")}", 13 * scale, UiTheme.Text,
+            new Vector2(Px(12), inputRect.Y + Px(6)));
     }
 }

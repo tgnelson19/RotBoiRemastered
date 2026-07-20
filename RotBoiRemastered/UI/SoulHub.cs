@@ -51,6 +51,9 @@ public sealed class SoulHub
     private double _portalAnimationStart;
     private Vector2 _portalTravelStart;
     private float _playerDrawScale = 1f;
+    private float _uiScale = 1f;
+    private int Px(float value) => Math.Max(1, (int)MathF.Round(value * _uiScale));
+    private double Fs(double value) => value * _uiScale;
     public bool OverlayOpen => _overlay is not null || _confirmingPortalKey is not null;
     /// <summary>True once a portal has been confirmed -- movement and all other Soul interaction are suppressed for the remainder of the animation.</summary>
     public bool IsEnteringPortal => _enteringPortalKey is not null;
@@ -318,8 +321,6 @@ public sealed class SoulHub
         UiTheme.DrawText(spriteBatch, "DAMAGE PER SECOND", 9, UiTheme.Red, new Vector2(readout.X + 14, readout.Y + 74));
         UiTheme.DrawText(spriteBatch, $"SESSION {_sessionBest:0}  //  RECORD {GameProfile.Profile.BestDummyDps:0}", 8, UiTheme.Cream,
             new Vector2(readout.X + 14, readout.Y + 98));
-        UiTheme.DrawText(spriteBatch, "THE SOUL", 27, UiTheme.Text, new Vector2(22, 18));
-        UiTheme.DrawText(spriteBatch, "SAFE GROUND  //  WALK TO A STATION OR PATH PORTAL  //  F INTERACT  //  ESC OPTIONS", 9, UiTheme.Muted, new Vector2(24, 54));
         DrawStations(spriteBatch, session);
         DrawPathPortals(spriteBatch, session);
     }
@@ -332,6 +333,12 @@ public sealed class SoulHub
     /// </summary>
     public void DrawForeground(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
+        _uiScale = UiTheme.DisplayScale(session.ScreenWidth, session.ScreenHeight);
+        UiTheme.DrawText(spriteBatch, "THE SOUL", Fs(27), UiTheme.Text, new Vector2(Px(22), Px(18)));
+        UiTheme.DrawText(spriteBatch,
+            "SAFE GROUND  //  WALK TO A STATION OR PATH PORTAL  //  F INTERACT  //  O / P OR WHEEL ZOOM  //  X RESET  //  ESC OPTIONS",
+            Fs(9), UiTheme.Muted, new Vector2(Px(24), Px(54)));
+        DrawNearbyPrompt(spriteBatch, session);
         if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
         if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session);
         // Drawn last so the dragged-item icon (part of this call, see
@@ -363,10 +370,19 @@ public sealed class SoulHub
             Primitives2D.FillCircle(spriteBatch, new Vector2(position.X, position.Y), 9, accent);
             UiTheme.DrawText(spriteBatch, label, 8, accent, new Vector2(position.X, baseRect.Bottom + 7), "midtop");
         }
+    }
+
+    private void DrawNearbyPrompt(SpriteBatch spriteBatch, GameSession session)
+    {
+        var labels = new Dictionary<string, (string Label, Color Accent)>
+        {
+            ["storage"] = ("VAULT", UiTheme.Gold), ["quests"] = ("QUEST ALTAR", UiTheme.Green),
+            ["skills"] = ("SOUL GRID", UiTheme.Purple), ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
+        };
         var nearby = NearbyStation(session);
         if (nearby is not null)
-            UiTheme.DrawText(spriteBatch, $"F  //  OPEN {labels[nearby].Label}", 13, labels[nearby].Accent,
-                new Vector2(session.ScreenWidth / 2f, session.ScreenHeight - 42), "center");
+            UiTheme.DrawText(spriteBatch, $"F  //  OPEN {labels[nearby].Label}", Fs(13), labels[nearby].Accent,
+                new Vector2(session.ScreenWidth / 2f, session.ScreenHeight - Px(42)), "center");
     }
 
     /// <summary>
@@ -419,10 +435,10 @@ public sealed class SoulHub
         var rect = new Rectangle(session.ScreenWidth / 2 - width / 2, (int)(session.ScreenHeight * .32f), width, height);
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight), UiTheme.Void * .55f);
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, path.Accent, shadow: 10);
-        UiTheme.DrawText(spriteBatch, $"ENTER {path.Title}?", 22, path.Accent, new Vector2(rect.Center.X, rect.Y + 26), "center");
-        UiTheme.DrawText(spriteBatch, path.Subtitle, 11, UiTheme.Cream, new Vector2(rect.Center.X, rect.Y + 62), "center");
-        UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", 10, UiTheme.Muted,
-            new Vector2(rect.Center.X, rect.Bottom - 24), "center");
+        UiTheme.DrawText(spriteBatch, $"ENTER {path.Title}?", Fs(22), path.Accent, new Vector2(rect.Center.X, rect.Y + Px(26)), "center");
+        UiTheme.DrawText(spriteBatch, path.Subtitle, Fs(11), UiTheme.Cream, new Vector2(rect.Center.X, rect.Y + Px(62)), "center");
+        UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", Fs(10), UiTheme.Muted,
+            new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
     }
 
     /// <summary>Full-screen cover that ramps to solid black over the animation's second half, timed with UpdatePortalTravel so the arriving-at-portal moment and the fade-out land together.</summary>
@@ -477,13 +493,13 @@ public sealed class SoulHub
     /// </summary>
     private void DrawVault(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "VAULT", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
-        UiTheme.DrawText(spriteBatch, "SAFE, PERMANENT  //  DRAG ITEMS TO AND FROM YOUR INVENTORY", 9, UiTheme.Gold,
-            new Vector2(panel.X + 26, panel.Y + 53));
+        UiTheme.DrawText(spriteBatch, "VAULT", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, "SAFE, PERMANENT  //  DRAG ITEMS TO AND FROM YOUR INVENTORY", Fs(9), UiTheme.Gold,
+            new Vector2(panel.X + Px(26), panel.Y + Px(53)));
 
-        int slotSize = 44, gap = 8;
+        int slotSize = Px(44), gap = Px(8);
         const int vaultColumns = 5;
-        int vaultLeft = panel.X + 26, vaultTop = panel.Y + 80;
+        int vaultLeft = panel.X + Px(26), vaultTop = panel.Y + Px(80);
         _vaultSlotRects = new List<Rectangle>();
         for (int index = 0; index < MetaProgression.StorageCapacity; index++)
         {
@@ -491,7 +507,7 @@ public sealed class SoulHub
             var rect = new Rectangle(vaultLeft + column * (slotSize + gap), vaultTop + row * (slotSize + gap), slotSize, slotSize);
             _vaultSlotRects.Add(rect);
             Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
-            Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Border, 2);
+            Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Border, Px(2));
             if (index >= GameProfile.Profile.Storage.Count) continue;
             var drop = Items.Deserialize(GameProfile.Profile.Storage[index]);
             if (drop is null) continue;
@@ -499,56 +515,56 @@ public sealed class SoulHub
             if (rect.Contains(mouse)) _tooltip = $"{drop.Rarity} {drop.Name}  //  Drag to your inventory to carry it into a run.";
         }
         int vaultRows = (MetaProgression.StorageCapacity + vaultColumns - 1) / vaultColumns;
-        UiTheme.DrawText(spriteBatch, $"{GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", 9, UiTheme.Muted,
-            new Vector2(vaultLeft, vaultTop + vaultRows * (slotSize + gap) + 4));
+        UiTheme.DrawText(spriteBatch, $"{GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", Fs(9), UiTheme.Muted,
+            new Vector2(vaultLeft, vaultTop + vaultRows * (slotSize + gap) + Px(4)));
 
-        int y = vaultTop + vaultRows * (slotSize + gap) + 34;
-        UiTheme.DrawText(spriteBatch, "RUN HISTORY", 11, UiTheme.Muted, new Vector2(panel.X + 26, y));
-        y += 20;
+        int y = vaultTop + vaultRows * (slotSize + gap) + Px(34);
+        UiTheme.DrawText(spriteBatch, "RUN HISTORY", Fs(11), UiTheme.Muted, new Vector2(panel.X + Px(26), y));
+        y += Px(20);
         if (GameProfile.Profile.ExtractedRuns.Count == 0)
         {
             UiTheme.DrawText(spriteBatch, "No runs logged yet -- reach a path ending or extract after the midpoint boss.",
-                10, UiTheme.Cream, new Vector2(panel.X + 26, y));
+                Fs(10), UiTheme.Cream, new Vector2(panel.X + Px(26), y));
             return;
         }
-        int runWidth = panel.Width - 52;
+        int runWidth = panel.Width - Px(52);
         int shown = Math.Min(6, GameProfile.Profile.ExtractedRuns.Count);
-        int runHeight = Math.Max(26, (panel.Bottom - y - 18) / shown - 6);
+        int runHeight = Math.Max(Px(26), (panel.Bottom - y - Px(18)) / shown - Px(6));
         for (int index = 0; index < shown; index++)
         {
             var run = GameProfile.Profile.ExtractedRuns[index];
-            var rect = new Rectangle(panel.X + 26, y + index * (runHeight + 6), runWidth, runHeight);
+            var rect = new Rectangle(panel.X + Px(26), y + index * (runHeight + Px(6)), runWidth, runHeight);
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, UiTheme.Green);
-            UiTheme.DrawText(spriteBatch, $"{index + 1:00}  {run.Path.ToUpperInvariant()}  //  {run.Outcome}", 9, UiTheme.Text,
-                new Vector2(rect.X + 9, rect.Center.Y), "midleft");
-            UiTheme.DrawText(spriteBatch, $"LV {run.Level:00}  •  {run.Kills} KILLS  •  {TimeLabel(run.Seconds)}", 8, UiTheme.Muted,
-                new Vector2(rect.Right - 9, rect.Center.Y), "midright");
+            UiTheme.DrawText(spriteBatch, $"{index + 1:00}  {run.Path.ToUpperInvariant()}  //  {run.Outcome}", Fs(9), UiTheme.Text,
+                new Vector2(rect.X + Px(9), rect.Center.Y), "midleft");
+            UiTheme.DrawText(spriteBatch, $"LV {run.Level:00}  •  {run.Kills} KILLS  •  {TimeLabel(run.Seconds)}", Fs(8), UiTheme.Muted,
+                new Vector2(rect.Right - Px(9), rect.Center.Y), "midright");
         }
     }
 
     private void DrawQuests(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
         MetaProgression.CompleteReadyQuests();
-        UiTheme.DrawText(spriteBatch, "QUEST GRID", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
-        UiTheme.DrawText(spriteBatch, "GENERIC OBJECTIVES PERSIST ACROSS RUNS  //  GREEN BARS SHOW COMPLETION", 9, UiTheme.Green,
-            new Vector2(panel.X + 26, panel.Y + 53));
-        int columns = 4, gap = 9, tileWidth = (panel.Width - 52 - gap * 3) / 4;
-        int tileHeight = (panel.Height - 105 - gap * 5) / 6;
+        UiTheme.DrawText(spriteBatch, "QUEST GRID", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, "GENERIC OBJECTIVES PERSIST ACROSS RUNS  //  GREEN BARS SHOW COMPLETION", Fs(9), UiTheme.Green,
+            new Vector2(panel.X + Px(26), panel.Y + Px(53)));
+        int columns = 4, gap = Px(9), tileWidth = (panel.Width - Px(52) - gap * 3) / 4;
+        int tileHeight = (panel.Height - Px(105) - gap * 5) / 6;
         for (int index = 0; index < MetaProgression.Quests.Count; index++)
         {
             var quest = MetaProgression.Quests[index];
             int column = index % columns, row = index / columns;
-            var rect = new Rectangle(panel.X + 26 + column * (tileWidth + gap), panel.Y + 78 + row * (tileHeight + gap), tileWidth, tileHeight);
+            var rect = new Rectangle(panel.X + Px(26) + column * (tileWidth + gap), panel.Y + Px(78) + row * (tileHeight + gap), tileWidth, tileHeight);
             long value = Math.Min(quest.Target, GameProfile.Profile.QuestProgress.GetValueOrDefault(quest.Counter));
             bool complete = GameProfile.Profile.CompletedQuests.Contains(quest.Key);
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, complete ? UiTheme.Green : UiTheme.Border, hovered: rect.Contains(mouse));
-            var symbol = new Rectangle(rect.X + 8, rect.Y + 8, 36, 36);
+            var symbol = new Rectangle(rect.X + Px(8), rect.Y + Px(8), Px(36), Px(36));
             Primitives2D.FillRect(spriteBatch, symbol, complete ? UiTheme.Green : UiTheme.Ink);
             DrawQuestSymbol(spriteBatch, quest.Symbol, symbol, complete ? UiTheme.Ink : UiTheme.Gold);
-            UiTheme.DrawText(spriteBatch, quest.Name.ToUpperInvariant(), 9, UiTheme.Text, new Vector2(symbol.Right + 8, rect.Y + 9));
-            UiTheme.DrawText(spriteBatch, complete ? "COMPLETE" : $"{value:N0} / {quest.Target:N0}", 8, complete ? UiTheme.Green : UiTheme.Muted,
-                new Vector2(symbol.Right + 8, rect.Y + 27));
-            UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + 8, rect.Bottom - 15, rect.Width - 16, 8),
+            UiTheme.DrawText(spriteBatch, quest.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(symbol.Right + Px(8), rect.Y + Px(9)));
+            UiTheme.DrawText(spriteBatch, complete ? "COMPLETE" : $"{value:N0} / {quest.Target:N0}", Fs(8), complete ? UiTheme.Green : UiTheme.Muted,
+                new Vector2(symbol.Right + Px(8), rect.Y + Px(27)));
+            UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + Px(8), rect.Bottom - Px(15), rect.Width - Px(16), Px(8)),
                 (float)value / quest.Target, UiTheme.Green, segments: 8);
             if (rect.Contains(mouse)) _tooltip = $"{quest.Description}  Reward: {quest.Reward} Soul token{(quest.Reward == 1 ? "" : "s")}.";
         }
@@ -610,25 +626,25 @@ public sealed class SoulHub
 
     private void DrawSkills(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "SOUL GRID", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
-        UiTheme.DrawText(spriteBatch, $"SOUL TOKENS  {GameProfile.Profile.SoulTokens}  //  CLICK A TILE TO BUY ONE RANK", 9, UiTheme.Purple,
-            new Vector2(panel.X + 26, panel.Y + 53));
-        int columns = 4, gap = 12, tileWidth = (panel.Width - 52 - gap * 3) / 4;
-        int tileHeight = (panel.Height - 112 - gap * 2) / 3;
+        UiTheme.DrawText(spriteBatch, "SOUL GRID", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, $"SOUL TOKENS  {GameProfile.Profile.SoulTokens}  //  CLICK A TILE TO BUY ONE RANK", Fs(9), UiTheme.Purple,
+            new Vector2(panel.X + Px(26), panel.Y + Px(53)));
+        int columns = 4, gap = Px(12), tileWidth = (panel.Width - Px(52) - gap * 3) / 4;
+        int tileHeight = (panel.Height - Px(112) - gap * 2) / 3;
         for (int index = 0; index < MetaProgression.SkillNodes.Count; index++)
         {
             var node = MetaProgression.SkillNodes[index];
             int column = index % columns, row = index / columns;
-            var rect = new Rectangle(panel.X + 26 + column * (tileWidth + gap), panel.Y + 80 + row * (tileHeight + gap), tileWidth, tileHeight);
+            var rect = new Rectangle(panel.X + Px(26) + column * (tileWidth + gap), panel.Y + Px(80) + row * (tileHeight + gap), tileWidth, tileHeight);
             int level = GameProfile.Profile.SkillLevels.GetValueOrDefault(node.Key), cost = node.BaseCost + level / 2;
             bool maxed = level >= node.MaxLevel, affordable = GameProfile.Profile.SoulTokens >= cost;
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, level > 0 ? UiTheme.Green : UiTheme.Purple, hovered: rect.Contains(mouse));
-            var symbol = new Rectangle(rect.X + 12, rect.Y + 13, 48, 48);
+            var symbol = new Rectangle(rect.X + Px(12), rect.Y + Px(13), Px(48), Px(48));
             StatCards.DrawStatSymbol(spriteBatch, node.Stat, symbol, level > 0 ? UiTheme.Green : UiTheme.Purple);
-            UiTheme.DrawText(spriteBatch, node.Name.ToUpperInvariant(), 11, UiTheme.Text, new Vector2(symbol.Right + 10, rect.Y + 15));
-            UiTheme.DrawText(spriteBatch, maxed ? "MASTERED" : $"{cost} TOKEN{(cost == 1 ? "" : "S")}", 8,
-                maxed ? UiTheme.Green : affordable ? UiTheme.Gold : UiTheme.Red, new Vector2(symbol.Right + 10, rect.Y + 39));
-            UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + 12, rect.Bottom - 25, rect.Width - 24, 12),
+            UiTheme.DrawText(spriteBatch, node.Name.ToUpperInvariant(), Fs(11), UiTheme.Text, new Vector2(symbol.Right + Px(10), rect.Y + Px(15)));
+            UiTheme.DrawText(spriteBatch, maxed ? "MASTERED" : $"{cost} TOKEN{(cost == 1 ? "" : "S")}", Fs(8),
+                maxed ? UiTheme.Green : affordable ? UiTheme.Gold : UiTheme.Red, new Vector2(symbol.Right + Px(10), rect.Y + Px(39)));
+            UiTheme.DrawProgress(spriteBatch, new Rectangle(rect.X + Px(12), rect.Bottom - Px(25), rect.Width - Px(24), Px(12)),
                 (float)level / node.MaxLevel, UiTheme.Green, segments: node.MaxLevel);
             _targets[$"skill:{node.Key}"] = rect;
             if (rect.Contains(mouse)) _tooltip = $"{node.Description}  Rank {level}/{node.MaxLevel}.";
@@ -637,44 +653,44 @@ public sealed class SoulHub
 
     private void DrawWardrobe(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "THE WARDROBE", 24, UiTheme.Text, new Vector2(panel.X + 24, panel.Y + 18));
+        UiTheme.DrawText(spriteBatch, "THE WARDROBE", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
         UiTheme.DrawText(spriteBatch, "COSMETIC ONLY  //  CORE FILLS THE BODY, EDGE FRAMES IT, SHOTS USE A TWO-TONE PALETTE",
-            9, UiTheme.Blue, new Vector2(panel.X + 26, panel.Y + 53));
+            Fs(9), UiTheme.Blue, new Vector2(panel.X + Px(26), panel.Y + Px(53)));
 
-        int gap = 12;
-        int columnWidth = (panel.Width - 52 - gap * 3) / 4;
-        int top = panel.Y + 84;
-        DrawColorColumn(spriteBatch, new Rectangle(panel.X + 26, top, columnWidth, panel.Height - 104),
+        int gap = Px(12);
+        int columnWidth = (panel.Width - Px(52) - gap * 3) / 4;
+        int top = panel.Y + Px(84);
+        DrawColorColumn(spriteBatch, new Rectangle(panel.X + Px(26), top, columnWidth, panel.Height - Px(104)),
             "CORE COLOR", "core", Cosmetics.CoreColors, GameProfile.Profile.PlayerCoreColor, mouse);
-        DrawColorColumn(spriteBatch, new Rectangle(panel.X + 26 + columnWidth + gap, top, columnWidth, panel.Height - 104),
+        DrawColorColumn(spriteBatch, new Rectangle(panel.X + Px(26) + columnWidth + gap, top, columnWidth, panel.Height - Px(104)),
             "EDGE COLOR", "edge", Cosmetics.EdgeColors, GameProfile.Profile.PlayerEdgeColor, mouse);
-        DrawProjectileColorColumn(spriteBatch, new Rectangle(panel.X + 26 + 2 * (columnWidth + gap), top, columnWidth, panel.Height - 104), mouse);
-        DrawProjectileDesignColumn(spriteBatch, new Rectangle(panel.X + 26 + 3 * (columnWidth + gap), top, columnWidth, panel.Height - 104), mouse);
+        DrawProjectileColorColumn(spriteBatch, new Rectangle(panel.X + Px(26) + 2 * (columnWidth + gap), top, columnWidth, panel.Height - Px(104)), mouse);
+        DrawProjectileDesignColumn(spriteBatch, new Rectangle(panel.X + Px(26) + 3 * (columnWidth + gap), top, columnWidth, panel.Height - Px(104)), mouse);
 
-        var preview = new Rectangle(panel.Center.X - 65, panel.Bottom - 150, 130, 112);
+        var preview = new Rectangle(panel.Center.X - Px(65), panel.Bottom - Px(150), Px(130), Px(112));
         UiTheme.DrawPanel(spriteBatch, preview, UiTheme.Panel, UiTheme.Blue, shadow: 5);
-        var body = new Rectangle(preview.X + 18, preview.Y + 25, 42, 42);
-        Primitives2D.FillRect(spriteBatch, new Rectangle(body.X + 4, body.Y + 5, body.Width, body.Height), UiTheme.Shadow);
+        var body = new Rectangle(preview.X + Px(18), preview.Y + Px(25), Px(42), Px(42));
+        Primitives2D.FillRect(spriteBatch, new Rectangle(body.X + Px(4), body.Y + Px(5), body.Width, body.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, body, Cosmetics.SelectedCore.Color);
-        Primitives2D.RectOutline(spriteBatch, body, Cosmetics.SelectedEdge.Color, 4);
-        ProjectileVisuals.Draw(spriteBatch, new Vector2(preview.X + 94, preview.Y + 46), Vector2.UnitX, 27,
+        Primitives2D.RectOutline(spriteBatch, body, Cosmetics.SelectedEdge.Color, Px(4));
+        ProjectileVisuals.Draw(spriteBatch, new Vector2(preview.X + Px(94), preview.Y + Px(46)), Vector2.UnitX, Px(27),
             Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, Cosmetics.SelectedDesign.Id);
-        UiTheme.DrawText(spriteBatch, "LIVE PREVIEW", 8, UiTheme.Muted, new Vector2(preview.Center.X, preview.Bottom - 18), "center");
+        UiTheme.DrawText(spriteBatch, "LIVE PREVIEW", Fs(8), UiTheme.Muted, new Vector2(preview.Center.X, preview.Bottom - Px(18)), "center");
     }
 
     private void DrawColorColumn(SpriteBatch spriteBatch, Rectangle column, string title, string category,
         IReadOnlyList<CosmeticColor> colors, string selected, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, title, 12, UiTheme.Text, new Vector2(column.X, column.Y));
-        int tile = Math.Min(48, (column.Width - 12) / 3), gap = 6;
-        int startY = column.Y + 30;
+        UiTheme.DrawText(spriteBatch, title, Fs(12), UiTheme.Text, new Vector2(column.X, column.Y));
+        int tile = Math.Min(Px(48), (column.Width - Px(12)) / 3), gap = Px(6);
+        int startY = column.Y + Px(30);
         for (int index = 0; index < colors.Count; index++)
         {
             var option = colors[index];
             int row = index / 3, col = index % 3;
             var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
             Primitives2D.FillRect(spriteBatch, rect, option.Color);
-            Primitives2D.RectOutline(spriteBatch, rect, option.Id == selected ? UiTheme.Cream : UiTheme.Ink, option.Id == selected ? 4 : 2);
+            Primitives2D.RectOutline(spriteBatch, rect, option.Id == selected ? UiTheme.Cream : UiTheme.Ink, option.Id == selected ? Px(4) : Px(2));
             _targets[$"cosmetic:{category}:{option.Id}"] = rect;
             if (rect.Contains(mouse)) _tooltip = $"{option.Name} {title.ToLowerInvariant()}.";
         }
@@ -682,9 +698,9 @@ public sealed class SoulHub
 
     private void DrawProjectileColorColumn(SpriteBatch spriteBatch, Rectangle column, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "SHOT COLOR", 12, UiTheme.Text, new Vector2(column.X, column.Y));
-        int tile = Math.Min(48, (column.Width - 12) / 3), gap = 6;
-        int startY = column.Y + 30;
+        UiTheme.DrawText(spriteBatch, "SHOT COLOR", Fs(12), UiTheme.Text, new Vector2(column.X, column.Y));
+        int tile = Math.Min(Px(48), (column.Width - Px(12)) / 3), gap = Px(6);
+        int startY = column.Y + Px(30);
         for (int index = 0; index < Cosmetics.ProjectileColors.Count; index++)
         {
             var option = Cosmetics.ProjectileColors[index];
@@ -695,7 +711,7 @@ public sealed class SoulHub
             inner.Inflate(-Math.Max(5, tile / 5), -Math.Max(5, tile / 5));
             Primitives2D.FillRect(spriteBatch, inner, option.Core);
             bool selected = option.Id == GameProfile.Profile.ProjectileColor;
-            Primitives2D.RectOutline(spriteBatch, rect, selected ? UiTheme.Cream : UiTheme.Ink, selected ? 4 : 2);
+            Primitives2D.RectOutline(spriteBatch, rect, selected ? UiTheme.Cream : UiTheme.Ink, selected ? Px(4) : Px(2));
             _targets[$"cosmetic:projectile:{option.Id}"] = rect;
             if (rect.Contains(mouse)) _tooltip = $"{option.Name} projectile palette.";
         }
@@ -703,25 +719,25 @@ public sealed class SoulHub
 
     private void DrawProjectileDesignColumn(SpriteBatch spriteBatch, Rectangle column, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "SHOT DESIGN", 12, UiTheme.Text, new Vector2(column.X, column.Y));
-        int y = column.Y + 30;
+        UiTheme.DrawText(spriteBatch, "SHOT DESIGN", Fs(12), UiTheme.Text, new Vector2(column.X, column.Y));
+        int y = column.Y + Px(30);
         foreach (var option in Cosmetics.ProjectileDesigns)
         {
-            var rect = new Rectangle(column.X, y, column.Width, 58);
+            var rect = new Rectangle(column.X, y, column.Width, Px(58));
             bool selected = option.Id == GameProfile.Profile.ProjectileDesign;
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, selected ? UiTheme.Cream : UiTheme.Border, hovered: rect.Contains(mouse));
-            ProjectileVisuals.Draw(spriteBatch, new Vector2(rect.X + 38, rect.Center.Y), Vector2.UnitX, 25,
+            ProjectileVisuals.Draw(spriteBatch, new Vector2(rect.X + Px(38), rect.Center.Y), Vector2.UnitX, Px(25),
                 Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, option.Id);
-            UiTheme.DrawText(spriteBatch, option.Name.ToUpperInvariant(), 9, UiTheme.Text, new Vector2(rect.X + 72, rect.Center.Y), "midleft");
+            UiTheme.DrawText(spriteBatch, option.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(rect.X + Px(72), rect.Center.Y), "midleft");
             _targets[$"cosmetic:design:{option.Id}"] = rect;
             if (rect.Contains(mouse)) _tooltip = option.Description;
-            y += 65;
+            y += Px(65);
         }
     }
 
     private void DrawTooltip(SpriteBatch spriteBatch, Point mouse, Rectangle bounds)
     {
-        int width = Math.Min(360, bounds.Width / 2);
+        int width = Math.Min(Px(360), bounds.Width / 2);
         var words = _tooltip!.Split(' ');
         var lines = new List<string>();
         string line = "";
@@ -735,11 +751,11 @@ public sealed class SoulHub
             else line = (line + " " + word).Trim();
         }
         if (line.Length > 0) lines.Add(line);
-        var rect = new Rectangle(mouse.X + 15, mouse.Y + 15, width, 24 + lines.Count * 17);
-        rect.X = Math.Clamp(rect.X, bounds.X + 6, bounds.Right - rect.Width - 6);
-        rect.Y = Math.Clamp(rect.Y, bounds.Y + 6, bounds.Bottom - rect.Height - 6);
+        var rect = new Rectangle(mouse.X + Px(15), mouse.Y + Px(15), width, Px(24 + lines.Count * 17));
+        rect.X = Math.Clamp(rect.X, bounds.X + Px(6), bounds.Right - rect.Width - Px(6));
+        rect.Y = Math.Clamp(rect.Y, bounds.Y + Px(6), bounds.Bottom - rect.Height - Px(6));
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Ink, UiTheme.Cream, shadow: 4);
         for (int index = 0; index < lines.Count; index++)
-            UiTheme.DrawText(spriteBatch, lines[index], 9, UiTheme.Text, new Vector2(rect.X + 10, rect.Y + 9 + index * 17));
+            UiTheme.DrawText(spriteBatch, lines[index], Fs(9), UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(9 + index * 17)));
     }
 }

@@ -68,7 +68,7 @@ public sealed class GameSession
     public float AwarenessRange => ScreenHeight * .5f;
 
     /// <summary>Combat text has an independent accessibility scale and intentionally compact base size.</summary>
-    public double DamageTextFontSize => Math.Max(8, Math.Round(18 * UiTheme.ResolutionScale(ScreenWidth, ScreenHeight)
+    public double DamageTextFontSize => Math.Max(8, Math.Round(18
         * Math.Clamp(GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale)));
 
     public GameSession(Battleground battleground, int screenWidth, int screenHeight, Random? rng = null)
@@ -80,6 +80,7 @@ public sealed class GameSession
         LevelingHandler = new LevelingHandler(screenWidth, screenHeight, rng);
         InformationSheet = new InformationSheet(screenWidth, screenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
+        Camera.ConfigureViewport(screenWidth, screenHeight, GameProfile.Profile.CameraZoom, resetZoom: true);
         LoadCarriedItems();
     }
 
@@ -90,11 +91,11 @@ public sealed class GameSession
         Battleground = battleground;
         Player = new Player(battleground.SpawnPosition.X, battleground.SpawnPosition.Y);
         Camera.SetAngle(0);
-        Camera.SetZoom(1);
         ScreenShake = Vector2.Zero;
         LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
         InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, ScreenHeight / 2f);
+        Camera.ConfigureViewport(ScreenWidth, ScreenHeight, GameProfile.Profile.CameraZoom, resetZoom: true);
         _activeBossKey = null;
         LoadCarriedItems();
     }
@@ -106,6 +107,7 @@ public sealed class GameSession
         LevelingHandler.UpdateLayout(screenWidth, screenHeight);
         InformationSheet.SyncLayout(screenWidth, screenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
+        Camera.ConfigureViewport(screenWidth, screenHeight, GameProfile.Profile.CameraZoom);
     }
 
     /// <summary>

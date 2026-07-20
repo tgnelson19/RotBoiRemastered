@@ -1,5 +1,6 @@
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Systems;
 
@@ -27,6 +28,7 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.TextSize, profile.TextSize);
         Assert.Equal(defaults.GuiScale, profile.GuiScale);
         Assert.Equal(defaults.DamageTextSize, profile.DamageTextSize);
+        Assert.Equal(defaults.CameraZoom, profile.CameraZoom);
         Assert.Equal(defaults.PlayerCoreColor, profile.PlayerCoreColor);
         Assert.Equal(defaults.PlayerEdgeColor, profile.PlayerEdgeColor);
         Assert.Equal(defaults.ProjectileColor, profile.ProjectileColor);
@@ -57,13 +59,14 @@ public class GameProfileTests : IDisposable
     public void AccessibilityScales_AreNormalizedToSafeSliderLimits()
     {
         string path = Path.Combine(_tempDir, "scales.json");
-        File.WriteAllText(path, """{"TextSize":99,"GuiScale":0.1,"DamageTextSize":50}""");
+        File.WriteAllText(path, """{"TextSize":99,"GuiScale":0.1,"DamageTextSize":50,"CameraZoom":99}""");
 
         var profile = GameProfile.LoadProfile(path);
 
         Assert.Equal(UiTheme.MaxTextScale, profile.TextSize);
         Assert.Equal(UiTheme.MinGuiScale, profile.GuiScale);
         Assert.Equal(UiTheme.MaxDamageTextScale, profile.DamageTextSize);
+        Assert.Equal(Camera.MaxDefaultZoomScale, profile.CameraZoom);
     }
 
     [Fact]

@@ -282,13 +282,18 @@ public class RotBoiGame : Game
     {
         if ((State != GameState.GameRun && State != GameState.Soul) || _session is null)
             return;
-        if (State == GameState.GameRun && Keybinds.Pressed("zoom_out"))
+        if (Keybinds.Pressed("zoom_out"))
             _session.Camera.AdjustZoom(-Camera.ZoomStep);
-        if (State == GameState.GameRun && Keybinds.Pressed("zoom_in"))
+        if (Keybinds.Pressed("zoom_in"))
             _session.Camera.AdjustZoom(Camera.ZoomStep);
+        if (InputState.ScrollWheelDelta != 0 && (State != GameState.Soul || !_soulHub.OverlayOpen))
+        {
+            int notches = Math.Clamp(Math.Abs(InputState.ScrollWheelDelta) / 120, 1, 3);
+            _session.Camera.AdjustZoom(Math.Sign(InputState.ScrollWheelDelta) * Camera.ZoomStep * notches);
+        }
         if (Keybinds.Pressed("camera_reset"))
         {
-            _session.Camera.SetAngle(0);
+            _session.Camera.ResetView();
             return;
         }
         int direction = (Keybinds.Held("rotate_right") ? 1 : 0) - (Keybinds.Held("rotate_left") ? 1 : 0);
@@ -611,7 +616,7 @@ public class RotBoiGame : Game
         var session = _session!;
         GraphicsDevice.Clear(Color.Black);
         session.DrawBackgroundFull(_spriteBatch, GraphicsDevice);
-        _spriteBatch.Begin();
+        _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawBullets(_spriteBatch);
         // Stations/portals draw first, then the player on top of them (not
         // behind), then the overlay/confirm/sidebar/fade layer on top of
@@ -619,6 +624,11 @@ public class RotBoiGame : Game
         _soulHub.DrawWorld(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
         session.DrawPlayer(_spriteBatch, _soulHub.PlayerDrawScale);
         session.DrawDamageTexts(_spriteBatch);
+        _spriteBatch.End();
+
+        // Soul panels and prompts stay in unzoomed screen space, exactly like
+        // the combat HUD. Only the sanctuary world participates in camera zoom.
+        _spriteBatch.Begin();
         _soulHub.DrawForeground(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
         _spriteBatch.End();
     }

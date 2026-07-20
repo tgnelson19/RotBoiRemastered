@@ -11,8 +11,8 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - Mouse / left click: aim and fire
 - `Space`: dash (briefly avoids contact damage)
 - Hold `Q` / `E`: smoothly rotate the arena clockwise / counter-clockwise
-- `X`: reset the camera to 0 degrees during play
-- `O` / `P`: zoom the world camera out / in around the player
+- `X`: reset camera rotation and zoom to the resolution-aware default
+- `O` / `P` or mouse wheel: zoom the world camera out / in around the player (also available in the Soul)
 - `I`: toggle autofire
 - `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card
@@ -30,8 +30,10 @@ bounty arrow points toward the highest-value living patrol or elite target.
 ## Comfort and accessibility
 
 The pause menu includes a casual assist, persistent autofire, contextual hints,
-an aim guide, damage-number control, high-contrast hostile outlines, and adjustable
-screen shake. Casual assist reduces incoming damage and hostile projectile speed
+an aim guide, damage-number control, high-contrast hostile outlines, adjustable
+screen shake, and independent text, GUI, damage-text, and default-camera-zoom sizing.
+World zoom starts from a resolution-aware baseline so high-resolution displays retain
+the intended character and arena readability. Casual assist reduces incoming damage and hostile projectile speed
 without reducing enemy variety. Preferences and best-run records are saved locally
 in `data/profile.json`.
 

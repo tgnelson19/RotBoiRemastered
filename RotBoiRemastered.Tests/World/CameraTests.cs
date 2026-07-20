@@ -137,4 +137,41 @@ public class CameraTests
         Assert.True(logical.Height > 600);
         Assert.True(logical.Contains(camera.Lock.ToPoint()));
     }
+
+    [Theory]
+    [InlineData(1280, 720, 0.6666667f)]
+    [InlineData(1920, 1080, 1f)]
+    [InlineData(3200, 2000, 1.6666667f)]
+    [InlineData(3840, 2160, 2f)]
+    public void DefaultZoom_MatchesViewportResolution(int width, int height, float expected)
+    {
+        Assert.Equal(expected, Camera.DefaultZoomForViewport(width, height), precision: 4);
+    }
+
+    [Fact]
+    public void Resize_PreservesManualZoomRelativeToNewDefault()
+    {
+        var camera = NewCamera();
+        camera.ConfigureViewport(1920, 1080, 1.0, resetZoom: true);
+        camera.AdjustZoom(.3f);
+
+        camera.ConfigureViewport(3200, 2000, 1.0);
+
+        Assert.Equal(1.3f * (5f / 3f), camera.Zoom, precision: 4);
+    }
+
+    [Fact]
+    public void ResetView_RestoresAngleAndResolutionAwareDefaultZoom()
+    {
+        var camera = NewCamera();
+        camera.ConfigureViewport(3200, 2000, 1.2, resetZoom: true);
+        camera.Rotate(90);
+        camera.SetZoom(Camera.MaxZoom);
+
+        camera.ResetView();
+
+        Assert.Equal(0, camera.AngleDegrees);
+        Assert.Equal(camera.DefaultZoom, camera.Zoom);
+        Assert.Equal(2f, camera.Zoom, precision: 4);
+    }
 }

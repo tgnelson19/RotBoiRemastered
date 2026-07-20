@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using RotBoiRemastered.UI;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Systems;
 
@@ -31,6 +32,8 @@ public sealed class GameProfileData
     public double TextSize { get; set; } = 1.0;
     public double GuiScale { get; set; } = 1.0;
     public double DamageTextSize { get; set; } = 0.8;
+    /// <summary>Multiplier applied to the resolution-aware starting camera zoom.</summary>
+    public double CameraZoom { get; set; } = 1.0;
     public string PlayerCoreColor { get; set; } = "midnight";
     public string PlayerEdgeColor { get; set; } = "ink";
     public string ProjectileColor { get; set; } = "reference";
@@ -160,6 +163,7 @@ public static class GameProfile
         profile.TextSize = Math.Clamp(profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale);
         profile.GuiScale = SnapToNearest(UiTheme.GuiScaleLevels, profile.GuiScale);
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
+        profile.CameraZoom = Math.Clamp(profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
         profile.Keybinds ??= new();
         profile.SkillLevels ??= new();
         profile.QuestProgress ??= new();

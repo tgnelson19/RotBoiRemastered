@@ -18,11 +18,16 @@ namespace RotBoiRemastered.World;
 /// </summary>
 public sealed class Camera
 {
-    public const float MinZoom = .65f;
-    public const float MaxZoom = 1.75f;
-    public const float ZoomStep = .10f;
+    public const float MinZoom = .5f;
+    public const float MaxZoom = 3.5f;
+    public const float ZoomStep = .15f;
+    public const double MinDefaultZoomScale = .75;
+    public const double MaxDefaultZoomScale = 1.5;
+    private const int ReferenceWidth = 1920;
+    private const int ReferenceHeight = 1080;
     public float AngleDegrees { get; private set; }
     public float Zoom { get; private set; } = 1f;
+    public float DefaultZoom { get; private set; } = 1f;
 
     /// <summary>Screen-space center of the player and camera rotation pivot.</summary>
     public Vector2 Lock { get; set; }
@@ -47,6 +52,37 @@ public sealed class Camera
 
     public void SetZoom(float zoom) => Zoom = Math.Clamp(zoom, MinZoom, MaxZoom);
     public void AdjustZoom(float amount) => SetZoom(Zoom + amount);
+
+    /// <summary>
+    /// Makes world objects occupy roughly the same proportion of the viewport
+    /// at every resolution. The preference is a persisted accessibility
+    /// multiplier; manual O/P or wheel adjustments remain relative when the
+    /// window is resized or fullscreen is toggled.
+    /// </summary>
+    public void ConfigureViewport(int width, int height, double preference, bool resetZoom = false)
+    {
+        float previousDefault = DefaultZoom;
+        DefaultZoom = DefaultZoomForViewport(width, height, preference);
+        if (resetZoom)
+            SetZoom(DefaultZoom);
+        else if (Math.Abs(DefaultZoom - previousDefault) > .0001f)
+            SetZoom(Zoom * DefaultZoom / previousDefault);
+    }
+
+    public void ResetView()
+    {
+        SetAngle(0);
+        SetZoom(DefaultZoom);
+    }
+
+    public static float DefaultZoomForViewport(int width, int height, double preference = 1.0)
+    {
+        float resolutionScale = Math.Min((float)Math.Max(1, width) / ReferenceWidth,
+            (float)Math.Max(1, height) / ReferenceHeight);
+        resolutionScale = Math.Clamp(resolutionScale, .65f, 2.4f);
+        float preferred = (float)Math.Clamp(preference, MinDefaultZoomScale, MaxDefaultZoomScale);
+        return Math.Clamp(resolutionScale * preferred, MinZoom, MaxZoom);
+    }
 
     /// <summary>Uniform world-only zoom around the player/camera lock.</summary>
     public Matrix WorldTransform =>
