@@ -1,3 +1,5 @@
+using Microsoft.Xna.Framework;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
@@ -21,6 +23,86 @@ public class MaladyTests
         for (int tick = 0; tick < limit && context.ProjectileSink.Count == 0; tick++)
             boss.Update(context);
         Assert.NotEmpty(context.ProjectileSink);
+    }
+
+    private sealed record PhasePressure(int PeakProjectiles, int OverflowCount,
+        int EdgeProjectileCount, int PlayerThreatProjectileCount,
+        IReadOnlySet<string> EdgeOwners, IReadOnlySet<string> PlayerThreatOwners);
+
+    private static PhasePressure SimulatePhasePressure(int phase, bool casualMode, double duration = 30.0)
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(100 + phase));
+        boss.DebugSetPhase(phase);
+        boss.EntranceRemaining = 0;
+        var playerCenter = boss.ArenaCenter + Vector2.UnitX * boss.ArenaRadius * .93f;
+        int playerSize = (int)(Simulation.TileSize * .75f);
+        var playerRect = new Rectangle((int)(playerCenter.X - playerSize / 2f),
+            (int)(playerCenter.Y - playerSize / 2f), playerSize, playerSize);
+        var context = new EnemyUpdateContext
+        {
+            PlayerWorldX = playerCenter.X,
+            PlayerWorldY = playerCenter.Y,
+            Battleground = battleground,
+            DreamState = new DreamState(),
+        };
+        var edgeOwners = new HashSet<string>();
+        var threatOwners = new HashSet<string>();
+        var edgeProjectiles = new HashSet<EnemyProjectile>();
+        var threateningProjectiles = new HashSet<EnemyProjectile>();
+        int peak = 0, overflow = 0;
+        int ticks = (int)Math.Ceiling(duration * Simulation.FrameRate);
+
+        for (int tick = 0; tick < ticks; tick++)
+        {
+            boss.Update(context);
+            var children = new List<EnemyProjectile>();
+            foreach (var projectile in context.ProjectileSink.ToList())
+            {
+                var center = new Vector2(projectile.WorldX + projectile.Size / 2f,
+                    projectile.WorldY + projectile.Size / 2f);
+                float radius = Vector2.Distance(center, boss.ArenaCenter);
+                bool spansArena = projectile.Path == "laser" &&
+                    projectile.RemainingRange >= boss.ArenaRadius * 2f;
+                if (radius > boss.ArenaRadius * 1.04f)
+                    projectile.RemFlag = true;
+                else if ((radius >= boss.ArenaRadius * .92f || spansArena) && projectile.Owner is not null)
+                {
+                    edgeOwners.Add(projectile.Owner);
+                    edgeProjectiles.Add(projectile);
+                }
+                if (projectile.Collides(playerRect) && projectile.Owner is not null)
+                {
+                    threatOwners.Add(projectile.Owner);
+                    threateningProjectiles.Add(projectile);
+                }
+
+                projectile.Update(battleground, casualMode);
+                center = new Vector2(projectile.WorldX + projectile.Size / 2f,
+                    projectile.WorldY + projectile.Size / 2f);
+                if (Vector2.Distance(center, boss.ArenaCenter) >= boss.ArenaRadius * .92f &&
+                    projectile.Owner is not null)
+                {
+                    edgeOwners.Add(projectile.Owner);
+                    edgeProjectiles.Add(projectile);
+                }
+                children.AddRange(projectile.SpawnedProjectiles);
+                projectile.SpawnedProjectiles.Clear();
+            }
+            context.ProjectileSink.RemoveAll(projectile => projectile.RemFlag);
+            context.ProjectileSink.AddRange(children);
+            peak = Math.Max(peak, context.ProjectileSink.Count);
+            if (context.ProjectileSink.Count > GameSession.MaxBossProjectiles)
+            {
+                overflow += context.ProjectileSink.Count - GameSession.MaxBossProjectiles;
+                context.ProjectileSink.RemoveRange(0,
+                    context.ProjectileSink.Count - GameSession.MaxBossProjectiles);
+            }
+        }
+
+        return new PhasePressure(peak, overflow, edgeProjectiles.Count, threateningProjectiles.Count,
+            edgeOwners, threatOwners);
     }
 
     [Fact]
@@ -142,6 +224,50 @@ public class MaladyTests
         Assert.Equal(6, boss.ProjectilePortals.Count);
         Assert.Equal(boss.ProjectilePortals.Count - 2, lasers.Count); // exactly two adjacent aisles remain open
         Assert.Equal("laser", boss.AttackPose);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(10)]
+    public void EveryPhaseReachesAndThreatensTheArenaEdgeWithoutOverflow(int phase)
+    {
+        foreach (bool casualMode in new[] { false, true })
+        {
+            var pressure = SimulatePhasePressure(phase, casualMode);
+            string mode = casualMode ? "casual" : "standard";
+
+            Assert.True(pressure.EdgeProjectileCount >= 5,
+                $"Phase {phase} in {mode} mode carried only {pressure.EdgeProjectileCount} " +
+                "projectiles to the arena edge.");
+            Assert.True(pressure.PlayerThreatProjectileCount >= 2,
+                $"Phase {phase} in {mode} mode threatened a player holding the arena edge with only " +
+                $"{pressure.PlayerThreatProjectileCount} projectiles.");
+            Assert.True(pressure.OverflowCount == 0,
+                $"Phase {phase} in {mode} mode exceeded the " +
+                $"{GameSession.MaxBossProjectiles}-projectile budget by {pressure.OverflowCount} " +
+                $"total projectiles (peak {pressure.PeakProjectiles}).");
+        }
+    }
+
+    [Fact]
+    public void ApotheosisCarriesEverySignatureMovementAcrossTheArena()
+    {
+        var pressure = SimulatePhasePressure(10, casualMode: false);
+
+        Assert.Contains("malady_phantasia_apotheosis_flood", pressure.EdgeOwners);
+        Assert.Contains("malady_phantasia_apotheosis_tentacle", pressure.EdgeOwners);
+        Assert.Contains("malady_phantasia_apotheosis_corolla", pressure.EdgeOwners);
+        Assert.Contains("malady_phantasia_apotheosis_laser", pressure.EdgeOwners);
+        Assert.True(pressure.PlayerThreatOwners.Count >= 2,
+            "Apotheosis should pressure an edge camper through more than one pattern family.");
     }
 
     [Fact]

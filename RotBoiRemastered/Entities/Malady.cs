@@ -220,9 +220,9 @@ public sealed class Malady : PhantasiaBoss
         var portal = ProjectilePortals[PatternRotation % ProjectilePortals.Count];
         var waves = new[]
         {
-            new BurstWave(3, .28f, .72f, .30f),
-            new BurstWave(5, wide ? .72f : .42f, .96f, .24f),
-            new BurstWave(3, .18f, 1.26f, .20f),
+            new BurstWave(2, .24f, 1.25f, .32f),
+            new BurstWave(3, wide ? .68f : .4f, 1.6f, .25f),
+            new BurstWave(2, .16f, 2.0f, .21f),
         };
         portal.FirePatternBurst(sink, target, waves, waveInterval: .12f, damage: 325, color: PhaseAccent, ownerSuffix: "dream_burst");
     }
@@ -345,43 +345,42 @@ public sealed class Malady : PhantasiaBoss
         switch (Phase)
         {
             case 1: // Petals open around a lane pointing directly at the player.
-                RadialWithGap(sink, center, target, 14, 1, .58f, 320, "overture_petals", "sine");
+                RadialWithGap(sink, center, target, 14, 1, .9f, 320, "overture_petals", "sine");
                 break;
             case 2: // Alternating portals flood inward but preserve the player's current shore.
                 for (int index = PatternRotation % 2; index < ProjectilePortals.Count; index += 2)
-                    RadialWithGap(sink, PortalOrigin(index), target, 10, 1, .62f, 325, "petal_flood", "sine");
+                    RadialWithGap(sink, PortalOrigin(index), target, 8, 1, .95f, 325, "petal_flood", "sine");
                 break;
             case 3: // Two rigid portal gears turn around player-facing runs of missing teeth.
-                RadialWithGap(sink, PortalOrigin(PatternRotation), target, 16, 2, .56f, 340,
+                RadialWithGap(sink, PortalOrigin(PatternRotation), target, 12, 2, .9f, 340,
                     "impossible_engine_drive", "linear");
-                RadialWithGap(sink, PortalOrigin(PatternRotation + 1), target, 16, 2, .56f, 340,
+                RadialWithGap(sink, PortalOrigin(PatternRotation + 1), target, 12, 2, .9f, 340,
                     "impossible_engine_counterdrive", "linear");
                 break;
             case 4: // Long ribbons arrive slowly enough to follow through the court.
-                for (int index = 0; index < Math.Min(4, ProjectilePortals.Count); index++)
-                    PortalTentacle(sink, index, target, index % 2 == 0 ? 1.8f : -1.8f, "ribbon_court", 14, .7f);
+                for (int index = PatternRotation % 2; index < Math.Min(4, ProjectilePortals.Count); index += 2)
+                    PortalTentacle(sink, index, target, index % 2 == 0 ? 1.8f : -1.8f, "ribbon_court", 7, .92f);
                 break;
             case 5: // Splitting tendrils grow outward, never spawning directly inside the marked opening.
-                for (int index = -2; index <= 2; index++)
+                foreach (int index in new[] { -1, 1 })
                 {
-                    if (index == 0)
-                        continue;
-                    var shot = ShotFrom(sink, center, aimed + index * .38f, .62f, 335, "tentacle_garden", path: "sine");
+                    var shot = ShotFrom(sink, center, aimed + index * .42f, .9f, 335, "tentacle_garden", path: "sine");
                     shot.SplitCount = 2;
-                    shot.SplitAt = Simulation.TileSize * (3.2f + Math.Abs(index) * .7f);
+                    shot.SplitAt = Simulation.TileSize * 3.8f;
                     shot.SplitGeneration = 2;
                 }
                 break;
             case 6: // A flower and one reaching thought alternate around a deliberately empty center.
                 if (PatternRotation % 2 == 0)
-                    RadialWithGap(sink, center, target, 20, 2, .52f, 340, "intermission_flower", "sine");
+                    RadialWithGap(sink, center, target, 16, 2, .85f, 340, "intermission_flower", "sine");
                 else
                     PortalTentacle(sink, PatternRotation, target, PatternRotation % 4 == 1 ? 1.7f : -1.7f,
-                        "intermission_tentacle", 18, .62f);
+                        "intermission_tentacle", 7, .86f);
                 break;
             case 7:
-                RadialWithGap(sink, center, target, 18, 2, .68f, 355, "luminous_tide", "sine");
-                FirePortalPhrase(sink, target, wide: true);
+                RadialWithGap(sink, center, target, 16, 2, 1.0f, 355, "luminous_tide", "sine");
+                if (PatternRotation % 2 == 0)
+                    FirePortalPhrase(sink, target, wide: true);
                 break;
             case 8: // A cathedral of fully telegraphed portal lasers leaves two adjacent aisles open.
             {
@@ -399,27 +398,33 @@ public sealed class Malady : PhantasiaBoss
                 break;
             }
             case 9:
-                for (int index = 0; index < 3; index++)
-                    PortalTentacle(sink, PatternRotation + index * 2, target, (index - 1) * 2.1f, "soul_incursion_tentacle", 18, .72f);
-                RadialWithGap(sink, center, target, 22, 2, .6f, 365, "soul_incursion_bloom");
+                if (PatternRotation % 2 == 0)
+                {
+                    PortalTentacle(sink, PatternRotation, target, -1.65f, "soul_incursion_tentacle", 6, 1.05f);
+                    PortalTentacle(sink, PatternRotation + 2, target, 1.65f, "soul_incursion_tentacle", 6, 1.05f);
+                }
+                else
+                {
+                    RadialWithGap(sink, center, target, 18, 3, .92f, 365, "soul_incursion_bloom");
+                }
                 break;
             default: // Apotheosis cycles the fight's signature ideas for thirty final seconds.
             {
                 int movement = PatternRotation % 3;
                 if (movement == 0)
                 {
-                    RadialWithGap(sink, center, target, 24, 2, .7f, 390, "apotheosis_flood", "sine");
+                    RadialWithGap(sink, center, target, 16, 3, 1.05f, 390, "apotheosis_flood", "sine");
                     FirePortalPhrase(sink, target, wide: true);
                 }
                 else if (movement == 1)
                 {
-                    for (int index = 0; index < 4; index++)
+                    for (int index = PatternRotation % 2; index < 4; index += 2)
                         PortalTentacle(sink, PatternRotation + index, target, index % 2 == 0 ? 2.4f : -2.4f,
-                            "apotheosis_tentacle", 16, .74f);
+                            "apotheosis_tentacle", 7, 1.12f);
                 }
                 else
                 {
-                    RadialWithGap(sink, center, target, 28, 3, .58f, 380, "apotheosis_corolla");
+                    RadialWithGap(sink, center, target, 18, 3, .98f, 380, "apotheosis_corolla");
                     for (int index = 0; index < ProjectilePortals.Count; index += 2)
                     {
                         var origin = PortalOrigin(index);
@@ -429,7 +434,7 @@ public sealed class Malady : PhantasiaBoss
                 break;
             }
         }
-        if (!SurvivalPhases.ContainsKey(Phase) && Phase != 7 && PatternRotation % 2 == 0)
+        if (!SurvivalPhases.ContainsKey(Phase) && Phase is not (7 or 10) && PatternRotation % 2 == 0)
             FirePortalPhrase(sink, target, wide: Phase >= 7);
         PatternRotation++;
         MarkAttack(.72f);

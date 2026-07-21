@@ -244,7 +244,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
         float size = Size * (Config.FinalBoss ? .19f : .17f) * sizeScale;
         var shot = new EnemyProjectile(
             origin.X - size / 2f, origin.Y - size / 2f, direction, speed, damage, size,
-            travelRange: Simulation.TileSize * 34f, color: color ?? PhaseAccent, shape: shape, path: path,
+            travelRange: Math.Max(Simulation.TileSize * 34f, ArenaRadius * 2.2f),
+            color: color ?? PhaseAccent, shape: shape, path: path,
             amplitude: path == "sine" ? Simulation.TileSize * .58f : 0f,
             owner: $"{Config.OwnerPrefix}_{suffix}", ignoreWalls: true)
         {
@@ -274,7 +275,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
     protected void LaserFrom(List<EnemyProjectile> sink, Vector2 origin, float direction, float damage, string suffix, bool illusion = false)
     {
         var laser = new EnemyProjectile(origin.X, origin.Y, direction, 0f, damage, Size * .13f,
-            travelRange: Simulation.TileSize * 35f, color: illusion ? UiTheme.Muted : PhaseAccent, shape: "laser", path: "laser",
+            travelRange: Math.Max(Simulation.TileSize * 35f, ArenaRadius * 2.2f),
+            color: illusion ? UiTheme.Muted : PhaseAccent, shape: "laser", path: "laser",
             lifetime: 2.5f, owner: $"{Config.OwnerPrefix}_{suffix}", ignoreWalls: true)
         {
             TelegraphDuration = 1.05f, Illusory = illusion, TruthMarked = !illusion, BeliefGain = illusion ? 0.0 : .7,
@@ -397,7 +399,10 @@ public abstract class PhantasiaBoss : PathChaseBoss
             return;
         if (AttackCooldown <= 0)
         {
-            FirePhantasiaPattern(effectivePlayerX, effectivePlayerY, context);
+            // Scripted locomotion substitutes a waypoint only for ChaseUpdate.
+            // Attacks must continue to target the real player; passing the
+            // waypoint here made every path-mode pattern aim at empty arena.
+            FirePhantasiaPattern(context.PlayerWorldX, context.PlayerWorldY, context);
             double rate = Math.Max(.34, 1.0 - .055 * (Phase - 1));
             AttackCooldownMax ??= Simulation.FrameRate * (float)(Config.FinalBoss ? Config.FinalCooldownSeconds : Config.CooldownSeconds);
             AttackCooldown = AttackCooldownMax.Value * (float)(rate * (.88 + Rng.NextDouble() * .2));

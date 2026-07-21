@@ -250,7 +250,10 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     Hypno keeps the belief/rule/illusion lesson. Malady explicitly disables
     that inherited rule UI and instead layers portal-authored petal floods,
     delay-queued flowing tentacles, radial safe wedges, and telegraphed laser
-    aisles. Intermission blocks damage for eighteen seconds at half health,
+    aisles. Its fewer, faster volleys cross the full arena and remain below
+    the session's emergency projectile ceiling, while aimed portal phrases
+    prevent the outer shoreline from becoming a stationary safe zone.
+    Intermission blocks damage for eighteen seconds at half health,
     Apotheosis runs for thirty seconds at zero health, and a ten-second
     expanding collapse follows. It also owns a fully custom procedural
     floating indigo-pillar render with phase-authored cube constellations

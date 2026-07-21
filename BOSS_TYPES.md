@@ -165,7 +165,10 @@ Malady's mechanics are portal-authored petal floods, rigid twin portal gears, sl
 curved ribbon chains, splitting projectile tentacles, player-facing openings in radial
 flowers, and fully telegraphed cathedral lasers with adjacent aisles left empty. Ground
 pools stay on the inner 64% of the arena so the outer court always offers a less
-threatened shore.
+threatened shore, but faster aimed portal phrases and arena-spanning volleys ensure that
+the shoreline is never a stationary safe zone. Pattern counts are budgeted below the
+150-projectile emergency ceiling so bullets reach the boundary instead of being trimmed
+mid-flight.
 Apotheosis cycles floods, tentacles, portal phrases, and laser arches for thirty seconds.
 
 Malady is a tall indigo cubic pillar moving freely above the court, with no solid

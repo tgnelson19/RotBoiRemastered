@@ -34,6 +34,12 @@ public sealed record BountyInfo(Vector2 World, double Score, string Label, objec
 /// </summary>
 public sealed class GameSession
 {
+    /// <summary>
+    /// Emergency safety ceiling, not a pattern-density tool. Boss patterns
+    /// are authored to reach the arena boundary and expire naturally before
+    /// this limit; exceeding it means old bullets are being truncated.
+    /// </summary>
+    public const int MaxBossProjectiles = 150;
     private const int CrateInteractRadius = 24;
     private const int MaxLootCrates = 40;
     private const int BossPortalInteractRadius = 40;
@@ -691,8 +697,8 @@ public sealed class GameSession
         State.EnemyProjectileHolster.RemoveAll(p => p.RemFlag);
         GamePaths.TuneNewProjectiles(spawnedProjectiles);
         State.EnemyProjectileHolster.AddRange(spawnedProjectiles);
-        if (State.ActiveBoss is not null && State.EnemyProjectileHolster.Count > 150)
-            State.EnemyProjectileHolster.RemoveRange(0, State.EnemyProjectileHolster.Count - 150);
+        if (State.ActiveBoss is not null && State.EnemyProjectileHolster.Count > MaxBossProjectiles)
+            State.EnemyProjectileHolster.RemoveRange(0, State.EnemyProjectileHolster.Count - MaxBossProjectiles);
     }
 
     /// <summary>Persistent pools are ground hazards and render below every combat actor.</summary>
