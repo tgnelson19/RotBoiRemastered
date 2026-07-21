@@ -142,6 +142,8 @@ public sealed class EnemyProjectile
     {
         if (Illusory)
             return false;
+        if (Path == "mine" && Age < TelegraphDuration)
+            return false;
         if (Path == "pool")
         {
             if (Age < TelegraphDuration)
@@ -358,6 +360,13 @@ public sealed class EnemyProjectile
             int pulse = Math.Max(3, (int)(Size * (.12f + .05f * (1 + MathF.Sin(Age * 5f)))));
             Primitives2D.FillRect(spriteBatch,
                 new Rectangle((int)(center.X - pulse / 2f), (int)(center.Y - pulse / 2f), pulse, pulse), UiTheme.Text);
+            if (Age < TelegraphDuration)
+            {
+                float warningProgress = Age / Math.Max(.01f, TelegraphDuration);
+                float warningRadius = Size * (.72f + (1f - warningProgress) * .42f);
+                Primitives2D.CircleOutline(spriteBatch, center, warningRadius, UiTheme.Cream,
+                    Math.Max(2, (int)(Size * .07f)));
+            }
         }
         else if (Shape == "bomb")
         {

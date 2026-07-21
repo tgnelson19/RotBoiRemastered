@@ -111,7 +111,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         AttackCooldown = 0f;
     }
 
-    protected void Shot(List<EnemyProjectile> sink, float direction, float speed, float damage, float scale = .25f,
+    protected EnemyProjectile Shot(List<EnemyProjectile> sink, float direction, float speed, float damage, float scale = .25f,
         string shape = "diamond", string path = "linear", float? lifetime = null, float speedDecay = 0f,
         float orbitRadius = 0f, float angularSpeed = 0f, string ownerSuffix = "sin", string? affliction = null,
         double afflictionDuration = 0.0, double afflictionStrength = 0.0, double exposure = 0.0,
@@ -133,6 +133,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             AfflictionSource = afflictionSource,
         };
         sink.Add(shot);
+        return shot;
     }
 
     protected void Fan(List<EnemyProjectile> sink, float baseDirection, int count, float spread, float speed, float damage, string suffix)
@@ -157,7 +158,8 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         PatternRotation++;
     }
 
-    protected void Bomb(List<EnemyProjectile> sink, float targetX, float targetY, float damage, string suffix)
+    protected void Bomb(List<EnemyProjectile> sink, float targetX, float targetY, float damage, string suffix,
+        int burstCount = 10, float fuseDuration = 2.6f, float? burstShotDamage = null)
     {
         var center = Center();
         float size = Size * .34f;
@@ -165,9 +167,13 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             shape: "bomb", path: "bomb", lifetime: 4.0f, target: new Vector2(targetX, targetY),
             owner: $"{Config.OwnerPrefix}_{suffix}", ignoreWalls: true)
         {
-            FuseDuration = 2.6f,
+            FuseDuration = fuseDuration,
             BlastRadius = Simulation.TileSize * 1.8f,
-            BurstCount = 10,
+            BurstCount = burstCount,
+            // EnemyProjectile's bomb primitive applies a .28 multiplier when
+            // constructing children. Callers may specify the desired final
+            // child damage without knowing that internal representation.
+            BurstDamage = burstShotDamage.HasValue ? burstShotDamage.Value / .28f : damage,
         };
         sink.Add(bomb);
     }
@@ -308,7 +314,9 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (AttackCooldown <= 0)
         {
-            FireSinPattern(effectivePlayerX, effectivePlayerY, context);
+            // Scripted movement waypoints steer the boss only. Patterns must
+            // target the actual player or path-mode phases attack empty space.
+            FireSinPattern(context.PlayerWorldX, context.PlayerWorldY, context);
             double rate = Math.Max(.36, 1.0 - .08 * (Phase - 1));
             AttackCooldownMax ??= Simulation.FrameRate * (float)(Config.FinalBoss ? Config.FinalCooldownSeconds : Config.CooldownSeconds);
             AttackCooldown = AttackCooldownMax.Value * (float)(rate * (.92 + Rng.NextDouble() * .16));

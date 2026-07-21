@@ -216,9 +216,14 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     vents call `BossAfflictions.Reset()`) and the newly-added
     `RunState.BuildSnapshot()`/`PlayerBuildSnapshot` (ported from
     `characterStats.py`'s `player_build_snapshot()`). Ache's active encounter
-    replaces the old readable sin rotation with independently selected
-    wrong-way mines, offset bombs, contamination pools, and telegraphed
-    lashes; Reflex Storm and Overload provide its invulnerable survival exams.
+    replaces the old readable sin rotation with phase-weighted independent
+    mistakes: decelerating wrong-way mines, scattered lazy clusters,
+    three-sided corner pockets, offset bombs, contamination pools, and
+    telegraphed moderate-damage lashes. Reflex Storm and the shorter
+    28-second Overload provide its invulnerable survival exams. The active
+    field uses soft budgets of twenty-eight active and sixteen persistent
+    threats; short delayed bursts remain below forty and twenty-six in phase
+    simulations. Distribution and memory, rather than volume, create its pressure.
     Its compact orange core now has exactly three blue 3D orbiting arm-cubes;
     this widened, asymmetrical constellation is the visual contract for its
     refusal to follow any command.

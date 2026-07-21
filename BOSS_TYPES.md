@@ -9,7 +9,7 @@ level-10 lesson and a level-20 examination built from the same pacing grammar:
 | Sound | Beaudis: 50,000 / 220 / 5 | Endure, 14s at 50% HP | Dissonance: 150,000 / 550 / 9 | 20s at 67%, 20s at 33%, Jera 40s at 0% |
 | Touch | Bair: 110,000 / 380 / 5 | Ruin, 14s at 50% HP | Rot: 330,000 / 980 / 7 | Choking Stillness 22s at 50%, Burial 40s at 0% |
 | Sight | Ishe: 80,000 / 300 / 4 | Flash, 12s at 50% HP | Chronos: 240,000 / 780 / 7 | Still Second 20s at 50%, King's Attrition 40s at 0% |
-| Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 280,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 40s at 0% |
+| Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 280,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 28s at 0% |
 | Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | Intermission 18s at 50%, Apotheosis 30s at 0% |
 
 Each midpoint has almost exactly one third of its paired finale's raw health,
@@ -126,15 +126,23 @@ Kage has three damage movements around one midpoint survival:
 
 Ache has six damage movements and two survival movements. **Misfire**, **Crossed
 Nerves**, and **Wrong Way** lead into the 20-second **Reflex Storm** at half health;
-**Aftershock**, **Fracture**, and **White Ache** lead into the 40-second **Overload**
+**Aftershock**, **Fracture**, and **White Ache** lead into the 28-second **Overload**
 at zero health. Completing Overload begins a 10-second expanding constellation collapse.
 
-Ache selects each attack independently instead of exposing a learnable rotation.
-Wrong-way fans travel slowly and settle into mines, bombs deliberately land around the
-player rather than directly on them, contamination pools announce themselves for 1.25
-seconds, and the fight's 720–790 damage lashes show their complete route before becoming
-dangerous. Ache uses no projectile portals. Its randomness chooses the next problem;
-telegraphs and low projectile speeds still give the player time to solve it.
+Ache selects each attack independently from a phase-authored family instead of exposing
+a learnable rotation. Wrong-way debris drifts slowly and settles into mines, lazy clusters
+appear in unrelated arena regions, and corner pockets close three random sides of the
+player while leaving one telegraphed escape. Bombs land around rather than directly on
+the player, contamination pools announce themselves for 1.25 seconds, and fully drawn
+lashes provide the heaviest warning. Primary hazards are authored at 190–230 damage
+before Chemesthesis path modifiers, producing roughly five-to-eight-hit lethality for a
+standard level-20 defensive baseline. Ache uses no projectile portals.
+
+The active field is deliberately sparse. Ache hesitates at twenty-eight active threats
+and switches away from mine-building at sixteen persistent hazards; delayed bomb bursts
+can briefly raise the simulated envelope to forty total projectiles and twenty-six
+persistent hazards. Random placement, long mine memory, and independent pattern choice
+create the pressure; raw bullet count does not.
 
 Chemesthesis hazards can apply **Exposure**, a temporary movement-pressure meter that
 decays after avoiding contaminated terrain. These effects never reduce movement below
@@ -278,7 +286,7 @@ Sight path reward is released.
    Malady's tall pillar, Ache's three arms, Rot's submerged slab, and Chronos's lone cube
    should identify the boss before phase color is considered. The procedural renders now
    enforce those silhouettes directly.
-2. Reserve fast visual motion for Ache and the outer layers of Malady. Dissonance's
+2. Reserve irregular visual motion for Ache and fast outer motion for Malady. Dissonance's
    satellites, Rot's slab, and Chronos's body should remain composed so their authority
    comes from the arena and attacks rather than frantic animation.
 3. Playtest Chronos's 2.35-second Thorn warning without dash upgrades. If it still feels

@@ -106,6 +106,24 @@ public class EnemyProjectileTests
     }
 
     [Fact]
+    public void Mine_IsHarmlessDuringItsWarningThenBecomesSolid()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var projectile = new EnemyProjectile(100, 100, direction: 0f, speed: 0, damage: 10,
+            size: 20, path: "mine", lifetime: 5f)
+        {
+            TelegraphDuration = .01f,
+        };
+        var target = new Rectangle(100, 100, 20, 20);
+
+        Assert.False(projectile.Collides(target));
+        projectile.Update(battleground, casualMode: false);
+        projectile.Update(battleground, casualMode: false);
+        Assert.True(projectile.Collides(target));
+    }
+
+    [Fact]
     public void BossOwner_ScalesDamageByBossScale()
     {
         var boss = new EnemyProjectile(0, 0, 0f, 1, damage: 1, size: 10, owner: "beaudis_shot");

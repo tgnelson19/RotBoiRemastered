@@ -43,6 +43,13 @@ public sealed class CleansingVent
 public sealed class Ache : Kage
 {
     public const int OrbitingArmCount = 3;
+    public const float MineDamage = 190;
+    public const float FieldDamage = 195;
+    public const float RingDamage = 200;
+    public const float BombDamage = 205;
+    public const float HeavyDamage = 230;
+    public const int ActiveThreatSoftCap = 28;
+    public const int PersistentThreatSoftCap = 16;
     protected override bool VisualSurvivalActive => MidpointSurvivalActive || FinaleActive || base.VisualSurvivalActive;
 
     public static readonly PathChaseBossConfig AcheConfig = KageConfig with
@@ -50,7 +57,7 @@ public sealed class Ache : Kage
         BossName = "ACHE", Subtitle = "THE UNCOMMANDED CORE", FinalBoss = true,
         OwnerPrefix = "ache_chemesthesis",
         FinalBodyColor = new Color(232, 112, 31), FinalAccentColor = new Color(54, 143, 218),
-        FinalBodyScale = 1.6, FinalCooldownSeconds = 1.45, FinalShotSpeed = .34, FinalShotScale = .27,
+        FinalBodyScale = 1.6, FinalCooldownSeconds = 1.8, FinalShotSpeed = .34, FinalShotScale = .27,
         MovementSpeed = .21,
         MovementModes = new[] { "chase", "path", "chase", "static", "path", "chase", "path", "static" },
         PhaseLabels = new[]
@@ -59,6 +66,7 @@ public sealed class Ache : Kage
             "AFTERSHOCK", "FRACTURE", "WHITE ACHE", "OVERLOAD",
         },
         FinalHealth = 280000, FinalContactDamage = 880, FinalRewardExperience = 840,
+        FinaleDuration = 28.0,
     };
 
     public static readonly SinSigilConfig AcheSinConfig = new(
@@ -67,7 +75,7 @@ public sealed class Ache : Kage
             "Ache answers an attacker that was never there.", "Three arms dispute where the border should be.",
             "The core recoils from a future that never happened.", "No command survives contact with the storm.",
             "Unclaimed ground is punished for trespass.", "Power splits wherever obedience should begin.",
-            "Every warning points toward a different phantom.", "Forty seconds of power without a master.",
+            "Every warning points toward a different phantom.", "Twenty-eight seconds of power without a master.",
         },
         PhaseColors: new[]
         {
@@ -443,14 +451,21 @@ public sealed class Ache : Kage
         float survivalSpread = VisualSurvivalActive ? 1.58f : 1f;
         float oscillation = 1f + MathF.Sin(Age * .09f) * .08f + attackPulse * .12f;
         float coreExtent = Size * .29f * oscillation;
-        Vector2 jittered = center + new Vector2(MathF.Sin(Age * .19f) * 2.8f, MathF.Sin(Age * .137f + 1.1f) * 2.4f);
+        Vector2 jittered = center + new Vector2(
+            MathF.Sin(Age * .031f) * 4.2f + MathF.Sin(Age * .007f) * 3.4f,
+            MathF.Sin(Age * .023f + 1.1f) * 3.8f);
 
         var arms = new List<(Vector2 Center, float Angle, float Depth)>();
         for (int index = 0; index < OrbitingArmCount; index++)
         {
-            float angle = Age * (.028f + index * .002f) + index * MathF.Tau / OrbitingArmCount;
-            float radius = Size * (.68f + .08f * MathF.Sin(Age * .043f + index * 1.7f)) * survivalSpread;
-            var armCenter = jittered + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius * .54f);
+            float direction = index == 1 ? -1f : 1f;
+            float drift = Age * (.009f + index * .0025f) * direction;
+            float hesitation = MathF.Sin(Age * (.0034f + index * .0008f) + index * 1.9f) * .62f;
+            float angle = drift + hesitation + index * MathF.Tau / OrbitingArmCount;
+            float radius = Size * (.62f + .14f * MathF.Sin(Age * (.011f + index * .003f) + index * 1.7f)) * survivalSpread;
+            float droop = Size * (.06f + index * .035f) * (.5f + .5f * MathF.Sin(Age * .006f + index));
+            var armCenter = jittered + new Vector2(MathF.Cos(angle) * radius,
+                MathF.Sin(angle) * radius * .54f + droop);
             arms.Add((armCenter, angle, MathF.Sin(angle)));
             Primitives2D.Line(spriteBatch, jittered, armCenter, UiTheme.Ink, Math.Max(4, (int)(Size * .07f)));
             Primitives2D.Line(spriteBatch, jittered, armCenter, blue * .72f, Math.Max(1, (int)(Size * .025f)));
@@ -549,7 +564,7 @@ public sealed class Ache : Kage
         ["uncontaminated"] = PeakExposure <= .25,
     };
 
-    private void ContaminationPool(List<EnemyProjectile> sink, Vector2 position, float damage = 310, float lifetime = 9f)
+    private void ContaminationPool(List<EnemyProjectile> sink, Vector2 position, float damage = FieldDamage, float lifetime = 8f)
     {
         float size = Simulation.TileSize * (2.0f + (float)Rng.NextDouble() * .9f);
         sink.Add(new EnemyProjectile(position.X - size / 2f, position.Y - size / 2f, 0f, 0f, damage, size,
@@ -579,15 +594,98 @@ public sealed class Ache : Kage
     private void SlowWrongWayBurst(List<EnemyProjectile> sink, float aimed)
     {
         float wrong = aimed + MathF.PI + (float)(Rng.NextDouble() * 1.4 - .7);
-        int count = 5 + Rng.Next(4);
+        int count = 2 + Rng.Next(2);
         for (int index = 0; index < count; index++)
         {
-            float offset = (index - (count - 1) / 2f) * (.22f + (float)Rng.NextDouble() * .12f);
-            Shot(sink, wrong + offset, .22f + (float)Rng.NextDouble() * .18f, 315,
+            float offset = (index - (count - 1) / 2f) * (.3f + (float)Rng.NextDouble() * .18f);
+            var mine = Shot(sink, wrong + offset, .38f + (float)Rng.NextDouble() * .2f, MineDamage,
                 scale: .22f + (float)Rng.NextDouble() * .08f, shape: "mine", path: "mine",
-                lifetime: 16f, speedDecay: .015f, ownerSuffix: "wrong_way_hazard",
+                lifetime: 10f + (float)Rng.NextDouble() * 3f, speedDecay: .045f, ownerSuffix: "wrong_way_hazard",
                 affliction: "slow", afflictionDuration: 1.2, afflictionStrength: .1, exposure: .5);
+            mine.TelegraphDuration = .9f;
         }
+    }
+
+    private Vector2 ClampToMinefield(Vector2 position)
+    {
+        Vector2 offset = position - ArenaCenter;
+        float distance = offset.Length();
+        float limit = ArenaRadius * .82f;
+        return distance <= limit || distance <= 0
+            ? position
+            : ArenaCenter + offset / distance * limit;
+    }
+
+    private Vector2 RandomMinefieldPoint(float innerRadius = .18f, float outerRadius = .8f)
+    {
+        float angle = (float)(Rng.NextDouble() * MathF.Tau);
+        // Square root keeps random deposits spatially even instead of piling
+        // most of them near Ache at the center.
+        float unitRadius = MathF.Sqrt((float)Rng.NextDouble());
+        float radius = ArenaRadius * (innerRadius + (outerRadius - innerRadius) * unitRadius);
+        return ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+    }
+
+    private void PlantDormantMine(List<EnemyProjectile> sink, Vector2 position, string suffix,
+        float lifetime = 11f, float damage = MineDamage)
+    {
+        position = ClampToMinefield(position);
+        float size = Simulation.TileSize * (.48f + (float)Rng.NextDouble() * .16f);
+        sink.Add(new EnemyProjectile(position.X - size / 2f, position.Y - size / 2f, 0f, 0f,
+            damage, size, travelRange: float.PositiveInfinity, color: PhaseAccent,
+            shape: "mine", path: "mine", lifetime: lifetime + (float)Rng.NextDouble() * 2f,
+            owner: $"ache_chemesthesis_{suffix}", ignoreWalls: true)
+        {
+            TelegraphDuration = 1.15f + (float)Rng.NextDouble() * .45f,
+            Affliction = "slow",
+            AfflictionDuration = 1.15,
+            AfflictionStrength = .1,
+            Exposure = .55,
+        });
+    }
+
+    private void PlantLazyCluster(List<EnemyProjectile> sink)
+    {
+        Vector2 anchor = RandomMinefieldPoint(.2f, .72f);
+        float axis = (float)(Rng.NextDouble() * MathF.Tau);
+        for (int index = 0; index < 2; index++)
+        {
+            float side = index == 0 ? -1f : 1f;
+            float spacing = Simulation.TileSize * (1.05f + (float)Rng.NextDouble() * .65f);
+            PlantDormantMine(sink, anchor + new Vector2(MathF.Cos(axis), MathF.Sin(axis)) * spacing * side,
+                "lazy_cluster");
+        }
+    }
+
+    private void PlantCornerPocket(List<EnemyProjectile> sink, Vector2 player)
+    {
+        int escapeSide = Rng.Next(4);
+        float rotation = (float)(Rng.NextDouble() * .42 - .21);
+        for (int side = 0; side < 4; side++)
+        {
+            if (side == escapeSide)
+                continue;
+            float angle = side * MathF.PI / 2f + rotation + (float)(Rng.NextDouble() * .18 - .09);
+            float distance = Simulation.TileSize * (1.55f + (float)Rng.NextDouble() * .75f);
+            var offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
+            PlantDormantMine(sink, player + offset, "corner_pocket", 9.5f, FieldDamage);
+        }
+    }
+
+    private int ChoosePattern()
+    {
+        int[] choices = Phase switch
+        {
+            1 => new[] { 0, 0, 2, 6 },
+            2 => new[] { 0, 1, 1, 6 },
+            3 => new[] { 0, 2, 3, 6 },
+            4 => new[] { 0, 2, 3, 6, 7 },
+            5 => new[] { 2, 4, 4, 6, 7 },
+            6 => new[] { 1, 3, 4, 6, 7 },
+            7 => new[] { 1, 2, 4, 5, 6, 7 },
+            _ => new[] { 0, 1, 2, 3, 4, 5, 6, 7 },
+        };
+        return choices[Rng.Next(choices.Length)];
     }
 
     protected override void FireSinPattern(float playerX, float playerY, EnemyUpdateContext context)
@@ -595,8 +693,23 @@ public sealed class Ache : Kage
         var center = Center();
         float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
         var sink = context.ProjectileSink;
-        int availablePatterns = Phase >= 6 || MidpointSurvivalActive || FinaleActive ? 6 : Phase >= 3 ? 5 : 3;
-        int pattern = Rng.Next(availablePatterns);
+        int activeThreats = sink.Count(projectile =>
+            projectile.Owner?.StartsWith("ache_chemesthesis") == true && !projectile.RemFlag);
+        int persistentThreats = sink.Count(projectile =>
+            projectile.Owner?.StartsWith("ache_chemesthesis") == true &&
+            (projectile.Path is "mine" or "pool" or "bomb") && !projectile.RemFlag);
+        if (activeThreats >= ActiveThreatSoftCap)
+        {
+            // Ache is chaotically lazy, not infinitely productive: once the
+            // field has enough unresolved mistakes, the next attack is a
+            // visible hesitation while existing hazards do the work.
+            PatternRotation++;
+            MarkAttack(.34f);
+            return;
+        }
+        int pattern = persistentThreats >= PersistentThreatSoftCap
+            ? (Rng.Next(2) == 0 ? 1 : 3)
+            : ChoosePattern();
 
         switch (pattern)
         {
@@ -606,34 +719,35 @@ public sealed class Ache : Kage
             case 1: // A reactable prediction: the exact route is harmless for 1.25 seconds.
             {
                 float predictionError = (float)(Rng.NextDouble() * .5 - .25);
-                TelegraphLash(sink, center, aimed + predictionError, 720, "predicted_lash");
+                TelegraphLash(sink, center, aimed + predictionError, HeavyDamage, "predicted_lash");
                 if (Phase >= 5)
-                    TelegraphLash(sink, center, aimed + MathF.PI + predictionError, 680, "reverse_lash");
+                    TelegraphLash(sink, center, aimed + MathF.PI + predictionError, HeavyDamage - 10, "reverse_lash");
                 break;
             }
             case 2: // Bombs land around, not directly on, the current player position.
             {
-                int bombs = Phase >= 5 ? 3 : 2;
+                int bombs = Phase >= 5 ? 2 : 1;
                 for (int index = 0; index < bombs; index++)
                 {
                     float angle = (float)(Rng.NextDouble() * MathF.Tau);
                     float distance = Simulation.TileSize * (1.6f + (float)Rng.NextDouble() * 2.2f);
                     Bomb(sink, playerX + MathF.Cos(angle) * distance, playerY + MathF.Sin(angle) * distance,
-                        520, "discord_bomb");
+                        BombDamage, "discord_bomb", burstCount: 3, fuseDuration: 2.8f,
+                        burstShotDamage: MineDamage);
                 }
                 break;
             }
             case 3: // Uneven ring with a broad, randomly rotating opening.
             {
-                int count = 13;
+                int count = 10;
                 int gap = Rng.Next(count);
                 for (int index = 0; index < count; index++)
                 {
                     int distance = Math.Min((index - gap + count) % count, (gap - index + count) % count);
-                    if (distance <= 1)
+                    if (distance <= 2)
                         continue;
                     float direction = index * MathF.Tau / count + (float)Rng.NextDouble() * .08f;
-                    Shot(sink, direction, .34f + (index % 3) * .07f, 350, ownerSuffix: "discord_ring");
+                    Shot(sink, direction, .62f + (index % 3) * .09f, RingDamage, ownerSuffix: "discord_ring");
                 }
                 break;
             }
@@ -642,20 +756,30 @@ public sealed class Ache : Kage
                 float angle = (float)(Rng.NextDouble() * MathF.Tau);
                 float radius = ArenaRadius * (.18f + (float)Rng.NextDouble() * .55f);
                 ContaminationPool(sink, ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius);
-                SlowWrongWayBurst(sink, aimed);
+                var mine = Shot(sink, aimed + MathF.PI + (float)(Rng.NextDouble() * .8 - .4), .48f,
+                    MineDamage, scale: .25f, shape: "mine", path: "mine", lifetime: 10f,
+                    speedDecay: .045f, ownerSuffix: "contamination_debris", affliction: "slow",
+                    afflictionDuration: 1.1, afflictionStrength: .1, exposure: .5);
+                mine.TelegraphDuration = 1.0f;
                 break;
             }
-            default: // Crossed nerves: two curved warnings sweep only after being fully shown.
-                TelegraphLash(sink, center, aimed - .72f, 760, "crossed_nerves_left", .11f);
-                TelegraphLash(sink, center, aimed + .72f, 760, "crossed_nerves_right", -.11f);
-                ContaminationPool(sink, new Vector2(playerX, playerY), 325, 7.5f);
+            case 5: // Crossed nerves: two curved warnings sweep only after being fully shown.
+                TelegraphLash(sink, center, aimed - .72f, HeavyDamage, "crossed_nerves_left", .11f);
+                TelegraphLash(sink, center, aimed + .72f, HeavyDamage, "crossed_nerves_right", -.11f);
+                ContaminationPool(sink, new Vector2(playerX, playerY), FieldDamage, 7.5f);
+                break;
+            case 6: // Slothful construction: Ache drops two mines and leaves them to become a later problem.
+                PlantLazyCluster(sink);
+                break;
+            default: // Three random sides close slowly; the fourth remains an observable escape route.
+                PlantCornerPocket(sink, new Vector2(playerX, playerY));
                 break;
         }
 
-        if (FinaleActive && PatternRotation % 2 == 0)
+        if (FinaleActive && PatternRotation % 3 == 0)
         {
             float angle = (float)(Rng.NextDouble() * MathF.Tau);
-            TelegraphLash(sink, center, angle, 790, "overload_callback", Rng.Next(2) == 0 ? .13f : -.13f);
+            TelegraphLash(sink, center, angle, HeavyDamage, "overload_callback", Rng.Next(2) == 0 ? .13f : -.13f);
         }
         PatternRotation++;
         MarkAttack(.66f);
