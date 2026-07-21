@@ -33,6 +33,8 @@ public class RunStateTests : IDisposable
         Assert.Equal(40, state.ExpNeededForNextLevel);
         Assert.Empty(state.EnemyHolster);
         Assert.Empty(state.BulletHolster);
+        Assert.Equal(0, state.Fragments);
+        Assert.Empty(state.FragmentList);
         Assert.Equal(5, state.Equipment.Count);
         Assert.All(state.Equipment.Values, Assert.Null);
         Assert.Equal(8, state.Inventory.Count);

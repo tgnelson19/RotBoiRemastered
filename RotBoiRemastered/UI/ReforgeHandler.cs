@@ -10,7 +10,7 @@ namespace RotBoiRemastered.UI;
 public enum ReforgeOutcome { StillOpen, Closed }
 
 /// <summary>
-/// Full-screen, combat-pausing forge where stored run EXP can improve an
+/// Full-screen, combat-pausing forge where collected Fragments can improve an
 /// equipped item's grade or replace its affix. Rarity is intentionally never
 /// written by this class.
 /// </summary>
@@ -72,9 +72,9 @@ public sealed class ReforgeHandler
     public bool TryUpgradeGrade(RunState state)
     {
         var item = SelectedItem(state);
-        if (item is null || _selectedSlot is null || Items.GradeUpgradeCost(item) is not int cost || state.ExpCount < cost)
+        if (item is null || _selectedSlot is null || Items.GradeUpgradeCost(item) is not int cost || state.Fragments < cost)
             return false;
-        state.ExpCount -= cost;
+        state.Fragments -= cost;
         state.Equipment[_selectedSlot] = Items.UpgradeGrade(item);
         state.CombinePlayerStats();
         return true;
@@ -86,9 +86,9 @@ public sealed class ReforgeHandler
         if (item is null || _selectedSlot is null)
             return false;
         int cost = Items.ModifierRerollCost(item);
-        if (state.ExpCount < cost)
+        if (state.Fragments < cost)
             return false;
-        state.ExpCount -= cost;
+        state.Fragments -= cost;
         state.Equipment[_selectedSlot] = Items.RerollModifier(item, rng);
         state.CombinePlayerStats();
         return true;
@@ -132,9 +132,9 @@ public sealed class ReforgeHandler
             accentColor: UiTheme.Cream, keyHint: "ESC", textSize: Px(12));
         UiTheme.DrawText(spriteBatch, "THE GOLDEN FORGE", Px(34), UiTheme.Gold,
             new Vector2(_screenWidth / 2f, Px(30)), "midtop");
-        UiTheme.DrawText(spriteBatch, "SPEND STORED EXP // GRADE AND MODIFIER ONLY // RARITY IS PERMANENT", Px(12), UiTheme.Muted,
+        UiTheme.DrawText(spriteBatch, "SPEND 5 FRAGMENTS // GRADE OR MODIFIER // RARITY IS PERMANENT", Px(12), UiTheme.Muted,
             new Vector2(_screenWidth / 2f, Px(79)), "midtop");
-        UiTheme.DrawTag(spriteBatch, $"STORED EXP  {Math.Floor(state.ExpCount):N0}",
+        UiTheme.DrawTag(spriteBatch, $"FRAGMENTS  {state.Fragments:N0}",
             new Vector2(_screenWidth - Px(210), Px(31)), UiTheme.Gold, Px(11));
 
         foreach (var slot in SlotOrder)
@@ -162,13 +162,13 @@ public sealed class ReforgeHandler
             DrawSelectedItem(spriteBatch, selectedItem);
 
         int? upgradeCost = selectedItem is null ? null : Items.GradeUpgradeCost(selectedItem);
-        bool canUpgrade = upgradeCost is int gradeCost && state.ExpCount >= gradeCost;
-        bool canReroll = selectedItem is not null && state.ExpCount >= Items.ModifierRerollCost(selectedItem);
+        bool canUpgrade = upgradeCost is int gradeCost && state.Fragments >= gradeCost;
+        bool canReroll = selectedItem is not null && state.Fragments >= Items.ModifierRerollCost(selectedItem);
         string upgradeLabel = selectedItem is null ? "NO ITEM SELECTED"
-            : upgradeCost is int cost ? $"GRADE {selectedItem.Grade} → {Items.UpgradeGrade(selectedItem).Grade}  //  {cost} EXP"
+            : upgradeCost is int cost ? $"GRADE {selectedItem.Grade} → {Items.UpgradeGrade(selectedItem).Grade}  //  {cost} FRAGMENTS"
             : "GRADE S // MAXIMUM";
         string rerollLabel = selectedItem is null ? "NO ITEM SELECTED"
-            : $"REROLL {selectedItem.Modifier.ToUpperInvariant()}  //  {Items.ModifierRerollCost(selectedItem)} EXP";
+            : $"REROLL {selectedItem.Modifier.ToUpperInvariant()}  //  {Items.ModifierRerollCost(selectedItem)} FRAGMENTS";
         UiTheme.DrawButton(spriteBatch, _upgradeRect, upgradeLabel, mousePosition, mouseDown, canUpgrade,
             UiTheme.Gold, textSize: Px(13));
         UiTheme.DrawButton(spriteBatch, _rerollRect, rerollLabel, mousePosition, mouseDown, canReroll,

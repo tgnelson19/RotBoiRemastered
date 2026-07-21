@@ -39,13 +39,15 @@ port first since they were deliberately kept pygame-free in the Python original.
   `HardMode` is captured from the profile at run reset. It suppresses passive
   vitality recovery, lifesteal, and healing from maximum-health changes;
   `FillHealthForMilestone` is the single gameplay heal used when buying a level.
+  The run also owns a separate Fragment count and live Fragment pickups. This
+  forge currency resets with the run and never enters the stored-EXP economy.
 - `GameSession.cs` <- `character.py`'s "handling*"/"update*"/"draw*" free
   functions + `resetAllStats()`/`combarinoPlayerStats()`/
   `handleLevelingProcess()`. **Done for the non-boss gameplay loop**: bullet
   firing/movement, non-boss enemy spawning (via `Entities/EnemyCatalog.cs`
   directly, not gamePaths.py's per-path wrapper) and update/draw, bullet-
   enemy collision and death handling, stored-XP pickup plus explicit paid
-  leveling handoff, EXP-funded equipped-item reforging, loot
+  leveling handoff, Fragment-funded equipped-item reforging, loot
   crate pickup, player damage-taking. One session object owns the player,
   run state, battleground, camera, leveling screen, and (now)
   `UI/InformationSheet.cs`'s sidebar HUD, and orchestrates them each frame

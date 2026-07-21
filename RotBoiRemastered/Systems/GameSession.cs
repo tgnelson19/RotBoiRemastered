@@ -39,6 +39,7 @@ public sealed class GameSession
     private const int BossPortalInteractRadius = 40;
     private const double HostileMinDamage = 25;
     private const double HostileDamageFloorRatio = .1;
+    public const double FragmentDropChance = 1.0 / 3.0;
 
     public RunState State { get; } = new();
     public Player Player { get; private set; }
@@ -489,6 +490,7 @@ public sealed class GameSession
         State.EnemyProjectileHolster.Clear();
         State.DamageTextList.Clear();
         State.ExperienceList.Clear();
+        State.FragmentList.Clear();
         State.LootCrateList.Clear();
         State.NearbyCrate = null;
 
@@ -797,6 +799,8 @@ public sealed class GameSession
                 enemy.WorldX, enemy.WorldY,
                 State.XpMult * (enemy.ExpValue * (State.CurrentStage * State.ExperienceStageMod)),
                 enemy.Difficulty, rng, celebration: ReferenceEquals(enemy, State.ActiveBoss)));
+            if (RollFragmentDrop(rng))
+                State.FragmentList.Add(new FragmentPickup(enemy.WorldX, enemy.WorldY, rng));
 
             int volatileCount = enemy.VolatileBurst;
             if (volatileCount > 0)
@@ -892,12 +896,16 @@ public sealed class GameSession
     {
         foreach (var bubble in State.ExperienceList)
             bubble.Update((float)State.AuraSpeed, Battleground);
+        foreach (var fragment in State.FragmentList)
+            fragment.Update((float)State.AuraSpeed, Battleground);
     }
 
     public void DrawExperience(SpriteBatch spriteBatch)
     {
         foreach (var bubble in State.ExperienceList)
             bubble.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+        foreach (var fragment in State.FragmentList)
+            fragment.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
     }
 
     /// <summary>
@@ -934,6 +942,39 @@ public sealed class GameSession
                 bubble.NaturalSpawn = true;
             }
         }
+
+        foreach (var fragment in State.FragmentList.ToList())
+        {
+            var fragmentRect = fragment.WorldRect();
+            if (playerRect.Intersects(fragmentRect))
+            {
+                State.Fragments += 1;
+                State.FragmentList.Remove(fragment);
+                continue;
+            }
+
+            var auraRect = playerRect;
+            auraRect.Inflate((int)(2 * (State.Aura + FragmentPickup.Size)),
+                (int)(2 * (State.Aura + FragmentPickup.Size)));
+            if (auraRect.Intersects(fragmentRect))
+            {
+                fragment.NaturalSpawn = false;
+                float originX = Player.WorldX + (float)State.PlayerSize / 2f;
+                float originY = Player.WorldY + (float)State.PlayerSize / 2f;
+                float deltaX = fragment.WorldX - originX, deltaY = fragment.WorldY - originY;
+                fragment.Direction = MathF.Atan2(deltaY, deltaX);
+            }
+            else
+            {
+                fragment.NaturalSpawn = true;
+            }
+        }
+    }
+
+    public static bool RollFragmentDrop(Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        return rng.NextDouble() < FragmentDropChance;
     }
 
     public bool CanPurchaseLevelUp =>

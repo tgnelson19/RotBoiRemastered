@@ -405,7 +405,7 @@ public sealed class InformationSheet
     private int DrawStatus(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
     {
         Color healthColor = state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
-        var rect = Panel(spriteBatch, y, Px(136), healthColor);
+        var rect = Panel(spriteBatch, y, Px(152), healthColor);
         Bar(spriteBatch, rect, rect.Y + Px(7), "HEALTH", state.HealthPoints, state.MaxHealthPoints, healthColor,
             $"{state.HealthPoints} / {state.MaxHealthPoints}");
         double dashValue = Math.Max(0, state.DashCooldownMax - state.CurrDashCooldown);
@@ -416,9 +416,11 @@ public sealed class InformationSheet
         string pickText = canLevel ? "READY" : percent >= 82 ? $"SOON / {percent:F0}%" : $"{percent:F0}%";
         Bar(spriteBatch, rect, rect.Y + Px(63), "STORED EXP", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
             pickText);
+        DrawSheetText(spriteBatch, $"FRAGMENTS  {state.Fragments:N0}  //  FORGE COST  {Items.ReforgeFragmentCost}", Px(8),
+            UiTheme.Purple, new Vector2(rect.X + Px(11), rect.Y + Px(91)));
 
         int gap = Px(6);
-        int buttonY = rect.Y + Px(96);
+        int buttonY = rect.Y + Px(112);
         int buttonWidth = (rect.Width - Px(22) - gap) / 2;
         _levelUpButtonRect = new Rectangle(rect.X + Px(11), buttonY, buttonWidth, Px(30));
         _reforgeButtonRect = new Rectangle(_levelUpButtonRect.Right + gap, buttonY, buttonWidth, Px(30));

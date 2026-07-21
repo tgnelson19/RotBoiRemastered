@@ -25,7 +25,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `F` at the northern box in the Soul: toggle Hard Mode
 - `X` while paused after the midpoint boss: extract the current run and equipment
 - `Escape`: pause during a run or in the Soul; quit from the title screen
-- Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend that same EXP on equipped item grades or modifiers
+- Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend 5 collected Fragments on an equipped item's grade or modifier
 - `F11`: switch between windowed and borderless fullscreen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
 
@@ -64,6 +64,11 @@ item prepares that copy for the next run; it leaves storage when the run begins.
 Dying, restarting, or abandoning the run destroys carried items, while Soul-grid
 bonuses and other permanent progress remain intact. Hover equipment or nearby loot
 for its symbolic stat card, rarity-scaled tradeoffs, status effects, and flavor text.
+
+Enemies have a one-in-three chance to leave a gold Fragment pickup. Fragments
+follow the same collection aura as EXP but use a separate run counter; every
+grade increase and modifier reroll costs exactly five, leaving stored EXP solely
+for purchasing levels.
 
 The northern Soul station toggles Hard Mode for future runs. Hard Mode disables
 all healing except the full heal granted when EXP is spent on a level, and path

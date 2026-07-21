@@ -16,6 +16,12 @@ namespace RotBoiRemastered.Tests.Systems;
 [Collection("GameProfileState")]
 public class GameSessionTests
 {
+    private sealed class MinimumRandom : Random
+    {
+        public override double NextDouble() => 0;
+        public override int Next(int minValue, int maxValue) => minValue;
+    }
+
     private static GameSession MakeSession(int level = 1)
     {
         var session = new GameSession(Battleground.GenerateSound(), 1280, 720, new Random(1));
@@ -148,6 +154,30 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void ExpForPlayer_FragmentPickupIncreasesFragmentsWithoutChangingStoredExperience()
+    {
+        var session = MakeSession();
+        session.State.ExpCount = 12;
+        session.State.FragmentList.Add(new FragmentPickup(session.Player.WorldX, session.Player.WorldY, new Random(1)));
+
+        session.ExpForPlayer();
+
+        Assert.Equal(1, session.State.Fragments);
+        Assert.Equal(12, session.State.ExpCount);
+        Assert.Empty(session.State.FragmentList);
+    }
+
+    [Fact]
+    public void FragmentDropRoll_IsApproximatelyOneInThree()
+    {
+        var rng = new Random(882);
+        int drops = Enumerable.Range(0, 30_000).Count(_ => GameSession.RollFragmentDrop(rng));
+
+        Assert.InRange(drops, 9_700, 10_300);
+        Assert.Equal(1.0 / 3.0, GameSession.FragmentDropChance, precision: 8);
+    }
+
+    [Fact]
     public void ExpForPlayer_EnoughExperience_IsStoredUntilPlayerPurchasesLevelUp()
     {
         var session = MakeSession(level: 0);
@@ -182,7 +212,7 @@ public class GameSessionTests
     }
 
     [Fact]
-    public void HandleDamagingEnemies_KillsWeakEnemy_AndAwardsExperience()
+    public void HandleDamagingEnemies_KillsWeakEnemy_AndDropsExperienceAndFragmentOnWinningRoll()
     {
         var session = MakeSession();
         var enemy = new Enemy(session.Player.WorldX, session.Player.WorldY, speed: 0, size: 40,
@@ -192,10 +222,11 @@ public class GameSessionTests
             session.Player.WorldX, session.Player.WorldY, speed: 0, direction: 0f, bulletRange: 500,
             size: 40, color: Color.Gray, pierce: 1, damage: 1000, isCritical: false));
 
-        session.HandleDamagingEnemies(new Random(1));
+        session.HandleDamagingEnemies(new MinimumRandom());
 
         Assert.True(enemy.IsDead());
         Assert.Single(session.State.ExperienceList);
+        Assert.Single(session.State.FragmentList);
         Assert.NotEmpty(session.State.DamageTextList);
     }
 

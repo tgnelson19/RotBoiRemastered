@@ -142,18 +142,7 @@ public static class Items
             ["F"] = 34, ["D"] = 26, ["C"] = 19,
             ["B"] = 12, ["A"] = 7, ["S"] = 2,
         };
-    public static readonly IReadOnlyDictionary<string, int> GradeUpgradeCosts =
-        new Dictionary<string, int>
-        {
-            ["F"] = 35, ["D"] = 60, ["C"] = 100,
-            ["B"] = 160, ["A"] = 250,
-        };
-    public static readonly IReadOnlyDictionary<string, int> ModifierRerollCosts =
-        new Dictionary<string, int>
-        {
-            ["F"] = 25, ["D"] = 30, ["C"] = 40,
-            ["B"] = 55, ["A"] = 75, ["S"] = 100,
-        };
+    public const int ReforgeFragmentCost = 5;
 
     private static ItemStatModifier Add(string stat, double value) => new(stat, Additive: value);
     /// <summary>
@@ -505,13 +494,13 @@ public static class Items
 
     public static double GradePower(string grade) => GradePowers.GetValueOrDefault(grade, 1.0);
 
-    public static bool CanUpgradeGrade(ItemDrop drop) => GradeUpgradeCosts.ContainsKey(drop.Grade);
+    public static bool CanUpgradeGrade(ItemDrop drop) =>
+        GradeOrder.Contains(drop.Grade) && drop.Grade != GradeOrder[^1];
 
     public static int? GradeUpgradeCost(ItemDrop drop) =>
-        GradeUpgradeCosts.TryGetValue(drop.Grade, out int cost) ? cost : null;
+        CanUpgradeGrade(drop) ? ReforgeFragmentCost : null;
 
-    public static int ModifierRerollCost(ItemDrop drop) =>
-        ModifierRerollCosts.GetValueOrDefault(drop.Grade, ModifierRerollCosts["S"]);
+    public static int ModifierRerollCost(ItemDrop drop) => ReforgeFragmentCost;
 
     public static ItemDrop UpgradeGrade(ItemDrop drop)
     {

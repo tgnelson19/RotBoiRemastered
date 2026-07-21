@@ -197,6 +197,7 @@ public sealed class RunState
     public int CurrentLevel { get; set; }
     public int PendingLevelUps { get; set; }
     public double ExpCount { get; set; }
+    public int Fragments { get; set; }
     public double ExpNeededForNextLevel { get; set; }
     public double LevelScaleIncreaseFunction { get; set; }
 
@@ -238,6 +239,7 @@ public sealed class RunState
     public List<Enemy> EnemyHolster { get; } = new();
     public List<DamageText> DamageTextList { get; } = new();
     public List<ExperienceBubble> ExperienceList { get; } = new();
+    public List<FragmentPickup> FragmentList { get; } = new();
     public List<EnemyProjectile> EnemyProjectileHolster { get; } = new();
     public List<LootCrate> LootCrateList { get; } = new();
     public Dictionary<string, ItemDrop?> Equipment { get; private set; } = new();
@@ -303,6 +305,7 @@ public sealed class RunState
         CurrentLevel = 0;
         PendingLevelUps = 0;
         ExpCount = 0;
+        Fragments = 0;
         ExpNeededForNextLevel = 40;
         LevelScaleIncreaseFunction = 1.15;
 
@@ -338,6 +341,7 @@ public sealed class RunState
         EnemyHolster.Clear();
         DamageTextList.Clear();
         ExperienceList.Clear();
+        FragmentList.Clear();
         EnemyProjectileHolster.Clear();
         LootCrateList.Clear();
         NearbyCrate = null;

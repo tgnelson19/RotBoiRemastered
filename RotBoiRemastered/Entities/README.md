@@ -266,3 +266,5 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   - Core-Forged loot gives `LootCrate` a pulsing path-colored glow and orbiting
     particles. Equipped Core Forge types render as distinct concentric rings
     around `Player`; duplicate pieces of the same Core share one ring.
+  - `FragmentPickup.cs` is the gold forge-currency shard: it scatters from an
+    enemy death, then follows the same player aura behavior as experience.

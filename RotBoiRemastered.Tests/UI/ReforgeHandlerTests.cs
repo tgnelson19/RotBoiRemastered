@@ -17,9 +17,10 @@ public class ReforgeHandlerTests
     }
 
     [Fact]
-    public void UpgradeGrade_SpendsIncreasingCost_WithoutChangingRarityOrModifier()
+    public void UpgradeGrade_SpendsFiveFragments_WithoutChangingRarityModifierOrExperience()
     {
         var (state, handler) = EquippedWeapon();
+        state.Fragments = 10;
         state.ExpCount = 500;
 
         Assert.True(handler.TryUpgradeGrade(state));
@@ -28,19 +29,20 @@ public class ReforgeHandlerTests
         Assert.Equal("D", upgraded.Grade);
         Assert.Equal("Legendary", upgraded.Rarity);
         Assert.Equal("Bloody", upgraded.Modifier);
-        Assert.Equal(500 - Items.GradeUpgradeCosts["F"], state.ExpCount);
-        Assert.True(Items.GradeUpgradeCosts["D"] > Items.GradeUpgradeCosts["F"]);
+        Assert.Equal(5, state.Fragments);
+        Assert.Equal(500, state.ExpCount);
+        Assert.Equal(5, Items.GradeUpgradeCost(upgraded));
     }
 
     [Fact]
-    public void UpgradeGrade_StopsAtS_AndDoesNotSpendExperience()
+    public void UpgradeGrade_StopsAtS_AndDoesNotSpendFragments()
     {
         var (state, handler) = EquippedWeapon(grade: "S");
-        state.ExpCount = 500;
+        state.Fragments = 10;
 
         Assert.False(handler.TryUpgradeGrade(state));
 
-        Assert.Equal(500, state.ExpCount);
+        Assert.Equal(10, state.Fragments);
         Assert.Equal("S", state.Equipment["weapon"]!.Grade);
     }
 
@@ -48,8 +50,9 @@ public class ReforgeHandlerTests
     public void RerollModifier_ChangesAffixAndPreservesGradeAndRarity()
     {
         var (state, handler) = EquippedWeapon(grade: "B", modifier: "Bloody");
+        state.Fragments = 10;
         state.ExpCount = 500;
-        int cost = Items.ModifierRerollCosts["B"];
+        int cost = Items.ReforgeFragmentCost;
 
         Assert.True(handler.TryRerollModifier(state, new Random(8)));
         var rerolled = state.Equipment["weapon"]!;
@@ -57,21 +60,24 @@ public class ReforgeHandlerTests
         Assert.NotEqual("Bloody", rerolled.Modifier);
         Assert.Equal("B", rerolled.Grade);
         Assert.Equal("Legendary", rerolled.Rarity);
-        Assert.Equal(500 - cost, state.ExpCount);
+        Assert.Equal(10 - cost, state.Fragments);
+        Assert.Equal(500, state.ExpCount);
         Assert.Contains(Items.AffixesFor("weapon"), affix => affix.Name == rerolled.Modifier);
     }
 
     [Fact]
-    public void ReforgeFailsCleanlyWhenStoredExperienceIsInsufficient()
+    public void ReforgeFailsCleanlyWhenFragmentsAreInsufficientEvenWithStoredExperience()
     {
         var (state, handler) = EquippedWeapon();
-        state.ExpCount = 1;
+        state.Fragments = 4;
+        state.ExpCount = 500;
         var before = state.Equipment["weapon"];
 
         Assert.False(handler.TryUpgradeGrade(state));
         Assert.False(handler.TryRerollModifier(state, new Random(2)));
         Assert.Same(before, state.Equipment["weapon"]);
-        Assert.Equal(1, state.ExpCount);
+        Assert.Equal(4, state.Fragments);
+        Assert.Equal(500, state.ExpCount);
     }
 
     [Fact]
@@ -79,7 +85,7 @@ public class ReforgeHandlerTests
     {
         var (state, handler) = EquippedWeapon(grade: "F", modifier: "Bloody");
         state.Equipment["weapon"] = state.Equipment["weapon"]! with { CoreForge = "dissonance" };
-        state.ExpCount = 500;
+        state.Fragments = 10;
 
         Assert.True(handler.TryUpgradeGrade(state));
         Assert.True(handler.TryRerollModifier(state, new Random(3)));

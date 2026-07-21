@@ -16,8 +16,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
 - `LevelingHandler.cs` <- `levelingHandler.py`. **Done** -- upgrade-card
   draft screen, reroll button, stat-preview/recommendation logic.
 - `ReforgeHandler.cs`. **Done** -- full-screen equipped-item selection with
-  EXP-funded grade upgrades and modifier rerolls; rarity and Core Forge are
-  read-only and remain attached through either operation.
+  flat five-Fragment grade upgrades and modifier rerolls; rarity and Core
+  Forge are read-only and remain attached through either operation. Stored EXP
+  is reserved for level purchases and is never consumed here.
 - `SoulHub.cs` includes the northern Hard Mode station. Its persisted toggle
   controls healing, completion rewards, and path-matched Core-Forged drops.
   Each path portal's confirmation panel also provides mouse or A/D/arrow NG+
