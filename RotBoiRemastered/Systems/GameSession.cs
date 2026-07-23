@@ -450,7 +450,8 @@ public sealed class GameSession
             if (encounterResult is null)
             {
                 var patrol = EnemyCatalog.Shared.SpawnPatrol(State.CurrentLevel, remainingThreat, Battleground,
-                    PlayerWorldCenter, AwarenessRange, ScreenHeight, State.EnemyHolster, rng);
+                    PlayerWorldCenter, AwarenessRange, ScreenHeight, State.EnemyHolster, rng,
+                    contentPath: GamePaths.Active().Key);
                 if (patrol.HasValue)
                     encounterResult = (patrol.Value.Encounter.Key, patrol.Value.Group);
             }
@@ -673,19 +674,24 @@ public sealed class GameSession
     {
         var spawnedProjectiles = new List<EnemyProjectile>();
         bool casualMode = GameProfile.Profile.CasualMode;
-        (Vector2 Center, float Radius)? arena = State.ActiveBoss switch
+        (Vector2 Center, float Radius)? radialArena = State.ActiveBoss switch
         {
             Dissonance dissonance => (dissonance.ArenaCenter, dissonance.ArenaRadius),
-            PathChaseBoss pathBoss => (pathBoss.ArenaCenter, pathBoss.ArenaRadius),
             _ => null,
         };
+        var pathArena = State.ActiveBoss as PathChaseBoss;
         bool bossDying = DeathSpectacleActive(State.ActiveBoss);
         foreach (var projectile in State.EnemyProjectileHolster)
         {
-            if (arena.HasValue)
+            var center = new Vector2(projectile.WorldX + projectile.Size / 2f, projectile.WorldY + projectile.Size / 2f);
+            if (pathArena is not null)
             {
-                var center = new Vector2(projectile.WorldX + projectile.Size / 2f, projectile.WorldY + projectile.Size / 2f);
-                if (Vector2.Distance(center, arena.Value.Center) > arena.Value.Radius * 1.04f)
+                if (!pathArena.ProjectileWithinArenaBounds(center))
+                    projectile.RemFlag = true;
+            }
+            else if (radialArena.HasValue)
+            {
+                if (Vector2.Distance(center, radialArena.Value.Center) > radialArena.Value.Radius * 1.04f)
                     projectile.RemFlag = true;
             }
             if (bossDying)

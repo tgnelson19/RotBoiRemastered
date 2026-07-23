@@ -27,6 +27,10 @@ public sealed class Malady : PhantasiaBoss
 {
     public const int IdleBodyCubeCount = 10;
     public const int FinaleBodyCubeCount = 18;
+    public const int InitialApotheosisCrownPetals = 6;
+    public const int MinimumDamagePhaseDeclarations = 2;
+    public const int ActiveThreatSoftCap = 132;
+    private const int PatternThreatReservation = 28;
     protected override bool UsesDreamRules => false;
     protected override bool UsesSharedDeathSpectacle => false;
     protected override bool VisualSurvivalActive => SurvivalActive || FinaleActive || base.VisualSurvivalActive;
@@ -78,6 +82,8 @@ public sealed class Malady : PhantasiaBoss
     private double _poolCooldown = 1.2;
     private readonly float[] _pillarMotion = { 0f, 0f };
     private float _pillarMotionStrength;
+    private bool _patternAdmissionOpen = true;
+    private bool _patternDeclaredThisFrame;
 
     public bool SurvivalActive { get; private set; }
     public double SurvivalRemaining { get; private set; }
@@ -88,6 +94,11 @@ public sealed class Malady : PhantasiaBoss
     public bool Collapsing => Dying;
     public double CollapseDuration => DeathDuration;
     public double CollapseRemaining => DeathRemaining;
+    public int PhaseDeclarations { get; private set; }
+    public int ApotheosisCrownPetalCount => FinaleActive
+        ? Math.Min(FinaleBodyCubeCount, InitialApotheosisCrownPetals +
+            (int)(FinaleProgress * (FinaleBodyCubeCount - InitialApotheosisCrownPetals + 1)))
+        : 0;
 
     public Malady(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, MaladyConfig, MaladySigilConfig, rng)
@@ -100,11 +111,23 @@ public sealed class Malady : PhantasiaBoss
     protected override void SetDreamPhase(int phase)
     {
         base.SetDreamPhase(phase);
+        PhaseDeclarations = 0;
         _sequenceQueue.Clear();
         ClearMaladyPortals();
         _poolCooldown = .8;
         SurvivalActive = SurvivalPhases.TryGetValue(Phase, out var duration);
         SurvivalRemaining = duration;
+    }
+
+    protected override void UpdatePhase()
+    {
+        if (DebugPhaseLocked || FinaleActive || SurvivalActive || Dying)
+            return;
+        int count = Config.PhaseLabels.Count;
+        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
+        int desired = Math.Min(count, (int)((1.0 - ratio) * count + 1e-9) + 1);
+        if (desired != Phase && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+            SetDreamPhase(desired);
     }
 
     public override void DebugSetPhase(int phase)
@@ -118,7 +141,44 @@ public sealed class Malady : PhantasiaBoss
     {
         if (SurvivalActive || FinaleActive || Dying)
             return new HitResult(false, false, 0, true);
+        if (Phase == Config.PhaseLabels.Count &&
+            PhaseDeclarations < MinimumDamagePhaseDeclarations)
+        {
+            double permitted = Math.Max(0, Hp - 1);
+            if (permitted <= 0)
+                return new HitResult(false, false, 0, true);
+            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+        }
         return base.TakeDamage(amount, partId, source);
+    }
+
+    private static int ActiveMaladyThreats(List<EnemyProjectile> sink) =>
+        sink.Count(projectile => !projectile.RemFlag &&
+            projectile.Owner?.StartsWith("malady_phantasia") == true);
+
+    private static EnemyUpdateContext WithProjectileSink(
+        EnemyUpdateContext source, List<EnemyProjectile> sink) => new()
+    {
+        PlayerWorldX = source.PlayerWorldX,
+        PlayerWorldY = source.PlayerWorldY,
+        Battleground = source.Battleground,
+        ProjectileSink = sink,
+        AllEnemies = source.AllEnemies,
+        ExperienceBubbles = source.ExperienceBubbles,
+        Camera = source.Camera,
+        BossAfflictions = source.BossAfflictions,
+        PlayerBuildSnapshot = source.PlayerBuildSnapshot,
+        PlayerBullets = source.PlayerBullets,
+        DreamState = source.DreamState,
+    };
+
+    private bool CommitStagedThreats(List<EnemyProjectile> sink, List<EnemyProjectile> staged)
+    {
+        if (ActiveMaladyThreats(sink) + staged.Count > ActiveThreatSoftCap)
+            return false;
+        sink.AddRange(staged);
+        return true;
     }
 
     private string AttackPoseForPhase() => Phase switch
@@ -259,14 +319,16 @@ public sealed class Malady : PhantasiaBoss
             return;
         }
 
+        var stagedThreats = new List<EnemyProjectile>();
+        var stagedContext = WithProjectileSink(context, stagedThreats);
         EnsureMaladyPortals();
-        UpdateSequences(context.ProjectileSink, dt);
+        UpdateSequences(stagedThreats, dt);
         foreach (var portal in ProjectilePortals)
         {
             portal.OrbitCenter = ArenaCenter;
             portal.Angle += portal.AngularSpeed * (float)dt;
             portal.Place();
-            portal.UpdateBursts(context.ProjectileSink, (float)dt);
+            portal.UpdateBursts(stagedThreats, (float)dt);
         }
 
         if (EntranceRemaining <= 0 && ActTransitionTimer <= 0)
@@ -278,7 +340,7 @@ public sealed class Malady : PhantasiaBoss
                 float angle = (float)(Rng.NextDouble() * 2 * Math.PI);
                 float radius = ArenaRadius * (float)(.18 + Rng.NextDouble() * (.64 - .18));
                 var position = ArenaCenter + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
-                SpawnPool(context.ProjectileSink, position, duration: SurvivalActive ? 5.8 : 7.5, scale: .82 + Rng.NextDouble() * .36);
+                SpawnPool(stagedThreats, position, duration: SurvivalActive ? 5.8 : 7.5, scale: .82 + Rng.NextDouble() * .36);
                 _poolCooldown = poolRate;
             }
             if (SurvivalActive && !DebugPhaseLocked)
@@ -293,7 +355,25 @@ public sealed class Malady : PhantasiaBoss
             }
         }
 
-        base.Update(context);
+        _patternDeclaredThisFrame = false;
+        int sequenceCountBeforePattern = _sequenceQueue.Count;
+        _patternAdmissionOpen =
+            ActiveMaladyThreats(context.ProjectileSink) + stagedThreats.Count +
+            PatternThreatReservation <= ActiveThreatSoftCap;
+        base.Update(stagedContext);
+        bool committed = CommitStagedThreats(context.ProjectileSink, stagedThreats);
+        if (_patternDeclaredThisFrame)
+        {
+            if (committed)
+            {
+                PhaseDeclarations++;
+            }
+            else if (_sequenceQueue.Count > sequenceCountBeforePattern)
+            {
+                _sequenceQueue.RemoveRange(sequenceCountBeforePattern,
+                    _sequenceQueue.Count - sequenceCountBeforePattern);
+            }
+        }
         UpdatePillarMotion(previousX, previousY, context.Camera);
         float anticipationWindow = Simulation.FrameRate * .34f;
         if (EntranceRemaining <= 0 && ActTransitionTimer <= 0 && AttackCooldown > 0 && AttackCooldown <= anticipationWindow)
@@ -335,6 +415,12 @@ public sealed class Malady : PhantasiaBoss
 
     protected override void FirePhantasiaPattern(float playerX, float playerY, EnemyUpdateContext context)
     {
+        if (!_patternAdmissionOpen)
+        {
+            MarkAttack(.2f);
+            return;
+        }
+        _patternDeclaredThisFrame = true;
         var center = Center();
         var target = new Vector2(playerX, playerY);
         float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
@@ -881,6 +967,48 @@ public sealed class Malady : PhantasiaBoss
         return (offset, angle, offset.Y);
     }
 
+    /// <summary>
+    /// Apotheosis grows an impossible inspiration flower behind the Empress.
+    /// Its petals are non-damaging visual geometry, allowing the finale to
+    /// become more extravagant without consuming the projectile budget.
+    /// </summary>
+    private void DrawApotheosisMandala(SpriteBatch spriteBatch, Vector2 core, Color luminous)
+    {
+        int petals = ApotheosisCrownPetalCount;
+        if (petals == 0)
+            return;
+        float progress = (float)FinaleProgress;
+        float innerRadius = Size * (.7f + progress * .18f);
+        float outerRadius = Size * (1.05f + progress * .55f);
+        for (int index = 0; index < petals; index++)
+        {
+            float angle = index * MathF.Tau / petals + Age *
+                (index % 2 == 0 ? .0028f : -.0022f);
+            var direction = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+            var tangent = new Vector2(-direction.Y, direction.X);
+            var inner = core + direction * innerRadius;
+            var outer = core + direction * outerRadius;
+            float width = Size * (.08f + .035f * MathF.Sin(index * 1.7f + Age * .01f));
+            var petal = new[]
+            {
+                inner - tangent * width,
+                outer,
+                inner + tangent * width,
+                core + direction * innerRadius * .78f,
+            };
+            Color color = index % 3 == 0 ? UiTheme.Cream : luminous;
+            Primitives2D.FillPolygon(spriteBatch, petal, color * (.08f + progress * .08f));
+            Primitives2D.PolygonOutline(spriteBatch, petal, color * (.42f + progress * .28f),
+                index % 4 == 0 ? 3 : 2);
+        }
+        for (int ring = 0; ring < 3; ring++)
+        {
+            float radius = Size * (.82f + ring * .28f + progress * (.12f + ring * .08f));
+            Primitives2D.CircleOutline(spriteBatch, core, radius,
+                (ring == 1 ? UiTheme.Cream : luminous) * (.22f + progress * .18f), 2 + ring);
+        }
+    }
+
     protected override void DrawDreamBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
@@ -908,6 +1036,7 @@ public sealed class Malady : PhantasiaBoss
             return;
         }
 
+        DrawApotheosisMandala(spriteBatch, core, luminous);
         BossVisuals.OscillatingAura(spriteBatch, core, Age, Size * .72f * spectacle, luminous,
             FinaleActive ? 8 : 5, .78f);
         for (int wave = 0; wave < (FinaleActive ? 7 : 4); wave++)
@@ -920,7 +1049,7 @@ public sealed class Malady : PhantasiaBoss
                 (wave % 2 == 0 ? luminous : UiTheme.Cream) * (.22f + wave * .045f), 2 + wave % 2);
         }
 
-        int cubeCount = FinaleActive ? FinaleBodyCubeCount : SurvivalActive ? 14 : IdleBodyCubeCount;
+        int cubeCount = FinaleActive ? ApotheosisCrownPetalCount : SurvivalActive ? 14 : IdleBodyCubeCount;
         var floating = new List<(Vector2 Center, float Angle, float Depth, float Extent)>();
         int constellationPhase = FinaleActive
             ? (PatternRotation % 3) switch { 0 => 2, 1 => 5, _ => 8 }

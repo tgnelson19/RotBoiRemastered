@@ -1,180 +1,259 @@
+using Microsoft.Xna.Framework;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
 
-/// <summary>Ported from bossTypes.py's Beaudis (no dedicated Python test file to mirror -- tests/test_beaudis_boss.py is almost entirely about Dissonance; see Entities/README.md).</summary>
 public class BeaudisTests
 {
-    private static Beaudis MakeBoss() => new(100, 100, awarenessRange: 500f, rng: new Random(1));
+    private static Battleground MakeBattleground() => Battleground.GenerateSound();
 
-    private static EnemyUpdateContext MakeContext(Beaudis boss, float playerX, float playerY) => new()
+    private static Beaudis MakeBoss(Battleground? battleground = null, int seed = 1)
     {
-        PlayerWorldX = playerX, PlayerWorldY = playerY, Battleground = EntityTestFixtures.SmallOpenRoom(),
-    };
+        battleground ??= MakeBattleground();
+        float size = Simulation.TileSize * 1.55f;
+        return new Beaudis(
+            battleground.Width * Simulation.TileSize / 2f - size / 2f,
+            battleground.Height * Simulation.TileSize / 2f - size / 2f,
+            awarenessRange: 500f, rng: new Random(seed));
+    }
+
+    private static EnemyUpdateContext MakeContext(Beaudis boss, Battleground battleground,
+        Vector2? offset = null)
+    {
+        Vector2 playerOffset = offset ?? new Vector2(Simulation.TileSize * 8f, 0);
+        return new EnemyUpdateContext
+        {
+            PlayerWorldX = boss.WorldX + boss.Size / 2f + playerOffset.X,
+            PlayerWorldY = boss.WorldY + boss.Size / 2f + playerOffset.Y,
+            Battleground = battleground,
+        };
+    }
+
+    private static void Step(Beaudis boss, EnemyUpdateContext context)
+    {
+        boss.Update(context);
+        var children = new List<EnemyProjectile>();
+        foreach (var projectile in context.ProjectileSink.ToList())
+        {
+            projectile.Update(context.Battleground, casualMode: false);
+            children.AddRange(projectile.SpawnedProjectiles);
+            projectile.SpawnedProjectiles.Clear();
+        }
+        context.ProjectileSink.RemoveAll(projectile => projectile.RemFlag);
+        context.ProjectileSink.AddRange(children);
+    }
+
+    private static void ReachDeclarations(Beaudis boss, EnemyUpdateContext context, int count)
+    {
+        for (int tick = 0; tick < 1800 && boss.PhaseDeclarations < count; tick++)
+            Step(boss, context);
+        Assert.True(boss.PhaseDeclarations >= count);
+    }
+
+    private static void ClearPhaseProtection(Beaudis boss, EnemyUpdateContext context)
+    {
+        for (int tick = 0; tick < 70; tick++)
+            Step(boss, context);
+        Assert.Equal(0, boss.PhaseDeclarations);
+    }
+
+    private sealed record Pressure(int Peak, int Overflow, int Hits, IReadOnlySet<string> Owners);
+
+    private static Pressure SimulatePressure(int phase, double duration = 15.0)
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = MakeBoss(battleground, 100 + phase);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(phase);
+        var context = MakeContext(boss, battleground);
+        int playerSize = (int)(Simulation.TileSize * .75f);
+        var playerRect = new Rectangle(
+            (int)(context.PlayerWorldX - playerSize / 2f),
+            (int)(context.PlayerWorldY - playerSize / 2f),
+            playerSize, playerSize);
+        var hitThreats = new HashSet<EnemyProjectile>();
+        var owners = new HashSet<string>();
+        int peak = 0;
+        int overflow = 0;
+
+        for (int tick = 0; tick < duration * Simulation.FrameRate; tick++)
+        {
+            Step(boss, context);
+            foreach (var projectile in context.ProjectileSink)
+            {
+                if (projectile.Collides(playerRect) && hitThreats.Add(projectile) &&
+                    projectile.Owner is not null)
+                    owners.Add(projectile.Owner);
+            }
+            peak = Math.Max(peak, context.ProjectileSink.Count);
+            if (context.ProjectileSink.Count > GameSession.MaxBossProjectiles)
+                overflow += context.ProjectileSink.Count - GameSession.MaxBossProjectiles;
+        }
+        return new Pressure(peak, overflow, hitThreats.Count, owners);
+    }
 
     [Fact]
-    public void Constructor_SetsBossIdentityAndInitialPhase()
+    public void Constructor_UsesAuthoredSoundMidpointStatsAndFiveMovements()
     {
         var boss = MakeBoss();
-        Assert.Equal(26000, boss.Hp);
-        Assert.Equal(26000, boss.MaxHp);
+
+        Assert.Equal(50000, boss.MaxHp);
+        Assert.Equal(220, boss.Damage);
         Assert.Equal(1, boss.Phase);
         Assert.Equal("AWAKEN", boss.PhaseLabel);
+        Assert.Equal(14.0, boss.SurvivalDuration);
+        Assert.Equal(2, Beaudis.MinimumDamagePhaseDeclarations);
     }
 
     [Fact]
-    public void TakeDamage_BuildsStagger_WithoutReachingThreshold()
+    public void FourDamageMovementsRequireTwoDeclarationsAtEveryGate()
     {
-        var boss = MakeBoss();
-        var result = boss.TakeDamage(2);
-        Assert.True(result.Applied);
-        Assert.Equal(2, result.Amount);
-        Assert.Equal(26000 - 2, boss.Hp);
-        Assert.Equal(4.0, boss.Stagger); // max(minimumStaggerPerHit=4, 2*.014=.028) == 4
-        Assert.False(boss.IsStaggered);
-    }
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = MakeBoss(battleground);
+        boss.EntranceRemaining = 0;
+        var context = MakeContext(boss, battleground);
 
-    [Fact]
-    public void TakeDamage_ReachingMaxStagger_TriggersStaggerState()
-    {
-        var boss = MakeBoss();
-        for (int i = 0; i < 22; i++) // 22 * 4 == 88 < 90; one more crosses 90
+        int[] expectedFloors =
+        {
+            (int)Math.Round(boss.MaxHp * .75),
+            (int)Math.Round(boss.MaxHp * .50),
+            (int)Math.Round(boss.MaxHp * .25),
+            1,
+        };
+        int[] phases = { 1, 2, 4, 5 };
+
+        for (int index = 0; index < phases.Length; index++)
+        {
+            context.ProjectileSink.Clear();
+            boss.DebugSetPhase(phases[index]);
+            boss.DebugPhaseLocked = false;
+            ClearPhaseProtection(boss, context);
+            boss.TakeDamage(boss.MaxHp);
+            Assert.Equal(expectedFloors[index], boss.Hp);
+            Assert.Equal(phases[index], boss.Phase);
+            Assert.False(boss.Dying);
+
+            ReachDeclarations(boss, context, Beaudis.MinimumDamagePhaseDeclarations);
             boss.TakeDamage(1);
-        Assert.False(boss.IsStaggered);
+            if (phases[index] == 5)
+                Assert.True(boss.Dying);
+            else
+                Assert.Equal(phases[index] + 1, boss.Phase);
+        }
+    }
+
+    [Fact]
+    public void EndureIsOneHalfHealthSurvivalThenOpensPress()
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = MakeBoss(battleground, 4);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(2);
+        boss.DebugPhaseLocked = false;
+        var context = MakeContext(boss, battleground);
+        ClearPhaseProtection(boss, context);
+
+        boss.TakeDamage(boss.MaxHp);
+        ReachDeclarations(boss, context, 2);
         boss.TakeDamage(1);
-        Assert.True(boss.IsStaggered);
-        Assert.True(boss.TransitionCleanupRequested);
-        Assert.Null(boss.TransitionCleanupOwner); // Beaudis's isolated encounter clears every enemy projectile, not one owner
+
+        Assert.Equal(3, boss.Phase);
+        Assert.Equal("ENDURE", boss.PhaseLabel);
+        Assert.True(boss.SurvivalActive);
+        Assert.Equal(4, boss.ProjectilePortals.Count);
+        Assert.Equal(14.0, boss.SurvivalRemaining);
+        Assert.True(boss.TakeDamage(1000).Blocked);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 14 + 5; tick++)
+            Step(boss, context);
+
+        Assert.False(boss.SurvivalActive);
+        Assert.Equal(4, boss.Phase);
+        Assert.Equal("PRESS", boss.PhaseLabel);
     }
 
     [Fact]
-    public void TakeDamage_WhileStaggered_AppliesBonusMultiplier()
+    public void StaggerStillRewardsSustainedDirectHits()
     {
         var boss = MakeBoss();
-        for (int i = 0; i < 23; i++)
+        for (int hit = 0; hit < 22; hit++)
             boss.TakeDamage(1);
+        Assert.False(boss.IsStaggered);
+
+        boss.TakeDamage(1);
+
         Assert.True(boss.IsStaggered);
         int hpBefore = boss.Hp;
-
         var result = boss.TakeDamage(10);
-
-        Assert.Equal(12, result.Amount); // round(10 * 1.25) == round(12.5) -> 12 (banker's rounding, matches Python's round())
+        Assert.Equal(12, result.Amount);
         Assert.Equal(hpBefore - 12, boss.Hp);
     }
 
-    [Fact]
-    public void TakeDamage_DuringPhaseProtectionWindow_IsBlocked()
+    [Theory]
+    [InlineData(1, "beaudis_call")]
+    [InlineData(2, "beaudis_answer_left")]
+    [InlineData(4, "beaudis_press")]
+    [InlineData(5, "beaudis_shot")]
+    public void EachDamageMovementHasItsOwnSoundPhrase(int phase, string expectedOwner)
     {
-        var boss = MakeBoss();
-        boss.DebugSetPhase(2); // sets phaseProtectionTimer = .55
-        int hpBefore = boss.Hp;
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = MakeBoss(battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(phase);
+        var context = MakeContext(boss, battleground);
 
-        var result = boss.TakeDamage(1000);
+        ReachDeclarations(boss, context, 1);
 
-        Assert.True(result.Blocked);
-        Assert.False(result.Applied);
-        Assert.Equal(hpBefore, boss.Hp);
+        Assert.Contains(context.ProjectileSink, projectile => projectile.Owner == expectedOwner);
+        Assert.All(context.ProjectileSink.Where(projectile =>
+            projectile.Owner?.StartsWith("beaudis") == true),
+            projectile => Assert.InRange(projectile.Damage, 90f, 100f));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void EveryMovementThreatensAnOuterPlayerWithinItsAuthoredBudget(int phase)
+    {
+        var pressure = SimulatePressure(phase);
+
+        Assert.True(pressure.Hits > 0,
+            $"Beaudis phase {phase} never threatened the stationary outer player. Peak={pressure.Peak}.");
+        Assert.InRange(pressure.Peak, 1, 48);
+        Assert.Equal(0, pressure.Overflow);
     }
 
     [Fact]
-    public void TakeDamage_CrossingSurvivalThreshold_EntersSurvivalPhaseFive()
+    public void FinaleFadeCompletesBeforeTheMidpointCanBeRemoved()
     {
-        var boss = MakeBoss();
-        // First hit lands mid-phase-protection-free; drop HP straight to the first survival gate (2/3 of 26000).
-        var result = boss.TakeDamage(26000 - (int)(26000 * (2.0 / 3)) + 1);
-        Assert.True(result.Applied);
-        Assert.Equal(5, boss.Phase);
-        Assert.True(boss.SurvivalActive);
-        Assert.Equal(SurvivalHealthFor(26000, 2.0 / 3), boss.Hp);
-    }
-
-    private static int SurvivalHealthFor(int maxHp, double ratio) => Math.Max(1, (int)Math.Round(maxHp * ratio));
-
-    [Fact]
-    public void DebugSetPhase_ToFive_ActivatesSurvivalWithFinalePortals()
-    {
-        var boss = MakeBoss();
-        boss.DebugSetPhase(5);
-        Assert.Equal(5, boss.Phase);
-        Assert.True(boss.SurvivalActive);
-        Assert.Equal(4, boss.ProjectilePortals.Count);
-        Assert.Equal("ENDURE", boss.PhaseLabel);
-    }
-
-    [Fact]
-    public void DebugSetPhase_SamePhaseAsCurrent_StillReappliesIt()
-    {
-        var boss = MakeBoss();
-        Assert.Equal(1, boss.Phase);
-        boss.DebugSetPhase(1); // Python: phase == self.phase forces self.phase = 0 first so _set_phase doesn't no-op
-        Assert.Equal(1, boss.Phase);
-        Assert.Equal(2.4, boss.PhaseAnnouncementTimer);
-    }
-
-    [Fact]
-    public void Update_DuringEntrance_StaysPutUntilEntranceElapses()
-    {
-        var boss = MakeBoss();
-        var context = MakeContext(boss, 300, 100);
-        float startX = boss.WorldX;
-        boss.Update(context); // one 1/120s tick barely dents the 1.25s entrance
-        Assert.True(boss.EntranceRemaining > 0);
-        Assert.Equal(startX, boss.WorldX); // no movement/attack processed during entrance
-    }
-
-    [Fact]
-    public void Update_WhileSurvivalActive_CountsDownAndFiresFromPortals()
-    {
-        var boss = MakeBoss();
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = MakeBoss(battleground);
         boss.EntranceRemaining = 0;
         boss.DebugSetPhase(5);
-        double remainingBefore = boss.SurvivalRemaining;
-        var context = MakeContext(boss, 300, 100);
+        boss.DebugPhaseLocked = false;
+        var context = MakeContext(boss, battleground);
+        ReachDeclarations(boss, context, 2);
 
-        for (int i = 0; i < 120; i++) // ~1 second, enough for the .75s initial portal cooldown to fire
-            boss.Update(context);
-
-        Assert.True(boss.SurvivalRemaining < remainingBefore);
-        Assert.NotEmpty(context.ProjectileSink);
-    }
-
-    [Fact]
-    public void Update_SurvivalCompletionAtFinalIndex_BeginsDeathCountdown()
-    {
-        var boss = MakeBoss();
-        boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(5); // debug-jumping to 5 always selects the final survival index
-        var context = MakeContext(boss, 300, 100);
-
-        for (int i = 0; i < 1700; i++) // survivalDuration (14s) * 120 ticks/s == 1680
-            boss.Update(context);
-
+        var result = boss.TakeDamage(boss.MaxHp);
         Assert.True(boss.Dying);
-        Assert.True(boss.MidpointSurvived); // MidpointSurvived == Dying || Hp <= 0
-    }
+        Assert.False(result.Killed);
+        Assert.True(boss.MidpointSurvived);
+        Assert.False(boss.IsDead());
 
-    [Fact]
-    public void Update_DeathCountdownElapsed_SetsHpToZero()
-    {
-        var boss = MakeBoss();
-        boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(5);
-        var context = MakeContext(boss, 300, 100);
-        for (int i = 0; i < 1700; i++)
-            boss.Update(context);
-        Assert.True(boss.Dying);
+        for (int tick = 0; tick < Simulation.FrameRate * boss.DeathDuration + 5; tick++)
+            Step(boss, context);
 
-        for (int i = 0; i < 400; i++) // deathDuration (3s) * 120 ticks/s == 360
-            boss.Update(context);
-
-        Assert.Equal(0, boss.Hp);
         Assert.True(boss.IsDead());
-    }
-
-    [Fact]
-    public void MidpointSurvived_FalseWhileHealthyAndNotDying()
-    {
-        var boss = MakeBoss();
-        Assert.False(boss.MidpointSurvived);
     }
 }

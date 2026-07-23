@@ -51,6 +51,16 @@ public static class EnemyCatalogData
         ["warder"] = new FamilyIdentity("support", new HashSet<string> { "shield", "ranged" }),
         ["splitter"] = new FamilyIdentity("artillery", new HashSet<string> { "ranged", "splitting" }),
         ["collector"] = new FamilyIdentity("economy", new HashSet<string> { "mobile", "xp" }),
+        ["sound_echoer"] = new FamilyIdentity("artillery", new HashSet<string> { "ranged", "sound", "wave" }),
+        ["sound_resonator"] = new FamilyIdentity("control", new HashSet<string> { "ranged", "sound", "radial" }),
+        ["touch_clasper"] = new FamilyIdentity("control", new HashSet<string> { "ranged", "touch", "heavy" }),
+        ["touch_mirekeeper"] = new FamilyIdentity("control", new HashSet<string> { "ranged", "touch", "area" }),
+        ["sight_blinker"] = new FamilyIdentity("artillery", new HashSet<string> { "ranged", "sight", "quick" }),
+        ["sight_lens"] = new FamilyIdentity("control", new HashSet<string> { "ranged", "sight", "beam" }),
+        ["chem_cinderpod"] = new FamilyIdentity("control", new HashSet<string> { "ranged", "chemesthetic", "minefield" }),
+        ["chem_sporecaster"] = new FamilyIdentity("artillery", new HashSet<string> { "ranged", "chemesthetic", "splitting" }),
+        ["phantasia_mirage"] = new FamilyIdentity("artillery", new HashSet<string> { "ranged", "phantasian", "illusion" }),
+        ["phantasia_dreamweaver"] = new FamilyIdentity("control", new HashSet<string> { "ranged", "phantasian", "orbit" }),
         ["miniboss"] = new FamilyIdentity("elite", new HashSet<string> { "phased" }),
     };
 

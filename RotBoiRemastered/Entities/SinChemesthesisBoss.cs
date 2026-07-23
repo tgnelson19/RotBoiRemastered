@@ -54,11 +54,14 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
     public double SigilTransitionDuration { get; } = 1.25;
 
     public double Stagger { get; protected set; }
-    public double MaxStagger { get; } = 100.0;
+    public virtual double MaxStagger => 100.0;
     public double MinimumStaggerPerHit { get; } = 4.0;
     public double StaggerDuration { get; } = 2.5;
     public double StaggerRemaining { get; protected set; }
     public bool IsStaggered { get; protected set; }
+    public double StaggerDecayTimer { get; protected set; }
+    protected virtual double StaggerDecayDelay => double.PositiveInfinity;
+    protected virtual double StaggerDecayPerSecond => 0.0;
 
     protected virtual double ConsumedCrystalPulse => 0.0;
     protected virtual double DamageFloorRatio() =>
@@ -158,7 +161,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         PatternRotation++;
     }
 
-    protected void Bomb(List<EnemyProjectile> sink, float targetX, float targetY, float damage, string suffix,
+    protected EnemyProjectile Bomb(List<EnemyProjectile> sink, float targetX, float targetY, float damage, string suffix,
         int burstCount = 10, float fuseDuration = 2.6f, float? burstShotDamage = null)
     {
         var center = Center();
@@ -176,6 +179,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             BurstDamage = burstShotDamage.HasValue ? burstShotDamage.Value / .28f : damage,
         };
         sink.Add(bomb);
+        return bomb;
     }
 
     protected void Laser(List<EnemyProjectile> sink, float direction, float damage, string suffix, float angularSpeed = 0f)
@@ -221,9 +225,10 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         int previousHp = Hp;
         double multiplier = IsStaggered ? 1.25 : 1.0;
         var result = base.TakeDamage(amount * multiplier, partId, source);
-        if (source == DamageSource.Direct && !IsStaggered)
+        if (source == DamageSource.Direct && amount > 0 && !IsStaggered)
         {
             Stagger = Math.Min(MaxStagger, Stagger + Math.Max(MinimumStaggerPerHit, amount * .012));
+            StaggerDecayTimer = StaggerDecayDelay;
             if (Stagger >= MaxStagger)
             {
                 IsStaggered = true;
@@ -288,6 +293,12 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             }
             AdvanceAge();
             return;
+        }
+        if (Stagger > 0 && StaggerDecayPerSecond > 0)
+        {
+            StaggerDecayTimer = Math.Max(0.0, StaggerDecayTimer - dt);
+            if (StaggerDecayTimer <= 0)
+                Stagger = Math.Max(0.0, Stagger - StaggerDecayPerSecond * dt);
         }
 
         string mode = Config.MovementModes[(Phase - 1) % Config.MovementModes.Count];

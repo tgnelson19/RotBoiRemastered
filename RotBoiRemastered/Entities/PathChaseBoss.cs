@@ -254,6 +254,21 @@ public class PathChaseBoss : Enemy
         return points;
     }
 
+    /// <summary>
+    /// Projectile lifetime bounds for the authored arena shape. The former
+    /// radial-only cleanup clipped every square arena to its inscribed circle,
+    /// leaving Touch's four corners as permanent projectile-free shelters.
+    /// Other arena families retain their deliberately soft radial envelope.
+    /// </summary>
+    public bool ProjectileWithinArenaBounds(Vector2 point, float allowance = 1.04f)
+    {
+        var offset = point - ArenaCenter;
+        if (Config.ArenaShape == "square")
+            return MathF.Abs(offset.X) <= ArenaRadius * allowance &&
+                   MathF.Abs(offset.Y) <= ArenaRadius * allowance;
+        return offset.LengthSquared() <= ArenaRadius * ArenaRadius * allowance * allowance;
+    }
+
     protected static bool PointInPolygon(Vector2 point, IReadOnlyList<Vector2> vertices)
     {
         bool inside = false;
@@ -403,6 +418,13 @@ public class PathChaseBoss : Enemy
     }
 
     /// <summary>
+    /// Path movement normally reuses its authored waypoint as the pattern target.
+    /// Bosses whose attacks explicitly declare a route around the player's current
+    /// position can opt out without changing how their body follows that path.
+    /// </summary>
+    protected virtual bool TargetRealPlayerDuringPathMovement => false;
+
+    /// <summary>
     /// Invokes <see cref="Enemy.Update"/> directly, bypassing this class's own
     /// movement-mode dispatch. Ported from SinChemesthesisBoss.updateEnemy's call to
     /// `Enemy.updateEnemy(self, ...)` -- Python calls its grandparent method directly,
@@ -445,7 +467,9 @@ public class PathChaseBoss : Enemy
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (EntranceRemaining <= 0 && AttackCooldown <= 0)
         {
-            FirePattern(effectivePlayerX, effectivePlayerY, context.ProjectileSink);
+            float patternTargetX = TargetRealPlayerDuringPathMovement ? context.PlayerWorldX : effectivePlayerX;
+            float patternTargetY = TargetRealPlayerDuringPathMovement ? context.PlayerWorldY : effectivePlayerY;
+            FirePattern(patternTargetX, patternTargetY, context.ProjectileSink);
             double rate = 1.0 - .11 * (Phase - 1);
             AttackCooldownMax ??= Simulation.FrameRate * (float)(Config.FinalBoss ? Config.FinalCooldownSeconds : Config.CooldownSeconds);
             AttackCooldown = AttackCooldownMax.Value * (float)(rate * (.9 + Rng.NextDouble() * .22));

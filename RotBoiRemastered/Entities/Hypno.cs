@@ -17,6 +17,13 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class Hypno : PhantasiaBoss
 {
+    public const int MinimumDamagePhaseDeclarations = 2;
+    public const int ActiveThreatSoftCap = 48;
+    public const double ChosenSurvivalDuration = 14.0;
+    protected override bool UsesSharedDreamHealthGates => false;
+    protected override bool VisualSurvivalActive =>
+        ChosenSurvivalActive || base.VisualSurvivalActive;
+
     public static readonly PathChaseBossConfig HypnoConfig = BaseConfig with
     {
         BossName = "HYPNO", Subtitle = "THE ORNATE SUGGESTION",
@@ -24,6 +31,7 @@ public sealed class Hypno : PhantasiaBoss
         OwnerPrefix = "hypno_phantasia",
         BodyColor = new Color(151, 56, 144), AccentColor = new Color(211, 91, 183),
         MovementSpeed = .18, BodyScale = 1.8, CooldownSeconds = 1.8,
+        MidHealth = 107000, MidContactDamage = 360, MidRewardExperience = 410,
     };
 
     public static readonly PhantasiaSigilConfig HypnoSigilConfig = new(
@@ -46,8 +54,154 @@ public sealed class Hypno : PhantasiaBoss
     {
     }
 
+    public int PhaseDeclarations { get; private set; }
+    public bool ChosenSurvivalActive { get; private set; }
+    public bool ChosenSurvivalCleared { get; private set; }
+    public double ChosenSurvivalRemaining { get; private set; }
+
+    private int ActiveHypnoThreatBurden(List<EnemyProjectile> sink) =>
+        sink.Where(projectile => !projectile.RemFlag &&
+                projectile.Owner?.StartsWith(HypnoConfig.OwnerPrefix) == true)
+            .Sum(projectile => projectile.SplitCount > 1
+                ? (int)Math.Pow(projectile.SplitCount, projectile.SplitGeneration + 1)
+                : 1);
+
+    private int PatternThreatReservation() => Phase switch
+    {
+        1 => 9,
+        2 => 11,
+        3 => 13,
+        4 => 11,
+        _ => 15,
+    };
+
+    protected override void SetDreamPhase(int phase)
+    {
+        base.SetDreamPhase(phase);
+        PhaseDeclarations = 0;
+        if (Phase == 4 && !ChosenSurvivalCleared)
+        {
+            ChosenSurvivalActive = true;
+            ChosenSurvivalRemaining = ChosenSurvivalDuration;
+        }
+        else
+        {
+            ChosenSurvivalActive = false;
+        }
+    }
+
+    private void BeginChosenSurvival()
+    {
+        if (ChosenSurvivalActive || ChosenSurvivalCleared)
+            return;
+        Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+        SetDreamPhase(4);
+        ChosenSurvivalActive = true;
+        ChosenSurvivalRemaining = ChosenSurvivalDuration;
+        TransitionCleanupRequested = true;
+    }
+
+    protected override void UpdatePhase()
+    {
+        if (DebugPhaseLocked || ChosenSurvivalActive || Dying)
+            return;
+        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
+        if (!ChosenSurvivalCleared)
+        {
+            if (ratio <= .5)
+            {
+                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                    BeginChosenSurvival();
+                return;
+            }
+            int desired = ratio > .75 ? 1 : ratio > .625 ? 2 : 3;
+            if (desired != Phase && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                SetDreamPhase(desired);
+            return;
+        }
+        if (Phase != 5)
+            SetDreamPhase(5);
+    }
+
+    public override void DebugSetPhase(int phase)
+    {
+        phase = Math.Clamp(phase, 1, 5);
+        DebugPhaseLocked = true;
+        ChosenSurvivalActive = false;
+        if (phase >= 5)
+            ChosenSurvivalCleared = true;
+        SetDreamPhase(phase);
+        AttackCooldown = 0f;
+        if (phase == 4)
+        {
+            ChosenSurvivalCleared = false;
+            ChosenSurvivalActive = true;
+            ChosenSurvivalRemaining = ChosenSurvivalDuration;
+        }
+    }
+
+    public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
+    {
+        if (ChosenSurvivalActive || Dying)
+            return new HitResult(false, false, 0, true);
+
+        if (!ChosenSurvivalCleared)
+        {
+            double floorRatio = Phase switch { 1 => .75, 2 => .625, _ => .50 };
+            int floor = Math.Max(1, (int)Math.Round(MaxHp * floorRatio));
+            double permitted = Math.Max(0, Hp - floor);
+            if (permitted <= 0)
+            {
+                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                    UpdatePhase();
+                return new HitResult(false, false, 0, true);
+            }
+            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+            if (Hp <= floor && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                UpdatePhase();
+            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+        }
+
+        if (Phase == 5 && PhaseDeclarations < MinimumDamagePhaseDeclarations)
+        {
+            double permitted = Math.Max(0, Hp - 1);
+            if (permitted <= 0)
+                return new HitResult(false, false, 0, true);
+            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+        }
+        return base.TakeDamage(amount, partId, source);
+    }
+
+    public override void Update(EnemyUpdateContext context)
+    {
+        if (!ChosenSurvivalActive)
+        {
+            base.Update(context);
+            return;
+        }
+
+        base.Update(context);
+        if (!ChosenSurvivalActive || Dying)
+            return;
+        ChosenSurvivalRemaining = Math.Max(0.0, ChosenSurvivalRemaining - Seconds());
+        if (ChosenSurvivalRemaining <= 0 && !DebugPhaseLocked)
+        {
+            ChosenSurvivalActive = false;
+            ChosenSurvivalCleared = true;
+            Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+            SetDreamPhase(5);
+        }
+    }
+
     protected override void FirePhantasiaPattern(float playerX, float playerY, EnemyUpdateContext context)
     {
+        if (ActiveHypnoThreatBurden(context.ProjectileSink) + PatternThreatReservation() >
+            ActiveThreatSoftCap)
+        {
+            MarkAttack(.2f);
+            return;
+        }
         var center = Center();
         var target = new Vector2(playerX, playerY);
         var sink = context.ProjectileSink;
@@ -68,15 +222,17 @@ public sealed class Hypno : PhantasiaBoss
                 if (!RuleTruth)
                     RadialFrom(sink, center, 6, .5f, 245, "true_sigil");
                 break;
-            case 3: // Inheritance: a shot that fractures into three descendants.
+            case 3: // Inheritance: three lineages each bifurcate across two generations.
                 for (int index = 0; index < 3; index++)
                 {
                     float direction = MathF.Atan2(playerY - center.Y, playerX - center.X) + (index - 1) * .42f;
                     var shot = ShotFrom(sink, center, direction, .72f, 260, "lineage");
-                    shot.SplitCount = 3;
+                    shot.SplitCount = 2;
                     shot.SplitAt = Simulation.TileSize * (3.2f + index);
                     shot.SplitGeneration = 1;
                 }
+                ShotFrom(sink, center, MathF.Atan2(playerY - center.Y, playerX - center.X),
+                    .78f, 245, "inheritance_claim");
                 break;
             case 4: // Chosen: a real volley beside a harmless illusory cage.
                 FanFrom(sink, center, target, 3, .42f, .92f, 275, "chosen");
@@ -88,6 +244,7 @@ public sealed class Hypno : PhantasiaBoss
                 break;
         }
         PatternRotation++;
+        PhaseDeclarations++;
         MarkAttack(.52f);
     }
 }

@@ -29,41 +29,28 @@ public class PhantasiaBossTests
     }
 
     [Fact]
-    public void UpdatePhase_HealthThresholds_AdvanceThroughAllFivePhases()
+    public void UpdatePhase_HealthThresholdAloneCannotSkipTheCurrentSuggestion()
     {
         var hypno = new Hypno(1000, 1000, MakeBattleground(), new Random(1));
         var context = MakeContext(1000, 1000);
 
-        hypno.Hp = (int)(hypno.MaxHp * .95);
-        hypno.Update(context);
-        Assert.Equal(1, hypno.Phase);
-
         hypno.Hp = (int)(hypno.MaxHp * .75);
         hypno.Update(context);
-        Assert.Equal(2, hypno.Phase);
 
-        hypno.Hp = (int)(hypno.MaxHp * .55);
-        hypno.Update(context);
-        Assert.Equal(3, hypno.Phase);
-
-        hypno.Hp = (int)(hypno.MaxHp * .35);
-        hypno.Update(context);
-        Assert.Equal(4, hypno.Phase);
-
-        hypno.Hp = (int)(hypno.MaxHp * .1);
-        hypno.Update(context);
-        Assert.Equal(5, hypno.Phase);
+        Assert.Equal(1, hypno.Phase);
+        Assert.Equal(0, hypno.PhaseDeclarations);
     }
 
     [Fact]
     public void TakeDamage_PinsHealthToCurrentPhaseFloor()
     {
         var hypno = new Hypno(1000, 1000, MakeBattleground(), new Random(1));
-        // 5 phases: phase 1's floor is maxHp * (5-1)/5 == 80% of max.
+        // Idol owns the opening quarter and cannot be burst through before
+        // its two complete suggestions.
         var result = hypno.TakeDamage(1_000_000);
 
         Assert.True(result.Applied);
-        Assert.Equal((int)Math.Round(hypno.MaxHp * 4.0 / 5.0), hypno.Hp);
+        Assert.Equal((int)Math.Round(hypno.MaxHp * .75), hypno.Hp);
         Assert.Equal(1, hypno.Phase);
     }
 

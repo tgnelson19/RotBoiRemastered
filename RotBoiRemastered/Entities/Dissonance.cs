@@ -67,6 +67,9 @@ public sealed class Dissonance : Enemy
     public const string BossName = "DISSONANCE";
     public const string Subtitle = "KEEPER OF THE FIRST CHORD";
     public const int OrbitingCubeCount = 4;
+    public const int MinimumDamagePhaseDeclarations = 2;
+    public const int ActiveThreatSoftCap = 132;
+    public const int MaximumJeraChordRings = 9;
 
     public static readonly IReadOnlyDictionary<int, (string Name, Vector2[][] Strokes)> PhaseRunes =
         new Dictionary<int, (string, Vector2[][])>
@@ -185,6 +188,8 @@ public sealed class Dissonance : Enemy
     public double PhaseElapsed { get; set; }
     public double PhaseTimeLimit { get; } = 36.0;
     public bool PhaseForcedByTimer { get; private set; }
+    public int PhaseDeclarations { get; private set; }
+    private double _declarationCooldown;
 
     public double Stagger { get; set; }
     public double MaxStagger { get; } = 360.0;
@@ -260,6 +265,10 @@ public sealed class Dissonance : Enemy
     public double SurvivalRemaining { get; set; }
     public bool SurvivalActive { get; private set; }
     public double SurvivalCooldown { get; set; } = .2;
+    public int JeraChordRingCount => Phase == 9 && SurvivalActive
+        ? Math.Clamp(1 + (int)((1.0 - SurvivalRemaining / SurvivalDuration) * MaximumJeraChordRings),
+            1, MaximumJeraChordRings)
+        : 0;
 
     public double TransitionDuration { get; } = 5.0;
     public double TransitionRemaining { get; set; }
@@ -363,7 +372,8 @@ public sealed class Dissonance : Enemy
             return new HitResult(false, false, 0, true);
         if (partId.StartsWith("portal:"))
         {
-            int index = int.Parse(partId["portal:".Length..]);
+            if (!int.TryParse(partId["portal:".Length..], out int index))
+                return new HitResult(false, false, 0, true);
             if (index >= 0 && index < ProjectilePortals.Count)
             {
                 var portal = ProjectilePortals[index];
@@ -371,7 +381,10 @@ public sealed class Dissonance : Enemy
                 if (broken)
                 {
                     PortalsBroken += 1;
+                    Stagger = Math.Min(MaxStagger, Stagger + MaxStagger / 3.0);
                     BurstParticles(portal.WorldX + portal.Size / 2f, portal.WorldY + portal.Size / 2f, portal.Color, 18, 2.4f);
+                    if (Stagger >= MaxStagger)
+                        TriggerStagger();
                 }
                 return new HitResult(true, false, amount);
             }
@@ -387,7 +400,7 @@ public sealed class Dissonance : Enemy
             HitFlash = .12;
             var center = Center();
             BurstParticles(center.X, center.Y, UiTheme.Cream, 4, 1.0f);
-            Hp = Math.Max(0, Hp);
+            EnforceDamageFloor();
             return new HitResult(true, false, applied);
         }
         int normalApplied = (int)Math.Round(amount * .45);
@@ -415,9 +428,31 @@ public sealed class Dissonance : Enemy
             StaggerDecayTimer = StaggerDecayDelay;
         if (source == DamageSource.Direct && Stagger >= MaxStagger)
             TriggerStagger();
-        Hp = Math.Max(0, Hp);
+        EnforceDamageFloor();
         return new HitResult(true, false, normalApplied);
     }
+
+    private void EnforceDamageFloor()
+    {
+        if (DebugPhaseLocked || SurvivalActive || Dying)
+        {
+            Hp = Math.Max(0, Hp);
+            return;
+        }
+        int floor = NextSurvivalPhase switch
+        {
+            3 => (int)Math.Round(MaxHp * (2.0 / 3)),
+            6 => (int)Math.Round(MaxHp * (1.0 / 3)),
+            9 => 1,
+            _ => 0,
+        };
+        if (Hp <= floor && PhaseDeclarations < MinimumDamagePhaseDeclarations)
+            Hp = floor;
+        else
+            Hp = Math.Max(0, Hp);
+    }
+
+    public override bool IsDead() => Dying && Hp <= 0;
 
     private void TriggerStagger()
     {
@@ -458,10 +493,14 @@ public sealed class Dissonance : Enemy
             StaggerRemaining = Math.Max(0.0, StaggerRemaining - dt);
             if (StaggerRemaining <= 0)
             {
-                int? nextPhase = HealthUnlockedSurvival() ?? ChooseDamagePhase();
+                int? nextPhase = HealthUnlockedSurvival();
                 if (nextPhase.HasValue)
                 {
                     SetPhase(nextPhase.Value);
+                }
+                else if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                {
+                    SetPhase(ChooseDamagePhase());
                 }
                 else
                 {
@@ -495,6 +534,8 @@ public sealed class Dissonance : Enemy
                 _damagePhaseHistory.RemoveAt(0);
         }
         PhaseElapsed = 0.0;
+        PhaseDeclarations = 0;
+        _declarationCooldown = 0;
         Stagger = 0.0;
         StaggerDecayTimer = 0.0;
         IsStaggered = false;
@@ -636,11 +677,13 @@ public sealed class Dissonance : Enemy
     /// <summary>Return the next ordered survival rune once its HP gate is reached.</summary>
     private int? HealthUnlockedSurvival()
     {
+        if (PhaseDeclarations < MinimumDamagePhaseDeclarations)
+            return null;
         if (NextSurvivalPhase == 3 && Hp <= MaxHp * (2.0 / 3))
             return 3;
         if (NextSurvivalPhase == 6 && Hp <= MaxHp * (1.0 / 3))
             return 6;
-        if (NextSurvivalPhase == 9 && Hp <= 0)
+        if (NextSurvivalPhase == 9 && Hp <= 1)
             return 9;
         return null;
     }
@@ -655,6 +698,25 @@ public sealed class Dissonance : Enemy
         EntranceRemaining = 0;
         PhaseElapsed = 0;
         PhaseProtectionTimer = 0;
+    }
+
+    private static int ActiveDissonanceThreats(List<EnemyProjectile> sink) =>
+        sink.Count(projectile => !projectile.RemFlag &&
+            projectile.Owner?.StartsWith("dissonance") == true);
+
+    private bool CommitStagedThreats(List<EnemyProjectile> sink, List<EnemyProjectile> staged)
+    {
+        if (staged.Count == 0)
+            return false;
+        if (ActiveDissonanceThreats(sink) + staged.Count > ActiveThreatSoftCap)
+        {
+            FieldProjectiles.RemoveAll(staged.Contains);
+            if (FieldProjectiles.Count == 0 && Phase is 7 or 8)
+                FieldDeployed = false;
+            return false;
+        }
+        sink.AddRange(staged);
+        return true;
     }
 
     public void SurvivalBarrage(float playerX, float playerY, List<EnemyProjectile> sink, double dt)
@@ -930,7 +992,8 @@ public sealed class Dissonance : Enemy
     private void FireProjectile(List<EnemyProjectile> sink, float direction, float speed, float damage, float size, Action<EnemyProjectile>? configure = null)
     {
         var center = Center();
-        var projectile = new EnemyProjectile(center.X - size / 2f, center.Y - size / 2f, direction, speed, damage, size);
+        var projectile = new EnemyProjectile(center.X - size / 2f, center.Y - size / 2f, direction, speed, damage, size,
+            owner: "dissonance_body", ignoreWalls: true);
         configure?.Invoke(projectile);
         sink.Add(projectile);
     }
@@ -1476,6 +1539,7 @@ public sealed class Dissonance : Enemy
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();
+        _declarationCooldown = Math.Max(0.0, _declarationCooldown - dt);
         UpdateStagger(dt);
         RuneSilenceRemaining = Math.Max(0.0, RuneSilenceRemaining - dt);
         PhaseProtectionTimer = Math.Max(0.0, PhaseProtectionTimer - dt);
@@ -1542,7 +1606,8 @@ public sealed class Dissonance : Enemy
         foreach (var portal in ProjectilePortals)
             portal.ShowTether = true;
         PhaseElapsed += dt;
-        UpdateBossBursts(context.ProjectileSink, dt);
+        var stagedThreats = new List<EnemyProjectile>();
+        UpdateBossBursts(stagedThreats, dt);
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         if (!DebugPhaseLocked && !SurvivalActive)
         {
@@ -1550,11 +1615,14 @@ public sealed class Dissonance : Enemy
             if (survivalPhase.HasValue)
             {
                 SetPhase(survivalPhase.Value);
+                stagedThreats.Clear();
             }
-            else if (PhaseElapsed >= PhaseTimeLimit && DamagePhaseSet.Contains(Phase))
+            else if (PhaseElapsed >= PhaseTimeLimit && DamagePhaseSet.Contains(Phase) &&
+                PhaseDeclarations >= MinimumDamagePhaseDeclarations)
             {
                 SetPhase(ChooseDamagePhase());
                 PhaseForcedByTimer = true;
+                stagedThreats.Clear();
             }
         }
         if (TransitionRemaining > 0)
@@ -1586,30 +1654,38 @@ public sealed class Dissonance : Enemy
             {
                 portal.Angle += portal.AngularSpeed * (float)dt;
                 portal.Place();
-                portal.UpdateBursts(context.ProjectileSink, (float)dt);
+                portal.UpdateBursts(stagedThreats, (float)dt);
             }
             UpdateSurvivalFormation(dt);
             foreach (var portal in SurvivalPortals)
-                portal.UpdateBursts(context.ProjectileSink, (float)dt);
-            SurvivalBarrage(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
-            UpdateSpecialAttacks(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
+                portal.UpdateBursts(stagedThreats, (float)dt);
+            SurvivalBarrage(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt);
+            UpdateSpecialAttacks(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt);
+            CommitStagedThreats(context.ProjectileSink, stagedThreats);
             return;
         }
 
         PhaseMovementStep(context.PlayerWorldX, context.PlayerWorldY, dt, context.Battleground);
+        int queuedThreatCount = stagedThreats.Count;
         switch (Phase)
         {
-            case 1: PhaseOne(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt); break;
-            case 2: PhaseCrossfireCarousel(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt); break;
-            case 3: PhaseClosingSpiral(context.ProjectileSink, dt); break;
-            case 4: PhaseTwo(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt, context.Battleground); break;
-            case 5: PhaseMirrorStep(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt, context.Battleground); break;
-            case 6: PhasePortalRelay(context.ProjectileSink, dt); break;
-            case 7: PhaseThree(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt); break;
-            case 8: PhaseEventHorizon(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt); break;
-            default: PhaseLastWord(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt); break;
+            case 1: PhaseOne(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt); break;
+            case 2: PhaseCrossfireCarousel(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt); break;
+            case 3: PhaseClosingSpiral(stagedThreats, dt); break;
+            case 4: PhaseTwo(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt, context.Battleground); break;
+            case 5: PhaseMirrorStep(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt, context.Battleground); break;
+            case 6: PhasePortalRelay(stagedThreats, dt); break;
+            case 7: PhaseThree(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt); break;
+            case 8: PhaseEventHorizon(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt); break;
+            default: PhaseLastWord(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt); break;
         }
-        UpdateSpecialAttacks(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
+        UpdateSpecialAttacks(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt);
+        bool committed = CommitStagedThreats(context.ProjectileSink, stagedThreats);
+        if (committed && stagedThreats.Count > queuedThreatCount && _declarationCooldown <= 0)
+        {
+            PhaseDeclarations += 1;
+            _declarationCooldown = .9;
+        }
     }
 
     public override IReadOnlyList<(string Part, Rectangle Rect)> GetScreenHitboxes(Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -1790,6 +1866,70 @@ public sealed class Dissonance : Enemy
         }
     }
 
+    private void DrawMiniRune(SpriteBatch spriteBatch, Vector2 center, float radius, int runePhase, Color color)
+    {
+        foreach (var stroke in PhaseRunes[runePhase].Strokes)
+        {
+            var points = stroke.Select(point => center + point * radius).ToArray();
+            if (points.Length <= 1)
+                continue;
+            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink * .8f, 6);
+            Primitives2D.Polyline(spriteBatch, points, false, color, 2);
+        }
+    }
+
+    /// <summary>
+    /// Jera resolves the preceding eight runes into a visible grand staff:
+    /// five steady lines hold the arena while remembered rune-chords illuminate
+    /// around its edge and measured wavefronts expand through the final phrase.
+    /// The construction is cosmetic and consumes no hostile-projectile budget.
+    /// </summary>
+    private void DrawJeraGrandStaff(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        int chordCount = JeraChordRingCount;
+        if (chordCount == 0)
+            return;
+
+        var center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
+        float rotation = MathF.Sin(Age * .0035f) * .08f;
+        var along = new Vector2(MathF.Cos(rotation), MathF.Sin(rotation));
+        var normal = new Vector2(-along.Y, along.X);
+        for (int line = -2; line <= 2; line++)
+        {
+            float offset = line * Simulation.TileSize * .72f;
+            float halfLength = MathF.Sqrt(MathF.Max(0, ArenaRadius * ArenaRadius - offset * offset)) * .94f;
+            var midpoint = center + normal * offset;
+            Primitives2D.Line(spriteBatch, midpoint - along * halfLength, midpoint + along * halfLength,
+                UiTheme.Ink * .72f, 7);
+            Primitives2D.Line(spriteBatch, midpoint - along * halfLength, midpoint + along * halfLength,
+                (line == 0 ? UiTheme.Cream : PhaseAccent) * .42f, line == 0 ? 2 : 1);
+        }
+
+        double progress = Math.Clamp(1.0 - SurvivalRemaining / SurvivalDuration, 0.0, 1.0);
+        for (int ring = 0; ring < chordCount; ring++)
+        {
+            double cycle = (progress * .8 + ring / (double)MaximumJeraChordRings) % 1.0;
+            float radius = ArenaRadius * (.18f + .72f * (float)cycle);
+            float alpha = .16f + .28f * (1f - (float)cycle);
+            Primitives2D.CircleOutline(spriteBatch, center, radius,
+                (ring % 2 == 0 ? UiTheme.Red : UiTheme.Cream) * alpha, ring % 3 == 0 ? 3 : 2);
+        }
+
+        float runeOrbit = ArenaRadius * .78f;
+        for (int index = 0; index < chordCount; index++)
+        {
+            float angle = -MathF.PI / 2f + index * MathF.Tau / MaximumJeraChordRings + Age * .0015f;
+            var runeCenter = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * runeOrbit;
+            var nextAngle = -MathF.PI / 2f + ((index + 1) % MaximumJeraChordRings) *
+                MathF.Tau / MaximumJeraChordRings + Age * .0015f;
+            var next = center + new Vector2(MathF.Cos(nextAngle), MathF.Sin(nextAngle)) * runeOrbit;
+            Primitives2D.Line(spriteBatch, runeCenter, next, PhaseAccent * .28f, 2);
+            Primitives2D.CircleOutline(spriteBatch, runeCenter, Simulation.TileSize * .43f, UiTheme.Ink, 6);
+            DrawMiniRune(spriteBatch, runeCenter, Simulation.TileSize * .62f, index + 1,
+                index == chordCount - 1 ? UiTheme.Cream : PhaseAccent * .8f);
+        }
+    }
+
     private double PhaseTimerRatio()
     {
         if (TransitionRemaining > 0)
@@ -1949,6 +2089,7 @@ public sealed class Dissonance : Enemy
     {
         DrawArenaMask(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawArenaBoundary(spriteBatch, camera, playerWorldPosition, screenShake);
+        DrawJeraGrandStaff(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawArenaInscription(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawMotionTrail(spriteBatch, camera, playerWorldPosition, screenShake);
         foreach (var particle in VisualParticles)

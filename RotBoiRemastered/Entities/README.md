@@ -95,9 +95,13 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   midpoint boss; one of ten boss classes across five families in that
   ~4750-line file -- all now ported, see the rest of this section).
   **Done**, including its
-  five-phase state machine (four damage phases + a finale survival phase
-  with four orbiting `ProjectilePortal`s), stagger/phase-protection gating
-  on `TakeDamage`, and the death fade. `GameSession.cs` now really spawns
+  five-phase state machine (four damage phases around one half-health,
+  fourteen-second Endure lesson with four orbiting `ProjectilePortal`s),
+  stagger/phase-protection gating on `TakeDamage`, and the death fade.
+  Awaken's call-and-echo waves, Answer's lateral crossfire, Press's radial
+  opening, and Persist's layered fan/pulse each receive two complete
+  declarations before their health gate can advance. A 36-threat admission
+  threshold keeps measured peaks at or below 48. `GameSession.cs` now really spawns
   it on the natural level-10 trigger (previously a documented no-op), sets
   `BeaudisDefeated` on death, and has boss debug hotkeys
   (`HandleBossDebugControls`, pattern-matched against `Beaudis` because
@@ -126,7 +130,8 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   (`RoutePlayerBullet`), and the full visual spectacle (rotating 3D-
   projected cube with aura, motion trail, arena boundary/mask/rune
   inscription, death spectacle, phase-announcement bubble, act-transition
-  veil, perfect-break flash). Its stable purple/blue faces, deep black core,
+  veil, perfect-break flash, and Jera's progressively assembled nine-rune
+  grand staff). Its stable purple/blue faces, deep black core,
   and four gently orbiting satellite cubes now identify the oldest, composed
   Keeper of the First Chord; phase accents stay on runes and warning trim.
   `GameSession.cs` now spawns it on the natural
@@ -137,6 +142,12 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   as an explicit per-frame value (`ComputeScreenShake`, see its doc
   comment) instead of writing a global, sets `GameCompleted` on death, and
   extended `HandleBossDebugControls` with the "C" rune-cannon-reset hotkey.
+  Each damage rune now commits two attack phrases before an act gate or
+  timed rotation, the final one-HP gate cannot bypass Jera in the live
+  session, and whole-frame phrases are admitted under a 132-threat budget
+  with eight slots reserved for bomb fragments. Disabling a portal grants
+  one third of the stagger bar, so three portal breaks earn the existing
+  five-second fracture window.
   See `Dissonance.cs`'s doc comment for the full list of design decisions
   (nearly every field is a public settable property, unlike `Beaudis.cs`'s
   curated surface -- driven by how extensively the Python test oracle
@@ -164,23 +175,46 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   (the star-shaped-exterior-blackout helper, previously private to
   `Dissonance.cs`, now shared since `PathChaseBoss` needs the identical
   technique for its own arena shapes).
-  - **`Ishe.cs`/`Chronos.cs`** -- Ishe retains Sight's small rush-pattern
-    lesson. Chronos is now a seven-movement slow/heavy encounter built from
+  - **`Ishe.cs`/`Chronos.cs`** -- Ishe is a four-movement 75,000-health
+    Sight lesson built around declared attacks firing from captured former
+    positions. Its 12-second Flash survival sweeps the triangle with parallel
+    lines while preserving three adjacent horizon lanes; Afterglow combines
+    two warned positions and remains within a measured 32-projectile envelope.
+    Each damage movement gets at least two full declarations before a health
+    gate can advance or end it.
+    Chronos is a seven-movement slow/heavy encounter built from
     five-to-eight-segment laser tentacles. Each full route telegraphs for
     1.5–2.35 seconds, the half-health Still Second phase omits three adjacent
-    arms as a safe opening, and King's Attrition is a 40-second finale. The
+    arms as a player-aligned safe opening, and King's Attrition is a 35-second
+    finale with delayed revisions and remembered-route echoes. Solving three
+    declared routes opens a 5.5-second temporal-fracture damage window, and the
+    finale draws fading non-damaging histories of recent routes. Complete routes
+    share an authored 112-segment budget so global trimming cannot break a warning,
+    and each damage movement must declare twice before its next gate. The
     literal clock/lens body was replaced by one player-like light-blue cube
     rotating in three dimensions inside slow oscillating aura bands.
-  - **`TouchPortal.cs`/`PlagueTouchBoss.cs`/`Bair.cs`/`Sting.cs`** retain the
-    original Touch midpoint and legacy final-boss implementation for old
-    debug/profile compatibility. Natural Touch progression now ends with
-    **`TouchRot.cs`**, a portal-free seven-phase Rot encounter using slow
-    fronts, bombs, and ground-level sludge pools with explicit safe wedges.
-    Its large brown-green slab is drawn behind a foreground pool so it reads
-    as half-submerged while brown/red/green cubes fall into absorption ripples.
+  - **`TouchPortal.cs`/`PlagueTouchBoss.cs`/`Bair.cs`/`Sting.cs`** -- Bair is
+    now a five-movement 110,000-health Touch lesson with paired declared banks,
+    two-gate Swarm pressure, three marked Blight landings, a four-gate
+    14-second Ruin survival, and a Silence synthesis. Gate shots receive a
+    real 0.55-second declaration and finite lifetime; each damage movement
+    must declare twice before its next gate. Sting remains available as the
+    legacy final boss for old debug/profile compatibility. Natural Touch
+    progression ends with **`TouchRot.cs`**, a portal-free seven-phase Rot
+    encounter using slow fronts, bombs, and ground-level sludge pools with
+    explicit safe wedges. Following three consecutive turns of the clean bank
+    sheds up to ten old burdens without adding a weak-point multiplier. Burial
+    contracts five non-damaging square strata behind its hazards. Rot's large
+    brown-green slab is drawn behind a foreground pool so it reads as
+    half-submerged while brown/red/green cubes fall into absorption ripples.
   - **`SinChemesthesisBoss.cs`/`Kage.cs`/`Rot.cs`** -- the Chemesthesis
     content path's midpoint and Ache finale (`Ache` remains in the historical
     `Rot.cs` filename so the identity change does not overwrite user work).
+    Kage is now a four-movement 93,000-health lesson with player-claiming
+    Feast mines, a warned Provocation retort, a real 14-second invulnerable
+    Stagnant Mirror, and a finite Lure synthesis. It hesitates at thirty-six
+    active threats, remains under fifty in stationary-player simulations, and
+    requires two full declarations before every damage gate.
     Unlike the other path families, this family has a real
     stagger/fracture system: `SinChemesthesisBoss` re-adds the
     `Stagger`/`MaxStagger`/`IsStaggered`/etc. fields `PathChaseBoss.cs`
@@ -216,14 +250,23 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     vents call `BossAfflictions.Reset()`) and the newly-added
     `RunState.BuildSnapshot()`/`PlayerBuildSnapshot` (ported from
     `characterStats.py`'s `player_build_snapshot()`). Ache's active encounter
-    replaces the old readable sin rotation with phase-weighted independent
+    replaces the old readable sin rotation with phase-weighted remembered
     mistakes: decelerating wrong-way mines, scattered lazy clusters,
     three-sided corner pockets, offset bombs, contamination pools, and
-    telegraphed moderate-damage lashes. Reflex Storm and the shorter
-    28-second Overload provide its invulnerable survival exams. The active
-    field uses soft budgets of twenty-eight active and sixteen persistent
-    threats; short delayed bursts remain below forty and twenty-six in phase
-    simulations. Distribution and memory, rather than volume, create its pressure.
+    telegraphed moderate-damage lashes. It cannot repeat one mistake
+    immediately and must answer the player directly at least once every
+    three resolved attacks. Reflex Storm and the 30-second Overload provide
+    its invulnerable survival exams. The active field uses soft budgets of
+    thirty-six active and twenty persistent threats; delayed reactions stay
+    below fifty and twenty-eight in phase simulations. Four outer vents trade
+    cleansing for a new inner border, while short-lived false-alarm walls
+    compress during later movements. Breaking three brittle borders now fills
+    Ache's existing stagger system, grounding the core for its normal
+    2.5-second/25%-bonus fracture window. Every damage movement must declare
+    twice before its next gate. Overload grows from three phantom nodes into
+    a twelve-node orange-and-blue neural constellation behind its hazards.
+    Distribution, contradiction, and memory,
+    rather than volume, create its pressure.
     Its compact orange core now has exactly three blue 3D orbiting arm-cubes;
     this widened, asymmetrical constellation is the visual contract for its
     refusal to follow any command.
@@ -252,11 +295,22 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     Update tick and every Draw-side belief read uses that instead. Two
     confirmed-dead fields dropped from `Malady` (`vitalitySuppressed`,
     `puppetFacing` -- written throughout but never read by any method).
-    Hypno keeps the belief/rule/illusion lesson. Malady explicitly disables
+    Hypno is now the authored 107,000-health midpoint: Idol, Spoken Rule,
+    and Inheritance each receive two declarations before their 75%, 62.5%,
+    and 50% gates; Chosen is a real fourteen-second invulnerable lesson;
+    Offering follows for the remaining half. Its 48-threat admission logic
+    counts the future descendants of every splitting lineage rather than
+    waiting for them to appear. Hypno keeps the belief/rule/illusion lesson.
+    Malady explicitly disables
     that inherited rule UI and instead layers portal-authored petal floods,
     delay-queued flowing tentacles, radial safe wedges, and telegraphed laser
-    aisles. Its fewer, faster volleys cross the full arena and remain below
-    the session's emergency projectile ceiling, while aimed portal phrases
+    aisles. Every damage movement now completes two ideas before advancing,
+    including phase ten before Apotheosis seals vitality. Whole update-frame
+    phrases are staged beneath a 132-threat encounter budget with room for
+    spawned descendants, so its faster volleys cross the full arena without
+    relying on the session's emergency projectile trimming. A six-petal
+    inspiration mandala progressively becomes the full eighteen-cube crown
+    during Apotheosis, while aimed portal phrases
     prevent the outer shoreline from becoming a stationary safe zone.
     Intermission blocks damage for eighteen seconds at half health,
     Apotheosis runs for thirty seconds at zero health, and a ten-second

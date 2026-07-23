@@ -25,6 +25,28 @@ public class MaladyTests
         Assert.NotEmpty(context.ProjectileSink);
     }
 
+    private static void Step(Malady boss, EnemyUpdateContext context)
+    {
+        boss.Update(context);
+        var children = new List<EnemyProjectile>();
+        foreach (var projectile in context.ProjectileSink.ToList())
+        {
+            projectile.Update(context.Battleground, casualMode: false);
+            children.AddRange(projectile.SpawnedProjectiles);
+            projectile.SpawnedProjectiles.Clear();
+        }
+        context.ProjectileSink.RemoveAll(projectile => projectile.RemFlag);
+        context.ProjectileSink.AddRange(children);
+    }
+
+    private static void ReachDeclarations(Malady boss, EnemyUpdateContext context, int count)
+    {
+        for (int tick = 0; tick < 2400 && boss.PhaseDeclarations < count; tick++)
+            Step(boss, context);
+        Assert.True(boss.PhaseDeclarations >= count,
+            $"Phase {boss.Phase} produced only {boss.PhaseDeclarations} declarations.");
+    }
+
     private sealed record PhasePressure(int PeakProjectiles, int OverflowCount,
         int EdgeProjectileCount, int PlayerThreatProjectileCount,
         IReadOnlySet<string> EdgeOwners, IReadOnlySet<string> PlayerThreatOwners);
@@ -118,6 +140,7 @@ public class MaladyTests
         Assert.Contains("SOUL INCURSION", Malady.MaladyConfig.PhaseLabels);
         Assert.Equal(10, Malady.IdleBodyCubeCount);
         Assert.Equal(18, Malady.FinaleBodyCubeCount);
+        Assert.Equal(6, Malady.InitialApotheosisCrownPetals);
         Assert.True(Malady.MaladyConfig.FinalBodyScale > Chronos.ChronosConfig.FinalBodyScale);
         Assert.Equal(10, Malady.MaladyConfig.PhaseLabels.Count);
     }
@@ -142,6 +165,63 @@ public class MaladyTests
         Assert.True(boss.SurvivalActive);
         Assert.Equal(18.0, boss.SurvivalRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
+    }
+
+    [Theory]
+    [InlineData(1, .9, 2)]
+    [InlineData(5, .5, 6)]
+    [InlineData(9, .1, 10)]
+    public void DamageMovementsCannotSkipTheirSecondIdea(int phase, double floorRatio, int nextPhase)
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(20 + phase));
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(phase);
+        boss.DebugPhaseLocked = false;
+        var context = Context(boss, battleground);
+
+        ReachDeclarations(boss, context, 1);
+        boss.TakeDamage(boss.MaxHp * 4.0);
+
+        Assert.Equal((int)Math.Round(boss.MaxHp * floorRatio), boss.Hp);
+        Assert.Equal(phase, boss.Phase);
+        Assert.False(boss.FinaleActive);
+
+        ReachDeclarations(boss, context, Malady.MinimumDamagePhaseDeclarations);
+        Step(boss, context);
+
+        Assert.Equal(nextPhase, boss.Phase);
+        if (nextPhase == 6)
+            Assert.True(boss.SurvivalActive);
+        Assert.False(boss.FinaleActive);
+    }
+
+    [Fact]
+    public void ApotheosisRequiresTwoPhaseTenDeclarationsBeforeVitalitySeals()
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(31));
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(9);
+        boss.DebugPhaseLocked = false;
+        var context = Context(boss, battleground);
+
+        ReachDeclarations(boss, context, 1);
+        boss.TakeDamage(boss.MaxHp * 4.0);
+        ReachDeclarations(boss, context, 2);
+        Step(boss, context);
+        Assert.Equal(10, boss.Phase);
+
+        boss.TakeDamage(boss.MaxHp * 4.0);
+        Assert.Equal(1, boss.Hp);
+        Assert.False(boss.FinaleActive);
+
+        ReachDeclarations(boss, context, 2);
+        boss.TakeDamage(1);
+        Assert.True(boss.FinaleActive);
+        Assert.Equal(30.0, boss.FinaleRemaining);
     }
 
     [Fact]
@@ -254,6 +334,7 @@ public class MaladyTests
                 $"Phase {phase} in {mode} mode exceeded the " +
                 $"{GameSession.MaxBossProjectiles}-projectile budget by {pressure.OverflowCount} " +
                 $"total projectiles (peak {pressure.PeakProjectiles}).");
+            Assert.InRange(pressure.PeakProjectiles, 1, Malady.ActiveThreatSoftCap + 8);
         }
     }
 
@@ -326,6 +407,23 @@ public class MaladyTests
         for (int tick = 0; tick < 1300 && !boss.IsDead(); tick++)
             boss.Update(context);
         Assert.True(boss.IsDead());
+    }
+
+    [Fact]
+    public void ApotheosisBuildsFromSixPetalsIntoTheFullEighteenCubeCrown()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(9));
+        boss.DebugSetPhase(10);
+        var context = Context(boss, battleground);
+
+        Assert.Equal(Malady.InitialApotheosisCrownPetals, boss.ApotheosisCrownPetalCount);
+        for (int tick = 0; tick < Simulation.FrameRate * 15; tick++)
+            boss.Update(context);
+        Assert.InRange(boss.ApotheosisCrownPetalCount, 12, 13);
+        for (int tick = 0; tick < Simulation.FrameRate * 14.5; tick++)
+            boss.Update(context);
+        Assert.Equal(Malady.FinaleBodyCubeCount, boss.ApotheosisCrownPetalCount);
     }
 
     [Fact]

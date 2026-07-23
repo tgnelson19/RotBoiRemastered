@@ -37,13 +37,16 @@ public sealed class EnemyCatalog
             throw new ArgumentException($"Enemy type already registered: {definition.Key}");
     }
 
-    public List<EnemyDefinition> Available(int level) =>
-        _definitions.Values.Where(d => d.MinLevel <= level && level <= d.MaxLevel).ToList();
+    public List<EnemyDefinition> Available(int level, string? contentPath = null) =>
+        _definitions.Values.Where(d =>
+            d.MinLevel <= level && level <= d.MaxLevel
+            && (contentPath is null || d.SpawnPath is null || d.SpawnPath == contentPath)).ToList();
 
-    public EnemyDefinition? Choose(int level, Random? rng = null, double? maxThreat = null, IReadOnlyList<Enemy>? existing = null)
+    public EnemyDefinition? Choose(int level, Random? rng = null, double? maxThreat = null,
+        IReadOnlyList<Enemy>? existing = null, string? contentPath = null)
     {
         rng ??= Random.Shared;
-        var available = Available(level).Where(d => !d.GuaranteedOnly && d.Family != "banner").ToList();
+        var available = Available(level, contentPath).Where(d => !d.GuaranteedOnly && d.Family != "banner").ToList();
         if (maxThreat.HasValue)
         {
             var familyCounts = new Dictionary<string, int>();
@@ -54,9 +57,9 @@ public sealed class EnemyCatalog
         return available.Count == 0 ? null : WeightedChoice(available, available.Select(d => d.Weight).ToList(), rng);
     }
 
-    public EnemyDefinition? DefinitionForFamily(string family, int level)
+    public EnemyDefinition? DefinitionForFamily(string family, int level, string? contentPath = null)
     {
-        var candidates = Available(level).Where(d => d.Family == family && !d.GuaranteedOnly).ToList();
+        var candidates = Available(level, contentPath).Where(d => d.Family == family && !d.GuaranteedOnly).ToList();
         return candidates.Count == 0 ? null : candidates.OrderByDescending(d => d.MinLevel).First();
     }
 
@@ -225,15 +228,15 @@ public sealed class EnemyCatalog
     /// <summary>Compose a coherent ambient encounter instead of loose random bodies.</summary>
     public (RuntimeEncounter Encounter, List<Enemy> Group)? SpawnPatrol(
         int level, double maxThreat, Battleground battleground, Vector2 playerWorldPosition, float awarenessRange,
-        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null)
+        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, string? contentPath = null)
     {
         rng ??= Random.Shared;
         existing ??= Array.Empty<Enemy>();
-        var available = Available(level).Where(d => !d.GuaranteedOnly && d.Family != "banner").ToList();
+        var available = Available(level, contentPath).Where(d => !d.GuaranteedOnly && d.Family != "banner").ToList();
         if (available.Count == 0)
             return null;
         int targetSize = Progression.EncounterPacing(level).PatrolSize;
-        var primary = Choose(level, rng, maxThreat, existing);
+        var primary = Choose(level, rng, maxThreat, existing, contentPath);
         if (primary is null)
             return null;
 
@@ -312,7 +315,8 @@ public sealed class EnemyCatalog
     private static IReadOnlyList<EnemyDefinition> TieredFamily(
         string key, EnemyFactory factory,
         double weight, double speed, double size, double damage, double health, double experience, Color color,
-        IReadOnlyList<(int MinLevel, int MaxLevel)> gates, double threatCost = 1.0, int maxActive = 99)
+        IReadOnlyList<(int MinLevel, int MaxLevel)> gates, double threatCost = 1.0, int maxActive = 99,
+        string? spawnPath = null)
     {
         string[] tiers = { "easy", "medium", "hard" };
         string[] suffixes = { "", "_medium", "_hard" };
@@ -325,7 +329,7 @@ public sealed class EnemyCatalog
                 weight * (rank == 1 ? 1.0 : rank == 2 ? .72 : .48),
                 gate.MinLevel, speed, size * (1 + .08 * (rank - 1)), damage, health, experience, TierColor(color, rank),
                 ThreatCost: threatCost, Family: key, MaxActive: maxActive,
-                MaxLevel: gate.MaxLevel, ProgressionTier: tiers[rank - 1]));
+                MaxLevel: gate.MaxLevel, ProgressionTier: tiers[rank - 1], SpawnPath: spawnPath));
         }
         return definitions;
     }
@@ -421,6 +425,61 @@ public sealed class EnemyCatalog
             args => new CollectorEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
                 args.ExpValue, args.Difficulty, args.AwarenessRange, "collector", args.DifficultyTier, args.Rng),
             3, .82, .72, .55, 1.6, 1.4, new Color(64, 158, 92), new[] { (2, 8), (6, 14), (11, 20) }, 1.8, 2));
+
+        entries.AddRange(TieredFamily("sound_echoer",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "sound_echoer", args.DifficultyTier, args.Rng),
+            11, .62, .78, .82, 1.35, 1.65, new Color(194, 177, 132),
+            new[] { (0, 7), (4, 14), (10, 20) }, 1.35, 5, "sound"));
+        entries.AddRange(TieredFamily("sound_resonator",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "sound_resonator", args.DifficultyTier, args.Rng),
+            8, .46, .98, .9, 2.1, 2.35, new Color(155, 139, 113),
+            new[] { (2, 8), (6, 15), (11, 20) }, 2.0, 3, "sound"));
+
+        entries.AddRange(TieredFamily("touch_clasper",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "touch_clasper", args.DifficultyTier, args.Rng),
+            10, .5, 1.08, 1.08, 2.25, 2.1, new Color(85, 101, 61),
+            new[] { (0, 7), (4, 14), (10, 20) }, 2.0, 4, "touch"));
+        entries.AddRange(TieredFamily("touch_mirekeeper",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "touch_mirekeeper", args.DifficultyTier, args.Rng),
+            8, .4, 1.14, .86, 2.7, 2.55, new Color(79, 83, 55),
+            new[] { (2, 8), (6, 15), (11, 20) }, 2.35, 3, "touch"));
+
+        entries.AddRange(TieredFamily("sight_blinker",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "sight_blinker", args.DifficultyTier, args.Rng),
+            12, .92, .58, .74, .8, 1.1, new Color(102, 187, 219),
+            new[] { (0, 7), (4, 14), (10, 20) }, 1.2, 6, "sight"));
+        entries.AddRange(TieredFamily("sight_lens",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "sight_lens", args.DifficultyTier, args.Rng),
+            8, .68, .66, .8, 1.15, 1.55, new Color(224, 137, 61),
+            new[] { (2, 8), (6, 15), (11, 20) }, 1.75, 3, "sight"));
+
+        entries.AddRange(TieredFamily("chem_cinderpod",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "chem_cinderpod", args.DifficultyTier, args.Rng),
+            10, .46, .98, .82, 2.2, 2.25, new Color(178, 69, 35),
+            new[] { (0, 7), (4, 14), (10, 20) }, 2.0, 4, "chemesthesis"));
+        entries.AddRange(TieredFamily("chem_sporecaster",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "chem_sporecaster", args.DifficultyTier, args.Rng),
+            8, .52, .9, .82, 2.0, 2.3, new Color(102, 120, 48),
+            new[] { (2, 8), (6, 15), (11, 20) }, 1.9, 4, "chemesthesis"));
+
+        entries.AddRange(TieredFamily("phantasia_mirage",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "phantasia_mirage", args.DifficultyTier, args.Rng),
+            11, .66, .82, .8, 1.4, 1.75, new Color(185, 75, 167),
+            new[] { (0, 7), (4, 14), (10, 20) }, 1.45, 5, "phantasia"));
+        entries.AddRange(TieredFamily("phantasia_dreamweaver",
+            args => new PathVariantEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,
+                args.ExpValue, args.Difficulty, "phantasia_dreamweaver", args.DifficultyTier, args.Rng),
+            8, .48, 1.02, .88, 2.15, 2.4, new Color(107, 55, 130),
+            new[] { (2, 8), (6, 15), (11, 20) }, 2.05, 3, "phantasia"));
 
         entries.Add(new EnemyDefinition("volley_small",
             args => new VolleyEnemy(args.WorldX, args.WorldY, args.Speed, args.Size, args.Color, args.Damage, args.Hp,

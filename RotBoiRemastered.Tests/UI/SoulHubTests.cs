@@ -115,4 +115,41 @@ public sealed class SoulHubTests
 
         Assert.True(dummy.UnrecordedDamage < 5000, $"Expected boss-realistic bleed damage for one second at 8 stacks, got {dummy.UnrecordedDamage}.");
     }
+
+    [Theory]
+    [InlineData(1000, 1000, 0)]
+    [InlineData(750, 1000, .5)]
+    [InlineData(500, 1000, 1)]
+    [InlineData(250, 1000, 1)]
+    public void TunnelAwakening_AdvancesNorthWithThePlayer(float playerY, float tunnelStartY, float expected)
+    {
+        Assert.Equal(expected, SoulHub.TunnelAwakening(playerY, tunnelStartY, 500), precision: 3);
+    }
+
+    [Fact]
+    public void PortalCorruptionScale_GrowsWithSelectedNgTier()
+    {
+        Assert.Equal(1f, SoulHub.PortalCorruptionScale(0));
+        Assert.True(SoulHub.PortalCorruptionScale(7) > SoulHub.PortalCorruptionScale(3));
+        Assert.Equal(SoulHub.PortalCorruptionScale(7), SoulHub.PortalCorruptionScale(99));
+    }
+
+    [Fact]
+    public void EnteringPortalChamber_DoesNotChangeCameraZoom()
+    {
+        var session = new GameSession(Battleground.GenerateSoul(), 1280, 720, new Random(1));
+        session.Camera.SetZoom(1f);
+        var soulHub = new SoulHub();
+        soulHub.Enter(session);
+        float originalZoom = session.Camera.Zoom;
+
+        Vector2 chamberThreshold = session.Battleground.SpawnPosition
+            + new Vector2(Battleground.TileSize / 2f, Battleground.TileSize * -30f);
+        session.Player.SetPosition(chamberThreshold.X - (float)session.State.PlayerSize / 2f,
+            chamberThreshold.Y - (float)session.State.PlayerSize / 2f);
+        for (int tick = 0; tick < 184; tick++)
+            soulHub.Update(session, 1.0 / 60);
+
+        Assert.Equal(originalZoom, session.Camera.Zoom, precision: 3);
+    }
 }

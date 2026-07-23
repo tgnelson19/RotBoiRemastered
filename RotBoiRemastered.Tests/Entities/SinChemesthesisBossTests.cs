@@ -29,26 +29,35 @@ public class SinChemesthesisBossTests
     }
 
     [Fact]
-    public void UpdatePhase_HealthThresholds_AdvanceThroughAllFourPhases()
+    public void UpdatePhase_UsesDeclaredGatesAndTheMidpointSurvival()
     {
-        var kage = new Kage(1000, 1000, MakeBattleground(), new Random(1));
-        var context = MakeContext(1000, 1000);
+        var battleground = MakeBattleground();
+        var kage = new Kage(1000, 1000, battleground, new Random(1));
+        var context = MakeContext(1000, 1000, battleground);
+        kage.EntranceRemaining = 0;
 
-        kage.Hp = (int)(kage.MaxHp * .9); // ratio .9 -> phase 1
+        kage.Hp = (int)(kage.MaxHp * .75);
         kage.Update(context);
         Assert.Equal(1, kage.Phase);
 
-        kage.Hp = (int)(kage.MaxHp * .6); // ratio .6 -> phase 2
+        for (int tick = 0; tick < 1200 && kage.KagePhaseDeclarations < 2; tick++)
+            kage.Update(context);
         kage.Update(context);
         Assert.Equal(2, kage.Phase);
 
-        kage.Hp = (int)(kage.MaxHp * .3); // ratio .3 -> phase 3
+        kage.Hp = kage.MaxHp / 2;
+        for (int tick = 0; tick < 1200 && kage.KagePhaseDeclarations < 2; tick++)
+            kage.Update(context);
         kage.Update(context);
         Assert.Equal(3, kage.Phase);
+        Assert.True(kage.StagnantMirrorActive);
 
-        kage.Hp = (int)(kage.MaxHp * .1); // ratio .1 -> phase 4
-        kage.Update(context);
+        for (int tick = 0;
+             tick < 14 * RotBoiRemastered.Core.Simulation.FrameRate + 5;
+             tick++)
+            kage.Update(context);
         Assert.Equal(4, kage.Phase);
+        Assert.True(kage.StagnantMirrorCleared);
     }
 
     [Fact]

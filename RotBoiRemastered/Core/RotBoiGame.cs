@@ -313,7 +313,7 @@ public class RotBoiGame : Game
         {
             case TitleAction.EnterSoul:
             {
-                var battleground = GamePaths.ActivateSelected();
+                var battleground = Battleground.GenerateSoul();
                 if (_session is null)
                     _session = new GameSession(battleground, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
                 else
@@ -470,7 +470,7 @@ public class RotBoiGame : Game
                 break;
             case MenuAction.EnterSoul:
             {
-                var battleground = GamePaths.ActivateSelected();
+                var battleground = Battleground.GenerateSoul();
                 _session!.ResetAll(battleground);
                 _soulHub.Enter(_session);
                 State = GameState.Soul;

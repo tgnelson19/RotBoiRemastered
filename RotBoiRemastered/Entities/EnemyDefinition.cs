@@ -36,4 +36,5 @@ public sealed record EnemyDefinition(
     string Key, EnemyFactory Factory, double Weight, int MinLevel,
     double Speed, double Size, double Damage, double Health, double Experience, Color Color,
     double ThreatCost = 1.0, string Family = "basic", int MaxActive = 99,
-    bool GuaranteedOnly = false, int MaxLevel = 20, string ProgressionTier = "easy");
+    bool GuaranteedOnly = false, int MaxLevel = 20, string ProgressionTier = "easy",
+    string? SpawnPath = null);

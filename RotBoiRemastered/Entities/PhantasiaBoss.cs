@@ -56,6 +56,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
 {
     protected override bool VisualSurvivalActive => ActTransitionTimer > 0 || PhaseProtectionTimer > 0 || base.VisualSurvivalActive;
     protected virtual bool UsesDreamRules => true;
+    protected virtual bool UsesSharedDreamHealthGates => true;
     /// <summary>Ported from bossTypes.py's module-level `COMMANDMENT_SIGILS` -- shared by every `PhantasiaBoss` subclass, indexed via `PhantasiaSigilConfig.PhaseSigils`.</summary>
     public static readonly IReadOnlyList<(string Name, Vector2[][] Strokes)> CommandmentSigils = new (string, Vector2[][])[]
     {
@@ -291,8 +292,18 @@ public abstract class PhantasiaBoss : PathChaseBoss
         if (ActTransitionTimer > 0 || PhaseProtectionTimer > 0)
             return new HitResult(false, false, 0, true);
         int previousHp = Hp;
-        var result = base.TakeDamage(amount, partId, source);
-        if (!DebugPhaseLocked && Phase < Config.PhaseLabels.Count)
+        double gatedAmount = amount;
+        if (UsesSharedDreamHealthGates && !DebugPhaseLocked && Phase < Config.PhaseLabels.Count)
+        {
+            int floor = (int)Math.Round(MaxHp *
+                (double)(Config.PhaseLabels.Count - Phase) / Config.PhaseLabels.Count);
+            double permitted = Math.Max(0, Hp - floor);
+            if (permitted <= 0)
+                return new HitResult(false, false, 0, true);
+            gatedAmount = Math.Min(amount, permitted);
+        }
+        var result = base.TakeDamage(gatedAmount, partId, source);
+        if (UsesSharedDreamHealthGates && !DebugPhaseLocked && Phase < Config.PhaseLabels.Count)
         {
             double gate = MaxHp * (double)(Config.PhaseLabels.Count - Phase) / Config.PhaseLabels.Count;
             Hp = Math.Max(Hp, (int)gate);

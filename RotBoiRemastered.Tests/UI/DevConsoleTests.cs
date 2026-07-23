@@ -31,7 +31,7 @@ public class DevConsoleTests
         // fail to kill a boss caught in that state.
         var session = MakeSession();
         var boss = new Beaudis(0, 0, 100, new Random(1));
-        boss.DebugSetPhase(5); // enters SurvivalActive, where TakeDamage is a no-op
+        boss.DebugSetPhase(3); // enters Endure, where TakeDamage is a no-op
         var minion = new Enemy(0, 0, speed: 0, size: 10, Color.Red, damage: 1, hp: 10,
             expValue: 1, difficulty: 1, awarenessRange: 100f);
         session.State.EnemyHolster.Add(boss);

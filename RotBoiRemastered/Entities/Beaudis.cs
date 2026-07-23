@@ -37,32 +37,31 @@ public sealed class Beaudis : Enemy
 {
     public const string BossName = "BEAUDIS";
     public const string Subtitle = "THE ECHO THAT FOLLOWS";
+    public const int MinimumDamagePhaseDeclarations = 2;
+    public const int ActiveThreatSoftCap = 36;
     private const string FinalFlavor = "You can't escape me...";
     private const int PhaseCount = 5;
     private const double PhaseTimeLimit = 28.0;
     private const double EntranceDuration = 1.25;
     private const double StaggerDuration = 3.0;
-
-    private static readonly IReadOnlyList<int> DamagePhases = new[] { 1, 2, 3, 4 };
-    private static readonly IReadOnlyList<double> SurvivalThresholds = new[] { 2.0 / 3, 1.0 / 3, 0.0 };
+    private const int SurvivalPhase = 3;
 
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
             [1] = ("AWAKEN", "You hear it too.", UiTheme.Purple),
             [2] = ("ANSWER", "Stay a while.", UiTheme.Blue),
-            [3] = ("PRESS", "The pattern remembers.", UiTheme.Gold),
-            [4] = ("PERSIST", "This is not the end.", UiTheme.Red),
-            [5] = ("ENDURE", "Run, while you still can.", UiTheme.Cream),
+            [3] = ("ENDURE", "Run, while you still can.", UiTheme.Cream),
+            [4] = ("PRESS", "The pattern remembers.", UiTheme.Gold),
+            [5] = ("PERSIST", "This is not the end.", UiTheme.Red),
         };
 
-    private readonly Random _rng;
     private readonly List<ProjectilePortal> _projectilePortals = new();
 
-    private int _nextSurvivalIndex;
     private int _portalIndex;
     private double _attackCooldown = 1.25;
     private int _attackPattern;
+    private int _phaseDeclarations;
     private double _phaseElapsed;
     private double _phaseProtectionTimer;
     private double _staggerRemaining;
@@ -74,6 +73,8 @@ public sealed class Beaudis : Enemy
     public double PhaseAnnouncementTimer { get; private set; } = 2.4;
     public bool PhaseForcedByTimer { get; private set; }
     public bool DebugPhaseLocked { get; set; }
+    public int PhaseDeclarations => _phaseDeclarations;
+    public int PatternRotation => _attackPattern;
 
     /// <summary>Settable so debug controls/tests can skip the entrance cinematic, matching Python tests setting `entranceRemaining` directly.</summary>
     public double EntranceRemaining { get; set; } = EntranceDuration;
@@ -99,9 +100,8 @@ public sealed class Beaudis : Enemy
     public bool MidpointSurvived => Dying || Hp <= 0;
 
     public Beaudis(float worldX, float worldY, float awarenessRange, Random? rng = null)
-        : base(worldX, worldY, .38f, Simulation.TileSize * 1.55f, UiTheme.Purple, 200, 26000, 240, 3.2, awarenessRange, "beaudis")
+        : base(worldX, worldY, .38f, Simulation.TileSize * 1.55f, UiTheme.Purple, 220, 50000, 240, 3.2, awarenessRange, "beaudis")
     {
-        _rng = rng ?? Random.Shared;
         (PhaseLabel, PhaseFlavor, PhaseAccent) = PhaseMetadata[1];
     }
 
@@ -121,11 +121,12 @@ public sealed class Beaudis : Enemy
         _phaseProtectionTimer = .55;
         TransitionCleanupRequested = true;
         _attackCooldown = 1.0;
+        _phaseDeclarations = 0;
         Stagger = 0.0;
         IsStaggered = false;
         _staggerRemaining = 0.0;
         PhaseForcedByTimer = false;
-        SurvivalActive = phase == 5;
+        SurvivalActive = phase == SurvivalPhase;
         if (SurvivalActive)
         {
             Hp = Math.Max(1, Hp);
@@ -143,30 +144,9 @@ public sealed class Beaudis : Enemy
     public void DebugSetPhase(int phase)
     {
         phase = Math.Clamp(phase, 1, PhaseCount);
-        if (phase == 5)
-            _nextSurvivalIndex = SurvivalThresholds.Count - 1;
         if (phase == Phase)
             Phase = 0;
         SetPhase(phase);
-    }
-
-    private double SurvivalHealth() => MaxHp * SurvivalThresholds[_nextSurvivalIndex];
-
-    private int ChooseDamagePhase()
-    {
-        var pools = new[] { (First: 1, Second: 2), (First: 2, Second: 3), (First: 3, Second: 4) };
-        var pool = pools[Math.Min(_nextSurvivalIndex, pools.Length - 1)];
-        var choices = new List<int>();
-        if (pool.First != Phase)
-            choices.Add(pool.First);
-        if (pool.Second != Phase)
-            choices.Add(pool.Second);
-        if (choices.Count == 0)
-        {
-            choices.Add(pool.First);
-            choices.Add(pool.Second);
-        }
-        return choices[_rng.Next(choices.Count)];
     }
 
     public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
@@ -184,16 +164,30 @@ public sealed class Beaudis : Enemy
             _staggerRemaining = StaggerDuration;
             TransitionCleanupRequested = true;
         }
-        double thresholdHp = SurvivalHealth();
-        if (Hp <= thresholdHp && !DebugPhaseLocked)
+        if (!DebugPhaseLocked)
         {
-            Hp = Math.Max(1, (int)Math.Round(thresholdHp));
-            SetPhase(5);
+            int floor = Phase switch
+            {
+                1 => (int)Math.Round(MaxHp * .75),
+                2 => (int)Math.Round(MaxHp * .50),
+                4 => (int)Math.Round(MaxHp * .25),
+                _ => 1,
+            };
+            if (Hp <= floor)
+            {
+                Hp = floor;
+                if (_phaseDeclarations >= MinimumDamagePhaseDeclarations)
+                {
+                    if (Phase == 5)
+                        BeginFade();
+                    else
+                        SetPhase(Phase + 1);
+                }
+            }
         }
-        else
-        {
-            Hp = Math.Max(0, Hp);
-        }
+        Hp = Dying ? Math.Max(1, Hp) : Math.Max(0, Hp);
+        // Dying is a protected three-second spectacle, not an immediate kill.
+        // GameSession removes HitResult.Killed enemies in the damage pass.
         return new HitResult(true, false, applied);
     }
 
@@ -218,13 +212,15 @@ public sealed class Beaudis : Enemy
     }
 
     private void FireProjectile(List<EnemyProjectile> sink, float direction, float speed = .68f, float damage = 1.0f,
-        Color? color = null, string owner = "beaudis_shot")
+        Color? color = null, string owner = "beaudis_shot", Vector2? origin = null, string path = "linear")
     {
-        var center = Center();
+        var center = origin ?? Center();
         float size = Simulation.TileSize * .34f;
         sink.Add(new EnemyProjectile(
             center.X - size / 2f, center.Y - size / 2f, direction, speed, damage, size,
-            travelRange: Simulation.TileSize * 30f, color: color ?? PhaseAccent, shape: "diamond", owner: owner));
+            travelRange: Simulation.TileSize * 30f, color: color ?? PhaseAccent, shape: "diamond",
+            path: path, amplitude: path == "sine" ? Simulation.TileSize * .22f : 0,
+            frequency: .04f, owner: owner, ignoreWalls: true));
     }
 
     private void FireFan(float playerX, float playerY, List<EnemyProjectile> sink, int count, float spread, float speed = .68f)
@@ -244,6 +240,23 @@ public sealed class Beaudis : Enemy
         for (int index = 0; index < count; index++)
             FireProjectile(sink, offset + index * 2f * MathF.PI / count, speed, .9f, UiTheme.Gold, "beaudis_pulse");
     }
+
+    private void FireRadialWithAimedGap(float playerX, float playerY, List<EnemyProjectile> sink, int count, float speed)
+    {
+        var center = Center();
+        float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
+        int gap = (int)MathF.Round(((aimed % MathF.Tau + MathF.Tau) % MathF.Tau) / MathF.Tau * count) % count;
+        float offset = _attackPattern * .17f;
+        for (int index = 0; index < count; index++)
+        {
+            if (index == gap || index == (gap + 1) % count)
+                continue;
+            FireProjectile(sink, index * MathF.Tau / count + offset, speed, 1.0f, UiTheme.Gold, "beaudis_press");
+        }
+    }
+
+    private int ActiveThreats(List<EnemyProjectile> sink) =>
+        sink.Count(projectile => !projectile.RemFlag && projectile.Owner?.StartsWith("beaudis") == true);
 
     private void Move(float playerX, float playerY, Battleground battleground)
     {
@@ -278,26 +291,51 @@ public sealed class Beaudis : Enemy
         _attackCooldown -= dt;
         if (_attackCooldown > 0)
             return;
+        if (ActiveThreats(sink) >= ActiveThreatSoftCap)
+        {
+            _attackCooldown = .3;
+            return;
+        }
+        var center = Center();
+        float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
         switch (Phase)
         {
             case 1:
-                FireFan(playerX, playerY, sink, 1, 0, .62f);
-                _attackCooldown = 1.75;
+                FireProjectile(sink, aimed, .72f, 1.0f, UiTheme.Purple, "beaudis_call");
+                FireProjectile(sink, aimed - .18f, .58f, .9f, UiTheme.Blue, "beaudis_call_echo", path: "sine");
+                FireProjectile(sink, aimed + .18f, .58f, .9f, UiTheme.Blue, "beaudis_call_echo", path: "sine");
+                _attackCooldown = 1.65;
                 break;
             case 2:
-                FireFan(playerX, playerY, sink, 3, .46f, .66f);
-                _attackCooldown = 2.05;
+            {
+                float side = Simulation.TileSize * 3.2f;
+                var left = center + new Vector2(-MathF.Sin(aimed), MathF.Cos(aimed)) * side;
+                var right = center - new Vector2(-MathF.Sin(aimed), MathF.Cos(aimed)) * side;
+                float leftAim = MathF.Atan2(playerY - left.Y, playerX - left.X);
+                float rightAim = MathF.Atan2(playerY - right.Y, playerX - right.X);
+                for (int index = -1; index <= 1; index++)
+                {
+                    FireProjectile(sink, leftAim + index * .18f, .68f, .95f, UiTheme.Blue,
+                        "beaudis_answer_left", left);
+                    FireProjectile(sink, rightAim + index * .18f, .68f, .95f, UiTheme.Purple,
+                        "beaudis_answer_right", right);
+                }
+                _attackCooldown = 1.9;
                 break;
-            case 3:
-                FireRadial(sink, 6, .60f);
-                _attackCooldown = 2.45;
+            }
+            case 4:
+                FireRadialWithAimedGap(playerX, playerY, sink, 10, .67f);
+                FireFan(playerX, playerY, sink, 3, .34f, .76f);
+                _attackCooldown = 2.15;
                 break;
             default:
-                FireFan(playerX, playerY, sink, 4, .68f, .72f);
-                _attackCooldown = 1.65;
+                FireFan(playerX, playerY, sink, 5, .62f, .78f);
+                FireRadial(sink, 6, .70f);
+                _attackCooldown = 1.85;
                 break;
         }
         _attackPattern += 1;
+        _phaseDeclarations += 1;
     }
 
     private void UpdateSurvival(float playerX, float playerY, List<EnemyProjectile> sink, double dt)
@@ -321,15 +359,7 @@ public sealed class Beaudis : Enemy
         }
         if (SurvivalRemaining <= 0)
         {
-            if (_nextSurvivalIndex >= SurvivalThresholds.Count - 1)
-            {
-                BeginFade();
-            }
-            else
-            {
-                _nextSurvivalIndex += 1;
-                SetPhase(ChooseDamagePhase());
-            }
+            SetPhase(4);
         }
     }
 
@@ -381,9 +411,12 @@ public sealed class Beaudis : Enemy
         }
         else
         {
-            if (!DebugPhaseLocked && _phaseElapsed >= PhaseTimeLimit && DamagePhases.Contains(Phase))
+            if (!DebugPhaseLocked && _phaseElapsed >= PhaseTimeLimit &&
+                Phase is 1 or 2 or 4 or 5 &&
+                _phaseDeclarations >= MinimumDamagePhaseDeclarations)
             {
-                SetPhase(ChooseDamagePhase());
+                _phaseElapsed = 0;
+                _attackCooldown = 0;
                 PhaseForcedByTimer = true;
             }
             UpdateDamagePhase(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt, context.Battleground);

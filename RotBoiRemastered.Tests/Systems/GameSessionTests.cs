@@ -485,10 +485,8 @@ public class GameSessionTests
         MoveToArenaCenter(session);
         session.HandleEnemyCreation(new Random(1), interactPressed: true);
         var boss = Assert.IsType<Beaudis>(session.State.ActiveBoss);
-        // Beaudis only ever reaches 0 HP via its own choreographed survival/death
-        // countdown (a huge single hit instead pins it to the next survival gate --
-        // see BeaudisTests.TakeDamage_CrossingSurvivalThreshold_EntersSurvivalPhaseFive
-        // and Update_DeathCountdownElapsed_SetsHpToZero for that sequence). This test
+        // Beaudis only reaches 0 HP in ordinary combat through its choreographed
+        // Persist/death countdown. This test
         // is purely about GameSession's defeat-handling glue once IsDead() is true.
         boss.Hp = 0;
 
@@ -593,8 +591,21 @@ public class GameSessionTests
         session.State.BeaudisDefeated = true;
         MoveToArenaCenter(session);
         session.HandleEnemyCreation(new Random(1), interactPressed: true);
-        Assert.IsType<Dissonance>(session.State.ActiveBoss);
-        ((Enemy)session.State.ActiveBoss!).Hp = 0;
+        var boss = Assert.IsType<Dissonance>(session.State.ActiveBoss);
+        boss.EntranceRemaining = 0;
+        boss.CinematicTransitionsEnabled = false;
+        boss.DebugSetPhase(9);
+        boss.TransitionRemaining = 0;
+        boss.SurvivalRemaining = 0;
+        var context = new EnemyUpdateContext
+        {
+            PlayerWorldX = boss.ArenaCenter.X,
+            PlayerWorldY = boss.ArenaCenter.Y,
+            Battleground = session.Battleground,
+        };
+        boss.Update(context); // completes Jera and starts the ten-second collapse
+        boss.DeathRemaining = 0;
+        boss.Update(context);
 
         session.HandleDamagingEnemies(new Random(1));
 

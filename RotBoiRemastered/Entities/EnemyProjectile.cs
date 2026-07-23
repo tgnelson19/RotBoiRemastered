@@ -67,6 +67,7 @@ public sealed class EnemyProjectile
     public float BlastRadius { get; set; }
     public int BurstCount { get; set; } = 8;
     public float BurstDamage { get; set; }
+    public float BurstRangeTiles { get; set; } = 24f;
     public List<EnemyProjectile> SpawnedProjectiles { get; } = new();
     public int SplitCount { get; set; }
     public float? SplitAt { get; set; }
@@ -142,7 +143,7 @@ public sealed class EnemyProjectile
     {
         if (Illusory)
             return false;
-        if (Path == "mine" && Age < TelegraphDuration)
+        if (Path is "mine" or "bank" && Age < TelegraphDuration)
             return false;
         if (Path == "pool")
         {
@@ -211,7 +212,7 @@ public sealed class EnemyProjectile
                         SpawnedProjectiles.Add(new EnemyProjectile(
                             WorldX, WorldY, index * 2f * MathF.PI / Math.Max(1, BurstCount), .9f,
                             BurstDamage * .28f, Simulation.TileSize * .38f,
-                            travelRange: Simulation.TileSize * 24f, color: Color, shape: "diamond",
+                            travelRange: Simulation.TileSize * BurstRangeTiles, color: Color, shape: "diamond",
                             owner: $"{Owner}_burst", ignoreWalls: true));
                     }
                 }
@@ -292,6 +293,11 @@ public sealed class EnemyProjectile
         if (Path == "laser")
         {
             DrawLaser(spriteBatch, camera, playerWorldPosition, screenShake);
+            return;
+        }
+        if (Path == "bank")
+        {
+            DrawBank(spriteBatch, camera, playerWorldPosition, screenShake, highContrast);
             return;
         }
 
@@ -421,6 +427,55 @@ public sealed class EnemyProjectile
             var warning = InflateF(visible, 12, 8);
             Primitives2D.Arc(spriteBatch, warning, -MathF.PI / 2, -MathF.PI / 2 + 2 * MathF.PI * progress, UiTheme.Cream, 3);
         }
+    }
+
+    private void DrawBank(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition,
+        Vector2 screenShake, bool highContrast)
+    {
+        Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        var slab = new Rectangle((int)screen.X, (int)(screen.Y + Size * .18f), (int)Size, (int)(Size * .64f));
+        float warning = Math.Clamp(Age / Math.Max(.01f, TelegraphDuration), 0f, 1f);
+
+        if (Age < TelegraphDuration)
+        {
+            Color ghost = Color * (.2f + warning * .32f);
+            Primitives2D.FillRect(spriteBatch, slab, ghost);
+            Primitives2D.RectOutline(spriteBatch, slab, UiTheme.Cream, Math.Max(2, (int)(Size * .055f)));
+            for (int seam = 1; seam < 4; seam++)
+            {
+                int x = slab.X + slab.Width * seam / 4;
+                Primitives2D.Line(spriteBatch, new Vector2(x, slab.Top), new Vector2(x, slab.Bottom),
+                    UiTheme.Cream * .55f, 2);
+            }
+            return;
+        }
+
+        var shadow = slab;
+        shadow.Offset(5, 7);
+        Primitives2D.FillRect(spriteBatch, shadow, UiTheme.Shadow);
+        Primitives2D.FillRect(spriteBatch, slab, Color);
+        Primitives2D.RectOutline(spriteBatch, slab, UiTheme.Ink, Math.Max(3, (int)(Size * .075f)));
+
+        // Broad sediment courses and sparse cracks read as one advancing wall
+        // of compacted matter, rather than another boss's jeweled projectile.
+        for (int course = 1; course < 3; course++)
+        {
+            int y = slab.Y + slab.Height * course / 3;
+            Primitives2D.Line(spriteBatch, new Vector2(slab.Left + 3, y),
+                new Vector2(slab.Right - 3, y), UiTheme.Lighten(Color, 24), 2);
+        }
+        for (int crack = 0; crack < 3; crack++)
+        {
+            float x = slab.Left + slab.Width * (.22f + crack * .28f);
+            Primitives2D.Polyline(spriteBatch, new[]
+            {
+                new Vector2(x, slab.Top + 4),
+                new Vector2(x + (crack % 2 == 0 ? 7 : -6), slab.Center.Y),
+                new Vector2(x - 3, slab.Bottom - 4),
+            }, false, UiTheme.Ink, 2);
+        }
+        if (highContrast)
+            Primitives2D.RectOutline(spriteBatch, InflateF(slab, 4, 4), UiTheme.Cream, 3);
     }
 
     private void DrawLaser(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)

@@ -42,14 +42,14 @@ public sealed class Battleground
 
     private (int X, int Y)[]? _openTiles;
 
-    public Battleground(TileType[,] tiles, IReadOnlyList<BiomePalette> palettes, int wallHeight)
+    public Battleground(TileType[,] tiles, IReadOnlyList<BiomePalette> palettes, int wallHeight, Vector2? spawnPosition = null)
     {
         Tiles = tiles;
         Height = tiles.GetLength(0);
         Width = tiles.GetLength(1);
         Palettes = palettes;
         WallHeight = wallHeight;
-        SpawnPosition = new Vector2(
+        SpawnPosition = spawnPosition ?? new Vector2(
             Width / 2 * TileSize - TileSize / 2f,
             Height / 2 * TileSize - TileSize / 2f);
     }
@@ -584,6 +584,73 @@ public sealed class Battleground
                     grid[y, x] = TileType.Road;
 
         return new Battleground(grid, BiomePalettes.Phantasia, wallHeight: 20);
+    }
+
+    /// <summary>
+    /// Authored sanctuary used only by The Soul. The player begins in the
+    /// compact southern holdout, crosses a narrow northbound light tunnel,
+    /// and emerges into a broad oval chamber whose five open bays are owned
+    /// by the path portals. Unlike combat maps, its asymmetry is intentional:
+    /// the spawn is low in the map so the architecture reads as a journey
+    /// from safety toward possibility rather than another arena ring.
+    /// </summary>
+    public static Battleground GenerateSoul()
+    {
+        const int width = 79, height = 81;
+        int centerX = width / 2;
+        const int spawnY = 65;
+        var grid = new TileType[height, width];
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+                grid[y, x] = TileType.OuterVoid;
+
+        // The portal chamber: a low, wide ellipse with a solid architectural
+        // lip. Its interior is deliberately simple because SoulHub supplies
+        // the animated paths and portal-specific decorative bleed.
+        const int chamberY = 22, chamberRadiusX = 33, chamberRadiusY = 19;
+        for (int y = 1; y < height - 1; y++)
+        {
+            for (int x = 1; x < width - 1; x++)
+            {
+                double dx = (x - centerX) / (double)chamberRadiusX;
+                double dy = (y - chamberY) / (double)chamberRadiusY;
+                double distance = dx * dx + dy * dy;
+                if (distance <= 1)
+                    grid[y, x] = distance >= .84 ? TileType.ArenaWall : TileType.BuildingFloor;
+            }
+        }
+
+        // A five-tile-wide processional tunnel joins the two spaces. Building
+        // walls make the colored ribbons feel enclosed and dimensional.
+        for (int y = 37; y <= 58; y++)
+        {
+            for (int x = centerX - 5; x <= centerX + 5; x++)
+                grid[y, x] = Math.Abs(x - centerX) == 5 ? TileType.BuildingWall : TileType.Road;
+        }
+
+        // Compact holdout with one northern opening. Everything interactive
+        // is positioned along its lower half by SoulHub.Enter.
+        const int holdoutLeft = 25, holdoutRight = 53, holdoutTop = 55, holdoutBottom = 77;
+        for (int y = holdoutTop; y <= holdoutBottom; y++)
+        {
+            for (int x = holdoutLeft; x <= holdoutRight; x++)
+            {
+                bool boundary = x == holdoutLeft || x == holdoutRight || y == holdoutTop || y == holdoutBottom;
+                bool northDoor = y == holdoutTop && Math.Abs(x - centerX) <= 4;
+                grid[y, x] = boundary && !northDoor ? TileType.BuildingWall : TileType.BuildingFloor;
+            }
+        }
+
+        // Radial floor inlays give each portal bay a subtle permanent spine;
+        // the animated path ribbons are drawn directly over these.
+        var portalTiles = new[] { (15, 25), (27, 20), (39, 18), (51, 20), (63, 25) };
+        foreach (var portal in portalTiles)
+            PaintRoad(grid, (centerX, 37), portal, 1);
+
+        var spawn = new Vector2(
+            centerX * TileSize - TileSize / 2f,
+            spawnY * TileSize - TileSize / 2f);
+        return new Battleground(grid, BiomePalettes.Soul, wallHeight: 24, spawnPosition: spawn);
     }
 
     /// <summary>

@@ -146,4 +146,18 @@ public class BattlegroundTests
         Assert.True(WallCount(touch) > WallCount(sound));
         Assert.Equal(TileType.Road, touch.TileAt(center, center));
     }
+
+    [Fact]
+    public void Soul_IsAnAsymmetricHoldoutTunnelAndPortalChamber()
+    {
+        var soul = Battleground.GenerateSoul();
+        int spawnTileX = (int)((soul.SpawnPosition.X + Battleground.TileSize / 2f) / Battleground.TileSize);
+        int spawnTileY = (int)((soul.SpawnPosition.Y + Battleground.TileSize / 2f) / Battleground.TileSize);
+
+        Assert.True(spawnTileY > soul.Height * .7);
+        Assert.Equal(TileType.BuildingFloor, soul.TileAt(spawnTileX, spawnTileY));
+        Assert.Equal(TileType.Road, soul.TileAt(soul.Width / 2, 45));
+        Assert.False(soul.TileAt(soul.Width / 2, 22).IsSolid());
+        Assert.True(soul.TileAt(soul.Width / 2 - 33, 22).IsSolid());
+    }
 }

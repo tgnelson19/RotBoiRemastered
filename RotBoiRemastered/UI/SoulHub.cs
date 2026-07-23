@@ -13,16 +13,18 @@ public sealed class SoulHub
 {
     private const float StationOpenRadiusTiles = 1.45f;
     private const float StationCloseRadiusTiles = 1.85f;
-    /// <summary>
-    /// Ring radius for the path portals -- well outside the four station
-    /// offsets (4 tiles) and the DPS dummy (also 4 tiles), and still clear of
-    /// every GamePaths generator's nearest building/block (the tightest
-    /// being Touch, whose closest cardinal-lane block sits ~18.8 tiles out),
-    /// so a 14-tile ring stays open ground in all five.
-    /// </summary>
-    private const float PathPortalRingRadiusTiles = 14f;
     private const float PathPortalInteractRadiusTiles = 1.6f;
     private const float PathPortalConfirmCloseRadiusTiles = 2.1f;
+    private const float PortalJunctionOffsetTiles = -28f;
+    /// <summary>
+    /// Five authored bays in the northern chamber, expressed relative to the
+    /// southern holdout spawn. Their shallow arc leaves every title readable
+    /// while letting each path visually claim a large slice of the room.
+    /// </summary>
+    private static readonly (float X, float Y)[] PathPortalOffsetsTiles =
+    {
+        (-24, -40), (-12, -45), (0, -47), (12, -45), (24, -40),
+    };
     /// <summary>Time spent visibly pulling the player from where they confirmed into the portal's center.</summary>
     private const double PortalPullSeconds = 0.9;
     /// <summary>Time spent held at full black after the pull, so the scene swap underneath is never visible.</summary>
@@ -86,25 +88,22 @@ public sealed class SoulHub
         session.State.AutoFire = false;
         session.State.EnemyHolster.Clear();
         session.State.EnemyProjectileHolster.Clear();
-        _dummyWorld = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 4, 0);
+        _dummyWorld = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 8, Simulation.TileSize * -2);
         _dummy = new TrainingDummy(_dummyWorld.X, _dummyWorld.Y);
         _stationWorld.Clear();
-        _stationWorld["storage"] = session.PlayerWorldCenter - new Vector2(Simulation.TileSize * 4, 0);
-        _stationWorld["quests"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 4);
-        _stationWorld["skills"] = session.PlayerWorldCenter + new Vector2(0, Simulation.TileSize * 4);
-        _stationWorld["wardrobe"] = session.PlayerWorldCenter + new Vector2(-Simulation.TileSize * 4, Simulation.TileSize * 4);
-        // A standalone challenge box between the northern station and path
-        // portal ring. It toggles immediately rather than opening an overlay.
-        _stationWorld["hard_mode"] = session.PlayerWorldCenter - new Vector2(0, Simulation.TileSize * 8);
+        // The entire permanent-progression loop is visible in one glance
+        // along the holdout's southern service wall.
+        _stationWorld["storage"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * -8, Simulation.TileSize * 6);
+        _stationWorld["quests"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * -4, Simulation.TileSize * 6);
+        _stationWorld["skills"] = session.PlayerWorldCenter + new Vector2(0, Simulation.TileSize * 6);
+        _stationWorld["wardrobe"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 4, Simulation.TileSize * 6);
+        _stationWorld["hard_mode"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 8, Simulation.TileSize * 6);
         _pathPortalWorld.Clear();
         var paths = GamePaths.Paths;
         for (int index = 0; index < paths.Count; index++)
         {
-            // Start pointing straight up and go clockwise so the ring reads
-            // left-to-right the same order as GamePaths.Paths / the old
-            // title-screen selector.
-            float angle = -MathHelper.PiOver2 + MathHelper.TwoPi * index / paths.Count;
-            var offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Simulation.TileSize * PathPortalRingRadiusTiles;
+            var authored = PathPortalOffsetsTiles[index];
+            var offset = new Vector2(authored.X, authored.Y) * Simulation.TileSize;
             _pathPortalWorld[paths[index].Key] = session.PlayerWorldCenter + offset;
         }
         _dummyHits.Clear();
@@ -333,6 +332,7 @@ public sealed class SoulHub
     public void DrawWorld(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
         _targets.Clear();
+        DrawSoulEnergy(spriteBatch, session);
         var screen = session.Camera.WorldToScreen(_dummyWorld, session.PlayerWorldCenter, Vector2.Zero);
         var body = new Rectangle((int)screen.X - 24, (int)screen.Y - 20, 48, 68);
         Primitives2D.FillRect(spriteBatch, new Rectangle(body.X + 6, body.Y + 8, body.Width, body.Height), UiTheme.Shadow);
@@ -352,6 +352,380 @@ public sealed class SoulHub
             new Vector2(readout.X + 14, readout.Y + 98));
         DrawStations(spriteBatch, session);
         DrawPathPortals(spriteBatch, session);
+    }
+
+    /// <summary>
+    /// Animated architecture layered over the Soul's neutral baked floor:
+    /// raised-looking tunnel ribbons, a five-way luminous junction, path
+    /// trails, floating motes, and portal bleed. All noise is deterministic
+    /// and clock-driven, so the room feels alive without storing hundreds of
+    /// particle objects or affecting simulation.
+    /// </summary>
+    private void DrawSoulEnergy(SpriteBatch spriteBatch, GameSession session)
+    {
+        float t = (float)_seconds;
+        Vector2 spawn = session.Battleground.SpawnPosition + new Vector2(Simulation.TileSize / 2f);
+        Vector2 tunnelStart = spawn + new Vector2(0, Simulation.TileSize * -7f);
+        Vector2 junction = spawn + new Vector2(0, Simulation.TileSize * PortalJunctionOffsetTiles);
+        var pathColors = GamePaths.Paths.Select(path => path.Accent).ToArray();
+        float awakening = TunnelAwakening(session.PlayerWorldCenter.Y, tunnelStart.Y, junction.Y);
+        float ambientAwakening = .12f + awakening * .88f;
+
+        // A quiet foundation makes the moving light read as a constructed
+        // conduit rather than loose particles sprinkled over the floor.
+        foreach (float side in new[] { -4.15f, 4.15f })
+        {
+            Vector2 railStart = WorldToScreen(tunnelStart + new Vector2(side * Simulation.TileSize, 0), session);
+            Vector2 railEnd = WorldToScreen(junction + new Vector2(side * Simulation.TileSize, 0), session);
+            Primitives2D.Line(spriteBatch, railStart + new Vector2(0, 8), railEnd + new Vector2(0, 8), UiTheme.Shadow * .8f, 14);
+            Primitives2D.Line(spriteBatch, railStart, railEnd, new Color(78, 64, 101) * (.22f + ambientAwakening * .58f), 5);
+            Primitives2D.Line(spriteBatch, railStart - new Vector2(0, 3), railEnd - new Vector2(0, 3),
+                new Color(211, 192, 231) * (.08f + ambientAwakening * .37f), 2);
+        }
+
+        // Five independently breathing ribbons gradually braid together as
+        // the player approaches the portal room.
+        const int tunnelSegments = 34;
+        for (int ribbon = 0; ribbon < pathColors.Length; ribbon++)
+        {
+            Vector2? previous = null;
+            float lane = (ribbon - 2) * .72f;
+            for (int segment = 0; segment <= tunnelSegments; segment++)
+            {
+                float amount = segment / (float)tunnelSegments;
+                float localAwakening = Math.Clamp((awakening + .16f - amount) / .16f, 0, 1);
+                // Leave a dim one-pixel circuit behind the activation front,
+                // then build shadow, body, and highlight as the player walks.
+                float segmentLight = .08f + localAwakening * .92f;
+                float wave = MathF.Sin(t * (1.3f + ribbon * .08f) - amount * 9f + ribbon * 1.4f);
+                float braid = lane * (1f - amount * .76f) + wave * (.18f + amount * .46f);
+                Vector2 world = Vector2.Lerp(tunnelStart, junction, amount)
+                    + new Vector2(braid * Simulation.TileSize, 0);
+                Vector2 screen = WorldToScreen(world, session);
+                if (previous.HasValue)
+                {
+                    float breath = .58f + .42f * MathF.Sin(t * 2f - amount * 5f + ribbon);
+                    Primitives2D.Line(spriteBatch, previous.Value + new Vector2(0, 5), screen + new Vector2(0, 5),
+                        UiTheme.Shadow * (.2f + segmentLight * .45f), 7);
+                    Primitives2D.Line(spriteBatch, previous.Value, screen,
+                        pathColors[ribbon] * segmentLight * (.48f + breath * .34f), localAwakening > .12f ? 4 : 1);
+                    Primitives2D.Line(spriteBatch, previous.Value - new Vector2(0, 2), screen - new Vector2(0, 2),
+                        Color.Lerp(pathColors[ribbon], Color.White, .68f) * localAwakening * (.3f + breath * .36f), 1);
+                }
+                previous = screen;
+            }
+        }
+
+        // Floating tunnel motes use a displaced shadow and height bob so they
+        // read above the floor plane in the top-down camera.
+        for (int mote = 0; mote < 28; mote++)
+        {
+            float travel = ((mote * .137f + t * (.032f + mote % 3 * .008f)) % 1f + 1f) % 1f;
+            if (travel > awakening + .12f)
+                continue;
+            float lateral = MathF.Sin(mote * 2.17f + t * .7f) * Simulation.TileSize * 3.4f;
+            float height = 8f + 13f * (.5f + .5f * MathF.Sin(t * 1.8f + mote));
+            Vector2 world = Vector2.Lerp(tunnelStart, junction, travel) + new Vector2(lateral, 0);
+            Vector2 screen = WorldToScreen(world, session);
+            Color color = pathColors[mote % pathColors.Length];
+            Primitives2D.FillCircle(spriteBatch, screen + new Vector2(3, 5), 4, UiTheme.Shadow * .6f);
+            Primitives2D.FillCircle(spriteBatch, screen - new Vector2(0, height), 2.5f + mote % 3, color * .8f);
+            DrawPixelReflection(spriteBatch, screen + new Vector2(0, 5), color, 8 + mote % 3 * 2, .26f);
+        }
+
+        // The tunnel opens into one luminous knot, then separates into five
+        // authored colored paths. A quadratic bend keeps the routes organic.
+        Vector2 junctionScreen = WorldToScreen(junction, session);
+        for (int ring = 0; ring < 4; ring++)
+        {
+            float radius = Simulation.TileSize * (.42f + ring * .25f + .04f * MathF.Sin(t * 2f + ring));
+            Primitives2D.CircleOutline(spriteBatch, junctionScreen, radius,
+                Color.Lerp(new Color(137, 103, 178), Color.White, ring * .14f) * (.52f - ring * .07f), 2);
+        }
+
+        for (int index = 0; index < GamePaths.Paths.Count; index++)
+        {
+            var path = GamePaths.Paths[index];
+            if (!_pathPortalWorld.TryGetValue(path.Key, out var portal))
+                continue;
+            Vector2 control = new(
+                MathHelper.Lerp(junction.X, portal.X, .48f),
+                junction.Y - Simulation.TileSize * (5.5f + Math.Abs(index - 2) * 1.25f));
+            DrawPortalTrail(spriteBatch, session, junction, control, portal, path.Accent, index, t);
+            int corruptionLevel = NewGamePlus.SelectedLevel(path.Key);
+            DrawPortalBleed(spriteBatch, session, portal, path.Accent, index, t, corruptionLevel);
+            DrawCompletionMonument(spriteBatch, session, portal, path.Accent, path.Key, index, t);
+        }
+        DrawInterPortalTransfer(spriteBatch, session, t);
+    }
+
+    private static Vector2 WorldToScreen(Vector2 world, GameSession session) =>
+        session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
+
+    public static float TunnelAwakening(float playerWorldY, float tunnelStartWorldY, float junctionWorldY)
+    {
+        if (Math.Abs(tunnelStartWorldY - junctionWorldY) < .001f)
+            return 1;
+        return Math.Clamp((tunnelStartWorldY - playerWorldY) / (tunnelStartWorldY - junctionWorldY), 0, 1);
+    }
+
+    private static void DrawPixelReflection(SpriteBatch spriteBatch, Vector2 floor, Color color, int width, float alpha)
+    {
+        int evenWidth = Math.Max(2, width / 2 * 2);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle((int)floor.X - evenWidth / 2, (int)floor.Y + 3, evenWidth, 2), color * alpha);
+        if (evenWidth >= 8)
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)floor.X - evenWidth / 4, (int)floor.Y + 7, evenWidth / 2, 1), color * alpha * .55f);
+    }
+
+    private static Vector2 Quadratic(Vector2 start, Vector2 control, Vector2 end, float amount)
+    {
+        float inverse = 1f - amount;
+        return inverse * inverse * start + 2f * inverse * amount * control + amount * amount * end;
+    }
+
+    private static void DrawPortalTrail(SpriteBatch spriteBatch, GameSession session, Vector2 start,
+        Vector2 control, Vector2 end, Color color, int pathIndex, float time)
+    {
+        const int segments = 28;
+        Vector2 previous = WorldToScreen(start, session);
+        for (int segment = 1; segment <= segments; segment++)
+        {
+            float amount = segment / (float)segments;
+            Vector2 screen = WorldToScreen(Quadratic(start, control, end, amount), session);
+            float pulse = .5f + .5f * MathF.Sin(time * 2.4f - amount * 12f + pathIndex);
+            Primitives2D.Line(spriteBatch, previous + new Vector2(0, 5), screen + new Vector2(0, 5), UiTheme.Shadow * .6f, 11);
+            Primitives2D.Line(spriteBatch, previous, screen, color * (.28f + pulse * .48f), 5);
+            if ((segment + pathIndex * 2) % 7 == (int)(time * 5f) % 7)
+            {
+                Primitives2D.FillCircle(spriteBatch, screen - new Vector2(0, 5 + pulse * 8), 3.5f, Color.Lerp(color, Color.White, .55f));
+                DrawPixelReflection(spriteBatch, screen + new Vector2(0, 4), color, 10, .22f);
+            }
+            previous = screen;
+        }
+    }
+
+    /// <summary>
+    /// Each portal stains the neutral chamber with a distinct silhouette:
+    /// echo rings, weight-blocks, sight rays, chemical bubbles, or Phantasia
+    /// petals. This is the key environmental storytelling beat—the paths are
+    /// not doors placed in The Soul; they are actively rewriting it.
+    /// </summary>
+    private static void DrawPortalBleed(SpriteBatch spriteBatch, GameSession session, Vector2 world,
+        Color color, int pathIndex, float time, int corruptionLevel)
+    {
+        Vector2 center = WorldToScreen(world, session);
+        float corruption = PortalCorruptionScale(corruptionLevel);
+        float baseRadius = Simulation.TileSize * (2.7f * corruption + .12f * MathF.Sin(time * 1.5f + pathIndex));
+        Primitives2D.FillCircle(spriteBatch, center, baseRadius, color * (.055f + corruptionLevel * .008f));
+        Primitives2D.CircleOutline(spriteBatch, center, baseRadius, color * (.3f + corruptionLevel * .035f), 2);
+
+        int tendrilCount = 10 + corruptionLevel * 2;
+        for (int tendril = 0; tendril < tendrilCount; tendril++)
+        {
+            float angle = tendril * MathHelper.TwoPi / tendrilCount + MathF.Sin(time * .35f + tendril) * .12f;
+            float length = baseRadius * (.72f + (tendril % 3) * .17f);
+            Vector2 inner = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * baseRadius * .43f;
+            Vector2 outer = center + new Vector2(MathF.Cos(angle + .16f), MathF.Sin(angle + .16f)) * length;
+            Primitives2D.Line(spriteBatch, inner + new Vector2(0, 4), outer + new Vector2(0, 4), UiTheme.Shadow * .55f, 6);
+            Primitives2D.Line(spriteBatch, inner, outer, color * .48f, 2);
+        }
+
+        // NG+ adds square corruption motes instead of smooth bloom. Higher
+        // tiers therefore read as denser and more unstable while remaining
+        // faithful to the game's low-resolution primitive vocabulary.
+        for (int mote = 0; mote < corruptionLevel * 3; mote++)
+        {
+            float angle = mote * 2.07f + time * (mote % 2 == 0 ? .22f : -.17f);
+            float distance = baseRadius * (.58f + (mote % 5) * .1f);
+            Vector2 at = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
+            int size = 3 + mote % 3 * 2;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)at.X - size / 2, (int)at.Y - size / 2, size, size),
+                Color.Lerp(color, Color.White, .35f) * .72f);
+            DrawPixelReflection(spriteBatch, at + new Vector2(0, 4), color, size * 2, .17f);
+        }
+
+        switch (pathIndex)
+        {
+            case 0: // Sound: expanding echo rings.
+                for (int ring = 0; ring < 3; ring++)
+                {
+                    float radius = Simulation.TileSize * (.72f + ring * .55f)
+                        + (time * 22f + ring * 19f) % (Simulation.TileSize * .48f);
+                    Primitives2D.CircleOutline(spriteBatch, center, radius, color * (.52f - ring * .1f), 2);
+                }
+                break;
+            case 1: // Touch: dense offset blocks suggest mass and pressure.
+                for (int block = 0; block < 7; block++)
+                {
+                    float angle = block * MathHelper.TwoPi / 7f;
+                    Vector2 at = center + new Vector2(MathF.Cos(angle) * baseRadius * .66f, MathF.Sin(angle) * baseRadius * .48f);
+                    int size = 10 + block % 3 * 5;
+                    var rect = new Rectangle((int)at.X - size / 2, (int)at.Y - size / 2, size, size);
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 3, rect.Y + 5, rect.Width, rect.Height), UiTheme.Shadow * .65f);
+                    Primitives2D.RectOutline(spriteBatch, rect, color * .75f, 3);
+                }
+                break;
+            case 2: // Sight: long clean rays and a blinking central iris.
+                for (int ray = 0; ray < 12; ray++)
+                {
+                    float angle = ray * MathHelper.TwoPi / 12f + time * .08f;
+                    Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+                    Primitives2D.Line(spriteBatch, center + direction * baseRadius * .58f,
+                        center + direction * baseRadius * (1.05f + ray % 2 * .22f), color * .5f, ray % 2 + 1);
+                }
+                Primitives2D.FillCircle(spriteBatch, center, 13 + 4 * MathF.Sin(time * 2.3f), Color.Lerp(color, Color.White, .5f) * .72f);
+                break;
+            case 3: // Chemesthesis: buoyant contaminated bubbles.
+                for (int bubble = 0; bubble < 9; bubble++)
+                {
+                    float angle = bubble * 2.31f + time * (bubble % 2 == 0 ? .16f : -.12f);
+                    float radius = baseRadius * (.45f + bubble % 4 * .13f);
+                    Vector2 at = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+                    Primitives2D.CircleOutline(spriteBatch, at - new Vector2(0, 4 + bubble % 3 * 3), 6 + bubble % 4 * 2, color * .68f, 2);
+                }
+                break;
+            case 4: // Phantasia: counter-rotating petal ellipses made from arcs.
+                for (int petal = 0; petal < 8; petal++)
+                {
+                    float angle = petal * MathHelper.TwoPi / 8f + time * (petal % 2 == 0 ? .18f : -.13f);
+                    float radius = baseRadius * .73f;
+                    Vector2 at = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+                    var rect = new Rectangle((int)at.X - 15, (int)at.Y - 9, 30, 18);
+                    Primitives2D.Arc(spriteBatch, rect, angle, angle + MathF.PI * 1.35f, color * .8f, 2);
+                }
+                break;
+        }
+    }
+
+    public static float PortalCorruptionScale(int newGamePlusLevel) =>
+        1f + NewGamePlus.ClampLevel(newGamePlusLevel) * .085f;
+
+    /// <summary>
+    /// A cleared path grows a permanent, block-built reliquary beneath its
+    /// portal. Repeat clears raise the central shard; unlocked NG+ tiers add
+    /// gold memory pips along the plinth. Short floor cracks make the trophy
+    /// feel grown from The Soul rather than placed on top of it.
+    /// </summary>
+    private static void DrawCompletionMonument(SpriteBatch spriteBatch, GameSession session, Vector2 portal,
+        Color color, string pathKey, int pathIndex, float time)
+    {
+        int mastery = GameProfile.Profile.PathMastery.GetValueOrDefault(pathKey);
+        if (mastery <= 0)
+            return;
+
+        Vector2 center = WorldToScreen(portal + new Vector2(0, Simulation.TileSize * 2.15f), session);
+        int height = 24 + Math.Min(6, mastery) * 5;
+        var shadow = new Rectangle((int)center.X - 28 + 5, (int)center.Y - height + 6, 56, height);
+        var baseRect = new Rectangle((int)center.X - 28, (int)center.Y - 12, 56, 12);
+        var pillar = new Rectangle((int)center.X - 8, (int)center.Y - height, 16, height - 8);
+        Primitives2D.FillRect(spriteBatch, shadow, UiTheme.Shadow * .72f);
+        Primitives2D.FillRect(spriteBatch, baseRect, new Color(33, 29, 43));
+        Primitives2D.RectOutline(spriteBatch, baseRect, color * .78f, 2);
+        Primitives2D.FillRect(spriteBatch, pillar, new Color(46, 39, 58));
+        Primitives2D.RectOutline(spriteBatch, pillar, color * .82f, 2);
+
+        // A path-specific pixel crown keeps the monument recognizable even
+        // when its portal is off-screen above it.
+        int crownY = pillar.Top - 7;
+        switch (pathIndex)
+        {
+            case 0:
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 15, crownY, 30, 3), color);
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 10, crownY - 5, 20, 3), color * .8f);
+                break;
+            case 1:
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 13, crownY - 4, 10, 10), color);
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X + 3, crownY - 4, 10, 10), color);
+                break;
+            case 2:
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 16, crownY, 32, 3), color);
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 3, crownY - 8, 6, 16), UiTheme.Cream * .8f);
+                break;
+            case 3:
+                for (int bubble = 0; bubble < 3; bubble++)
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)center.X - 12 + bubble * 9, crownY - bubble % 2 * 5, 6, 6), color);
+                break;
+            default:
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 13, crownY, 26, 4), color);
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)center.X - 3, crownY - 10, 6, 24), UiTheme.Cream * .72f);
+                break;
+        }
+
+        int pips = NewGamePlus.UnlockedLevel(pathKey);
+        for (int pip = 0; pip < pips; pip++)
+        {
+            int x = baseRect.Center.X - (pips * 6 - 2) / 2 + pip * 6;
+            Primitives2D.FillRect(spriteBatch, new Rectangle(x, baseRect.Y + 4, 4, 4), UiTheme.Gold);
+        }
+
+        int cracks = Math.Min(8, 3 + mastery);
+        for (int crack = 0; crack < cracks; crack++)
+        {
+            float angle = crack * MathHelper.TwoPi / cracks + pathIndex * .21f;
+            float length = 30 + (crack % 3) * 9;
+            Vector2 start = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle) * .45f) * 24;
+            Vector2 end = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle) * .45f) * length;
+            Primitives2D.Line(spriteBatch, start, end, color * (.28f + .08f * MathF.Sin(time + crack)), 2);
+        }
+        DrawPixelReflection(spriteBatch, new Vector2(center.X, baseRect.Bottom), color, 38, .2f);
+    }
+
+    /// <summary>
+    /// On a slow deterministic cadence, one portal sheds a packet of square
+    /// pixels and another consumes it. The exchange hints that every path is
+    /// part of one system without adding simulation objects or smooth VFX.
+    /// </summary>
+    private void DrawInterPortalTransfer(SpriteBatch spriteBatch, GameSession session, float time)
+    {
+        const float cycleSeconds = 7.2f;
+        int cycle = (int)MathF.Floor(time / cycleSeconds);
+        float phase = time - cycle * cycleSeconds;
+        if (phase < 1.1f || phase > 3.8f)
+            return;
+
+        int sourceIndex = cycle % GamePaths.Paths.Count;
+        int targetIndex = (sourceIndex + 2 + cycle % 3) % GamePaths.Paths.Count;
+        var sourcePath = GamePaths.Paths[sourceIndex];
+        var targetPath = GamePaths.Paths[targetIndex];
+        if (!_pathPortalWorld.TryGetValue(sourcePath.Key, out var source)
+            || !_pathPortalWorld.TryGetValue(targetPath.Key, out var target))
+            return;
+
+        Vector2 midpoint = (source + target) * .5f
+            + new Vector2(0, -Simulation.TileSize * (4f + Math.Abs(targetIndex - sourceIndex) * .35f));
+        float transferTime = phase - 1.1f;
+        for (int particle = 0; particle < 8; particle++)
+        {
+            float amount = Math.Clamp((transferTime - particle * .11f) / 1.75f, 0, 1);
+            if (amount <= 0 || amount >= 1)
+                continue;
+            // Twelve discrete positions make the packet visibly tick across
+            // the room like an old-school projectile rather than glide.
+            amount = MathF.Floor(amount * 12f) / 12f;
+            Vector2 screen = WorldToScreen(Quadratic(source, midpoint, target, amount), session);
+            Color color = Color.Lerp(sourcePath.Accent, targetPath.Accent, amount);
+            int size = 4 + particle % 3 * 2;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)screen.X - size / 2, (int)screen.Y - size / 2, size, size),
+                Color.Lerp(color, Color.White, .35f) * .88f);
+            DrawPixelReflection(spriteBatch, screen + new Vector2(0, 8), color, size * 2, .2f);
+        }
+
+        if (transferTime > 1.55f)
+        {
+            Vector2 targetScreen = WorldToScreen(target, session);
+            float absorb = Math.Clamp((transferTime - 1.55f) / .7f, 0, 1);
+            int extent = (int)MathF.Round(28 * (1f - absorb));
+            Color color = Color.Lerp(sourcePath.Accent, targetPath.Accent, absorb) * (1f - absorb);
+            if (extent > 0)
+                Primitives2D.RectOutline(spriteBatch,
+                    new Rectangle((int)targetScreen.X - extent, (int)targetScreen.Y - extent, extent * 2, extent * 2),
+                    color, 2);
+        }
     }
 
     /// <summary>
@@ -442,13 +816,15 @@ public sealed class SoulHub
         {
             if (!_pathPortalWorld.TryGetValue(path.Key, out var world)) continue;
             var screen = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
-            float radius = Simulation.TileSize * 1.05f;
+            int selectedNg = NewGamePlus.SelectedLevel(path.Key);
+            float corruption = PortalCorruptionScale(selectedNg);
+            float radius = Simulation.TileSize * (1.05f + (corruption - 1f) * .16f);
             // Committing spins the destination portal up hard during the pull
             // (see UpdatePortalTravel) so it visibly reels the player in,
             // instead of sitting there identical to every other portal.
             bool committing = path.Key == _enteringPortalKey;
             float pullT = committing ? (float)Math.Clamp((_seconds - _portalAnimationStart) / PortalPullSeconds, 0, 1) : 0f;
-            float intensity = 1f + pullT * 2.2f;
+            float intensity = 1f + selectedNg * .045f + pullT * 2.2f;
             float pulse = 1f + .06f * intensity * MathF.Sin(t * 2.2f * intensity + path.Key.GetHashCode());
             Primitives2D.FillCircle(spriteBatch, screen, radius * .78f * pulse, UiTheme.Ink);
             Primitives2D.CircleOutline(spriteBatch, screen, radius, path.Accent, 3);
@@ -461,7 +837,6 @@ public sealed class SoulHub
                 Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .62f, path.Accent, 2);
             }
             UiTheme.DrawText(spriteBatch, path.Title, 10, path.Accent, new Vector2(screen.X, screen.Y + radius + 8), "midtop");
-            int selectedNg = NewGamePlus.SelectedLevel(path.Key);
             int unlockedNg = NewGamePlus.UnlockedLevel(path.Key);
             string ngLabel = unlockedNg == 0
                 ? "NORMAL  //  COMPLETE TO UNLOCK NG+"

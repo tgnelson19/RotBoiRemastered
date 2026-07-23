@@ -67,6 +67,31 @@ Easy enemies are fully absent by level 10. Medium enemies bridge the midpoint an
 are fully absent by level 16. Level 16 onward is therefore an exclusively hard
 random pool leading into Dissonance.
 
+## Path-exclusive variants
+
+Ambient patrols also draw from two families exclusive to the active path. Each has
+easy, medium, and hard definitions using the same overlapping run windows as the
+shared roster, so its signature mechanic is introduced early and escalates rather
+than disappearing.
+
+| Path | Family | Path mechanic |
+| --- | --- | --- |
+| Sound | Echoer | Paired sine-wave notes widen and multiply by tier. |
+| Sound | Resonator | Expanding radial note patterns gain additional spokes. |
+| Touch | Clasper | Slow, telegraphed banks of compacted weight occupy broad lanes. |
+| Touch | Mirekeeper | Persistent mire pools surround the player's last position. |
+| Sight | Blinker | Small, rapid needle fans demand immediate close-range reads. |
+| Sight | Lens | Brief sight-lines become paired sweeping beams at hard tier. |
+| Chemesthesis | Cinderpod | Long-lived cinders seed a telegraphed minefield. |
+| Chemesthesis | Sporecaster | Sine-drifting spores split, then reproduce again at hard tier. |
+| Phantasia | Mirage | Ornate fans conceal one or two truth-marked shots among harmless illusions. |
+| Phantasia | Dreamweaver | Orbiting dream courts form around the player's last position. |
+
+Path-exclusive families participate in the ordinary role-composed patrol pool and
+obey the same threat budgets, family caps, modifiers, active-pressure rules, and
+path-wide stat/projectile tuning as shared enemies. Curated packages remain shared,
+authored compositions.
+
 ## Adding a behavioral enemy
 
 Subclass `Enemy` and implement only the contracts the type needs:

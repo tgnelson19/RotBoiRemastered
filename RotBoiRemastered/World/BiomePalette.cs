@@ -14,6 +14,25 @@ public readonly record struct BiomePalette(
 
 public static class BiomePalettes
 {
+    public static readonly IReadOnlyList<BiomePalette> Soul = new[]
+    {
+        new BiomePalette(
+            Ground: new Color(20, 18, 31), GroundAlt: new Color(27, 23, 40),
+            Road: new Color(42, 34, 58), Interior: new Color(24, 21, 37),
+            WallTop: new Color(63, 54, 82), WallFace: new Color(37, 31, 52),
+            Accent: new Color(137, 103, 178), Detail: new Color(202, 181, 226)),
+        new BiomePalette(
+            Ground: new Color(25, 19, 31), GroundAlt: new Color(34, 24, 39),
+            Road: new Color(50, 34, 55), Interior: new Color(29, 21, 35),
+            WallTop: new Color(77, 52, 78), WallFace: new Color(45, 31, 49),
+            Accent: new Color(177, 92, 149), Detail: new Color(226, 168, 207)),
+        new BiomePalette(
+            Ground: new Color(17, 23, 32), GroundAlt: new Color(22, 30, 41),
+            Road: new Color(31, 43, 58), Interior: new Color(20, 26, 37),
+            WallTop: new Color(48, 67, 84), WallFace: new Color(29, 40, 54),
+            Accent: new Color(92, 139, 181), Detail: new Color(164, 204, 228)),
+    };
+
     public static readonly IReadOnlyList<BiomePalette> Sound = new[]
     {
         new BiomePalette(

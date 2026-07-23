@@ -16,6 +16,8 @@ namespace RotBoiRemastered.Entities;
 public sealed class CrystalWall
 {
     public Rectangle Rect;
+    public float CenterX;
+    public float CenterY;
     public double Remaining;
     public double Duration;
     public float Angle;
@@ -48,8 +50,12 @@ public sealed class Ache : Kage
     public const float RingDamage = 200;
     public const float BombDamage = 205;
     public const float HeavyDamage = 230;
-    public const int ActiveThreatSoftCap = 28;
-    public const int PersistentThreatSoftCap = 16;
+    public const int ActiveThreatSoftCap = 36;
+    public const int PersistentThreatSoftCap = 20;
+    public const int MinimumDamagePhaseDeclarations = 2;
+    public const int NerveBreaksNeeded = 3;
+    public const int OverloadConstellationMaxNodes = 12;
+    protected override bool UsesKageEncounter => false;
     protected override bool VisualSurvivalActive => MidpointSurvivalActive || FinaleActive || base.VisualSurvivalActive;
 
     public static readonly PathChaseBossConfig AcheConfig = KageConfig with
@@ -65,8 +71,8 @@ public sealed class Ache : Kage
             "MISFIRE", "CROSSED NERVES", "WRONG WAY", "REFLEX STORM",
             "AFTERSHOCK", "FRACTURE", "WHITE ACHE", "OVERLOAD",
         },
-        FinalHealth = 280000, FinalContactDamage = 880, FinalRewardExperience = 840,
-        FinaleDuration = 28.0,
+        FinalHealth = 305000, FinalContactDamage = 880, FinalRewardExperience = 840,
+        FinaleDuration = 30.0,
     };
 
     public static readonly SinSigilConfig AcheSinConfig = new(
@@ -75,7 +81,7 @@ public sealed class Ache : Kage
             "Ache answers an attacker that was never there.", "Three arms dispute where the border should be.",
             "The core recoils from a future that never happened.", "No command survives contact with the storm.",
             "Unclaimed ground is punished for trespass.", "Power splits wherever obedience should begin.",
-            "Every warning points toward a different phantom.", "Twenty-eight seconds of power without a master.",
+            "Every warning points toward a different phantom.", "Thirty seconds of power without a master.",
         },
         PhaseColors: new[]
         {
@@ -163,12 +169,30 @@ public sealed class Ache : Kage
     private readonly List<CleansingVent> _cleansingVents = new();
     private double _compressionCooldown = 5.0;
     private double _consumedCrystalPulse;
+    private int _lastPattern = -1;
+    private int _castsSinceDirectedThreat;
+    private readonly List<int> _patternHistory = new();
+    private readonly List<ReactiveCounter> _reactiveCounters = new();
+
+    private readonly record struct ReactiveCounter(double Delay, float Direction, float Damage, string Suffix);
 
     public IReadOnlyList<CrystalWall> CrystalWalls => _crystalWalls;
     public IReadOnlyList<CleansingVent> CleansingVents => _cleansingVents;
+    public IReadOnlyList<int> PatternHistory => _patternHistory;
     public int VentsUsed { get; private set; }
     public double PeakExposure { get; private set; }
+    public int PhaseDeclarations { get; private set; }
+    public int NerveBreakProgress { get; private set; }
+    public int NerveBreakTriggers { get; private set; }
+    public int OverloadConstellationNodeCount => FinaleActive
+        ? Math.Min(OverloadConstellationMaxNodes,
+            3 + (int)(FinaleProgress * (OverloadConstellationMaxNodes - 3)))
+        : 0;
+    public double CrystalBreakPulse => _consumedCrystalPulse;
     protected override double ConsumedCrystalPulse => _consumedCrystalPulse;
+    public override double MaxStagger => 140.0;
+    protected override double StaggerDecayDelay => 2.5;
+    protected override double StaggerDecayPerSecond => 10.0;
 
     public bool MidpointSurvivalActive { get; private set; }
     public bool MidpointSurvivalCleared { get; private set; }
@@ -182,6 +206,12 @@ public sealed class Ache : Kage
         ActTitle = "ACT I // GHOST THREAT";
         ActTransitionTimer = ActTransitionDuration;
         PhaseProtectionTimer = ActTransitionDuration;
+        for (int index = 0; index < 4; index++)
+        {
+            float angle = MathF.PI / 4f + index * MathF.PI / 2f;
+            var point = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ArenaRadius * .68f;
+            _cleansingVents.Add(new CleansingVent { X = point.X, Y = point.Y, Angle = angle });
+        }
     }
 
     protected override double DamageFloorRatio() => Phase switch
@@ -216,7 +246,8 @@ public sealed class Ache : Kage
         {
             if (ratio <= .5)
             {
-                BeginMidpointSurvival();
+                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                    BeginMidpointSurvival();
                 return;
             }
             desired = ratio > .84 ? 1 : ratio > .67 ? 2 : 3;
@@ -225,7 +256,8 @@ public sealed class Ache : Kage
         {
             desired = ratio > .25 ? 5 : ratio > .12 ? 6 : 7;
         }
-        if (desired != Phase)
+        if (desired != Phase &&
+            PhaseDeclarations >= MinimumDamagePhaseDeclarations)
             SetSinPhase(desired);
     }
 
@@ -257,16 +289,33 @@ public sealed class Ache : Kage
         if (partId.StartsWith("crystal:"))
             return base.TakeDamage(amount, partId, source);
 
+        if (MidpointSurvivalCleared && Phase == 7 &&
+            PhaseDeclarations < MinimumDamagePhaseDeclarations)
+        {
+            double declarationPermitted = Math.Max(0, Hp - 1);
+            if (declarationPermitted <= 0)
+                return new HitResult(false, false, 0, true);
+            var declarationGated = base.TakeDamage(
+                Math.Min(amount, declarationPermitted), partId, source);
+            return new HitResult(declarationGated.Applied, false,
+                declarationGated.Amount, declarationGated.Blocked);
+        }
+
         int floor = Math.Max(0, (int)Math.Round(MaxHp * DamageFloorRatio()));
         double permitted = floor > 0 ? Math.Max(0, Hp - floor) : amount;
         if (floor > 0 && permitted <= 0)
         {
-            UpdatePhase();
+            if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+                UpdatePhase();
             return new HitResult(false, false, 0, true);
         }
         var result = base.TakeDamage(floor > 0 ? Math.Min(amount, permitted) : amount, partId, source);
-        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5 &&
+            PhaseDeclarations >= MinimumDamagePhaseDeclarations)
             BeginMidpointSurvival();
+        else if (floor > 0 && Hp <= floor &&
+                 PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+            UpdatePhase();
         if (FinaleActive)
             SetSinPhase(8);
         return new HitResult(result.Applied, false, result.Amount, result.Blocked);
@@ -274,13 +323,14 @@ public sealed class Ache : Kage
 
     public override void Update(EnemyUpdateContext context)
     {
+        double dt = Seconds();
+        UpdateReactiveCounters(context.ProjectileSink, dt);
         if (!MidpointSurvivalActive)
         {
             base.Update(context);
             return;
         }
 
-        double dt = Seconds();
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
@@ -306,7 +356,15 @@ public sealed class Ache : Kage
     protected override void SetSinPhase(int phase)
     {
         base.SetSinPhase(phase);
+        PhaseDeclarations = 0;
         _crystalWalls.Clear();
+        _reactiveCounters.Clear();
+        _lastPattern = -1;
+        _castsSinceDirectedThreat = 0;
+        Stagger = Math.Min(Stagger, MaxStagger * .5);
+        StaggerDecayTimer = StaggerDecayDelay;
+        IsStaggered = false;
+        StaggerRemaining = 0.0;
         if (Phase == 8)
         {
             _compressionCooldown = 5.0;
@@ -337,6 +395,7 @@ public sealed class Ache : Kage
         _crystalWalls.Add(new CrystalWall
         {
             Rect = rect, Remaining = duration, Duration = duration, Angle = angle, Kind = wallKind,
+            CenterX = wallCenterX, CenterY = wallCenterY,
             Hp = wallKind == "brittle" ? 420 : null, Warning = compression ? 2.5 : 0.0, Compression = compression,
         });
         if (_crystalWalls.Count > 6)
@@ -357,14 +416,15 @@ public sealed class Ache : Kage
             wall.Warning = Math.Max(0.0, wall.Warning - dt);
             if (wall.Compression && wall.Warning <= 0)
             {
-                float deltaX = center.X - wall.Rect.Center.X, deltaY = center.Y - wall.Rect.Center.Y;
+                float deltaX = center.X - wall.CenterX, deltaY = center.Y - wall.CenterY;
                 float distance = Math.Max(1.0f, MathF.Sqrt(deltaX * deltaX + deltaY * deltaY));
                 if (distance > Simulation.TileSize * 2.25f)
                 {
                     float step = Simulation.TileSize * .34f * (float)dt;
-                    int newCenterX = wall.Rect.Center.X + (int)(deltaX / distance * step);
-                    int newCenterY = wall.Rect.Center.Y + (int)(deltaY / distance * step);
-                    wall.Rect = new Rectangle(newCenterX - wall.Rect.Width / 2, newCenterY - wall.Rect.Height / 2, wall.Rect.Width, wall.Rect.Height);
+                    wall.CenterX += deltaX / distance * step;
+                    wall.CenterY += deltaY / distance * step;
+                    wall.Rect = new Rectangle((int)MathF.Round(wall.CenterX) - wall.Rect.Width / 2,
+                        (int)MathF.Round(wall.CenterY) - wall.Rect.Height / 2, wall.Rect.Width, wall.Rect.Height);
                 }
             }
         }
@@ -388,6 +448,17 @@ public sealed class Ache : Kage
         }
 
         _compressionCooldown = Math.Max(0.0, _compressionCooldown - dt);
+        if (Phase >= 5 && EntranceRemaining <= 0 && ActTransitionTimer <= 0 &&
+            _compressionCooldown <= 0 && _crystalWalls.Count(wall => wall.Compression) < 4)
+        {
+            float playerAngle = MathF.Atan2(playerY - center.Y, playerX - center.X);
+            int side = Rng.Next(2) == 0 ? -1 : 1;
+            float falseAlarm = playerAngle + side * MathF.PI / 2f + (float)(Rng.NextDouble() * .34 - .17);
+            string kind = PatternRotation % 3 == 0 ? "reinforced" : "brittle";
+            GrowCrystalWall(falseAlarm, duration: Phase == 8 ? 9.5 : 8.0, kind: kind,
+                distanceTiles: 7.2f, compression: true);
+            _compressionCooldown = Phase == 8 ? 6.2 : 8.4 - (Phase - 5) * .55;
+        }
     }
 
     public override IReadOnlyList<Rectangle> MovementObstacles() =>
@@ -427,7 +498,21 @@ public sealed class Ache : Kage
         double applied = Math.Min(wall.Hp!.Value, Math.Round(amount));
         wall.Hp -= applied;
         if (wall.Hp <= 0)
+        {
             _crystalWalls.RemoveAt(index);
+            _consumedCrystalPulse = 1.0;
+            NerveBreakProgress++;
+            if (NerveBreakProgress >= NerveBreaksNeeded)
+            {
+                NerveBreakProgress = 0;
+                NerveBreakTriggers++;
+                Stagger = MaxStagger;
+                IsStaggered = true;
+                StaggerRemaining = StaggerDuration;
+                TransitionCleanupRequested = true;
+                _consumedCrystalPulse = 1.4;
+            }
+        }
         return new HitResult(true, false, applied);
     }
 
@@ -491,6 +576,7 @@ public sealed class Ache : Kage
 
     protected override void DrawPersistentTerrain(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
+        DrawOverloadConstellation(spriteBatch, camera, playerWorldPosition, screenShake);
         foreach (var vent in _cleansingVents)
         {
             var point = camera.WorldToScreen(new Vector2(vent.X, vent.Y), playerWorldPosition, screenShake);
@@ -540,6 +626,54 @@ public sealed class Ache : Kage
 
         if (ActTransitionTimer > 0)
             DrawRoutePreview(spriteBatch, camera, playerWorldPosition, screenShake);
+    }
+
+    private void DrawOverloadConstellation(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        int nodeCount = OverloadConstellationNodeCount;
+        if (nodeCount <= 0)
+            return;
+
+        Vector2 arena = camera.WorldToScreen(
+            ArenaCenter, playerWorldPosition, screenShake);
+        float progress = (float)FinaleProgress;
+        var nodes = new Vector2[nodeCount];
+        for (int index = 0; index < nodeCount; index++)
+        {
+            float direction = index % 3 == 1 ? -1f : 1f;
+            float angle = index * MathF.Tau / nodeCount +
+                Age * (.0014f + index % 4 * .00038f) * direction +
+                MathF.Sin(Age * (.0021f + index * .00017f) + index * 1.73f) * .34f;
+            float radius = ArenaRadius * (.28f + progress * .52f +
+                MathF.Sin(Age * .003f + index * 2.17f) * .055f);
+            nodes[index] = arena + new Vector2(
+                MathF.Cos(angle) * radius,
+                MathF.Sin(angle) * radius * (.72f + (index % 3) * .09f));
+        }
+
+        Color orange = new Color(232, 112, 31);
+        Color blue = new Color(54, 143, 218);
+        for (int index = 0; index < nodeCount; index++)
+        {
+            int destination = (index + 2 + index % 3) % nodeCount;
+            Color tether = index % 2 == 0 ? orange : blue;
+            Primitives2D.Line(spriteBatch, nodes[index], nodes[destination],
+                UiTheme.Ink * (.22f + progress * .18f), 7);
+            Primitives2D.Line(spriteBatch, nodes[index], nodes[destination],
+                tether * (.28f + progress * .22f), 2);
+        }
+
+        for (int index = 0; index < nodeCount; index++)
+        {
+            Color face = index % 2 == 0 ? orange * .68f : blue * .68f;
+            Color edge = index % 2 == 0 ? blue * .58f : orange * .58f;
+            float extent = Simulation.TileSize * (.20f + progress * .08f +
+                (index % 3) * .025f);
+            BossVisuals.RotatingCube3D(spriteBatch, nodes[index], extent,
+                face, UiTheme.Lighten(face, 28), edge,
+                Age * (.004f + index * .0003f), index * .31f, -index * .17f);
+        }
     }
 
     private void DrawRoutePreview(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -672,20 +806,57 @@ public sealed class Ache : Kage
         }
     }
 
+    private static bool IsDirectedPattern(int pattern) => pattern is 1 or 5;
+
     private int ChoosePattern()
     {
         int[] choices = Phase switch
         {
-            1 => new[] { 0, 0, 2, 6 },
+            1 => new[] { 0, 0, 1, 2, 6 },
             2 => new[] { 0, 1, 1, 6 },
-            3 => new[] { 0, 2, 3, 6 },
-            4 => new[] { 0, 2, 3, 6, 7 },
-            5 => new[] { 2, 4, 4, 6, 7 },
+            3 => new[] { 0, 1, 2, 3, 6 },
+            4 => new[] { 0, 1, 2, 3, 6, 7 },
+            5 => new[] { 1, 2, 4, 4, 6, 7 },
             6 => new[] { 1, 3, 4, 6, 7 },
             7 => new[] { 1, 2, 4, 5, 6, 7 },
             _ => new[] { 0, 1, 2, 3, 4, 5, 6, 7 },
         };
-        return choices[Rng.Next(choices.Length)];
+        var eligible = choices.Where(pattern => pattern != _lastPattern).ToList();
+        if (_castsSinceDirectedThreat >= 2)
+        {
+            var directed = eligible.Where(IsDirectedPattern).ToList();
+            if (directed.Count > 0)
+                eligible = directed;
+        }
+        return eligible[Rng.Next(eligible.Count)];
+    }
+
+    private void QueueReactiveCounter(float aimed)
+    {
+        int side = Rng.Next(2) == 0 ? -1 : 1;
+        _reactiveCounters.Add(new ReactiveCounter(.65, aimed + side * .56f,
+            HeavyDamage - 5, "counterreaction"));
+    }
+
+    private void UpdateReactiveCounters(List<EnemyProjectile> sink, double dt)
+    {
+        if (Dying || _reactiveCounters.Count == 0)
+        {
+            if (Dying)
+                _reactiveCounters.Clear();
+            return;
+        }
+        var remaining = new List<ReactiveCounter>();
+        foreach (var counter in _reactiveCounters)
+        {
+            double delay = counter.Delay - dt;
+            if (delay <= 0)
+                TelegraphLash(sink, Center(), counter.Direction, counter.Damage, counter.Suffix);
+            else
+                remaining.Add(counter with { Delay = delay });
+        }
+        _reactiveCounters.Clear();
+        _reactiveCounters.AddRange(remaining);
     }
 
     protected override void FireSinPattern(float playerX, float playerY, EnemyUpdateContext context)
@@ -707,9 +878,20 @@ public sealed class Ache : Kage
             MarkAttack(.34f);
             return;
         }
-        int pattern = persistentThreats >= PersistentThreatSoftCap
-            ? (Rng.Next(2) == 0 ? 1 : 3)
-            : ChoosePattern();
+        int pattern;
+        if (persistentThreats >= PersistentThreatSoftCap)
+        {
+            if (_castsSinceDirectedThreat >= 2 || _lastPattern == 3)
+                pattern = 1;
+            else if (_lastPattern == 1)
+                pattern = 3;
+            else
+                pattern = Rng.Next(2) == 0 ? 1 : 3;
+        }
+        else
+        {
+            pattern = ChoosePattern();
+        }
 
         switch (pattern)
         {
@@ -776,11 +958,22 @@ public sealed class Ache : Kage
                 break;
         }
 
-        if (FinaleActive && PatternRotation % 3 == 0)
+        bool directed = IsDirectedPattern(pattern);
+        _castsSinceDirectedThreat = directed ? 0 : _castsSinceDirectedThreat + 1;
+        _lastPattern = pattern;
+        _patternHistory.Add(pattern);
+        if (_patternHistory.Count > 32)
+            _patternHistory.RemoveAt(0);
+
+        if (Phase >= 4 && !directed && PatternRotation % 2 == 1)
+            QueueReactiveCounter(aimed);
+
+        if (FinaleActive && PatternRotation % 2 == 0)
         {
             float angle = (float)(Rng.NextDouble() * MathF.Tau);
             TelegraphLash(sink, center, angle, HeavyDamage, "overload_callback", Rng.Next(2) == 0 ? .13f : -.13f);
         }
+        PhaseDeclarations++;
         PatternRotation++;
         MarkAttack(.66f);
     }

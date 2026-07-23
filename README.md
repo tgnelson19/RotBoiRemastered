@@ -49,13 +49,23 @@ sidebar; hover one when you want its name and bonus type.
 
 ## The Soul and permanent progression
 
-Choose **Enter Soul** from the title screen to visit a small walkable sanctuary.
-Its extraction chest keeps ten permanent item slots and statistics for the ten
+Choose **Enter Soul** from the title screen to visit an authored sanctuary with
+three distinct beats: a compact southern holdout for every permanent system, a
+pulsing northbound ribbon tunnel, and a broad portal chamber where each path's
+color and visual motifs bleed into the neutral Soul architecture. Its extraction
+chest keeps ten permanent item slots and statistics for the ten
 most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
 session best, and the all-time record. A 24-tile quest grid awards Soul tokens;
 the matching Soul grid spends those tokens on twelve simple, rankable permanent
 upgrades. The physical wardrobe station offers persistent player Core and Edge
 colors plus two-tone projectile palettes and projectile silhouettes.
+
+The tunnel's pixel ribbons awaken in front of the player instead of running at
+full strength from the start. Cleared paths grow block-built reliquaries and
+floor scars beneath their portals, selected NG+ tiers increase the radius and
+density of square corruption motes, and portals occasionally exchange packets
+of reflected pixels. These effects use the same hard-edged primitive vocabulary
+as combat rather than introducing a smoother visual-effects style.
 
 After defeating a path's midpoint boss, the pause menu offers an extraction choice;
 completing a path extracts automatically. The chest keeps the run summary and lets

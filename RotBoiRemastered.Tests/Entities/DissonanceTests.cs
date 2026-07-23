@@ -1,5 +1,7 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -26,6 +28,59 @@ public class DissonanceTests
     {
         PlayerWorldX = playerX, PlayerWorldY = playerY, Battleground = Battleground.GenerateSound(),
     };
+
+    private static void Step(Dissonance boss, EnemyUpdateContext context)
+    {
+        boss.Update(context);
+        var children = new List<EnemyProjectile>();
+        foreach (var projectile in context.ProjectileSink.ToList())
+        {
+            projectile.Update(context.Battleground, casualMode: false);
+            children.AddRange(projectile.SpawnedProjectiles);
+            projectile.SpawnedProjectiles.Clear();
+        }
+        context.ProjectileSink.RemoveAll(projectile => projectile.RemFlag);
+        context.ProjectileSink.AddRange(children);
+    }
+
+    private static void ReachDeclarations(Dissonance boss, EnemyUpdateContext context, int count)
+    {
+        for (int tick = 0; tick < 2400 && boss.PhaseDeclarations < count; tick++)
+            Step(boss, context);
+        Assert.True(boss.PhaseDeclarations >= count,
+            $"Phase {boss.Phase} produced only {boss.PhaseDeclarations} declarations.");
+    }
+
+    private sealed record Pressure(int Peak, int Overflow, int Hits);
+
+    private static Pressure SimulatePressure(int phase, double duration = 18.0)
+    {
+        Simulation.ResetForTests();
+        var boss = MakeBoss(new Random(300 + phase));
+        boss.DebugSetPhase(phase);
+        boss.DebugPhaseLocked = true;
+        boss.TransitionRemaining = 0;
+        var player = boss.ArenaCenter + new Vector2(boss.ArenaRadius * .72f, 0);
+        var context = MakeContext(player.X, player.Y);
+        int playerSize = (int)(Simulation.TileSize * .75f);
+        var playerRect = new Rectangle(
+            (int)(player.X - playerSize / 2f), (int)(player.Y - playerSize / 2f),
+            playerSize, playerSize);
+        var hitThreats = new HashSet<EnemyProjectile>();
+        int peak = 0, overflow = 0;
+
+        for (int tick = 0; tick < duration * Simulation.FrameRate; tick++)
+        {
+            Step(boss, context);
+            foreach (var projectile in context.ProjectileSink)
+                if (projectile.Collides(playerRect))
+                    hitThreats.Add(projectile);
+            peak = Math.Max(peak, context.ProjectileSink.Count);
+            if (context.ProjectileSink.Count > GameSession.MaxBossProjectiles)
+                overflow += context.ProjectileSink.Count - GameSession.MaxBossProjectiles;
+        }
+        return new Pressure(peak, overflow, hitThreats.Count);
+    }
 
     [Fact]
     public void Constructor_SetsBossIdentityAndDeploysPhaseOnePortals()
@@ -213,9 +268,11 @@ public class DissonanceTests
         boss.DebugSetPhase(startPhase);
         boss.TransitionRemaining = 0; // debug jump still primes a transition; the health gate check needs it clear
         boss.NextSurvivalPhase = expectedPhase;
+        var context = MakeContext(boss.WorldX, boss.WorldY);
+        ReachDeclarations(boss, context, Dissonance.MinimumDamagePhaseDeclarations);
         boss.Hp = (int)(boss.MaxHp * hpRatio);
 
-        boss.Update(MakeContext(boss.WorldX, boss.WorldY));
+        boss.Update(context);
 
         Assert.Equal(expectedPhase, boss.Phase);
         Assert.True(boss.SurvivalActive);
@@ -226,9 +283,11 @@ public class DissonanceTests
     {
         var boss = MakeBoss();
         Assert.Equal(36.0, boss.PhaseTimeLimit);
+        var context = MakeContext(boss.WorldX, boss.WorldY);
+        ReachDeclarations(boss, context, Dissonance.MinimumDamagePhaseDeclarations);
         boss.PhaseElapsed = boss.PhaseTimeLimit;
 
-        boss.Update(MakeContext(boss.WorldX, boss.WorldY));
+        boss.Update(context);
 
         Assert.NotEqual(1, boss.Phase);
         Assert.True(boss.PhaseForcedByTimer);
@@ -494,5 +553,78 @@ public class DissonanceTests
         var disabledShots = new List<EnemyProjectile>();
         portal.FireToward(disabledShots, boss.ArenaCenter, pelletCount: 7);
         Assert.Equal(4, disabledShots.Count); // (7+1)//2 when phase-disabled
+    }
+
+    [Theory]
+    [InlineData(1, 3, 2.0 / 3)]
+    [InlineData(4, 6, 1.0 / 3)]
+    [InlineData(7, 9, 0.0)]
+    public void ActGatesCannotSkipTheCurrentDamagePhrase(int phase, int survivalPhase, double ratio)
+    {
+        Simulation.ResetForTests();
+        var boss = MakeBoss();
+        boss.DebugSetPhase(phase);
+        boss.NextSurvivalPhase = survivalPhase;
+        var context = MakeContext(boss.WorldX + 300, boss.WorldY);
+
+        boss.TakeDamage(boss.MaxHp * 4.0);
+
+        int floor = survivalPhase == 9 ? 1 : (int)Math.Round(boss.MaxHp * ratio);
+        Assert.Equal(floor, boss.Hp);
+        Assert.Equal(phase, boss.Phase);
+        Assert.False(boss.IsDead());
+
+        ReachDeclarations(boss, context, Dissonance.MinimumDamagePhaseDeclarations);
+        Step(boss, context);
+
+        Assert.Equal(survivalPhase, boss.Phase);
+        Assert.True(boss.SurvivalActive);
+    }
+
+    [Fact]
+    public void DisablingThreePortalsEarnsAResonantStagger()
+    {
+        var boss = MakeBoss();
+
+        for (int portalIndex = 0; portalIndex < 3; portalIndex++)
+            for (int hit = 0; hit < 15; hit++)
+                boss.TakeDamage(1, $"portal:{portalIndex}");
+
+        Assert.Equal(3, boss.PortalsBroken);
+        Assert.True(boss.IsStaggered);
+        Assert.Equal(boss.StaggerDuration, boss.StaggerRemaining);
+    }
+
+    [Fact]
+    public void JeraBuildsAllNineRememberedRuneChords()
+    {
+        var boss = MakeBoss();
+        boss.DebugSetPhase(9);
+
+        Assert.Equal(1, boss.JeraChordRingCount);
+        boss.SurvivalRemaining = boss.SurvivalDuration / 2;
+        Assert.InRange(boss.JeraChordRingCount, 5, 6);
+        boss.SurvivalRemaining = 0;
+        Assert.Equal(Dissonance.MaximumJeraChordRings, boss.JeraChordRingCount);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    public void EveryRuneStaysWithinTheEncounterOwnedThreatBudget(int phase)
+    {
+        var pressure = SimulatePressure(phase);
+
+        Assert.InRange(pressure.Peak, 1, Dissonance.ActiveThreatSoftCap + 8);
+        Assert.Equal(0, pressure.Overflow);
+        Assert.True(pressure.Hits > 0,
+            $"Dissonance phase {phase} never threatened the stationary outer player. Peak={pressure.Peak}.");
     }
 }

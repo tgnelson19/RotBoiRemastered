@@ -105,7 +105,18 @@ public class PlagueTouchBoss : PathChaseBoss
     public int PatternRotation { get; set; }
     public double PhaseAnnouncementTimer { get; set; } = 3.0;
     private float _pathAngle;
+    private readonly List<PendingPortalVolley> _pendingPortalVolleys = new();
+    private sealed record PendingPortalVolley(
+        TouchPortal Portal, Vector2 Target, double Remaining);
     protected override bool VisualSurvivalActive => PhaseAnnouncementTimer > 1.65 || base.VisualSurvivalActive;
+    protected virtual double PortalFireCadence => 1.15;
+    protected virtual double PortalWarningDuration => 0.0;
+    protected virtual float? PortalProjectileLifetime => null;
+    protected virtual float? PortalProjectileRange => null;
+    protected virtual int PortalPelletCount => 2;
+    protected virtual float PortalSpread => .12f;
+    protected virtual float PortalShotSpeed => .42f;
+    protected virtual float PortalShotDamage => Config.FinalBoss ? 300f : 240f;
 
     public PlagueTouchBoss(float worldX, float worldY, Battleground battleground, PathChaseBossConfig config,
         PlagueSigilConfig sigilConfig, Random? rng = null)
@@ -139,9 +150,9 @@ public class PlagueTouchBoss : PathChaseBoss
         PhaseAnnouncementTimer = 3.0;
         TransitionCleanupRequested = true;
         ClearTouchPortals();
-        var portalPhases = Config.FinalBoss ? new[] { 2, 4, 7, 9, 10 } : new[] { 2, 4 };
-        if (portalPhases.Contains(Phase))
-            DeployTouchPortals(Config.FinalBoss ? 4 : 2);
+        int portalCount = PortalCountForPhase(Phase);
+        if (portalCount > 0)
+            DeployTouchPortals(portalCount);
     }
 
     public override void DebugSetPhase(int phase)
@@ -192,14 +203,22 @@ public class PlagueTouchBoss : PathChaseBoss
         return hitboxes;
     }
 
-    private void ClearTouchPortals()
+    protected virtual int PortalCountForPhase(int phase)
     {
+        if (Config.FinalBoss)
+            return new[] { 2, 4, 7, 9, 10 }.Contains(phase) ? 4 : 0;
+        return phase switch { 2 => 2, 4 => 4, _ => 0 };
+    }
+
+    protected void ClearTouchPortals()
+    {
+        _pendingPortalVolleys.Clear();
         foreach (var portal in TouchPortals)
             portal.RemFlag = true;
         TouchPortals.Clear();
     }
 
-    private void DeployTouchPortals(int count)
+    protected void DeployTouchPortals(int count)
     {
         for (int index = 0; index < count; index++)
         {
@@ -211,7 +230,7 @@ public class PlagueTouchBoss : PathChaseBoss
         }
     }
 
-    private void PlagueProjectile(List<EnemyProjectile> sink, float direction, float speed, float damage, string suffix,
+    protected EnemyProjectile PlagueProjectile(List<EnemyProjectile> sink, float direction, float speed, float damage, string suffix,
         float sizeScale = .25f, string path = "linear", Vector2? target = null)
     {
         var center = Center();
@@ -226,6 +245,7 @@ public class PlagueTouchBoss : PathChaseBoss
             shot.BurstCount = 8;
         }
         sink.Add(shot);
+        return shot;
     }
 
     protected void Radial(List<EnemyProjectile> sink, int count, float speed, float damage, string suffix)
@@ -245,9 +265,17 @@ public class PlagueTouchBoss : PathChaseBoss
         }
     }
 
-    protected void Projectile(List<EnemyProjectile> sink, float direction, float speed, float damage, string suffix,
+    protected EnemyProjectile Projectile(List<EnemyProjectile> sink, float direction, float speed, float damage, string suffix,
         float sizeScale = .25f, string path = "linear", Vector2? target = null)
         => PlagueProjectile(sink, direction, speed, damage, suffix, sizeScale, path, target);
+
+    /// <summary>
+    /// Lets a concrete plague encounter apply its own authored health gates
+    /// without duplicating portal-part routing or trying to bypass this base
+    /// class's generic five/ten-way phase floors.
+    /// </summary>
+    protected HitResult ApplyPlagueBodyDamage(double amount, string partId, DamageSource source) =>
+        base.TakeDamage(amount, partId, source);
 
     protected virtual void FirePlaguePattern(float playerX, float playerY, List<EnemyProjectile> sink)
     {
@@ -283,14 +311,57 @@ public class PlagueTouchBoss : PathChaseBoss
             portal.Angle += portal.AngularSpeed * (float)dt;
             portal.Place();
             portal.UpdateBursts(sink, (float)dt);
+            portal.TelegraphTimer = Math.Max(0f, portal.TelegraphTimer - (float)dt);
+        }
+        for (int index = _pendingPortalVolleys.Count - 1; index >= 0; index--)
+        {
+            var pending = _pendingPortalVolleys[index];
+            double remaining = pending.Remaining - dt;
+            if (remaining > 0)
+            {
+                _pendingPortalVolleys[index] = pending with { Remaining = remaining };
+                continue;
+            }
+            FirePortalVolley(pending.Portal, pending.Target, sink);
+            _pendingPortalVolleys.RemoveAt(index);
         }
         PortalCooldown -= dt;
         if (PortalCooldown <= 0 && TouchPortals.Count > 0)
         {
             var portal = TouchPortals[PortalIndex % TouchPortals.Count];
-            portal.FireToward(sink, new Vector2(playerX, playerY), 2, .12f, .42f, Config.FinalBoss ? 300f : 240f, PhaseAccent, "heavy");
+            var target = new Vector2(playerX, playerY);
+            if (PortalWarningDuration > 0)
+            {
+                portal.TelegraphTimer = (float)PortalWarningDuration;
+                portal.TelegraphKind = "line";
+                portal.TelegraphTarget = target;
+                _pendingPortalVolleys.Add(new PendingPortalVolley(
+                    portal, target, PortalWarningDuration));
+            }
+            else
+            {
+                FirePortalVolley(portal, target, sink);
+            }
             PortalIndex += 1;
-            PortalCooldown = 1.15;
+            PortalCooldown = PortalFireCadence;
+        }
+    }
+
+    private void FirePortalVolley(TouchPortal portal, Vector2 target,
+        List<EnemyProjectile> sink)
+    {
+        if (portal.RemFlag || !portal.Active)
+            return;
+        int start = sink.Count;
+        portal.FireToward(sink, target, PortalPelletCount, PortalSpread,
+            PortalShotSpeed, PortalShotDamage, PhaseAccent, "heavy");
+        for (int index = start; index < sink.Count; index++)
+        {
+            if (PortalProjectileLifetime.HasValue)
+                sink[index].Lifetime = PortalProjectileLifetime.Value;
+            if (PortalProjectileRange.HasValue)
+                sink[index].RemainingRange = Math.Min(
+                    sink[index].RemainingRange, PortalProjectileRange.Value);
         }
     }
 
