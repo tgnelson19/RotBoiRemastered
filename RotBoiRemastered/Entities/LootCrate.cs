@@ -12,7 +12,7 @@ namespace RotBoiRemastered.Entities;
 /// Ported from lootCrate.py. Stationary, so unlike the other entities here
 /// there's no Update -- only Draw.
 /// </summary>
-public sealed class LootCrate
+public class LootCrate
 {
     private const float BaseSize = Simulation.TileSize * 0.6f;
     /// <summary>A unique-holding crate draws (and can be interacted with, see GameSession.UpdateCrateInteraction) at 2x a normal crate's footprint -- big enough that the treasure sprite and its orbiting aura actually read as a standout drop instead of blending in with common loot.</summary>
@@ -20,7 +20,7 @@ public sealed class LootCrate
 
     public float WorldX { get; }
     public float WorldY { get; }
-    public float Size => ContainsUnique ? BaseSize * UniqueSizeMultiplier : BaseSize;
+    public virtual float Size => ContainsUnique ? BaseSize * UniqueSizeMultiplier : BaseSize;
     public List<ItemDrop> Items { get; }
 
     public LootCrate(float worldX, float worldY, IEnumerable<ItemDrop> drops)
@@ -77,7 +77,7 @@ public sealed class LootCrate
     /// Size, so it became an obvious "the chest floats/drifts loose from the
     /// floor" wobble once unique crates got 2x bigger.
     /// </summary>
-    public void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    public virtual void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 worldCenter = new(WorldX + Size / 2f, WorldY + Size / 2f);
         Vector2 screenCenter = camera.ApplyZoom(camera.WorldToScreen(worldCenter, playerWorldPosition, screenShake));

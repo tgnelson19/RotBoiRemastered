@@ -34,5 +34,6 @@ public static class InputState
     public static Vector2 ControllerAim { get; set; }
     public static bool ControllerDashPressed { get; set; }
     public static bool ControllerAutofirePressed { get; set; }
+    public static bool ControllerInteractPressed { get; set; }
     public static bool ControllerPausePressed { get; set; }
 }

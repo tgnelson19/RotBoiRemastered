@@ -82,6 +82,13 @@ public class RotBoiGame : Game
         UiTheme.Initialize(GraphicsDevice);
         Primitives2D.Initialize(GraphicsDevice);
         Sprites.Initialize(GraphicsDevice);
+        BossAudio.Initialize();
+    }
+
+    protected override void UnloadContent()
+    {
+        BossAudio.Shutdown();
+        base.UnloadContent();
     }
 
     // ----- Update -----
@@ -108,7 +115,8 @@ public class RotBoiGame : Game
         if (consoleResult.Kind == ConsoleActionKind.ExtractRequested && _session is not null)
         {
             _session.State.RunOutcome = "EXTRACTED";
-            MetaProgression.RecordExtraction(_session.State, GamePaths.Selected().Key, completed: false);
+            MetaProgression.RecordExtraction(_session.State,
+                _session.PathRun?.CurrentSenseKey ?? GamePaths.Selected().Key, completed: false);
             MetaProgression.SyncCarriedItems(_session.State);
             GameProfile.RecordRun(_session.State.CurrentLevel, _session.State.NumOfEnemiesKilled);
             State = GameState.Results;
@@ -261,6 +269,8 @@ public class RotBoiGame : Game
             && _previousGamePadState.Buttons.A == ButtonState.Released;
         InputState.ControllerAutofirePressed = gamePadState.Buttons.X == ButtonState.Pressed
             && _previousGamePadState.Buttons.X == ButtonState.Released;
+        InputState.ControllerInteractPressed = gamePadState.Buttons.B == ButtonState.Pressed
+            && _previousGamePadState.Buttons.B == ButtonState.Released;
         InputState.ControllerPausePressed = gamePadState.Buttons.Start == ButtonState.Pressed
             && _previousGamePadState.Buttons.Start == ButtonState.Released;
         _previousGamePadState = gamePadState;
@@ -353,6 +363,12 @@ public class RotBoiGame : Game
 
         bool moveUp = Keybinds.Held("move_up"), moveDown = Keybinds.Held("move_down");
         bool moveLeft = Keybinds.Held("move_left"), moveRight = Keybinds.Held("move_right");
+        session.RecordControllerActivity(
+            InputState.ControllerMove != Vector2.Zero
+            || InputState.ControllerAim != Vector2.Zero
+            || InputState.ControllerDashPressed
+            || InputState.ControllerAutofirePressed
+            || InputState.ControllerInteractPressed);
         session.MovePlayer(moveLeft, moveRight, moveUp, moveDown,
             Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
 
@@ -368,7 +384,8 @@ public class RotBoiGame : Game
             controllerFiring: controllerFiring);
         session.UpdateBullets();
 
-        session.HandleEnemyCreation(interactPressed: Keybinds.Pressed("interact"));
+        session.HandleEnemyCreation(interactPressed:
+            Keybinds.Pressed("interact") || InputState.ControllerInteractPressed);
         session.HandleBossDebugControls(InputState.KeysPressed);
         session.UpdateEnemies();
         session.UpdateEnemyProjectiles();
@@ -437,7 +454,7 @@ public class RotBoiGame : Game
                 // die" it carries the loadout forward same as extracting/completing would.
                 MetaProgression.SyncCarriedItems(_session.State);
                 GameProfile.SaveProfile();
-                _session.ResetAll(GamePaths.ActivateSelected());
+                _session.RestartCurrentRun();
                 State = GameState.GameRun;
                 break;
             case MenuAction.ReturnToTitle:
@@ -447,7 +464,8 @@ public class RotBoiGame : Game
             case MenuAction.Extract:
                 if (_session is null) break;
                 _session.State.RunOutcome = "EXTRACTED";
-                MetaProgression.RecordExtraction(_session.State, GamePaths.Selected().Key, completed: false);
+                MetaProgression.RecordExtraction(_session.State,
+                    _session.PathRun?.CurrentSenseKey ?? GamePaths.Selected().Key, completed: false);
                 MetaProgression.SyncCarriedItems(_session.State);
                 GameProfile.RecordRun(_session.State.CurrentLevel, _session.State.NumOfEnemiesKilled);
                 State = GameState.Results;
@@ -462,7 +480,7 @@ public class RotBoiGame : Game
         {
             case MenuAction.Restart:
                 GameProfile.SaveProfile();
-                _session!.ResetAll(GamePaths.ActivateSelected());
+                _session!.RestartCurrentRun();
                 State = GameState.GameRun;
                 break;
             case MenuAction.ReturnToTitle:
@@ -493,8 +511,15 @@ public class RotBoiGame : Game
         var enteredPathKey = _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
         if (enteredPathKey is not null)
         {
-            GamePaths.Select(enteredPathKey);
-            session.ResetAll(GamePaths.ActivateSelected());
+            if (enteredPathKey == SoulHub.CompositePathPortalKey)
+            {
+                session.StartPathRun();
+            }
+            else
+            {
+                GamePaths.Select(enteredPathKey);
+                session.ResetAll(GamePaths.ActivateSelected());
+            }
             State = GameState.GameRun;
             return;
         }
@@ -565,19 +590,19 @@ public class RotBoiGame : Game
         session.DrawBackground(_spriteBatch, GraphicsDevice);
 
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
+        session.DrawPathAmbience(_spriteBatch);
         session.DrawGroundEnemyProjectiles(_spriteBatch);
-        session.DrawBullets(_spriteBatch);
-        session.DrawEnemies(_spriteBatch);
-        // Keep the player readable above enemy bodies while hostile projectiles
-        // and telegraphs remain above the player as actionable threats (matches
-        // GameSession's own doc comment on this ordering).
-        session.DrawPlayer(_spriteBatch);
-        session.DrawEnemyProjectiles(_spriteBatch);
+        // Actors, shots, and raised scenery share a camera-relative painter
+        // pass so wall caps/faces can cover anything physically behind them.
+        session.DrawDepthSortedCombatWorld(_spriteBatch);
         session.DrawDamageTexts(_spriteBatch);
         session.DrawExperience(_spriteBatch);
         _spriteBatch.End();
         session.DrawLootCrates(_spriteBatch, GraphicsDevice);
         session.DrawBossPortal(_spriteBatch, GraphicsDevice);
+        _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
+        session.DrawPathFogOfWar(_spriteBatch);
+        _spriteBatch.End();
 
         _spriteBatch.Begin();
         session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);

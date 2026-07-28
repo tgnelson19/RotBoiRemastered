@@ -226,6 +226,28 @@ public class PathChaseBossTests
         Assert.InRange(MathF.Abs(NormalizeAngle(warning.Direction - expected)), 0f, .15f);
     }
 
+    [Fact]
+    public void BlinkFocusRefractsAfterClosingTheStationaryLane()
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var ishe = new Ishe(1000, 1000, battleground, new Random(15));
+        var context = MakeContext(ishe.WorldX + 700, ishe.WorldY, battleground);
+        ishe.EntranceRemaining = 0;
+        ishe.DebugSetPhase(2);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 2 &&
+             !context.ProjectileSink.Any(projectile =>
+                 projectile.Owner == "ishe_blink_focus_afterimage"); tick++)
+            ishe.Update(context);
+
+        var focus = Assert.Single(context.ProjectileSink,
+            projectile => projectile.Owner == "ishe_blink_focus_afterimage");
+        Assert.Equal(3, focus.SplitCount);
+        Assert.True(focus.SplitAt >= Simulation.TileSize * 4f);
+        Assert.Equal("square", focus.Shape);
+    }
+
     [Theory]
     [InlineData(.18f, .08f)]
     [InlineData(.62f, 0f)]

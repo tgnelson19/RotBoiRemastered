@@ -1,0 +1,182 @@
+using Microsoft.Xna.Framework;
+using RotBoiRemastered.Entities;
+using RotBoiRemastered.World;
+
+namespace RotBoiRemastered.Systems;
+
+/// <summary>The boss tier assigned to the current generated Path floor.</summary>
+public enum PathFloorBossTier
+{
+    Guardian,
+    Midpoint,
+    Finale,
+}
+
+/// <summary>
+/// Owns the ten-floor structure of the composite Path game mode. Each
+/// five-floor act is a shuffled permutation of all senses, and the second
+/// permutation is adjusted so floor six never immediately repeats floor five.
+/// </summary>
+public sealed class PathRun
+{
+    public const int TotalFloors = 10;
+    public const int FloorsPerAct = 5;
+    public const double TitleBannerSeconds = 3.6;
+    public const double RoomBannerSeconds = 2.25;
+
+    private readonly Random _rng;
+    private readonly List<string> _senseOrder;
+
+    public int FloorNumber { get; private set; } = 1;
+    public string CurrentSenseKey => _senseOrder[FloorNumber - 1];
+    public GamePath CurrentSense => GamePaths.PathsByKey[CurrentSenseKey];
+    public bool IsSecondAct => FloorNumber > FloorsPerAct;
+    public PathFloorBossTier BossTier => FloorNumber switch
+    {
+        FloorsPerAct => PathFloorBossTier.Midpoint,
+        TotalFloors => PathFloorBossTier.Finale,
+        _ => PathFloorBossTier.Guardian,
+    };
+    public PathFloorLayout Layout { get; private set; }
+    public IReadOnlyList<PathRoom> ActiveCombatRooms => Layout.Rooms
+        .Where(room => room.IsCombatRoom && room.IsActivated && !room.IsCleared)
+        .ToList();
+    public bool ExitPortalOpen { get; private set; }
+    public bool IsComplete { get; private set; }
+    public double FloorStartedAtRunSeconds { get; private set; }
+    public PathRoom? LastEnteredRoom { get; private set; }
+    public double RoomEnteredAtRunSeconds { get; private set; }
+    public IReadOnlyList<string> SenseOrder => _senseOrder;
+
+    public string SenseDisplayName => CurrentSenseKey switch
+    {
+        "chemesthesis" => "Chemesthesis",
+        _ => char.ToUpperInvariant(CurrentSenseKey[0]) + CurrentSenseKey[1..],
+    };
+    public string TitleBanner => $"Traversing the Path of {SenseDisplayName}";
+    public Vector2 ExitPortalWorld => Layout.BossRoom.WorldCenter;
+
+    public double HealthMultiplier =>
+        IsSecondAct
+            ? 1.9 + (FloorNumber - FloorsPerAct - 1) * .22
+            : 1.0 + (FloorNumber - 1) * .10;
+    public double DamageMultiplier =>
+        IsSecondAct
+            ? 1.45 + (FloorNumber - FloorsPerAct - 1) * .09
+            : 1.0 + (FloorNumber - 1) * .055;
+    public double SpeedMultiplier => IsSecondAct ? 1.10 : 1.0;
+
+    public PathRun(Random? rng = null)
+    {
+        _rng = rng ?? Random.Shared;
+        _senseOrder = BuildSenseOrder(_rng);
+        Layout = PathFloorGenerator.Generate(CurrentSenseKey, FloorNumber, _rng);
+    }
+
+    private static List<string> BuildSenseOrder(Random rng)
+    {
+        List<string> Shuffle()
+        {
+            var keys = GamePaths.Paths.Select(path => path.Key).ToList();
+            for (int index = keys.Count - 1; index > 0; index--)
+            {
+                int swap = rng.Next(index + 1);
+                (keys[index], keys[swap]) = (keys[swap], keys[index]);
+            }
+            return keys;
+        }
+
+        var first = Shuffle();
+        var second = Shuffle();
+        if (second[0] == first[^1])
+        {
+            int swap = second.FindIndex(1, key => key != first[^1]);
+            (second[0], second[swap]) = (second[swap], second[0]);
+        }
+        first.AddRange(second);
+        return first;
+    }
+
+    public bool TitleBannerVisible(double runTimeSeconds) =>
+        runTimeSeconds - FloorStartedAtRunSeconds < TitleBannerSeconds;
+
+    public bool RoomBannerVisible(double runTimeSeconds) =>
+        LastEnteredRoom is not null
+        && runTimeSeconds - RoomEnteredAtRunSeconds < RoomBannerSeconds;
+
+    /// <summary>
+    /// Clears every activated non-boss encounter whose tagged enemies are
+    /// gone. More than one room may be active at once: rushing forward never
+    /// closes a threshold behind the player.
+    /// </summary>
+    public IReadOnlyList<PathRoom> CompleteReadyCombatRooms(IReadOnlyList<Enemy> enemies)
+    {
+        var completed = new List<PathRoom>();
+        foreach (var room in ActiveCombatRooms)
+        {
+            if (enemies.Any(enemy => enemy.EncounterKey == room.EncounterKey))
+                continue;
+            room.IsCleared = true;
+            completed.Add(room);
+        }
+        return completed;
+    }
+
+    /// <summary>
+    /// Activates a room on first entry. Room activation never prevents another
+    /// room from activating, so players can rush ahead and accumulate pursuing
+    /// encounters. Treasure rooms are combat rooms and only clear after their
+    /// guardian-strength encounter is defeated.
+    /// </summary>
+    public PathRoom? TryActivateRoom(Vector2 playerWorldCenter, double runTimeSeconds = 0)
+    {
+        if (ExitPortalOpen || IsComplete)
+            return null;
+        var room = Layout.RoomAt(playerWorldCenter);
+        if (room is null || room.IsActivated)
+            return null;
+
+        room.IsActivated = true;
+        LastEnteredRoom = room;
+        RoomEnteredAtRunSeconds = runTimeSeconds;
+        if (!room.IsCombatRoom && room.Type != PathRoomType.Boss)
+            room.IsCleared = true;
+        return room;
+    }
+
+    public void NotifyBossDefeated()
+    {
+        var bossRoom = Layout.BossRoom;
+        bossRoom.IsActivated = true;
+        bossRoom.IsCleared = true;
+        if (FloorNumber >= TotalFloors)
+            IsComplete = true;
+        else
+            ExitPortalOpen = true;
+    }
+
+    public bool PlayerAtExitPortal(Rectangle playerWorldRect, int radius)
+    {
+        if (!ExitPortalOpen)
+            return false;
+        var rect = new Rectangle(
+            (int)ExitPortalWorld.X - radius,
+            (int)ExitPortalWorld.Y - radius,
+            radius * 2,
+            radius * 2);
+        return playerWorldRect.Intersects(rect);
+    }
+
+    /// <summary>Generates and installs the next floor while retaining run-level progression.</summary>
+    public bool AdvanceFloor(double runTimeSeconds)
+    {
+        if (!ExitPortalOpen || FloorNumber >= TotalFloors)
+            return false;
+        FloorNumber += 1;
+        Layout = PathFloorGenerator.Generate(CurrentSenseKey, FloorNumber, _rng);
+        ExitPortalOpen = false;
+        FloorStartedAtRunSeconds = runTimeSeconds;
+        LastEnteredRoom = null;
+        return true;
+    }
+}

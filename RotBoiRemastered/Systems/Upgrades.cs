@@ -59,7 +59,8 @@ public static class Upgrades
         new UpgradeDefinition("Vitality", "survival", 5, 0.12, "Recover health continuously"),
         new UpgradeDefinition("Bullet Pierce", "volley", 0.25, 0.12, "Shots pass through more foes"),
         new UpgradeDefinition("Bullet Count", "volley", 0.25, 0.12, "Fire additional projectiles"),
-        new UpgradeDefinition("Spread Angle", "volley", 0.314159, 0.12, "Widen the firing arc"),
+        new UpgradeDefinition("Spread Angle", "volley", -0.314159, -0.12,
+            "Tighten the firing arc (minimum 1° between shots)"),
         new UpgradeDefinition("Attack Speed", "tempo", -1, -0.04, "Shorten time between attacks"),
         new UpgradeDefinition("Bullet Speed", "precision", 3, 0.18, "Shots reach targets sooner"),
         new UpgradeDefinition("Bullet Range", "precision", 75, 0.18, "Shots travel farther"),
@@ -155,6 +156,11 @@ public static class Upgrades
         {
             if (card.Definition.Name == "Attack Speed")
                 modifier *= -1;
+            if (card.Definition.Name == "Spread Angle")
+            {
+                double degrees = modifier * 180 / Math.PI;
+                return $"{degrees.ToString("0.##", CultureInfo.InvariantCulture)}°";
+            }
             string formatted = modifier.ToString("G3", CultureInfo.InvariantCulture);
             string sign = modifier >= 0 ? "+" : "";
             return $"{sign}{formatted}";
@@ -162,6 +168,8 @@ public static class Upgrades
         double percent = (modifier - 1) * 100;
         if (card.Definition.Name == "Attack Speed")
             percent *= -1;
+        if (card.Definition.Name == "Spread Angle")
+            return $"{Math.Abs(percent).ToString("0.##", CultureInfo.InvariantCulture)}% tighter";
         return $"{(percent >= 0 ? "+" : "")}{percent.ToString("0.##", CultureInfo.InvariantCulture)}%";
     }
 }

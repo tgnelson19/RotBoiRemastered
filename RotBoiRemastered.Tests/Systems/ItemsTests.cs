@@ -54,6 +54,19 @@ public class ItemsTests
     }
 
     [Fact]
+    public void RollPathDropCount_IsSubstantiallyLowerThanArenaEnemyDrops()
+    {
+        const int samples = 100_000;
+        var normalRng = new Random(101);
+        var pathRng = new Random(101);
+        double normalAverage = Enumerable.Range(0, samples).Average(_ => Items.RollDropCount(normalRng));
+        double pathAverage = Enumerable.Range(0, samples).Average(_ => Items.RollPathDropCount(pathRng));
+
+        Assert.InRange(pathAverage, .19, .27);
+        Assert.True(pathAverage < normalAverage * .4);
+    }
+
+    [Fact]
     public void GradeCatalog_HasRequestedPowerCurveAndOneInFiftySWeight()
     {
         Assert.Equal(new[] { "F", "D", "C", "B", "A", "S" }, Items.GradeOrder);

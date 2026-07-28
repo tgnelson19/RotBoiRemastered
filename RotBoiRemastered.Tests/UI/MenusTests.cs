@@ -135,6 +135,28 @@ public class MenusTests : IDisposable
         Assert.Equal(MenuAction.None, result);
     }
 
+    [Fact]
+    public void TitleScreen_EnterRoutesThroughTheSoul()
+    {
+        var title = new TitleScreen();
+
+        var result = title.HandleInput(
+            new HashSet<Keys> { Keys.Enter }, Point.Zero, mousePressed: false);
+
+        Assert.Equal(TitleAction.EnterSoul, result);
+    }
+
+    [Fact]
+    public void TitleScreen_GNoLongerStartsTheRandomizedPath()
+    {
+        var title = new TitleScreen();
+
+        var result = title.HandleInput(
+            new HashSet<Keys> { Keys.G }, Point.Zero, mousePressed: false);
+
+        Assert.Equal(TitleAction.None, result);
+    }
+
     [Theory]
     [InlineData(-20, 0.75)]
     [InlineData(50, 1.875)]

@@ -23,7 +23,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   controls healing, completion rewards, and path-matched Core-Forged drops.
   Each path portal's confirmation panel also provides mouse or A/D/arrow NG+
   selection, shows enemy and reward multipliers, and disables tiers that have
-  not yet been unlocked by clearing the preceding tier on that path.
+  not yet been unlocked by clearing the preceding tier on that path. The
+  rebuilt convergence dais now holds a larger five-color final portal; its
+  separate confirmation flow launches the randomized ten-floor composite Path.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment
@@ -31,11 +33,12 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   recent-picks table, tooltip). **Done** -- see "InformationSheet.cs" below
   for design notes.
 - `TitleScreen.cs` <- `character.py`'s `runTheTitleScreen()`. **Done** --
-  ROTBOI header, the five-path selector (`World/GamePaths.cs`), subtitle/
-  description in the selected path's accent color, the play button, the
-  static Field Manual control-legend panel, and the best-run tag. Follows
+  ROTBOI header, one focused Soul-entry button, the static Field Manual
+  control-legend panel, and the best-run tag. Individual and randomized run
+  selection both live at physical Soul portals rather than on the main menu.
+  Follows
   `Menus.cs`'s `Draw`/`HandleInput` shape (a `TitleAction` enum --
-  `None`/`StartRun`/`Quit` -- instead of mutating state directly) rather
+  `None`/`EnterSoul`/`Settings`/`Quit` -- instead of mutating state directly) rather
   than folding into `Core/RotBoiGame.cs`, matching every other screen.
   Dropped vs. Python: the best-run tag reads `GameProfile.Profile.BestLevel`/
   `BestKills` directly instead of `max(cS.highestLevel, profile["best_level"])`

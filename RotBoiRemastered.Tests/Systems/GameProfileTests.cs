@@ -108,6 +108,27 @@ public class GameProfileTests : IDisposable
                 Keybinds = new Dictionary<string, int?> { ["dash"] = 42, ["move_up"] = null },
                 NewGamePlusUnlocked = new Dictionary<string, int> { ["sound"] = 4 },
                 SelectedNewGamePlus = new Dictionary<string, int> { ["sound"] = 3 },
+                RecentBossEncounters =
+                [
+                    new BossEncounterTelemetryData
+                    {
+                        BossKey = "path_guardian_sound",
+                        SenseKey = "sound",
+                        FloorNumber = 3,
+                        Victory = true,
+                        ClearSeconds = 42.5,
+                        DamageTaken = 125,
+                        ControllerUsed = true,
+                        Phases =
+                        [
+                            new BossPhaseTelemetryData
+                            {
+                                Label = "PHASE 1 // MURMUR",
+                                Seconds = 12.25,
+                            },
+                        ],
+                    },
+                ],
             };
             GameProfile.SavePath = path;
 
@@ -127,11 +148,52 @@ public class GameProfileTests : IDisposable
             Assert.Null(reloaded.Keybinds["move_up"]);
             Assert.Equal(4, reloaded.NewGamePlusUnlocked["sound"]);
             Assert.Equal(3, reloaded.SelectedNewGamePlus["sound"]);
+            var bossTelemetry = Assert.Single(reloaded.RecentBossEncounters);
+            Assert.Equal("path_guardian_sound", bossTelemetry.BossKey);
+            Assert.Equal(42.5, bossTelemetry.ClearSeconds);
+            Assert.Equal(125, bossTelemetry.DamageTaken);
+            Assert.True(bossTelemetry.ControllerUsed);
+            Assert.Equal(
+                "PHASE 1 // MURMUR",
+                Assert.Single(bossTelemetry.Phases).Label);
         }
         finally
         {
             GameProfile.Profile = original;
             GameProfile.SavePath = originalSavePath;
+        }
+    }
+
+    [Fact]
+    public void BossTelemetry_LoadRetainsOnlyLatestFiftyEncounters()
+    {
+        string path = Path.Combine(_tempDir, "boss-telemetry.json");
+        var profile = new GameProfileData
+        {
+            RecentBossEncounters = Enumerable.Range(0, 55)
+                .Select(index => new BossEncounterTelemetryData
+                {
+                    BossKey = $"boss-{index}",
+                    SenseKey = "sound",
+                    FloorNumber = index,
+                })
+                .ToList(),
+        };
+        var original = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = profile;
+            Assert.True(GameProfile.SaveProfile(path));
+
+            var reloaded = GameProfile.LoadProfile(path);
+
+            Assert.Equal(50, reloaded.RecentBossEncounters.Count);
+            Assert.Equal("boss-5", reloaded.RecentBossEncounters[0].BossKey);
+            Assert.Equal("boss-54", reloaded.RecentBossEncounters[^1].BossKey);
+        }
+        finally
+        {
+            GameProfile.Profile = original;
         }
     }
 

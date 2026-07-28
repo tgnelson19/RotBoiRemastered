@@ -280,6 +280,16 @@ public class PlagueTouchBossTests
             Assert.Equal("bank", projectile.Path);
             Assert.True(projectile.TelegraphDuration >= .7f);
         });
+        var lockColumn = context.ProjectileSink
+            .Where(projectile => projectile.Owner == "bair_touch_river_lock")
+            .ToList();
+        Assert.Equal(7, lockColumn.Count);
+        Assert.All(lockColumn, projectile =>
+        {
+            Assert.Equal("bank", projectile.Path);
+            Assert.True(projectile.TelegraphDuration >= .85f);
+        });
+        Assert.Equal(2, lockColumn.Select(projectile => projectile.Shape).Distinct().Count());
     }
 
     [Fact]
@@ -319,7 +329,7 @@ public class PlagueTouchBossTests
 
         Assert.True(pressure.Threats >= 1,
             $"Bair phase {phase} never threatened a stationary edge player. Peak={pressure.Peak}.");
-        Assert.InRange(pressure.Peak, 1, 60);
+        Assert.InRange(pressure.Peak, 1, 72);
         Assert.Equal(0, pressure.Overflow);
     }
 
@@ -331,8 +341,27 @@ public class PlagueTouchBossTests
         Assert.True(pressure.Threats >= 2);
         Assert.Contains(pressure.Owners, owner => owner.Contains("plague_gate"));
         Assert.Contains(pressure.Owners, owner => owner.Contains("ruin"));
-        Assert.InRange(pressure.Peak, 1, 72);
+        Assert.Contains(pressure.Owners, owner => owner.Contains("ruin_procession"));
+        Assert.InRange(pressure.Peak, 1, 88);
         Assert.Equal(0, pressure.Overflow);
+    }
+
+    [Fact]
+    public void RuinLayersCurvedSporesOverItsPlayerAnchoredProcession()
+    {
+        var battleground = MakeBattleground();
+        var bair = MakeCenteredBair(battleground, 26);
+        var context = MakeContext(bair, battleground, new Vector2(.68f, .18f));
+        bair.DebugSetPhase(4);
+        bair.EntranceRemaining = 0;
+
+        bair.Update(context);
+
+        Assert.Equal(5, context.ProjectileSink.Count(projectile =>
+            projectile.Owner == "bair_touch_ruin_procession"));
+        Assert.Contains(context.ProjectileSink, projectile =>
+            projectile.Owner == "bair_touch_ruin_spores" &&
+            projectile.Path == "sine" && projectile.Amplitude > 0);
     }
 
     [Fact]

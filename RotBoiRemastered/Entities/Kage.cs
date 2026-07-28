@@ -254,6 +254,11 @@ public class Kage : SinChemesthesisBoss
                     affliction: "slow", afflictionDuration: 1.0,
                     afflictionStrength: .08, exposure: .35);
                 claim.TelegraphDuration = .85f;
+                var greedPrism = Shot(sink, aimed + (PatternRotation % 2 == 0 ? .42f : -.42f),
+                    .72f, 245, scale: .22f, shape: "square",
+                    ownerSuffix: "feast_prism");
+                greedPrism.SplitCount = 3;
+                greedPrism.SplitAt = Simulation.TileSize * 4.2f;
                 break;
             case 2: // Wrath / Pride: invitation followed by retaliation.
                 KageFan(sink, aimed, 5, 1.05f, .82f, 270,
@@ -264,12 +269,20 @@ public class Kage : SinChemesthesisBoss
                 foreach (int side in new[] { -1, 1 })
                     Shot(sink, aimed + side * .72f, .42f, 250,
                         path: "sine", lifetime: 8.5f,
-                        ownerSuffix: "stagnant_mirror");
+                        ownerSuffix: "stagnant_mirror",
+                        amplitude: Simulation.TileSize * (1.15f + .15f * side),
+                        frequency: .052f);
                 var mirrorClaim = Shot(sink, aimed, .39f, 250, scale: .24f,
                     path: "sine", lifetime: 8.5f,
-                    ownerSuffix: "mirror_claim");
+                    ownerSuffix: "mirror_claim",
+                    amplitude: Simulation.TileSize * .72f, frequency: .058f);
                 mirrorClaim.TelegraphDuration = .8f;
                 Radial(sink, 4, .18f, 230, "stagnation", mine: true);
+                var mirrorSnap = Bomb(sink, playerX, playerY, 260,
+                    "mirror_snap", burstCount: 5, fuseDuration: 2.45f,
+                    burstShotDamage: 155);
+                mirrorSnap.BlastRadius = Simulation.TileSize * 1.45f;
+                mirrorSnap.BurstRangeTiles = 5.5f;
                 break;
             default: // Lust / Avarice: converging lanes make tempting gaps.
                 KageFan(sink, aimed, 7, 2.2f, .56f, 265,
@@ -278,6 +291,12 @@ public class Kage : SinChemesthesisBoss
                     "lure_reward", burstCount: 4, fuseDuration: 2.8f,
                     burstShotDamage: 170);
                 reward.BurstRangeTiles = 4.5f;
+                foreach (int side in new[] { -1, 1 })
+                    Shot(sink, aimed + side * 1.02f, .54f, 245,
+                        scale: .20f, shape: "square", path: "sine",
+                        lifetime: 8f, ownerSuffix: "lure_serpent",
+                        amplitude: Simulation.TileSize * 1.25f,
+                        frequency: .048f);
                 break;
         }
         if (PatternRotation == rotationBefore)

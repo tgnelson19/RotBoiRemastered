@@ -124,3 +124,34 @@ port first since they were deliberately kept pygame-free in the Python original.
   identity/projectile tuning and per-path boss selection, which stay
   deferred for their own sake (scope, not a blocker) -- see
   `World/README.md`'s `GamePaths.cs` entry.
+- `PathRun.cs` owns the composite ten-floor mode: two shuffled all-sense acts,
+  the no-repeat act boundary, generated floor replacement without resetting
+  player progression, concurrent room activation, the floor-title window,
+  second-act difficulty, and post-boss exit portals. Room thresholds never
+  lock movement: rushed encounters remain alive, retain long pursuit ranges,
+  and can follow the player through later rooms or into the boss arena.
+  `GameSession` reuses its existing combat, leveling, Fragment, loot, boss,
+  camera, and extraction paths rather than maintaining a second gameplay loop.
+  Authored bosses (`PathGuardianBoss`, the `PathChaseBoss` families, Beaudis,
+  and Dissonance) retain their constructor-owned health, damage, speed,
+  projectile cadence, and sense mechanics; only the shared NG+/Path floor
+  curve is applied afterward. This prevents ordinary-enemy identity tuning
+  from accidentally multiplying already-authored boss balance.
+  `BossEncounterTelemetry` retains the latest 50 aggregate encounters in the
+  profile: clear/failure time, phase durations, damage taken, skipped branch
+  pressure, carried threat, floor/sense, and whether controller input was
+  used. It stores no frame-level input or player identity.
+  `BossAudio` supplies procedural bit-style declaration, trial, stagger, and
+  death cues and degrades safely to silence on headless systems.
+  It also draws deterministic emitter-based Path ambience (drips, ripples,
+  wind, stars, or ash) without adding simulation entities or affecting combat
+  collision. Room waves use geometry-aware role compositions/formations,
+  Challenges award enhanced chests, and optional treasure rooms require a
+  guardian-strength horde or mini-guardian before their guaranteed chest.
+  The combat overlay includes room-entry banners plus a discovery-aware routed
+  floor map.
+- `PathFogOfWar.cs` owns current tile visibility and persistent discovery for
+  a Path floor. Fine ray marching begins at the player's sub-tile position,
+  raised/void tiles stop sight while remaining visible themselves, and
+  `GameSession` uses the result to mask the world and omit unseen enemies,
+  hostile projectiles, bounty targets, and boss UI.

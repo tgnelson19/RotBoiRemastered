@@ -368,6 +368,11 @@ public static class Items
 
     private static readonly int[] DropCounts = { 0, 1, 2, 3, 4 };
     private static readonly double[] DropCountWeights = { 55, 25, 12, 6, 2 };
+    private static readonly int[] PathDropCounts = { 0, 1, 2, 3 };
+    // Composite Path mode moves reliable equipment acquisition into branch
+    // treasure rooms. Ordinary enemies average roughly .23 items instead of
+    // the arena mode's .75, while never making a combat drop impossible.
+    private static readonly double[] PathDropCountWeights = { 82, 14, 3.5, .5 };
 
     private static T WeightedChoice<T>(IReadOnlyList<T> items, IReadOnlyList<double> weights, Random rng)
     {
@@ -387,6 +392,12 @@ public static class Items
     {
         rng ??= Random.Shared;
         return WeightedChoice(DropCounts, DropCountWeights, rng);
+    }
+
+    public static int RollPathDropCount(Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        return WeightedChoice(PathDropCounts, PathDropCountWeights, rng);
     }
 
     private static IReadOnlyList<double> ImproveWeights(IReadOnlyList<double> baseWeights, int newGamePlusLevel, double rankBoost)

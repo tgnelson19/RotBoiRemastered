@@ -24,7 +24,8 @@ public class GameSessionTests
 
     private static GameSession MakeSession(int level = 1)
     {
-        var session = new GameSession(Battleground.GenerateSound(), 1280, 720, new Random(1));
+        GamePaths.Select("sound");
+        var session = new GameSession(GamePaths.ActivateSelected(), 1280, 720, new Random(1));
         session.State.CurrentLevel = level;
         return session;
     }
@@ -45,6 +46,14 @@ public class GameSessionTests
 
     /// <summary>The default spawn position (Battleground.SpawnPosition) *is* the map center, so tests wanting "not at the portal" need to explicitly move away from it rather than just leaving the player at their starting position.</summary>
     private static void MoveAwayFromArenaCenter(GameSession session) => session.Player.SetPosition(0, 0);
+
+    private static void MoveToPathRoom(GameSession session, PathRoomType type)
+    {
+        var room = session.PathRun!.Layout.Rooms.First(value => value.Type == type);
+        session.Player.SetPosition(
+            room.WorldCenter.X - (float)session.State.PlayerSize / 2f,
+            room.WorldCenter.Y - (float)session.State.PlayerSize / 2f);
+    }
 
     [Fact]
     public void Constructor_PositionsPlayerAtBattlegroundSpawn()
@@ -151,6 +160,361 @@ public class GameSessionTests
         session.ExpForPlayer();
         Assert.Equal(5, session.State.ExpCount);
         Assert.Empty(session.State.ExperienceList);
+    }
+
+    [Fact]
+    public void StartPathRun_BeginsInProtectedRoomWithoutEnemies()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(10));
+
+        Assert.True(session.IsPathMode);
+        Assert.NotNull(session.PathRun);
+        Assert.Equal(1, session.PathRun!.FloorNumber);
+        Assert.True(session.PathRun.Layout.StartRoom.ContainsWorld(session.PlayerWorldCenter));
+        Assert.Equal(session.PathRun.CurrentSenseKey, GamePaths.Active().Key);
+
+        session.HandleEnemyCreation(new Random(11));
+        Assert.Empty(session.State.EnemyHolster);
+        Assert.Empty(session.PathRun.ActiveCombatRooms);
+        Assert.NotNull(session.PathFog);
+        Assert.True(session.PathFog!.IsWorldVisible(session.PlayerWorldCenter));
+    }
+
+    [Fact]
+    public void PathCombatRoom_SpawnsContainedSenseWaveWithoutLockingThresholds()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(12));
+        MoveToPathRoom(session, PathRoomType.Skirmish);
+
+        session.HandleEnemyCreation(new Random(13));
+
+        var room = session.PathRun!.Layout.Rooms.Single(
+            value => value.Type == PathRoomType.Skirmish);
+        Assert.Contains(room, session.PathRun.ActiveCombatRooms);
+        Assert.NotEmpty(session.State.EnemyHolster);
+        Assert.All(session.State.EnemyHolster, enemy =>
+        {
+            Assert.Equal(room.EncounterKey, enemy.EncounterKey);
+            Assert.True(enemy.AwarenessRange >= session.ScreenHeight * 2.25f);
+            Assert.True(enemy.DisengageRange > enemy.AwarenessRange);
+            if (session.PathRun.CurrentSenseKey == "sound")
+                Assert.True(enemy.ContentPath is null or "sound");
+            else
+                Assert.Equal(session.PathRun.CurrentSenseKey, enemy.ContentPath);
+        });
+
+        MoveToPathRoom(session, PathRoomType.Assault);
+        session.HandleEnemyCreation(new Random(14));
+
+        Assert.Equal(2, session.PathRun.ActiveCombatRooms.Count);
+        Assert.Contains(session.PathRun.ActiveCombatRooms,
+            active => active.Type == PathRoomType.Assault);
+        Assert.Contains(session.State.EnemyHolster,
+            enemy => enemy.EncounterKey == room.EncounterKey);
+    }
+
+    [Fact]
+    public void PathTreasureRoom_RequiresGuardianStrengthEncounterBeforeChest()
+    {
+        GameSession? session = null;
+        for (int seed = 0; seed < 100; seed++)
+        {
+            var candidate = MakeSession();
+            candidate.StartPathRun(new Random(seed));
+            if (candidate.PathRun!.Layout.TreasureRooms.Count > 0)
+            {
+                session = candidate;
+                break;
+            }
+        }
+        Assert.NotNull(session);
+        MoveToPathRoom(session!, PathRoomType.Treasure);
+
+        session!.HandleEnemyCreation(new Random(15));
+
+        var room = session.PathRun!.Layout.TreasureRooms[0];
+        Assert.Empty(session.State.LootCrateList);
+        Assert.NotEmpty(session.State.EnemyHolster);
+        Assert.All(session.State.EnemyHolster,
+            enemy => Assert.Equal(room.EncounterKey, enemy.EncounterKey));
+        double guardianBenchmark = (5800 + session.PathRun.FloorNumber * 1550)
+            * session.PathRun.HealthMultiplier;
+        Assert.True(session.State.EnemyHolster.Sum(enemy => enemy.MaxHp)
+            >= guardianBenchmark * .75);
+
+        session.State.EnemyHolster.Clear();
+        session.HandleEnemyCreation(new Random(16));
+
+        var chest = Assert.IsType<TreasureChest>(
+            Assert.Single(session.State.LootCrateList));
+        Assert.True(chest.Items.Count >= TreasureChest.MinimumItems);
+        Assert.True(room.IsCleared);
+        Assert.DoesNotContain(room, session.PathRun.ActiveCombatRooms);
+    }
+
+    [Fact]
+    public void PathChallengeRoom_AwardsAnEnhancedChestWhenCleared()
+    {
+        GameSession? session = null;
+        for (int seed = 0; seed < 40; seed++)
+        {
+            var candidate = MakeSession();
+            candidate.StartPathRun(new Random(seed));
+            candidate.PathRun!.NotifyBossDefeated();
+            Vector2 portal = candidate.PathRun.ExitPortalWorld;
+            candidate.Player.SetPosition(portal.X, portal.Y);
+            candidate.HandleEnemyCreation(new Random(seed + 1000), interactPressed: true);
+            if (candidate.PathRun!.Layout.Rooms.Any(room => room.Type == PathRoomType.Challenge))
+            {
+                session = candidate;
+                break;
+            }
+        }
+        Assert.NotNull(session);
+        MoveToPathRoom(session!, PathRoomType.Challenge);
+
+        session!.HandleEnemyCreation(new Random(70));
+        Assert.Contains(session.PathRun!.ActiveCombatRooms,
+            room => room.Type == PathRoomType.Challenge);
+        Assert.NotEmpty(session.State.EnemyHolster);
+
+        session.State.EnemyHolster.Clear();
+        session.HandleEnemyCreation(new Random(71));
+
+        var chest = Assert.IsType<TreasureChest>(Assert.Single(session.State.LootCrateList));
+        Assert.True(chest.Items.Count >= TreasureChest.MinimumItems + 1);
+        Assert.DoesNotContain(session.PathRun.ActiveCombatRooms,
+            room => room.Type == PathRoomType.Challenge);
+    }
+
+    [Fact]
+    public void PathMinimapRoomRect_PreservesRelativeFloorFootprints()
+    {
+        var layout = PathFloorGenerator.Generate("sight", 4, new Random(88));
+        var area = new Rectangle(20, 30, 220, 120);
+        var roomRects = layout.Rooms.ToDictionary(
+            room => room.Id,
+            room => GameSession.PathMinimapRoomRect(room, layout.Battleground, area));
+
+        Assert.All(roomRects.Values, rect =>
+        {
+            Assert.True(area.Contains(rect.Center));
+            Assert.True(rect.Width >= 4);
+            Assert.True(rect.Height >= 4);
+        });
+        Assert.True(roomRects[layout.BossRoom.Id].Width
+            > roomRects[layout.StartRoom.Id].Width);
+    }
+
+    [Fact]
+    public void PathBossRoom_UsesGenericSenseGuardianOnOrdinaryFloor()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(16));
+        MoveToPathRoom(session, PathRoomType.Boss);
+
+        session.HandleEnemyCreation(new Random(17));
+
+        var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
+        Assert.Equal(session.PathRun!.CurrentSenseKey, guardian.SenseKey);
+        Assert.Same(guardian, Assert.Single(session.State.EnemyHolster));
+    }
+
+    [Theory]
+    [InlineData("sound")]
+    [InlineData("touch")]
+    [InlineData("sight")]
+    [InlineData("chemesthesis")]
+    [InlineData("phantasia")]
+    public void PathGuardian_UsesComparableAuthoredBaselineAcrossSenses(
+        string senseKey)
+    {
+        GameSession? session = null;
+        for (int seed = 0; seed < 100; seed++)
+        {
+            var candidate = MakeSession();
+            candidate.StartPathRun(new Random(seed));
+            if (candidate.PathRun!.CurrentSenseKey == senseKey)
+            {
+                session = candidate;
+                break;
+            }
+        }
+        Assert.NotNull(session);
+
+        MoveToPathRoom(session!, PathRoomType.Boss);
+        session!.HandleEnemyCreation(new Random(170));
+
+        var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
+        Assert.Equal(7_350, guardian.MaxHp);
+        Assert.Equal(148, guardian.Damage);
+        Assert.Equal(senseKey, guardian.ContentPath);
+        Assert.True(GameSession.UsesAuthoredBossBalance(guardian));
+    }
+
+    [Fact]
+    public void PathBossRoom_PreservesEnemiesFromRushedEarlierRooms()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(16));
+        MoveToPathRoom(session, PathRoomType.Skirmish);
+        session.HandleEnemyCreation(new Random(17));
+        var pursuingEnemy = session.State.EnemyHolster.FirstOrDefault(
+            enemy => enemy.EncounterKey is not null);
+        Assert.NotNull(pursuingEnemy);
+
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.HandleEnemyCreation(new Random(18));
+
+        Assert.NotNull(session.State.ActiveBoss);
+        Assert.Contains(pursuingEnemy!, session.State.EnemyHolster);
+        Assert.Contains(session.State.ActiveBoss, session.State.EnemyHolster);
+        Assert.True(session.State.EnemyHolster.Count > 1);
+    }
+
+    [Fact]
+    public void PathBossTelemetry_RecordsPacingDamageSkippedPressureAndControllerUse()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalSavePath = GameProfile.SavePath;
+        string tempSavePath = Path.Combine(
+            Path.GetTempPath(),
+            $"rotboi-boss-telemetry-{Guid.NewGuid():N}.json");
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = tempSavePath;
+            GameSession? session = null;
+            for (int seed = 0; seed < 100; seed++)
+            {
+                var candidate = MakeSession();
+                candidate.StartPathRun(new Random(seed));
+                if (candidate.PathRun!.Layout.TreasureRooms.Count > 0)
+                {
+                    session = candidate;
+                    break;
+                }
+            }
+            Assert.NotNull(session);
+
+            MoveToPathRoom(session!, PathRoomType.Treasure);
+            session!.HandleEnemyCreation(new Random(191));
+            Assert.NotEmpty(session.State.EnemyHolster);
+
+            MoveToPathRoom(session, PathRoomType.Boss);
+            session.HandleEnemyCreation(new Random(192));
+            var guardian = Assert.IsType<PathGuardianBoss>(
+                session.State.ActiveBoss);
+            Assert.True(session.BossTelemetryActive);
+
+            session.State.RunTimeSeconds = 10;
+            session.RecordControllerActivity(active: true);
+            Assert.True(session.PreferControllerPrompts);
+            session.UpdateEnemies();
+
+            session.State.GracePeriod = 0;
+            session.State.PlayerInvulnerabilityTimer = 0;
+            session.State.EnemyProjectileHolster.Add(new EnemyProjectile(
+                session.Player.WorldX,
+                session.Player.WorldY,
+                0,
+                0,
+                100,
+                (float)session.State.PlayerSize,
+                color: Color.Red,
+                owner: "telemetry-test",
+                ignoreWalls: true));
+            Assert.False(session.HurtPlayer());
+
+            guardian.DebugSetPhase(3);
+            session.State.RunTimeSeconds = 15;
+            session.UpdateEnemies();
+            guardian.Hp = 10;
+            guardian.TakeDamage(1000);
+            for (int frame = 0; frame < 300 && !guardian.IsDead(); frame++)
+            {
+                session.State.RunTimeSeconds += 1.0 / Simulation.FrameRate;
+                session.UpdateEnemies();
+            }
+            Assert.True(guardian.IsDead());
+            session.HandleDamagingEnemies(new Random(193));
+
+            var telemetry = Assert.Single(
+                session.State.BossEncounterTelemetry);
+            Assert.True(telemetry.Victory);
+            Assert.True(telemetry.ClearSeconds >= 5);
+            Assert.True(telemetry.DamageTaken > 0);
+            Assert.True(telemetry.ControllerUsed);
+            Assert.True(telemetry.SkippedBranchRooms >= 1);
+            Assert.True(telemetry.SkippedBranchThreat > 0);
+            Assert.True(telemetry.CarriedEnemyThreat
+                >= telemetry.SkippedBranchThreat);
+            Assert.Contains(telemetry.Phases,
+                phase => phase.Label.Contains("PHASE 1"));
+            Assert.Contains(telemetry.Phases,
+                phase => phase.Label.Contains("PHASE 3"));
+            Assert.Single(GameProfile.Profile.RecentBossEncounters);
+            Assert.False(session.BossTelemetryActive);
+
+            var failedSession = MakeSession();
+            failedSession.StartPathRun(new Random(194));
+            MoveToPathRoom(failedSession, PathRoomType.Boss);
+            failedSession.HandleEnemyCreation(new Random(195));
+            failedSession.State.RunTimeSeconds = 20;
+            failedSession.UpdateEnemies();
+            failedSession.State.HealthPoints = 25;
+            failedSession.State.GracePeriod = 0;
+            failedSession.State.PlayerInvulnerabilityTimer = 0;
+            failedSession.State.EnemyProjectileHolster.Add(new EnemyProjectile(
+                failedSession.Player.WorldX,
+                failedSession.Player.WorldY,
+                0,
+                0,
+                5000,
+                (float)failedSession.State.PlayerSize,
+                color: Color.Red,
+                owner: "telemetry-failure-test",
+                ignoreWalls: true));
+
+            Assert.True(failedSession.HurtPlayer());
+            var failedTelemetry = Assert.Single(
+                failedSession.State.BossEncounterTelemetry);
+            Assert.False(failedTelemetry.Victory);
+            Assert.True(failedTelemetry.DamageTaken > 0);
+            Assert.Equal(2, GameProfile.Profile.RecentBossEncounters.Count);
+            Assert.False(failedSession.BossTelemetryActive);
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalSavePath;
+            if (File.Exists(tempSavePath))
+                File.Delete(tempSavePath);
+        }
+    }
+
+    [Fact]
+    public void PathExitPortal_TransitionsWorldButPreservesRunProgress()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(18));
+        session.State.CurrentLevel = 4;
+        session.State.Fragments = 7;
+        var firstBattleground = session.Battleground;
+        session.PathRun!.NotifyBossDefeated();
+        var portal = session.PathRun.ExitPortalWorld;
+        session.Player.SetPosition(portal.X, portal.Y);
+
+        session.HandleEnemyCreation(new Random(19), interactPressed: true);
+
+        Assert.Equal(2, session.PathRun.FloorNumber);
+        Assert.NotSame(firstBattleground, session.Battleground);
+        Assert.Equal(4, session.State.CurrentLevel);
+        Assert.Equal(7, session.State.Fragments);
+        Assert.True(session.PathRun.Layout.StartRoom.ContainsWorld(session.PlayerWorldCenter));
+        Assert.Empty(session.State.EnemyHolster);
     }
 
     [Fact]
@@ -392,6 +756,26 @@ public class GameSessionTests
         session.State.EnemyHolster.Add(dead);
 
         Assert.Null(session.SelectBountyTarget());
+    }
+
+    [Fact]
+    public void SelectBountyTarget_HidesThreatUntilPathLineOfSightRevealsIt()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(33));
+        Vector2 distant = session.PathRun!.Layout.BossRoom.WorldCenter;
+        var enemy = new Enemy(distant.X, distant.Y, speed: 0, size: 40,
+            Color.Red, damage: 10, hp: 100, expValue: 50, difficulty: 1,
+            awarenessRange: 300f);
+        session.State.EnemyHolster.Add(enemy);
+
+        Assert.False(session.PathFog!.IsWorldAreaVisible(enemy.WorldRect()));
+        Assert.Null(session.SelectBountyTarget());
+
+        session.PathFog.Update(distant);
+
+        Assert.True(session.PathFog.IsWorldAreaVisible(enemy.WorldRect()));
+        Assert.Same(enemy, session.SelectBountyTarget()!.Target);
     }
 
     [Fact]

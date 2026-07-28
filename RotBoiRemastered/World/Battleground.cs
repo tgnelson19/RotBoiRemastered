@@ -39,19 +39,40 @@ public sealed class Battleground
     public IReadOnlyList<BiomePalette> Palettes { get; }
     public int WallHeight { get; }
     public Vector2 SpawnPosition { get; }
+    public string? VisualThemeKey { get; }
+    public int PathFloorNumber { get; }
+    public IReadOnlyList<PathDecoration> PathDecorations { get; }
 
     private (int X, int Y)[]? _openTiles;
+    private readonly int[,]? _biomeMap;
 
-    public Battleground(TileType[,] tiles, IReadOnlyList<BiomePalette> palettes, int wallHeight, Vector2? spawnPosition = null)
+    public Battleground(
+        TileType[,] tiles,
+        IReadOnlyList<BiomePalette> palettes,
+        int wallHeight,
+        Vector2? spawnPosition = null,
+        string? visualThemeKey = null,
+        int pathFloorNumber = 0,
+        IReadOnlyList<PathDecoration>? pathDecorations = null,
+        int[,]? biomeMap = null)
     {
         Tiles = tiles;
         Height = tiles.GetLength(0);
         Width = tiles.GetLength(1);
+        if (biomeMap is not null
+            && (biomeMap.GetLength(0) != Height || biomeMap.GetLength(1) != Width))
+        {
+            throw new ArgumentException("Biome maps must match the tile-grid dimensions.", nameof(biomeMap));
+        }
         Palettes = palettes;
         WallHeight = wallHeight;
         SpawnPosition = spawnPosition ?? new Vector2(
             Width / 2 * TileSize - TileSize / 2f,
             Height / 2 * TileSize - TileSize / 2f);
+        VisualThemeKey = visualThemeKey;
+        PathFloorNumber = pathFloorNumber;
+        PathDecorations = pathDecorations ?? Array.Empty<PathDecoration>();
+        _biomeMap = biomeMap;
     }
 
     public TileType TileAt(int x, int y) => Tiles[y, x];
@@ -64,6 +85,13 @@ public sealed class Battleground
     /// <summary>Splits the circular map into three broad, intentionally soft-edged wards.</summary>
     public int BiomeForTile(int tileX, int tileY)
     {
+        if (_biomeMap is not null)
+        {
+            int x = Math.Clamp(tileX, 0, Width - 1);
+            int y = Math.Clamp(tileY, 0, Height - 1);
+            return Math.Clamp(_biomeMap[y, x], 0, Palettes.Count - 1);
+        }
+
         double dx = tileX - Width / 2.0;
         double dy = tileY - Height / 2.0;
         if (dy < -Math.Abs(dx) * .28)
@@ -641,11 +669,43 @@ public sealed class Battleground
             }
         }
 
-        // Radial floor inlays give each portal bay a subtle permanent spine;
-        // the animated path ribbons are drawn directly over these.
+        // The tunnel terminates in a broad convergence dais rather than
+        // spilling directly onto the chamber floor. Alternating neutral
+        // masonry and road rings give the final composite portal a permanent
+        // architectural foundation even before its animated energy is drawn.
+        const int junctionY = 37;
+        for (int y = junctionY - 6; y <= junctionY + 6; y++)
+        {
+            for (int x = centerX - 6; x <= centerX + 6; x++)
+            {
+                if (grid[y, x].IsSolid())
+                    continue;
+                double distance = Hypot(x - centerX, y - junctionY);
+                if (distance <= 6.15)
+                    grid[y, x] = distance >= 4.65 ? TileType.Road : TileType.BuildingFloor;
+                if (distance is >= 2.55 and <= 3.35)
+                    grid[y, x] = TileType.Road;
+            }
+        }
+
+        // Radial floor inlays give each portal bay a permanent spine. The
+        // animated path ribbons sit directly over these and appear to pour
+        // out of the convergence portal.
         var portalTiles = new[] { (15, 25), (27, 20), (39, 18), (51, 20), (63, 25) };
         foreach (var portal in portalTiles)
-            PaintRoad(grid, (centerX, 37), portal, 1);
+            PaintRoad(grid, (centerX, junctionY), portal, 1);
+
+        // Five dark teeth at the edge of the dais make the branching point
+        // legible from the tunnel. They never block a route: each sits in the
+        // wedge between two painted portal spines.
+        var daisTeeth = new[] { (-5, -2), (-3, -5), (0, -6), (3, -5), (5, -2) };
+        foreach (var (offsetX, offsetY) in daisTeeth)
+        {
+            int x = centerX + offsetX;
+            int y = junctionY + offsetY;
+            if (!grid[y, x].IsSolid())
+                grid[y, x] = TileType.BuildingFloor;
+        }
 
         var spawn = new Vector2(
             centerX * TileSize - TileSize / 2f,

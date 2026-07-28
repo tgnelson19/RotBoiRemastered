@@ -330,3 +330,24 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     around `Player`; duplicate pieces of the same Core share one ring.
   - `FragmentPickup.cs` is the gold forge-currency shard: it scatters from an
     enemy death, then follows the same player aura behavior as experience.
+- **`PathGuardianBoss.cs`** is the composite mode's ordinary floor boss: one
+  block-built three-phase body with separate Sound, Touch, Sight,
+  Chemesthesis, and Phantasia projectile grammars, phase language, cadence,
+  preferred distance, movement, and transition timing. Each of the first two
+  phases must declare two complete attacks before its health gate opens, so a
+  high-damage build cannot skip its sense lesson. A protected sense trial
+  separates phases two and three, every admitted pattern respects an
+  owner-local 62-threat budget, and lethal damage enters a short disassembly
+  beat after clearing the active field. Floors six through nine add bounded
+  pattern complexity instead of another raw stat multiplier. Authored names,
+  subtitles, silhouettes, trial rules, HUD state, and debug phase controls use
+  the same declaration/intermission/death grammar as Malady and Dissonance.
+  After its two required lesson patterns, each phase can admit a rare
+  sense-specific alternate; all alternates use the same threat budget and
+  stronger warning floor. Procedural declaration, trial, stagger, and death
+  cues reinforce those state changes without requiring external sound assets.
+  Floors five and ten still use the existing cataloged midpoint/final bosses.
+- **`TreasureChest.cs`** extends the normal loot-container interaction with a
+  large procedural chest silhouette and a hard minimum of two items. Only
+  generated treasure rooms create these chests, and their glow/trim inherits
+  the current floor's sense accent.

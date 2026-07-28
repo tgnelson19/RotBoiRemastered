@@ -218,6 +218,69 @@ public sealed class Bair : PlagueTouchBoss
         bomb.BurstRangeTiles = 8f;
     }
 
+    private void DeclaredPressureColumn(List<EnemyProjectile> sink, float playerX,
+        float playerY, string suffix, int links = 7)
+    {
+        var center = Center();
+        var target = new Vector2(playerX, playerY);
+        var directionVector = target - center;
+        if (directionVector.LengthSquared() < .001f)
+            directionVector = Vector2.UnitX;
+        directionVector.Normalize();
+        float direction = MathF.Atan2(directionVector.Y, directionVector.X);
+
+        // A continuous, player-anchored line is the River's anti-camp clause:
+        // the broad currents teach the opening, then this declared chain makes
+        // the player rotate across that opening instead of standing inside it.
+        for (int index = 0; index < links; index++)
+        {
+            float centeredIndex = index - (links - 1) / 2f;
+            Vector2 position = target + directionVector * centeredIndex * Simulation.TileSize * .72f;
+            float size = Size * .24f;
+            var link = new EnemyProjectile(
+                position.X - size / 2f, position.Y - size / 2f,
+                direction, .34f, 285, size,
+                travelRange: Simulation.TileSize * 2.4f, color: PhaseAccent,
+                shape: index % 2 == 0 ? "diamond" : "square", path: "bank",
+                lifetime: 6.5f, owner: $"bair_touch_{suffix}", ignoreWalls: true)
+            {
+                TelegraphDuration = .88f,
+                Affliction = "slow",
+                AfflictionDuration = 1.0,
+                AfflictionStrength = .08,
+                Exposure = .35,
+            };
+            sink.Add(link);
+        }
+    }
+
+    private void DeclaredSporeCurves(List<EnemyProjectile> sink, float playerX,
+        float playerY, string suffix, int count = 4)
+    {
+        var center = Center();
+        float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
+        for (int index = 0; index < count; index++)
+        {
+            float side = index % 2 == 0 ? -1f : 1f;
+            float band = .46f + index / 2 * .28f;
+            float size = Size * (.18f + .018f * index);
+            sink.Add(new EnemyProjectile(
+                center.X - size / 2f, center.Y - size / 2f,
+                aimed + side * band, .66f + .04f * index, 270, size,
+                travelRange: ArenaRadius * 1.9f, color: PhaseAccent,
+                shape: index % 2 == 0 ? "diamond" : "square", path: "sine",
+                amplitude: Simulation.TileSize * (1.0f + .18f * index),
+                frequency: .042f + .004f * index, lifetime: 6f,
+                owner: $"bair_touch_{suffix}", ignoreWalls: true)
+            {
+                Affliction = "slow",
+                AfflictionDuration = .9,
+                AfflictionStrength = .07,
+                Exposure = .3,
+            });
+        }
+    }
+
     protected override void FirePlaguePattern(float playerX, float playerY,
         List<EnemyProjectile> sink)
     {
@@ -236,6 +299,7 @@ public sealed class Bair : PlagueTouchBoss
                     "river_current", .27f, .72f);
                 DeclaredShot(sink, aimed + .19f + advance, .48f, 300,
                     "river_current", .27f, .72f);
+                DeclaredPressureColumn(sink, playerX, playerY, "river_lock");
                 break;
             }
             case 2:
@@ -243,6 +307,7 @@ public sealed class Bair : PlagueTouchBoss
                 // complete player-facing opening in the rotating swarm.
                 DeclaredRadialWithOpening(sink, playerX, playerY, 9, .38f, 285,
                     "swarm_ring", .72f);
+                DeclaredSporeCurves(sink, playerX, playerY, "swarm_spores", 3);
                 break;
             case 3:
             {
@@ -261,6 +326,8 @@ public sealed class Bair : PlagueTouchBoss
             case 4:
                 DeclaredRadialWithOpening(sink, playerX, playerY, 10, .36f, 310,
                     "ruin_fall", .88f);
+                DeclaredPressureColumn(sink, playerX, playerY, "ruin_procession", 5);
+                DeclaredSporeCurves(sink, playerX, playerY, "ruin_spores", 2);
                 if (PatternRotation % 2 == 1)
                     DeclaredBomb(sink, new Vector2(playerX, playerY), "ruin_weight", 350);
                 break;
@@ -274,6 +341,8 @@ public sealed class Bair : PlagueTouchBoss
                         "silence_swarm", .76f);
                 else
                     DeclaredBomb(sink, new Vector2(playerX, playerY), "silence_mark", 370);
+                DeclaredPressureColumn(sink, playerX, playerY, "silence_procession", 5);
+                DeclaredSporeCurves(sink, playerX, playerY, "silence_spores", 2);
                 break;
         }
         PatternRotation++;

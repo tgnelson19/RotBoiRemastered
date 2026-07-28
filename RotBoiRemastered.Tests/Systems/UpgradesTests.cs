@@ -41,4 +41,18 @@ public class UpgradesTests
         Assert.Equal("+16%", Upgrades.FormatCardValue(damage));
         Assert.Equal("+4%", Upgrades.FormatCardValue(attackSpeed));
     }
+
+    [Fact]
+    public void SpreadAngleCardsTightenRatherThanExpandTheVolley()
+    {
+        var definition = Upgrades.DefinitionsByName["Spread Angle"];
+        var additive = new UpgradeCard(definition, "Common", "additive");
+        var multiplicative = new UpgradeCard(definition, "Common", "multiplicative");
+
+        Assert.True(Upgrades.CardModifier(additive) < 0);
+        Assert.InRange(Upgrades.CardModifier(multiplicative), 0, .999999);
+        Assert.Equal("-18°", Upgrades.FormatCardValue(additive));
+        Assert.Equal("12% tighter", Upgrades.FormatCardValue(multiplicative));
+        Assert.Contains("minimum 1°", definition.Description);
+    }
 }

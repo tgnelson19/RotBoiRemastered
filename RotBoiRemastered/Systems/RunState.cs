@@ -163,6 +163,9 @@ public sealed class BossAfflictions
 /// </summary>
 public sealed class RunState
 {
+    public const double MinimumProjectileSeparationDegrees = 1.0;
+    public const double MinimumProjectileSeparationRadians =
+        MinimumProjectileSeparationDegrees * Math.PI / 180.0;
     public int HighestLevel { get; set; }
     public double RunTimeSeconds { get; set; }
     public string RunOutcome { get; set; } = "DEFEATED";
@@ -268,6 +271,7 @@ public sealed class RunState
 
     public DreamState DreamState { get; } = new();
     public BossAfflictions BossAfflictions { get; } = new();
+    public List<BossEncounterTelemetryData> BossEncounterTelemetry { get; } = new();
 
     public RunState()
     {
@@ -366,6 +370,7 @@ public sealed class RunState
         ResetUpgradeTracking();
         BossAfflictions.Reset();
         DreamState.Reset();
+        BossEncounterTelemetry.Clear();
 
         NewRandoUps = false;
 
@@ -472,7 +477,10 @@ public sealed class RunState
         double Equipped(string stat) => Items.AdjustStat(stat, Stats[stat].Combined, Equipment.Values);
 
         ProjectileCount = Math.Clamp(Equipped("Bullet Count"), 1, 12);
-        AzimuthalProjectileAngle = Stats["Spread Angle"].Combined;
+        double minimumVolleyArc = Math.Max(0, ProjectileCount - 1) *
+            MinimumProjectileSeparationRadians;
+        AzimuthalProjectileAngle = Math.Max(
+            minimumVolleyArc, Equipped("Spread Angle"));
         PlayerSpeed = Equipped("Player Speed");
         AttackCooldownStat = Equipped("Attack Speed");
         BulletSpeed = Equipped("Bullet Speed");

@@ -11,6 +11,12 @@ namespace RotBoiRemastered.UI;
 /// <summary>Safe firing range and tile-based permanent progression sanctuary.</summary>
 public sealed class SoulHub
 {
+    /// <summary>
+    /// Synthetic portal key returned to RotBoiGame when the convergence
+    /// portal finishes its pull animation. It is not a GamePaths sense key:
+    /// the caller starts the ten-floor randomized composite Path instead.
+    /// </summary>
+    public const string CompositePathPortalKey = "__composite_path";
     private const float StationOpenRadiusTiles = 1.45f;
     private const float StationCloseRadiusTiles = 1.85f;
     private const float PathPortalInteractRadiusTiles = 1.6f;
@@ -65,6 +71,8 @@ public sealed class SoulHub
     public float PlayerDrawScale => _playerDrawScale;
     /// <summary>World center of the DPS dummy's hit rect -- exposed so callers (and tests) can place bullets on it without duplicating its layout.</summary>
     public Vector2 DummyWorld => _dummyWorld;
+    /// <summary>World center of the convergence portal after Enter has authored the current Soul layout.</summary>
+    public Vector2 CompositePortalWorld => _pathPortalWorld.GetValueOrDefault(CompositePathPortalKey);
     public double CurrentDps => _currentDps;
     /// <summary>Whether the training dummy is currently carrying the given status effect (e.g. "bleed", "bane") -- lets tests confirm status effects actually land on it instead of only checking the DPS number they produce.</summary>
     public bool DummyHasStatus(string kind) => _dummy.StatusEffects.ContainsKey(kind);
@@ -106,6 +114,8 @@ public sealed class SoulHub
             var offset = new Vector2(authored.X, authored.Y) * Simulation.TileSize;
             _pathPortalWorld[paths[index].Key] = session.PlayerWorldCenter + offset;
         }
+        var junctionOffset = new Vector2(0, PortalJunctionOffsetTiles) * Simulation.TileSize;
+        _pathPortalWorld[CompositePathPortalKey] = session.PlayerWorldCenter + junctionOffset;
         _dummyHits.Clear();
         _seconds = 0;
         _measurementStart = 0;
@@ -230,9 +240,10 @@ public sealed class SoulHub
                 || (mousePressed && _ngMinusRect.Contains(mouse));
             bool higherTier = keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D)
                 || (mousePressed && _ngPlusRect.Contains(mouse));
-            if (lowerTier)
+            bool compositePortal = _confirmingPortalKey == CompositePathPortalKey;
+            if (lowerTier && !compositePortal)
                 AdjustNewGamePlus(_confirmingPortalKey, -1);
-            if (higherTier)
+            if (higherTier && !compositePortal)
                 AdjustNewGamePlus(_confirmingPortalKey, 1);
             if (keysPressed.Contains(Keys.F))
             {
@@ -433,15 +444,13 @@ public sealed class SoulHub
             DrawPixelReflection(spriteBatch, screen + new Vector2(0, 5), color, 8 + mote % 3 * 2, .26f);
         }
 
-        // The tunnel opens into one luminous knot, then separates into five
-        // authored colored paths. A quadratic bend keeps the routes organic.
+        // The tunnel opens into a constructed convergence dais, then
+        // separates into five authored colored paths. The dais supports the
+        // composite portal drawn later in DrawPathPortals, so the randomized
+        // run is physically made from the five senses instead of reading as
+        // an unrelated sixth door.
         Vector2 junctionScreen = WorldToScreen(junction, session);
-        for (int ring = 0; ring < 4; ring++)
-        {
-            float radius = Simulation.TileSize * (.42f + ring * .25f + .04f * MathF.Sin(t * 2f + ring));
-            Primitives2D.CircleOutline(spriteBatch, junctionScreen, radius,
-                Color.Lerp(new Color(137, 103, 178), Color.White, ring * .14f) * (.52f - ring * .07f), 2);
-        }
+        DrawConvergenceDais(spriteBatch, session, junction, junctionScreen, pathColors, t);
 
         for (int index = 0; index < GamePaths.Paths.Count; index++)
         {
@@ -457,6 +466,75 @@ public sealed class SoulHub
             DrawCompletionMonument(spriteBatch, session, portal, path.Accent, path.Key, index, t);
         }
         DrawInterPortalTransfer(spriteBatch, session, t);
+    }
+
+    private void DrawConvergenceDais(
+        SpriteBatch spriteBatch,
+        GameSession session,
+        Vector2 junction,
+        Vector2 junctionScreen,
+        IReadOnlyList<Color> pathColors,
+        float time)
+    {
+        float tile = Simulation.TileSize;
+        var shadow = new Rectangle(
+            (int)(junctionScreen.X - tile * 2.25f),
+            (int)(junctionScreen.Y - tile * .92f + 12),
+            (int)(tile * 4.5f),
+            (int)(tile * 1.84f));
+        Primitives2D.FillEllipse(spriteBatch, shadow, UiTheme.Shadow * .72f);
+
+        for (int ring = 0; ring < 5; ring++)
+        {
+            float radius = tile * (.52f + ring * .29f
+                + .025f * MathF.Sin(time * 1.7f + ring));
+            Color color = ring is 0 or 4
+                ? Color.Lerp(UiTheme.Purple, UiTheme.Gold, ring / 4f)
+                : new Color(119, 95, 145);
+            Primitives2D.CircleOutline(spriteBatch, junctionScreen, radius,
+                color * (.68f - ring * .055f), ring is 0 or 4 ? 3 : 2);
+        }
+
+        // Five inset spokes and paired threshold stones visibly continue into
+        // the matching portal trails. Their actual portal positions determine
+        // the direction, so the composition remains correct if the bay arc is
+        // adjusted later.
+        for (int index = 0; index < GamePaths.Paths.Count; index++)
+        {
+            var path = GamePaths.Paths[index];
+            if (!_pathPortalWorld.TryGetValue(path.Key, out var portal))
+                continue;
+            Vector2 direction = Vector2.Normalize(portal - junction);
+            Vector2 innerWorld = junction + direction * tile * .78f;
+            Vector2 outerWorld = junction + direction * tile * 1.72f;
+            Vector2 inner = WorldToScreen(innerWorld, session);
+            Vector2 outer = WorldToScreen(outerWorld, session);
+            Color bright = Color.Lerp(pathColors[index], Color.White, .3f);
+            Primitives2D.Line(spriteBatch, inner + new Vector2(0, 5),
+                outer + new Vector2(0, 5), UiTheme.Shadow * .7f, 10);
+            Primitives2D.Line(spriteBatch, inner, outer,
+                pathColors[index] * (.58f + .16f * MathF.Sin(time * 2f + index)), 5);
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)outer.X - 6, (int)outer.Y - 6, 12, 12),
+                new Color(31, 27, 41));
+            Primitives2D.RectOutline(spriteBatch,
+                new Rectangle((int)outer.X - 6, (int)outer.Y - 6, 12, 12),
+                bright * .8f, 2);
+            DrawPixelReflection(spriteBatch, outer + new Vector2(0, 8),
+                pathColors[index], 16, .2f);
+        }
+
+        // Gold cardinal ticks make the dais read as old Soul architecture,
+        // while the five colored spokes read as the newer paths growing out.
+        for (int tick = 0; tick < 12; tick++)
+        {
+            float angle = tick * MathF.Tau / 12f;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Vector2 a = junctionScreen + direction * tile * 1.93f;
+            Vector2 b = junctionScreen + direction * tile * (tick % 3 == 0 ? 2.12f : 2.04f);
+            Primitives2D.Line(spriteBatch, a, b,
+                UiTheme.Gold * (tick % 3 == 0 ? .72f : .42f), tick % 3 == 0 ? 3 : 2);
+        }
     }
 
     private static Vector2 WorldToScreen(Vector2 world, GameSession session) =>
@@ -812,6 +890,7 @@ public sealed class SoulHub
     {
         float t = (float)_seconds;
         string? nearbyPortal = NearbyPathPortal(session);
+        DrawCompositePathPortal(spriteBatch, session, nearbyPortal, t);
         foreach (var path in GamePaths.Paths)
         {
             if (!_pathPortalWorld.TryGetValue(path.Key, out var world)) continue;
@@ -851,9 +930,86 @@ public sealed class SoulHub
         }
     }
 
+    private void DrawCompositePathPortal(
+        SpriteBatch spriteBatch,
+        GameSession session,
+        string? nearbyPortal,
+        float time)
+    {
+        if (!_pathPortalWorld.TryGetValue(CompositePathPortalKey, out var world))
+            return;
+
+        Vector2 screen = session.Camera.WorldToScreen(
+            world, session.PlayerWorldCenter, Vector2.Zero);
+        float radius = Simulation.TileSize * 1.36f;
+        bool committing = _enteringPortalKey == CompositePathPortalKey;
+        float pullT = committing
+            ? (float)Math.Clamp((_seconds - _portalAnimationStart) / PortalPullSeconds, 0, 1)
+            : 0f;
+        float intensity = 1f + pullT * 2.6f;
+        float pulse = 1f + MathF.Sin(time * 2.35f * intensity) * (.045f + pullT * .08f);
+
+        Primitives2D.FillEllipse(spriteBatch,
+            new Rectangle((int)(screen.X - radius * 1.2f), (int)(screen.Y + radius * .48f),
+                (int)(radius * 2.4f), (int)(radius * .62f)),
+            UiTheme.Shadow * .82f);
+        Primitives2D.FillCircle(spriteBatch, screen, radius * .84f * pulse,
+            new Color(12, 10, 19));
+        Primitives2D.CircleOutline(spriteBatch, screen, radius * 1.08f,
+            UiTheme.Gold * (.7f + pullT * .3f), 4);
+        Primitives2D.CircleOutline(spriteBatch, screen, radius * .92f,
+            UiTheme.Purple * (.82f + pullT * .18f), 3);
+
+        // Every sense owns one rotating segment. The alternating direction
+        // and nested radius makes the five colors appear to braid inward.
+        for (int index = 0; index < GamePaths.Paths.Count; index++)
+        {
+            Color color = GamePaths.Paths[index].Accent;
+            float direction = index % 2 == 0 ? 1f : -1f;
+            float phase = time * (1.05f + index * .08f) * direction * intensity
+                + index * MathF.Tau / GamePaths.Paths.Count;
+            float arcRadius = radius * (.48f + index * .085f) * (1f - pullT * .28f);
+            var arcRect = new Rectangle(
+                (int)(screen.X - arcRadius),
+                (int)(screen.Y - arcRadius),
+                (int)(arcRadius * 2),
+                (int)(arcRadius * 2));
+            Primitives2D.Arc(spriteBatch, arcRect, phase,
+                phase + MathF.PI * (.54f + index * .035f),
+                Color.Lerp(color, Color.White, pullT * .36f), 3);
+
+            Vector2 mote = screen + new Vector2(MathF.Cos(phase), MathF.Sin(phase))
+                * arcRadius;
+            int size = 4 + index % 2 * 2;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)mote.X - size / 2, (int)mote.Y - size / 2, size, size),
+                color * (.78f + pullT * .22f));
+        }
+
+        float coreRadius = radius * (.2f - pullT * .07f);
+        Primitives2D.FillCircle(spriteBatch, screen, coreRadius,
+            Color.Lerp(UiTheme.Cream, UiTheme.Gold, .55f + .25f * MathF.Sin(time * 2.1f)));
+        UiTheme.DrawText(spriteBatch, "THE FINAL PORTAL", 12, UiTheme.Gold,
+            new Vector2(screen.X, screen.Y + radius + 12), "midtop");
+        UiTheme.DrawText(spriteBatch, "RANDOMIZED PATH  //  TEN FLOORS", 8, UiTheme.Cream,
+            new Vector2(screen.X, screen.Y + radius + 31), "midtop");
+        if (nearbyPortal == CompositePathPortalKey
+            && _confirmingPortalKey != CompositePathPortalKey
+            && _enteringPortalKey is null)
+        {
+            UiTheme.DrawText(spriteBatch, "F  //  TRAVERSE", 10, UiTheme.Gold,
+                new Vector2(screen.X, screen.Y + radius + 49), "midtop");
+        }
+    }
+
     /// <summary>Centered "ENTER {PATH}?" modal shown while _confirmingPortalKey is set -- F commits, walking away or Escape cancels (Escape via OverlayOpen/CloseOverlay in Core/RotBoiGame.cs).</summary>
     private void DrawPortalConfirm(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
+        if (_confirmingPortalKey == CompositePathPortalKey)
+        {
+            DrawCompositePortalConfirm(spriteBatch, session);
+            return;
+        }
         var path = GamePaths.PathsByKey[_confirmingPortalKey!];
         int selected = NewGamePlus.SelectedLevel(path.Key);
         int unlocked = NewGamePlus.UnlockedLevel(path.Key);
@@ -885,6 +1041,47 @@ public sealed class SoulHub
             UiTheme.DrawText(spriteBatch, "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS  //  CORE-FORGED DROPS",
                 Fs(9), UiTheme.Red, new Vector2(rect.Center.X, rect.Y + Px(160)), "midtop");
         UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", Fs(10), UiTheme.Muted,
+            new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
+    }
+
+    private void DrawCompositePortalConfirm(SpriteBatch spriteBatch, GameSession session)
+    {
+        int width = (int)(session.ScreenWidth * .46f);
+        int height = (int)(session.ScreenHeight * .29f);
+        var rect = new Rectangle(
+            session.ScreenWidth / 2 - width / 2,
+            (int)(session.ScreenHeight * .28f),
+            width,
+            height);
+        Color accent = Color.Lerp(UiTheme.Purple, UiTheme.Gold, .58f);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight),
+            UiTheme.Void * .58f);
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, accent, shadow: 10);
+        UiTheme.DrawText(spriteBatch, "TRAVERSE THE PATH?", Fs(22), UiTheme.Gold,
+            new Vector2(rect.Center.X, rect.Y + Px(28)), "center");
+        UiTheme.DrawText(spriteBatch,
+            "TEN FLOORS  //  ALL FIVE SENSES  //  ORDER RANDOMIZED",
+            Fs(11), UiTheme.Cream,
+            new Vector2(rect.Center.X, rect.Y + Px(66)), "center");
+        UiTheme.DrawText(spriteBatch,
+            "THE PATH REFORMS BETWEEN ACTS. YOUR BUILD AND EQUIPMENT CONTINUE.",
+            Fs(9), UiTheme.Muted,
+            new Vector2(rect.Center.X, rect.Y + Px(101)), "midtop");
+        UiTheme.DrawText(spriteBatch,
+            "MIDPOINT BOSS ON FLOOR 05  //  FINAL BOSS ON FLOOR 10",
+            Fs(9), accent,
+            new Vector2(rect.Center.X, rect.Y + Px(126)), "midtop");
+        if (GameProfile.Profile.HardModeEnabled)
+        {
+            UiTheme.DrawText(spriteBatch,
+                "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS",
+                Fs(9), UiTheme.Red,
+                new Vector2(rect.Center.X, rect.Y + Px(151)), "midtop");
+        }
+        UiTheme.DrawText(spriteBatch,
+            "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL",
+            Fs(10), UiTheme.Muted,
             new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
     }
 

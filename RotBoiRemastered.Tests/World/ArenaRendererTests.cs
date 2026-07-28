@@ -56,6 +56,18 @@ public class ArenaRendererTests
         }
     }
 
+    [Fact]
+    public void ComputeRaisedScenery_PathThemeSuppressesUnrelatedGenericLandmarks()
+    {
+        var layout = PathFloorGenerator.Generate("sight", 1, new Random(17));
+
+        var (walls, decorations) = ArenaRenderer.ComputeRaisedScenery(layout.Battleground);
+
+        Assert.NotEmpty(walls);
+        Assert.Empty(decorations);
+        Assert.Contains(layout.Decorations, decoration => decoration.Layer == PathDecorationLayer.Raised);
+    }
+
     private static Battleground LoneWallBattleground(out TileType[,] tiles)
     {
         tiles = new TileType[5, 5];
@@ -115,5 +127,48 @@ public class ArenaRendererTests
         var faces = ArenaRenderer.VisibleWallFaces(camera, battleground, 2, 2, ground, cap);
 
         Assert.Single(faces);
+    }
+
+    [Fact]
+    public void GroundDepth_ZeroRotation_PaintsNorthActorBeforeSouthWall()
+    {
+        var camera = new Camera();
+        var actorNorthOfWall = new Vector2(125, 75);
+        var wallCenter = new Vector2(125, 125);
+
+        float actorDepth = ArenaRenderer.GroundDepth(camera, actorNorthOfWall);
+        float wallDepth = ArenaRenderer.GroundDepth(camera, wallCenter);
+
+        Assert.True(actorDepth < wallDepth,
+            "An actor north/behind the wall must paint first so the wall cap can hide it.");
+    }
+
+    [Fact]
+    public void GroundDepth_ZeroRotation_PaintsSouthActorAfterNorthWall()
+    {
+        var camera = new Camera();
+        var wallCenter = new Vector2(125, 125);
+        var actorSouthOfWall = new Vector2(125, 175);
+
+        float wallDepth = ArenaRenderer.GroundDepth(camera, wallCenter);
+        float actorDepth = ArenaRenderer.GroundDepth(camera, actorSouthOfWall);
+
+        Assert.True(wallDepth < actorDepth,
+            "An actor south/in front of the wall must paint after it and remain visible.");
+    }
+
+    [Fact]
+    public void GroundDepth_RotatesOcclusionAxisWithCamera()
+    {
+        var camera = new Camera();
+        camera.SetQuarterTurns(1);
+        var actorBehindAtThisAngle = new Vector2(175, 125);
+        var wallCenter = new Vector2(125, 125);
+        var actorInFrontAtThisAngle = new Vector2(75, 125);
+
+        Assert.True(ArenaRenderer.GroundDepth(camera, actorBehindAtThisAngle)
+                    < ArenaRenderer.GroundDepth(camera, wallCenter));
+        Assert.True(ArenaRenderer.GroundDepth(camera, wallCenter)
+                    < ArenaRenderer.GroundDepth(camera, actorInFrontAtThisAngle));
     }
 }

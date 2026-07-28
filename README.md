@@ -17,10 +17,10 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
-- `A` / `D`, arrows, or click: select a content path on the title screen
+- `A` / `D`, arrows, or click: select an unlocked NG+ tier while confirming a Soul path portal
 - `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
-- `F`: enter the Soul from the title screen
+- `Space` / `F` / `Enter`: enter the Soul from the title screen
 - `F` near a station in the Soul: open its extraction, quest, or skill menu
 - `F` at the northern box in the Soul: toggle Hard Mode
 - `X` while paused after the midpoint boss: extract the current run and equipment
@@ -95,6 +95,46 @@ damage by 1.5, doubles the direct path-clear Soul-token reward, and shifts item
 rarity and F-S grade rolls upward. Core-Forged chances also rise at every NG+
 tier. Hard Mode remains an independent toggle and its reward multiplier stacks
 with NG+.
+
+## Composite Path mode
+
+Enter the Soul and use the large convergence portal where the five sense
+paths diverge to begin a ten-floor dungeon run through every sense. Floors
+1-5 use one shuffled copy of Sound, Touch,
+Sight, Chemesthesis, and Phantasia; floors 6-10 reshuffle all five and apply a
+much harder second-act curve. The fifth floor ends with its sense's midpoint
+boss, and the tenth ends with its sense's final boss. Every other floor ends
+with a three-phase guardian that uses the current sense's projectile language.
+
+Each floor selects a Switchback, Grand Circuit, Procession, or Floodplain
+macro-layout. A protected start leads through varied long halls, grand arenas,
+mazes, crossroads, rings, diamonds, and ruins before the centered boss arena.
+Branches lead to treasure rooms and optional champion Challenges with enhanced
+rewards. Treasure branches use chained 50% rolls, so a floor can contain zero
+to three; each branch seals its chest behind either a mini-guardian or a
+guardian-strength horde. Combat thresholds activate independently and never
+lock player movement. Rushing can therefore accumulate pursuing encounters,
+including inside the boss arena, while forfeiting skipped experience and
+rewards. Boss defeat opens an interactable portal to the next generated floor.
+The run sidebar shows the floor, current sense, act, and elapsed run time;
+temporary banners identify both the sense and each new room.
+
+Path floors use persistent line-of-sight fog: unexplored tiles and enemies are
+hidden, explored areas remain mapped but darken when out of sight, and edging
+past a doorway reveals space around the corner from the player's actual
+position. The compact floor map follows the same discovery rules.
+
+Ordinary enemies use a substantially lower equipment-drop table in this mode;
+forge Fragments and experience still work normally. Treasure encounters do not
+roll ordinary enemy equipment at all. Their cleared rooms instead contain
+large guaranteed chests with at least two rolled items, making the optional
+dangerous branches the reliable source of equipment during a composite run.
+
+The five-pass dungeon review, completed work, and ranked future backlog are
+tracked in [`docs/PATH_DUNGEON_ITERATIONS.md`](docs/PATH_DUNGEON_ITERATIONS.md).
+The five-pass Malady/Dissonance-based boss review and its completed final
+implementation pass are tracked separately in
+[`docs/PATH_BOSS_ITERATIONS.md`](docs/PATH_BOSS_ITERATIONS.md).
 
 ## Run locally
 

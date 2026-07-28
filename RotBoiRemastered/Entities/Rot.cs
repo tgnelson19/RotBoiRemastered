@@ -342,7 +342,10 @@ public sealed class Ache : Kage
         if (EntranceRemaining <= 0 && ActTransitionTimer <= 0 && _survivalCooldown <= 0)
         {
             FireSinPattern(context.PlayerWorldX, context.PlayerWorldY, context);
-            _survivalCooldown = 1.75 + Rng.NextDouble() * .8;
+            double elapsed = MidpointSurvivalDuration - MidpointSurvivalRemaining;
+            _survivalCooldown = elapsed < MidpointSurvivalDuration * .5
+                ? 1.62 + Rng.NextDouble() * .34
+                : 1.38 + Rng.NextDouble() * .30;
         }
         if (MidpointSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {
@@ -738,6 +741,12 @@ public sealed class Ache : Kage
                 affliction: "slow", afflictionDuration: 1.2, afflictionStrength: .1, exposure: .5);
             mine.TelegraphDuration = .9f;
         }
+        var splinter = Shot(sink,
+            aimed + MathF.PI + (float)(Rng.NextDouble() * .9 - .45),
+            .68f, MineDamage, scale: .19f, shape: "square",
+            ownerSuffix: "misfire_splinter");
+        splinter.SplitCount = 3;
+        splinter.SplitAt = Simulation.TileSize * (3.4f + (float)Rng.NextDouble() * 1.6f);
     }
 
     private Vector2 ClampToMinefield(Vector2 position)
@@ -803,6 +812,33 @@ public sealed class Ache : Kage
             float distance = Simulation.TileSize * (1.55f + (float)Rng.NextDouble() * .75f);
             var offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
             PlantDormantMine(sink, player + offset, "corner_pocket", 9.5f, FieldDamage);
+        }
+    }
+
+    private void MarkStationaryReflex(List<EnemyProjectile> sink, Vector2 player)
+    {
+        var reflex = Bomb(sink, player.X, player.Y, FieldDamage,
+            "stationary_reflex", burstCount: 5, fuseDuration: 2.15f,
+            burstShotDamage: 145);
+        reflex.BlastRadius = Simulation.TileSize * 1.45f;
+        reflex.BurstRangeTiles = 6.5f;
+        reflex.TelegraphDuration = 1.0f;
+    }
+
+    private void ReflexSpiral(List<EnemyProjectile> sink, float aimed)
+    {
+        const int count = 5;
+        for (int index = 0; index < count; index++)
+        {
+            float direction = aimed + MathF.PI + index * MathF.Tau / count +
+                PatternRotation * .16f;
+            Shot(sink, direction, .48f + .045f * (index % 2),
+                RingDamage - 20, scale: .18f + .012f * (index % 3),
+                shape: index % 2 == 0 ? "diamond" : "square",
+                path: "sine", lifetime: 8.5f,
+                ownerSuffix: "reflex_spiral",
+                amplitude: Simulation.TileSize * (.65f + .18f * (index % 3)),
+                frequency: .044f + .006f * (index % 2));
         }
     }
 
@@ -872,8 +908,10 @@ public sealed class Ache : Kage
         if (activeThreats >= ActiveThreatSoftCap)
         {
             // Ache is chaotically lazy, not infinitely productive: once the
-            // field has enough unresolved mistakes, the next attack is a
-            // visible hesitation while existing hazards do the work.
+            // field has enough unresolved mistakes, the next attack is only a
+            // small reflex marker. Existing hazards keep doing the room-filling
+            // work, but a stationary player still incurs a fresh position debt.
+            MarkStationaryReflex(sink, new Vector2(playerX, playerY));
             PatternRotation++;
             MarkAttack(.34f);
             return;
@@ -938,11 +976,12 @@ public sealed class Ache : Kage
                 float angle = (float)(Rng.NextDouble() * MathF.Tau);
                 float radius = ArenaRadius * (.18f + (float)Rng.NextDouble() * .55f);
                 ContaminationPool(sink, ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius);
-                var mine = Shot(sink, aimed + MathF.PI + (float)(Rng.NextDouble() * .8 - .4), .48f,
-                    MineDamage, scale: .25f, shape: "mine", path: "mine", lifetime: 10f,
+                var debris = Shot(sink, aimed + MathF.PI + (float)(Rng.NextDouble() * .8 - .4), .48f,
+                    MineDamage, scale: .25f, shape: "diamond", path: "sine", lifetime: 10f,
                     speedDecay: .045f, ownerSuffix: "contamination_debris", affliction: "slow",
-                    afflictionDuration: 1.1, afflictionStrength: .1, exposure: .5);
-                mine.TelegraphDuration = 1.0f;
+                    afflictionDuration: 1.1, afflictionStrength: .1, exposure: .5,
+                    amplitude: Simulation.TileSize * 1.1f, frequency: .05f);
+                debris.TelegraphDuration = 1.0f;
                 break;
             }
             case 5: // Crossed nerves: two curved warnings sweep only after being fully shown.
@@ -959,6 +998,13 @@ public sealed class Ache : Kage
         }
 
         bool directed = IsDirectedPattern(pattern);
+        // Even the predicted lash receives a ground marker: stepping out of
+        // the laser is the first dodge, not a complete answer to the phrase.
+        // Crossed Nerves already deposits a contamination pool on the player.
+        if (pattern != 5)
+            MarkStationaryReflex(sink, new Vector2(playerX, playerY));
+        if (MidpointSurvivalActive)
+            ReflexSpiral(sink, aimed);
         _castsSinceDirectedThreat = directed ? 0 : _castsSinceDirectedThreat + 1;
         _lastPattern = pattern;
         _patternHistory.Add(pattern);

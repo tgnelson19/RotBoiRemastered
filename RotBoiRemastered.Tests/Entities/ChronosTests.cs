@@ -124,6 +124,33 @@ public class ChronosTests
 
         var segments = context.ProjectileSink.Where(shot => shot.Owner?.Contains("chronos_still_second") == true).ToList();
         Assert.Equal(35, segments.Count); // seven arms x five segments; three of ten arms are the safe opening
+        var shards = context.ProjectileSink.Where(shot =>
+            shot.Owner == "chronos_frozen_clock_shard").ToList();
+        Assert.Equal(4, shards.Count);
+        Assert.All(shards, shard => Assert.Equal("sine", shard.Path));
+    }
+
+    [Fact]
+    public void DirectiveSafeLaneIsCollectedByADeclaredSecondHand()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Chronos(1000, 1000, battleground, new Random(42));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(1);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 2 &&
+             !context.ProjectileSink.Any(shot =>
+                 shot.Owner == "chronos_second_hand_segment_0"); tick++)
+            boss.Update(context);
+
+        var first = Assert.Single(context.ProjectileSink,
+            shot => shot.Owner == "chronos_second_hand_segment_0");
+        Assert.True(first.TelegraphDuration >= 1.5f);
+        float aimed = MathF.Atan2(
+            context.PlayerWorldY - (boss.WorldY + boss.Size / 2f),
+            context.PlayerWorldX - (boss.WorldX + boss.Size / 2f));
+        Assert.InRange(MathF.Abs(NormalizeAngle(first.Direction - aimed)), 0f, .2f);
     }
 
     [Fact]
@@ -299,7 +326,7 @@ public class ChronosTests
             peak = Math.Max(peak, context.ProjectileSink.Count);
         }
 
-        Assert.InRange(peak, 90, 105);
+        Assert.InRange(peak, 96, Chronos.ActiveRouteSoftCap);
         Assert.Contains(owners, owner => owner.Contains("attrition_memory_echo"));
         Assert.Contains(owners, owner => owner.Contains("temporal_echo"));
         Assert.InRange(boss.HistoricalRouteCount, 1, 72);

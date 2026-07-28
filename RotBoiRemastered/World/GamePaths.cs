@@ -131,6 +131,19 @@ public static class GamePaths
         return Battleground.CreateForPath(_activeKey);
     }
 
+    /// <summary>
+    /// Changes the active sense without replacing the current battleground.
+    /// Composite Path mode uses this when one generated floor hands off to
+    /// another sense, so enemy identity, projectiles, bosses, and Core-Forged
+    /// drops all read the new floor theme while keeping its room layout.
+    /// </summary>
+    public static void SetActive(string key)
+    {
+        if (!PathsByKey.ContainsKey(key))
+            throw new KeyNotFoundException($"Unknown game path: {key}");
+        _activeKey = key;
+    }
+
     public static string BossKey(bool midpoint) => midpoint ? Active().MidBoss : Active().FinalBoss;
 
     public static bool IsTouch() => _activeKey == "touch";

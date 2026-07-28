@@ -50,3 +50,37 @@ the Python source:
   (no `GraphicsDevice` needed) specifically so the wall-face-culling/
   decoration-selection logic has direct unit test coverage --
   `RotBoiRemastered.Tests/World/ArenaRendererTests.cs`.
+- `PathFloorGenerator.cs` builds composite Path-mode dungeon floors from the
+  existing tile and palette vocabulary. Four macro-layouts arrange protected
+  starts, long halls, arenas, mazes, crossroads, rings, diamonds, ruins,
+  optional treasure branches, optional challenge branches, and a center-aligned
+  boss room. Treasure count uses chained 50% rolls capped at three, and their
+  enlarged footprints support guardian-strength encounters. Sense-specific
+  corridors are routed around unrelated rooms and carry directional/threshold
+  marks. The boss room stays at the battleground's exact center so every
+  existing sense boss can reuse its authored arena geometry. Each sense owns
+  two boss-room obstacle silhouettes; `EvaluateBossArenaSafety` verifies their
+  centered 9x9 spawn, three-tile cardinal lanes, connected analog-stick
+  traversal, and separated safe footprints for two simultaneous players.
+- `PathFloorBlueprints.cs` owns macro-layout coordinates and separates spatial
+  silhouette (`PathRoomShape`) from gameplay purpose (`PathRoomType`). This is
+  what lets an Assault be an arena on one floor and a maze on another.
+- `PathThemeVisuals.cs` supplies the generated floors' semantic scenery
+  contract. Touch uses sewer channels, grates, pumps, and sludge; Sight uses
+  water, caustics, lens buoys, and drowned ruins; Sound uses cloud banks, wind
+  lanes, chimes, and lightning rods; Phantasia uses star fields, nebulae,
+  asteroids, and orbit shrines; Chemesthesis uses fractured earth, rot,
+  barricades, dead trees, and ruin slabs. A second material pass adds sewer
+  brick runes and pressure tanks, drowned mosaics and mirror arches, resonance
+  tiles and organ stacks, dream glyphs and lantern spires, plus cinder plates
+  and furnace idols. Treasure seals and symmetric landmark assemblies give
+  reward/boss spaces an authored silhouette. `ArenaRenderer` bakes floor/low
+  motifs, varies wall-face materials by sense, painter-sorts raised props with
+  walls, and leaves ambient emitters to `GameSession`; floors six through ten
+  add deterioration, stronger atmospheric density, and a darker material
+  grade. Protected starts are now full ceremonial thresholds with a
+  sense-specific central crest, processional floor axis, paired landmarks, and
+  denser ambience. Every `GrandArena` room has also been recomposed around a
+  large sense emblem, an eight-part material ring, perimeter monuments, and an
+  atmospheric halo; `PathFloorGenerator` reinforces those compositions with
+  distinct non-colliding floor plans for the five themes.

@@ -369,13 +369,17 @@ public sealed class Chronos : Ishe
 
     private void FireSurvivalPattern(float playerX, float playerY, List<EnemyProjectile> sink)
     {
-        var declaration = new List<EnemyProjectile>(35);
+        var declaration = new List<EnemyProjectile>(40);
         RadialTentacles(playerX, playerY, declaration, 10, 2, .34f, 760, "still_second", 1.7f);
+        var center = Center();
+        float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
+        ClockShards(declaration, aimed + MathF.PI, 4, 2.2f, "frozen_clock_shard");
         if (CommitDeclaredRoutes(sink, declaration))
         {
-            var center = Center();
-            ScheduleSafeRoute(1.76, center,
-                MathF.Atan2(playerY - center.Y, playerX - center.X), .46f);
+            ScheduleSafeRoute(1.76, center, aimed, .46f);
+            ScheduleTentacle(.48, aimed,
+                PatternRotation % 2 == 0 ? .12f : -.12f, 690,
+                "still_second_hand", 1.52f, 6, 2.3f);
         }
         PatternRotation++;
     }
@@ -398,6 +402,32 @@ public sealed class Chronos : Ishe
         }
     }
 
+    private void ClockShards(List<EnemyProjectile> sink, float aimed, int count,
+        float spread, string suffix)
+    {
+        var center = Center();
+        for (int index = 0; index < count; index++)
+        {
+            float offset = count == 1 ? 0f : -spread / 2f + spread * index / (count - 1);
+            float size = Size * (.12f + .012f * (index % 3));
+            var shard = new EnemyProjectile(
+                center.X - size / 2f, center.Y - size / 2f,
+                aimed + offset, .58f + .055f * (index % 3),
+                Phase >= 6 ? 680 : 590, size,
+                travelRange: ArenaRadius * 1.9f, color: PhaseAccent,
+                shape: index % 2 == 0 ? "diamond" : "square", path: "sine",
+                amplitude: Simulation.TileSize * (.72f + .18f * (index % 3)),
+                frequency: .042f + .005f * (index % 2), lifetime: 10f,
+                owner: $"chronos_{suffix}", ignoreWalls: true);
+            if (index == count / 2)
+            {
+                shard.SplitCount = 2;
+                shard.SplitAt = Simulation.TileSize * 5.5f;
+            }
+            sink.Add(shard);
+        }
+    }
+
     protected override void FirePattern(float playerX, float playerY, List<EnemyProjectile> sink)
     {
         var declaration = new List<EnemyProjectile>(52);
@@ -405,15 +435,18 @@ public sealed class Chronos : Ishe
         int safeRoutesBefore = _pendingSafeRoutes.Count;
         var center = Center();
         float aimed = MathF.Atan2(playerY - center.Y, playerX - center.X);
+        bool scheduleSecondHand = false;
         switch (Phase)
         {
             case 1:
                 DirectivePair(playerX, playerY, declaration, crossed: false);
                 ScheduleSafeRoute(1.56, center, aimed, .24f);
+                scheduleSecondHand = true;
                 break;
             case 2:
                 DirectivePair(playerX, playerY, declaration, crossed: true);
                 ScheduleSafeRoute(1.71, center, aimed, .20f);
+                scheduleSecondHand = true;
                 break;
             case 3:
             {
@@ -422,18 +455,21 @@ public sealed class Chronos : Ishe
                 ScheduleTentacle(.35, aimed + MathF.PI, PatternRotation % 2 == 0 ? .55f : -.55f,
                     810, "oracle_rear", 1.7f, 6);
                 ScheduleSafeRoute(1.76, center, aimed, .22f);
+                scheduleSecondHand = true;
                 break;
             }
             case 5:
                 DirectivePair(playerX, playerY, declaration, crossed: PatternRotation % 2 == 0);
                 ScheduleTentacle(.30, PatternRotation * .71f, .76f, 870,
                     "parallax_flail", 1.8f, 7);
+                scheduleSecondHand = true;
                 break;
             case 6:
                 if (PatternRotation % 2 == 0)
                 {
                     RadialTentacles(playerX, playerY, declaration, 12, 2, .48f, 910, "thorn_crown", 1.8f);
                     ScheduleSafeRoute(1.86, center, aimed, .38f);
+                    scheduleSecondHand = true;
                 }
                 else
                     ThornOfTime(playerX, playerY, declaration, withEcho: true);
@@ -444,6 +480,7 @@ public sealed class Chronos : Ishe
                 if (movement == 0)
                 {
                     DirectivePair(playerX, playerY, declaration, crossed: true);
+                    scheduleSecondHand = true;
                     if (_rememberedAim is float remembered)
                     {
                         float side = PatternRotation % 8 == 0 ? 1f : -1f;
@@ -455,18 +492,31 @@ public sealed class Chronos : Ishe
                 {
                     RadialTentacles(playerX, playerY, declaration, 12, 2, .55f, 930, "attrition_crown", 1.6f);
                     ScheduleSafeRoute(1.66, center, aimed, .36f);
+                    scheduleSecondHand = true;
                 }
                 else if (movement == 2)
                 {
                     for (int index = -1; index <= 1; index++)
                         Tentacle(declaration, aimed + MathF.PI + index * .7f, (index == 0 ? 1 : index) * .62f,
                             920, $"attrition_lash_{index + 1}", 1.55f, 7);
+                    scheduleSecondHand = true;
                 }
                 else
                     ThornOfTime(playerX, playerY, declaration, "attrition_thorn", withEcho: true);
                 break;
             }
         }
+        if (scheduleSecondHand)
+        {
+            ScheduleTentacle(.48, aimed,
+                PatternRotation % 2 == 0 ? .12f : -.12f,
+                Phase >= 6 ? 760 : 660, "second_hand",
+                1.52f, 6, 2.3f);
+        }
+        if (Phase >= 5)
+            ClockShards(declaration, aimed, Phase >= 7 ? 6 : 4,
+                Phase >= 7 ? 1.9f : 1.35f,
+                Phase >= 7 ? "attrition_clock_shard" : "parallax_clock_shard");
         bool committed = CommitDeclaredRoutes(sink, declaration);
         if (!committed && _pendingDeclarations.Count > pendingBefore)
             _pendingDeclarations.RemoveRange(pendingBefore, _pendingDeclarations.Count - pendingBefore);
@@ -522,7 +572,7 @@ public sealed class Chronos : Ishe
         {
             FireSurvivalPattern(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink);
             double elapsed = MidpointSurvivalDuration - MidpointSurvivalRemaining;
-            _survivalCooldown = elapsed < MidpointSurvivalDuration * .5 ? 2.45 : 2.20;
+            _survivalCooldown = elapsed < MidpointSurvivalDuration * .5 ? 2.08 : 1.82;
         }
         if (MidpointSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {

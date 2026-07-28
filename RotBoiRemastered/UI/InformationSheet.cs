@@ -344,40 +344,56 @@ public sealed class InformationSheet
 
     // ----- Draw -----
 
-    private int DrawRunSummary(SpriteBatch spriteBatch, RunState state)
+    private int DrawRunSummary(SpriteBatch spriteBatch, RunState state, PathRun? pathRun)
     {
         var (title, strength, caution) = BuildIdentity(state);
         int textWidth = _totalLength - _padding * 2 - Px(22);
         var strengthLines = WrapText(strength, Px(9), textWidth);
         int lineHeight = Px(14);
-        int cautionY = Px(82) + strengthLines.Count * lineHeight + Px(2);
+        int pathOffset = pathRun is null ? 0 : Px(25);
+        int cautionY = Px(82) + pathOffset + strengthLines.Count * lineHeight + Px(2);
         int familyY = cautionY + Px(17);
         int height = familyY + Px(19);
 
-        var rect = Panel(spriteBatch, _padding, height, UiTheme.Purple);
+        var rect = Panel(spriteBatch, _padding, height, pathRun?.CurrentSense.Accent ?? UiTheme.Purple);
+        if (pathRun is not null)
+        {
+            var elapsed = TimeSpan.FromSeconds(Math.Max(0, state.RunTimeSeconds));
+            string timer = elapsed.TotalHours >= 1
+                ? $"{(int)elapsed.TotalHours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}"
+                : $"{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+            DrawSheetText(spriteBatch,
+                $"FLOOR {pathRun.FloorNumber:D2}/{PathRun.TotalFloors:D2}  //  {pathRun.SenseDisplayName.ToUpperInvariant()}",
+                Px(10), pathRun.CurrentSense.Accent, new Vector2(rect.X + Px(11), rect.Y + Px(8)));
+            DrawSheetText(spriteBatch, timer, Px(10), UiTheme.Gold,
+                new Vector2(rect.Right - Px(11), rect.Y + Px(8)), "topright");
+            Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(28)),
+                new Vector2(rect.Right - Px(10), rect.Y + Px(28)), UiTheme.Border, 1);
+        }
         DrawSheetText(spriteBatch, $"LEVEL {state.CurrentLevel:D2}", Px(18), UiTheme.Text,
-            new Vector2(rect.X + Px(11), rect.Y + Px(9)));
+            new Vector2(rect.X + Px(11), rect.Y + Px(9) + pathOffset));
         var (pressureLabel, color, _) = Pressure(state);
         DrawSheetText(spriteBatch, pressureLabel, Px(10), color,
-            new Vector2(rect.Right - Px(11), rect.Y + Px(14)), "topright");
+            new Vector2(rect.Right - Px(11), rect.Y + Px(14) + pathOffset), "topright");
         string detailsHint = _tabDetailsOpen ? "Tab: close details" : "Tab: run details";
         string challenge = string.Join("  //  ", new[]
         {
+            pathRun is not null ? (pathRun.IsSecondAct ? "PATH II" : "PATH I") : null,
             state.NewGamePlusLevel > 0 ? $"NG+{state.NewGamePlusLevel}" : null,
             state.HardMode ? "HARD MODE" : null,
             detailsHint,
         }.Where(label => label is not null));
         DrawSheetText(spriteBatch, challenge, Px(9),
             state.HardMode ? UiTheme.Red : state.NewGamePlusLevel > 0 ? UiTheme.Gold : UiTheme.Muted,
-            new Vector2(rect.X + Px(11), rect.Y + Px(36)));
+            new Vector2(rect.X + Px(11), rect.Y + Px(36) + pathOffset));
 
-        Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(52)),
-            new Vector2(rect.Right - Px(10), rect.Y + Px(52)), UiTheme.Border, 1);
+        Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(52) + pathOffset),
+            new Vector2(rect.Right - Px(10), rect.Y + Px(52) + pathOffset), UiTheme.Border, 1);
         DrawSheetText(spriteBatch, title, Px(15), UiTheme.Purple,
-            new Vector2(rect.X + Px(11), rect.Y + Px(58)));
+            new Vector2(rect.X + Px(11), rect.Y + Px(58) + pathOffset));
         for (int index = 0; index < strengthLines.Count; index++)
             DrawSheetText(spriteBatch, strengthLines[index], Px(9), UiTheme.Text,
-                new Vector2(rect.X + Px(11), rect.Y + Px(82) + index * lineHeight));
+                new Vector2(rect.X + Px(11), rect.Y + Px(82) + pathOffset + index * lineHeight));
         DrawSheetText(spriteBatch, caution, Px(9), UiTheme.Muted,
             new Vector2(rect.X + Px(11), rect.Y + cautionY));
 
@@ -1008,14 +1024,14 @@ public sealed class InformationSheet
     /// see this class's doc comment for why the order matters.
     /// </summary>
     public void DrawSheet(SpriteBatch spriteBatch, RunState state, Vector2 playerWorldPosition, BountyInfo? currentBounty,
-        Point mousePosition)
+        Point mousePosition, PathRun? pathRun = null)
     {
         _tooltip = null;
         _tooltipItem = null;
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
 
-        int y = DrawRunSummary(spriteBatch, state);
+        int y = DrawRunSummary(spriteBatch, state, pathRun);
         y = DrawStatus(spriteBatch, state, mousePosition, y);
         y = DrawInventory(spriteBatch, state, mousePosition, y);
         y = DrawStash(spriteBatch, state, mousePosition, y);

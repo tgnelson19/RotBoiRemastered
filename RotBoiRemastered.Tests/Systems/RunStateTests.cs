@@ -79,6 +79,20 @@ public class RunStateTests : IDisposable
     }
 
     [Fact]
+    public void CombinePlayerStats_ClampsVolleyToOneDegreeBetweenEveryShot()
+    {
+        var state = new RunState();
+        state.Stats["Bullet Count"].Additive.Add(4);
+        state.Stats["Spread Angle"].Additive.Add(-100);
+
+        state.CombinePlayerStats();
+
+        Assert.Equal(5, state.ProjectileCount);
+        Assert.Equal(4 * Math.PI / 180.0, state.AzimuthalProjectileAngle,
+            precision: 10);
+    }
+
+    [Fact]
     public void RecordUpgrade_TracksTypeAndRarityCounts_AndHistory()
     {
         var state = new RunState();

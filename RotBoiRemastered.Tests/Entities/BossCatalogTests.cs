@@ -1,4 +1,5 @@
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -49,5 +50,28 @@ public class BossCatalogTests
         Assert.False(catalog.TryGet("beaudis", out _));
         catalog.Register(new BossDefinition("beaudis", "Beaudis", (x, y, _, awareness, rng) => new Beaudis(x, y, awareness, rng)));
         Assert.True(catalog.TryGet("beaudis", out _));
+    }
+
+    [Fact]
+    public void NaturalPathRoster_UsesAuthoredBossBalanceAndTieredHealthBands()
+    {
+        var catalog = BossCatalog.CreateDefault();
+        foreach (var path in GamePaths.Paths)
+        {
+            Assert.True(catalog.TryGet(path.MidBoss, out var midpoint));
+            Assert.True(catalog.TryGet(path.FinalBoss, out var finale));
+            var battleground = Battleground.CreateForPath(path.Key);
+            var midpointBoss = midpoint!.Factory(
+                1000, 1000, battleground, 400f, new Random(2));
+            var finalBoss = finale!.Factory(
+                1000, 1000, battleground, 400f, new Random(3));
+
+            Assert.True(GameSession.UsesAuthoredBossBalance(midpointBoss));
+            Assert.True(GameSession.UsesAuthoredBossBalance(finalBoss));
+            Assert.InRange(midpointBoss.MaxHp, 50_000, 120_000);
+            Assert.InRange(finalBoss.MaxHp, 150_000, 330_000);
+            Assert.True(finalBoss.MaxHp > midpointBoss.MaxHp);
+            Assert.True(finalBoss.Damage > midpointBoss.Damage);
+        }
     }
 }

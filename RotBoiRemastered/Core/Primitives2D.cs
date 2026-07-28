@@ -29,6 +29,22 @@ public static class Primitives2D
         spriteBatch.Draw(Pixel, rect, color);
     }
 
+    /// <summary>
+    /// One textured quad for a rotated rectangle. Used by tile-aligned screen
+    /// masks such as Path fog, where scanline-filled polygons would turn each
+    /// visible tile into dozens of draw calls.
+    /// </summary>
+    public static void FillRotatedRect(
+        SpriteBatch spriteBatch,
+        Vector2 topLeft,
+        Vector2 size,
+        float rotation,
+        Color color)
+    {
+        spriteBatch.Draw(Pixel, topLeft, null, color, rotation, Vector2.Zero,
+            size, SpriteEffects.None, 0f);
+    }
+
     /// <summary>Border only, matching pygame.draw.rect(..., width>0) -- draws the four edges.</summary>
     public static void RectOutline(SpriteBatch spriteBatch, Rectangle rect, Color color, int width)
     {

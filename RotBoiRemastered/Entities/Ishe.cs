@@ -38,7 +38,8 @@ public class Ishe : PathChaseBoss
     };
 
     private sealed record PendingVolley(double Delay, Vector2 Origin, float Direction, int Count,
-        float Spread, float Speed, float Damage, string Suffix);
+        float Spread, float Speed, float Damage, string Suffix,
+        bool Prismatic, bool Oscillating);
 
     private readonly List<PendingVolley> _pendingVolleys = new();
     private Vector2? _lastDeclarationOrigin;
@@ -231,7 +232,8 @@ public class Ishe : PathChaseBoss
     }
 
     private void DeclareVolley(List<EnemyProjectile> sink, Vector2 origin, Vector2 target,
-        int count, float spread, double delay, float speed, float damage, string suffix)
+        int count, float spread, double delay, float speed, float damage, string suffix,
+        bool prismatic = false, bool oscillating = false)
     {
         float aimed = MathF.Atan2(target.Y - origin.Y, target.X - origin.X);
         for (int index = 0; index < count; index++)
@@ -239,7 +241,8 @@ public class Ishe : PathChaseBoss
             float offset = count == 1 ? 0f : -spread / 2f + spread * index / (count - 1);
             WarningLine(sink, origin, aimed + offset, (float)delay, suffix);
         }
-        _pendingVolleys.Add(new PendingVolley(delay, origin, aimed, count, spread, speed, damage, suffix));
+        _pendingVolleys.Add(new PendingVolley(delay, origin, aimed, count, spread, speed,
+            damage, suffix, prismatic, oscillating));
         _lastDeclarationOrigin = origin;
     }
 
@@ -261,11 +264,23 @@ public class Ishe : PathChaseBoss
                 float offset = volley.Count == 1 ? 0f :
                     -volley.Spread / 2f + volley.Spread * index / (volley.Count - 1);
                 float shotSize = Size * .18f;
-                sink.Add(new EnemyProjectile(
+                var afterimage = new EnemyProjectile(
                     volley.Origin.X - shotSize / 2f, volley.Origin.Y - shotSize / 2f,
                     volley.Direction + offset, volley.Speed, volley.Damage, shotSize,
-                    travelRange: ArenaRadius * 2.2f, color: PhaseAccent, shape: "diamond",
-                    owner: $"ishe_{volley.Suffix}_afterimage", ignoreWalls: true));
+                    travelRange: ArenaRadius * 2.2f, color: PhaseAccent,
+                    shape: volley.Prismatic ? "square" : "diamond",
+                    path: volley.Oscillating ? "sine" : "linear",
+                    amplitude: volley.Oscillating
+                        ? Simulation.TileSize * (1.05f + .18f * (index % 2))
+                        : 0f,
+                    frequency: .047f, owner: $"ishe_{volley.Suffix}_afterimage",
+                    ignoreWalls: true);
+                if (volley.Prismatic)
+                {
+                    afterimage.SplitCount = 3;
+                    afterimage.SplitAt = Simulation.TileSize * (4.0f + index * .45f);
+                }
+                sink.Add(afterimage);
             }
         }
         _pendingVolleys.Clear();
@@ -295,14 +310,18 @@ public class Ishe : PathChaseBoss
                     echo = center + new Vector2(-MathF.Sin(aimed), MathF.Cos(aimed)) * Simulation.TileSize * 2.2f;
                 }
                 DeclareVolley(sink, center, target, 2, .24f, .56, 1.48f, 215, "blink_present");
-                DeclareVolley(sink, echo, target, 2, .24f, .84, 1.42f, 215, "blink_past");
+                DeclareVolley(sink, echo, target, 2, .24f, .84, 1.42f, 215,
+                    "blink_past", prismatic: true);
+                DeclareVolley(sink, center, target, 1, 0f, 1.02, 1.58f, 225,
+                    "blink_focus", prismatic: true);
                 break;
             }
             default:
             {
                 Vector2 echo = _lastDeclarationOrigin ?? center;
                 DeclareVolley(sink, center, target, 5, .72f, .62, 1.48f, 225, "afterglow_present");
-                DeclareVolley(sink, echo, target, 3, .42f, .98, 1.36f, 215, "afterglow_past");
+                DeclareVolley(sink, echo, target, 3, .42f, .98, 1.36f, 215,
+                    "afterglow_past", oscillating: true);
                 break;
             }
         }
@@ -334,9 +353,10 @@ public class Ishe : PathChaseBoss
         Vector2 inward = ArenaCenter - (start + end) / 2f;
         inward.Normalize();
         float direction = MathF.Atan2(inward.Y, inward.X);
+        int safeLaneRadius = _ishePatternRotation < 3 ? 1 : 0;
         for (int lane = 0; lane < laneCount; lane++)
         {
-            if (Math.Abs(lane - safeLane) <= 1)
+            if (Math.Abs(lane - safeLane) <= safeLaneRadius)
                 continue;
             float fraction = .08f + lane / (float)(laneCount - 1) * .84f;
             Vector2 origin = Vector2.Lerp(start, end, fraction);
@@ -348,6 +368,12 @@ public class Ishe : PathChaseBoss
             };
             sink.Add(laser);
         }
+        // The horizon identifies three safe lanes; the focus volley then
+        // contests the player's recorded lane so a full Flash phrase always
+        // requires a second movement rather than one initial sidestep.
+        DeclareVolley(sink, ArenaCenter, new Vector2(playerX, playerY),
+            3, .38f, .92, 1.30f, 220, "flash_focus",
+            prismatic: _ishePatternRotation % 2 == 1);
         _ishePatternRotation++;
         MarkAttack(.5f);
     }
@@ -387,7 +413,7 @@ public class Ishe : PathChaseBoss
         {
             FireFlashHorizon(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink);
             double elapsed = FlashSurvivalDuration - FlashSurvivalRemaining;
-            _flashCooldown = elapsed < FlashSurvivalDuration * .5 ? 1.75 : 1.48;
+            _flashCooldown = elapsed < FlashSurvivalDuration * .5 ? 1.62 : 1.32;
         }
         if (FlashSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {

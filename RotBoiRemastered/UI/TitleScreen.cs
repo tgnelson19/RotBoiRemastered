@@ -17,11 +17,9 @@ public enum TitleAction { None, EnterSoul, Settings, Quit }
 /// caller (Core/RotBoiGame.cs) is responsible for actually activating a path
 /// and constructing/resetting a GameSession.
 ///
-/// Path selection no longer happens here: The Soul is now the hub every run
-/// launches from, with one equally-spaced portal per GamePaths entry (see
-/// SoulHub.DrawPathPortals/NearbyPathPortal) standing in for the old
-/// title-screen selector grid + per-path "ENTER {TITLE}" button. This screen
-/// only gets you into the Soul.
+/// Every run now begins in The Soul. Its five outer portals own individual
+/// sense runs while the convergence portal owns the randomized composite
+/// Path, keeping all run choices in the authored world instead of this menu.
 ///
 /// Dropped vs. Python: the best-run tag reads GameProfile.Profile.BestLevel/
 /// BestKills directly rather than `max(cS.highestLevel, profile["best_level"])`
@@ -85,18 +83,16 @@ public sealed class TitleScreen
         float subtitleY = Math.Max(screenHeight * .245f, titleRect.Bottom + gap);
         var subtitleRect = UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", scale * .026, UiTheme.Cream, new Vector2(screenWidth / 2f, subtitleY), "midtop");
         float taglineY = Math.Max(screenHeight * .305f, subtitleRect.Bottom + gap);
-        var taglineRect = UiTheme.DrawText(spriteBatch, "EVERY PATH WAITS IN THE SOUL.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, taglineY), "midtop");
+        var taglineRect = UiTheme.DrawText(spriteBatch, "EVERY PATH BEGINS IN THE SOUL.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, taglineY), "midtop");
 
-        // The old path-selector grid + per-path "ENTER {TITLE}" button lived
-        // here; path choice now happens by walking up to one of the Soul's
-        // equally-spaced path portals (see SoulHub.DrawPathPortals), so this
-        // screen's only job is getting the player into the Soul.
+        // The title screen is deliberately only a threshold now. Direct sense
+        // and composite choices both happen at physical portals in The Soul.
         float soulButtonY = Math.Max(screenHeight * .5f, taglineRect.Bottom + gap * 4);
         float soulButtonHeight = Math.Min(Math.Max(58 * uiScale, scale * .068f), scale * .098f);
         _soulButton = new Rectangle((int)(left + contentWidth * .22f), (int)soulButtonY,
             (int)(contentWidth * .56f), (int)soulButtonHeight);
         UiTheme.DrawButton(spriteBatch, _soulButton, "ENTER THE SOUL", mousePosition, mouseDown, true,
-            UiTheme.Purple, "SPACE / F", (int)(scale * .019f));
+            UiTheme.Purple, "SPACE / F / ENTER", (int)(scale * .019f));
 
         float settingsButtonY = Math.Max(screenHeight * .615f, soulButtonY + soulButtonHeight + gap * 2);
         _settingsButton = new Rectangle((int)(left + contentWidth * .35f), (int)settingsButtonY,
@@ -127,13 +123,14 @@ public sealed class TitleScreen
         int bestLevel = GameProfile.Profile.BestLevel;
         string recordLabel = bestLevel <= 0 ? "NO RUNS LOGGED" : $"BEST RUN  //  LEVEL {bestLevel:D2}  //  {GameProfile.Profile.BestKills} KILLS";
         UiTheme.DrawTag(spriteBatch, recordLabel, new Vector2(left, screenHeight * .87f), bestLevel > 0 ? UiTheme.Gold : UiTheme.Border, scale * .012);
-        UiTheme.DrawText(spriteBatch, "SPACE / F  ENTER THE SOUL    ESC  QUIT", scale * .012, UiTheme.Muted,
+        UiTheme.DrawText(spriteBatch, "SPACE / F / ENTER  ENTER THE SOUL    ESC  QUIT", scale * .012, UiTheme.Muted,
             new Vector2(left + contentWidth, screenHeight * .875f), "topright");
     }
 
     public TitleAction HandleInput(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed)
     {
-        if (keysPressed.Contains(Keys.Space) || keysPressed.Contains(Keys.F) || (_soulButton.Contains(mousePosition) && mousePressed))
+        if (keysPressed.Contains(Keys.Space) || keysPressed.Contains(Keys.F) || keysPressed.Contains(Keys.Enter)
+            || (_soulButton.Contains(mousePosition) && mousePressed))
             return TitleAction.EnterSoul;
         if (_settingsButton.Contains(mousePosition) && mousePressed)
             return TitleAction.Settings;

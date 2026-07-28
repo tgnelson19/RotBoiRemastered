@@ -329,6 +329,64 @@ public sealed class Rot : PathChaseBoss
         }
     }
 
+    private void PressureRake(List<EnemyProjectile> sink, float playerX, float playerY,
+        string suffix, int links = 9)
+    {
+        var target = new Vector2(playerX, playerY);
+        var radial = target - ArenaCenter;
+        if (radial.LengthSquared() < .001f)
+            radial = new Vector2(MathF.Cos(SafeCorridorAngle), MathF.Sin(SafeCorridorAngle));
+        radial.Normalize();
+        float direction = MathF.Atan2(radial.Y, radial.X);
+
+        // Rot's signature bullet-hell wall is a long geological seam centered
+        // on the player's declared position. Moving radially only follows the
+        // seam; rotating around Rot is the reliable answer.
+        for (int index = 0; index < links; index++)
+        {
+            float centeredIndex = index - (links - 1) / 2f;
+            Vector2 position = target + radial * centeredIndex * Simulation.TileSize * .72f;
+            float size = Size * (.20f + .012f * (index % 3));
+            sink.Add(new EnemyProjectile(
+                position.X - size / 2f, position.Y - size / 2f,
+                direction, .32f + .025f * (index % 3), 500, size,
+                travelRange: Simulation.TileSize * 2.6f, color: PhaseAccent,
+                shape: index % 2 == 0 ? "diamond" : "square", path: "bank",
+                lifetime: 6.8f, owner: $"rot_touch_{suffix}", ignoreWalls: true)
+            {
+                TelegraphDuration = .96f,
+                Affliction = "slow",
+                AfflictionDuration = 1.2,
+                AfflictionStrength = .1,
+                Exposure = .45,
+            });
+        }
+    }
+
+    private void SporeSpiral(List<EnemyProjectile> sink, int count, string suffix)
+    {
+        var center = Center();
+        for (int index = 0; index < count; index++)
+        {
+            float direction = PatternRotation * .21f + index * MathF.Tau / count;
+            float size = Size * (.15f + .012f * (index % 3));
+            sink.Add(new EnemyProjectile(
+                center.X - size / 2f, center.Y - size / 2f,
+                direction, .42f + .04f * (index % 2), 470, size,
+                travelRange: ArenaRadius * 1.8f, color: PhaseAccent,
+                shape: index % 2 == 0 ? "diamond" : "square", path: "sine",
+                amplitude: Simulation.TileSize * (.8f + .16f * (index % 3)),
+                frequency: .038f + .006f * (index % 2), lifetime: 10f,
+                owner: $"rot_touch_{suffix}", ignoreWalls: true)
+            {
+                Affliction = "slow",
+                AfflictionDuration = 1.0,
+                AfflictionStrength = .08,
+                Exposure = .35,
+            });
+        }
+    }
+
     protected override void FirePattern(float playerX, float playerY, List<EnemyProjectile> sink)
     {
         bool corridorTurned = AdvanceSafeCorridor(playerX, playerY);
@@ -376,6 +434,7 @@ public sealed class Rot : PathChaseBoss
                 }
                 else
                     SlowFront(sink, PatternRotation * .11f, 10, SafeCorridorAngle, "bloom_spores", .48f);
+                SporeSpiral(sink, 5, "bloom_spiral");
                 break;
             case 6:
                 if (PatternRotation % 2 == 0)
@@ -385,6 +444,7 @@ public sealed class Rot : PathChaseBoss
                     SeedInnerPools(sink, SafeCorridorAngle, 8, .5f);
                     RotBomb(sink, SquareBankPoint(SafeCorridorAngle, .8f), 680);
                 }
+                SporeSpiral(sink, 6, "miasma_spiral");
                 break;
             default:
                 if (PatternRotation % 3 == 0)
@@ -406,8 +466,11 @@ public sealed class Rot : PathChaseBoss
                     }
                     SlowFront(sink, PatternRotation * .09f, 10, SafeCorridorAngle, "burial_weight", .5f);
                 }
+                SporeSpiral(sink, 7, "burial_spiral");
                 break;
         }
+        PressureRake(sink, playerX, playerY,
+            Phase == 7 ? "burial_rake" : $"{PhaseLabel.ToLowerInvariant().Replace(' ', '_')}_rake");
         PatternRotation++;
         PhaseDeclarations++;
         MarkAttack(.7f);
@@ -441,9 +504,14 @@ public sealed class Rot : PathChaseBoss
                 SeedOuterBanks(context.ProjectileSink, SafeCorridorAngle, 10);
             else
                 SlowFront(context.ProjectileSink, PatternRotation * .12f, 10, SafeCorridorAngle, "stillness_front", .5f);
+            PressureRake(context.ProjectileSink, context.PlayerWorldX,
+                context.PlayerWorldY, "stillness_rake", links: 11);
+            if (PatternRotation % 2 == 1)
+                SporeSpiral(context.ProjectileSink, 5, "stillness_spiral");
             PatternRotation++;
             PhaseDeclarations++;
-            _survivalCooldown = 2.35;
+            double elapsed = MidpointSurvivalDuration - MidpointSurvivalRemaining;
+            _survivalCooldown = elapsed < MidpointSurvivalDuration * .5 ? 2.12 : 1.88;
         }
         if (MidpointSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {

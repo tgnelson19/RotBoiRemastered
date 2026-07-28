@@ -6,6 +6,18 @@ using RotBoiRemastered.UI;
 namespace RotBoiRemastered.World;
 
 /// <summary>
+/// One grounded object that participates in the arena's painter-order pass.
+/// <paramref name="WorldAnchor"/> is the point where the object meets the
+/// floor, not the top of its artwork. PaintPriority only breaks exact depth
+/// ties; screen-space ground depth remains the primary ordering rule.
+/// </summary>
+public readonly record struct WorldDepthDrawItem(
+    Vector2 WorldAnchor,
+    int PaintPriority,
+    int StableOrder,
+    Action<SpriteBatch> Draw);
+
+/// <summary>
 /// Bakes each Battleground's floor plane into a RenderTarget2D once, then
 /// draws it every frame as a single rotated sprite -- plus a small per-frame
 /// set of camera-facing wall/decoration polygons. Ported from background.py's
@@ -50,6 +62,7 @@ public sealed class ArenaRenderer
     private RenderTarget2D? _bakedGround;
     private List<(int X, int Y, TileType Tile, int Biome)> _walls = new();
     private List<(int X, int Y, int Biome)> _decorations = new();
+    private List<PathDecoration> _pathRaisedDecorations = new();
 
     /// <summary>No-op once already baked for this exact Battleground reference. Call once at the top of the frame, before the frame's own SpriteBatch.Begin().</summary>
     public void EnsureBaked(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Battleground battleground)
@@ -58,6 +71,9 @@ public sealed class ArenaRenderer
             return;
 
         (_walls, _decorations) = ComputeRaisedScenery(battleground);
+        _pathRaisedDecorations = battleground.PathDecorations
+            .Where(decoration => decoration.Layer == PathDecorationLayer.Raised)
+            .ToList();
 
         var previousTargets = graphicsDevice.GetRenderTargets();
         var target = new RenderTarget2D(graphicsDevice, battleground.Width * Battleground.TileSize, battleground.Height * Battleground.TileSize);
@@ -83,13 +99,20 @@ public sealed class ArenaRenderer
                     color = palette.Interior;
                 else
                     color = (x + y) % 7 == 0 ? palette.GroundAlt : palette.Ground;
+                if (battleground.PathFloorNumber > 5 && tile != TileType.OuterVoid)
+                    color = Color.Lerp(color, SecondActTint(battleground.VisualThemeKey), .13f);
                 Primitives2D.FillRect(spriteBatch, rect, color);
                 if (!tile.IsSolid())
                 {
                     Primitives2D.RectOutline(spriteBatch, rect, GridLineColor, 1);
-                    DrawFloorDetail(spriteBatch, rect, tile, x, y, palette);
+                    DrawFloorDetail(spriteBatch, rect, tile, x, y, palette, battleground.VisualThemeKey);
                 }
             }
+        }
+        foreach (var decoration in battleground.PathDecorations)
+        {
+            if (decoration.Layer is PathDecorationLayer.Floor or PathDecorationLayer.Low)
+                DrawPathFloorDecoration(spriteBatch, battleground, decoration);
         }
         spriteBatch.End();
         if (previousTargets.Length == 0)
@@ -103,9 +126,17 @@ public sealed class ArenaRenderer
     }
 
     /// <summary>Ported from _draw_floor_detail: cheap per-tile cosmetic doodles for non-solid floor tiles.</summary>
-    private static void DrawFloorDetail(SpriteBatch spriteBatch, Rectangle rect, TileType tile, int tileX, int tileY, BiomePalette palette)
+    private static void DrawFloorDetail(
+        SpriteBatch spriteBatch, Rectangle rect, TileType tile, int tileX, int tileY,
+        BiomePalette palette, string? visualThemeKey)
     {
         int noise = (tileX * 37 + tileY * 71 + tileX * tileY * 3) % 113;
+        if (visualThemeKey is not null)
+        {
+            DrawThemedFloorDetail(spriteBatch, rect, tile, noise, palette, visualThemeKey);
+            return;
+        }
+
         if (tile == TileType.Road)
         {
             Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Top), new Vector2(rect.Right, rect.Top), RoadEdgeDark, 2);
@@ -138,6 +169,408 @@ public sealed class ArenaRenderer
         }
     }
 
+    private static Color SecondActTint(string? themeKey) => themeKey switch
+    {
+        "touch" => new Color(34, 45, 20),
+        "sight" => new Color(24, 55, 72),
+        "sound" => new Color(36, 31, 49),
+        "phantasia" => new Color(25, 8, 40),
+        "chemesthesis" => new Color(59, 22, 12),
+        _ => VoidColor,
+    };
+
+    private static void DrawThemedFloorDetail(
+        SpriteBatch spriteBatch, Rectangle rect, TileType tile, int noise,
+        BiomePalette palette, string themeKey)
+    {
+        Vector2 center = rect.Center.ToVector2();
+        switch (themeKey)
+        {
+            case "touch":
+                if (tile == TileType.Road)
+                {
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X, rect.Center.Y - 8, rect.Width, 16), new Color(24, 38, 25));
+                    Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Center.Y - 8), new Vector2(rect.Right, rect.Center.Y - 8), palette.Detail * .55f, 2);
+                    if (noise % 3 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Center.X - 8, rect.Center.Y - 2, 16, 4), palette.Accent * .75f);
+                }
+                else
+                {
+                    int seam = rect.Y + (noise % 2 == 0 ? 15 : 34);
+                    Primitives2D.Line(spriteBatch, new Vector2(rect.Left, seam), new Vector2(rect.Right, seam), new Color(12, 22, 17), 2);
+                    if (noise % 4 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 7 + noise % 19, rect.Y + 8, 5, 4), palette.Detail * .55f);
+                }
+                break;
+
+            case "sight":
+                if (noise % 2 == 0 || tile == TileType.Road)
+                {
+                    int offset = 8 + noise % 25;
+                    Primitives2D.Arc(spriteBatch,
+                        new Rectangle(rect.X + 4, rect.Y + offset, rect.Width - 8, 13),
+                        MathF.PI, MathF.Tau, palette.Detail * .48f, tile == TileType.Road ? 2 : 1, 16);
+                }
+                if (noise % 5 == 0)
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 9, rect.Y + 11, 8, 2), palette.Accent * .65f);
+                break;
+
+            case "sound":
+                if (tile == TileType.Road || noise % 4 == 0)
+                {
+                    int y = rect.Y + 13 + noise % 19;
+                    Primitives2D.Line(spriteBatch, new Vector2(rect.X + 5, y), new Vector2(rect.Right - 7, y - 5), palette.Detail * .42f, 2);
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Right - 11, y - 8, 5, 3), palette.Accent * .55f);
+                }
+                break;
+
+            case "phantasia":
+                if (noise % 3 == 0 || tile == TileType.Road)
+                {
+                    int size = noise % 11 == 0 ? 4 : 2;
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(rect.X + 5 + noise % 31, rect.Y + 6 + noise % 27, size, size),
+                        noise % 5 == 0 ? palette.Accent : palette.Detail);
+                }
+                if (tile == TileType.Road && noise % 2 == 0)
+                    Primitives2D.Line(spriteBatch, center - new Vector2(14, 8), center + new Vector2(13, 7), palette.Accent * .5f, 1);
+                break;
+
+            case "chemesthesis":
+                if (noise % 3 == 0 || tile == TileType.Road)
+                {
+                    var points = new[]
+                    {
+                        new Vector2(rect.X + 4, rect.Y + 9 + noise % 17),
+                        center + new Vector2(-4, noise % 7 - 3),
+                        new Vector2(rect.Right - 7, rect.Bottom - 10),
+                    };
+                    Primitives2D.Polyline(spriteBatch, points, false, new Color(27, 20, 14), tile == TileType.Road ? 2 : 1);
+                }
+                if (noise % 7 == 0)
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 10, rect.Bottom - 12, 6, 4), palette.Detail * .55f);
+                break;
+        }
+    }
+
+    private static void DrawPathFloorDecoration(
+        SpriteBatch spriteBatch, Battleground battleground, PathDecoration decoration)
+    {
+        int tileX = Math.Clamp((int)(decoration.WorldPosition.X / Battleground.TileSize), 0, battleground.Width - 1);
+        int tileY = Math.Clamp((int)(decoration.WorldPosition.Y / Battleground.TileSize), 0, battleground.Height - 1);
+        var palette = battleground.Palettes[battleground.BiomeForTile(tileX, tileY)];
+        Vector2 center = decoration.WorldPosition;
+        float scale = decoration.Scale;
+        int width = Math.Max(10, (int)(38 * scale));
+        int height = Math.Max(6, (int)(18 * scale));
+        Rectangle area = new((int)center.X - width / 2, (int)center.Y - height / 2, width, height);
+
+        switch (decoration.Kind)
+        {
+            case PathDecorationKind.SewerChannel:
+                if (decoration.Variant % 2 != 0)
+                    area = new Rectangle((int)center.X - height / 2, (int)center.Y - width / 2, height, width);
+                Primitives2D.FillRect(spriteBatch, area, new Color(15, 25, 18));
+                var channel = area;
+                channel.Inflate(decoration.Variant % 2 == 0 ? -2 : -area.Width / 3,
+                    decoration.Variant % 2 == 0 ? -area.Height / 3 : -2);
+                Primitives2D.FillRect(spriteBatch, channel, new Color(57, 69, 35));
+                Primitives2D.RectOutline(spriteBatch, area, palette.Detail * .62f, 2);
+                break;
+
+            case PathDecorationKind.SewerGrate:
+                Primitives2D.FillRect(spriteBatch, area, new Color(16, 23, 20));
+                Primitives2D.RectOutline(spriteBatch, area, palette.Detail, 2);
+                for (int x = area.Left + 5; x < area.Right - 2; x += 7)
+                    Primitives2D.Line(spriteBatch, new Vector2(x, area.Top + 3), new Vector2(x, area.Bottom - 3), palette.WallTop, 3);
+                break;
+
+            case PathDecorationKind.BrickRunes:
+                Primitives2D.FillRect(spriteBatch, area, new Color(28, 36, 29));
+                for (int row = 0; row < 3; row++)
+                {
+                    int y = area.Top + row * Math.Max(3, area.Height / 3);
+                    Primitives2D.Line(spriteBatch, new Vector2(area.Left, y),
+                        new Vector2(area.Right, y), palette.WallTop * .55f, 1);
+                    int seam = area.Left + area.Width * (row % 2 == 0 ? 1 : 2) / 3;
+                    Primitives2D.Line(spriteBatch, new Vector2(seam, y),
+                        new Vector2(seam, Math.Min(area.Bottom, y + area.Height / 3)),
+                        palette.WallTop * .55f, 1);
+                }
+                Primitives2D.Polyline(spriteBatch, new[]
+                {
+                    new Vector2(center.X - 8 * scale, center.Y),
+                    new Vector2(center.X, center.Y - 6 * scale),
+                    new Vector2(center.X + 8 * scale, center.Y),
+                    new Vector2(center.X, center.Y + 6 * scale),
+                }, true, palette.Accent * .82f, 2);
+                break;
+
+            case PathDecorationKind.SludgePool:
+                Primitives2D.FillEllipse(spriteBatch, area, new Color(49, 61, 27));
+                Primitives2D.EllipseOutline(spriteBatch, area, palette.Accent * .72f, 2, 28);
+                Primitives2D.FillRect(spriteBatch, new Rectangle(area.X + width / 4, area.Y + height / 3, Math.Max(3, width / 7), 3), palette.Detail * .7f);
+                break;
+
+            case PathDecorationKind.WaterPool:
+                Primitives2D.FillEllipse(spriteBatch, area, new Color(35, 88, 112));
+                Primitives2D.EllipseOutline(spriteBatch, area, palette.WallTop, 2, 28);
+                Primitives2D.Arc(spriteBatch, new Rectangle(area.X + width / 5, area.Y + height / 4, width / 2, height / 3),
+                    0, MathF.PI, palette.Detail, 2, 14);
+                break;
+
+            case PathDecorationKind.CausticCurrent:
+                for (int line = -1; line <= 1; line++)
+                {
+                    float y = center.Y + line * 7 * scale;
+                    var current = new[]
+                    {
+                        new Vector2(area.Left, y), new Vector2(center.X - width * .18f, y - 4),
+                        new Vector2(center.X + width * .18f, y + 4), new Vector2(area.Right, y - 1),
+                    };
+                    Primitives2D.Polyline(spriteBatch, current, false, line == 0 ? palette.Detail : palette.WallTop * .72f, 2);
+                }
+                break;
+
+            case PathDecorationKind.MosaicLens:
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    new Vector2(center.X, area.Top),
+                    new Vector2(area.Right, center.Y),
+                    new Vector2(center.X, area.Bottom),
+                    new Vector2(area.Left, center.Y),
+                }, new Color(31, 72, 91));
+                Primitives2D.EllipseOutline(spriteBatch,
+                    new Rectangle(area.X + width / 5, area.Y + 2,
+                        Math.Max(5, width * 3 / 5), Math.Max(4, height - 4)),
+                    palette.Detail, 2, 24);
+                Primitives2D.FillCircle(spriteBatch, center, Math.Max(2, (int)(3 * scale)),
+                    palette.Accent);
+                break;
+
+            case PathDecorationKind.CloudBank:
+                Primitives2D.FillEllipse(spriteBatch, area, new Color(43, 48, 63));
+                Primitives2D.FillEllipse(spriteBatch,
+                    new Rectangle(area.X + width / 5, area.Y - height / 4, width / 2, height),
+                    new Color(62, 66, 83));
+                Primitives2D.Line(spriteBatch, new Vector2(area.X + 5, area.Bottom - 2), new Vector2(area.Right - 5, area.Bottom - 2), palette.Accent * .56f, 2);
+                break;
+
+            case PathDecorationKind.WindLane:
+                for (int line = -1; line <= 1; line++)
+                {
+                    float y = center.Y + line * 6 * scale;
+                    Primitives2D.Line(spriteBatch, new Vector2(area.Left, y + 4), new Vector2(area.Right - width / 5, y - 3), palette.Detail * .67f, 2);
+                    Primitives2D.Line(spriteBatch, new Vector2(area.Right - width / 5, y - 3), new Vector2(area.Right, y), palette.Accent * .6f, 2);
+                }
+                break;
+
+            case PathDecorationKind.StormCrack:
+                Primitives2D.Polyline(spriteBatch, new[]
+                {
+                    new Vector2(center.X - width / 2f, center.Y - height / 2f),
+                    new Vector2(center.X - width / 8f, center.Y - 2),
+                    new Vector2(center.X - width / 5f, center.Y + 4),
+                    new Vector2(center.X + width / 3f, center.Y + height / 2f),
+                }, false, palette.Detail, Math.Max(2, (int)(2 * scale)));
+                break;
+
+            case PathDecorationKind.ResonanceTiles:
+                Primitives2D.FillRect(spriteBatch, area, new Color(39, 39, 55));
+                for (int band = 0; band < 3; band++)
+                {
+                    var bandRect = new Rectangle(
+                        area.X + band * Math.Max(2, width / 9),
+                        area.Y + band * Math.Max(1, height / 8),
+                        Math.Max(5, width - band * Math.Max(4, width / 5)),
+                        Math.Max(4, height - band * Math.Max(2, height / 4)));
+                    Primitives2D.Arc(spriteBatch, bandRect, MathF.PI, MathF.Tau,
+                        band == 0 ? palette.WallTop : palette.Accent * .72f, 2, 18);
+                }
+                Primitives2D.Line(spriteBatch,
+                    new Vector2(area.Left + 4, area.Bottom - 3),
+                    new Vector2(area.Right - 4, area.Bottom - 3),
+                    palette.Detail * .7f, 2);
+                break;
+
+            case PathDecorationKind.StarField:
+                Primitives2D.FillEllipse(spriteBatch, area, new Color(17, 10, 31));
+                for (int star = 0; star < Math.Min(12, 4 + (int)(scale * 2)); star++)
+                {
+                    int px = area.X + 4 + Math.Abs((star * 37 + decoration.Variant * 11) % Math.Max(1, area.Width - 8));
+                    int py = area.Y + 3 + Math.Abs((star * 23 + decoration.RoomId * 7) % Math.Max(1, area.Height - 6));
+                    int size = star % 4 == 0 ? 3 : 2;
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(px, py, size, size), star % 3 == 0 ? palette.Accent : palette.Detail);
+                }
+                break;
+
+            case PathDecorationKind.Nebula:
+                Primitives2D.FillEllipse(spriteBatch, area, new Color(57, 23, 75));
+                Primitives2D.FillEllipse(spriteBatch,
+                    new Rectangle(area.X + width / 4, area.Y + height / 5, width / 2, height / 2),
+                    palette.Accent * .48f);
+                Primitives2D.FillRect(spriteBatch, new Rectangle(area.Center.X, area.Y + 4, 3, 3), palette.Detail);
+                break;
+
+            case PathDecorationKind.Constellation:
+                var stars = new[]
+                {
+                    new Vector2(area.Left + 3, area.Bottom - 3), new Vector2(center.X - width * .12f, area.Top + 4),
+                    new Vector2(center.X + width * .16f, center.Y + 3), new Vector2(area.Right - 4, area.Top + height * .3f),
+                };
+                Primitives2D.Polyline(spriteBatch, stars, false, palette.Accent * .65f, 1);
+                foreach (var star in stars)
+                    Primitives2D.FillRect(spriteBatch, new Rectangle((int)star.X - 2, (int)star.Y - 2, 4, 4), palette.Detail);
+                break;
+
+            case PathDecorationKind.VoidRift:
+                var diamond = new[]
+                {
+                    new Vector2(center.X, area.Top), new Vector2(area.Right, center.Y),
+                    new Vector2(center.X, area.Bottom), new Vector2(area.Left, center.Y),
+                };
+                Primitives2D.FillPolygon(spriteBatch, diamond, new Color(10, 5, 19));
+                Primitives2D.PolygonOutline(spriteBatch, diamond, palette.Accent, Math.Max(2, (int)scale));
+                break;
+
+            case PathDecorationKind.DreamGlyph:
+                Primitives2D.CircleOutline(spriteBatch, center,
+                    Math.Max(7, (int)(11 * scale)), palette.Accent * .82f, 2, 24);
+                for (int point = 0; point < 5; point++)
+                {
+                    float angle = -MathF.PI / 2f + point * MathF.Tau / 5f;
+                    float nextAngle = -MathF.PI / 2f + ((point + 2) % 5) * MathF.Tau / 5f;
+                    Primitives2D.Line(spriteBatch,
+                        center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * 10 * scale,
+                        center + new Vector2(MathF.Cos(nextAngle), MathF.Sin(nextAngle)) * 10 * scale,
+                        palette.Detail * .72f, 1);
+                }
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)center.X - 2, (int)center.Y - 2, 5, 5),
+                    palette.Detail);
+                break;
+
+            case PathDecorationKind.RouteChevron:
+                Vector2 direction = decoration.Variant switch
+                {
+                    1 => Vector2.UnitY,
+                    2 => -Vector2.UnitX,
+                    3 => -Vector2.UnitY,
+                    _ => Vector2.UnitX,
+                };
+                Vector2 perpendicular = new(-direction.Y, direction.X);
+                for (int chevron = -1; chevron <= 1; chevron += 2)
+                {
+                    Vector2 tip = center + direction * (10 + chevron * 5) * scale;
+                    Vector2 back = tip - direction * 10 * scale;
+                    Primitives2D.Line(spriteBatch,
+                        back + perpendicular * 7 * scale, tip, palette.Accent * .8f, 2);
+                    Primitives2D.Line(spriteBatch,
+                        back - perpendicular * 7 * scale, tip, palette.Accent * .8f, 2);
+                }
+                break;
+
+            case PathDecorationKind.ThresholdRune:
+                Vector2 axis = decoration.Variant % 2 == 0 ? Vector2.UnitX : Vector2.UnitY;
+                Vector2 side = new(-axis.Y, axis.X);
+                var thresholdDiamond = new[]
+                {
+                    center + axis * 15 * scale,
+                    center + side * 10 * scale,
+                    center - axis * 15 * scale,
+                    center - side * 10 * scale,
+                };
+                Primitives2D.PolygonOutline(spriteBatch, thresholdDiamond, palette.Detail * .85f, 2);
+                Primitives2D.Line(spriteBatch,
+                    center - side * 7 * scale, center + side * 7 * scale,
+                    palette.Accent, 3);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)center.X - 2, (int)center.Y - 2, 5, 5),
+                    palette.Detail);
+                break;
+
+            case PathDecorationKind.CrackedEarth:
+                Color crack = new(31, 19, 13);
+                for (int branch = -1; branch <= 1; branch++)
+                {
+                    Primitives2D.Polyline(spriteBatch, new[]
+                    {
+                        center, center + new Vector2(branch * 9 - 5, 6 * scale),
+                        center + new Vector2(branch * width / 3f, height / 2f),
+                    }, false, crack, Math.Max(1, (int)scale));
+                }
+                break;
+
+            case PathDecorationKind.RotPatch:
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    new Vector2(area.Left + width * .1f, center.Y), new Vector2(area.Left + width * .3f, area.Top),
+                    new Vector2(area.Right - width * .14f, area.Top + height * .2f), new Vector2(area.Right, center.Y),
+                    new Vector2(area.Right - width * .3f, area.Bottom), new Vector2(area.Left + width * .2f, area.Bottom - 2),
+                }, new Color(59, 65, 25));
+                Primitives2D.PolygonOutline(spriteBatch, new[]
+                {
+                    new Vector2(area.Left + width * .1f, center.Y), new Vector2(area.Left + width * .3f, area.Top),
+                    new Vector2(area.Right - width * .14f, area.Top + height * .2f), new Vector2(area.Right, center.Y),
+                    new Vector2(area.Right - width * .3f, area.Bottom), new Vector2(area.Left + width * .2f, area.Bottom - 2),
+                }, palette.Detail * .65f, 2);
+                break;
+
+            case PathDecorationKind.ScorchedCrater:
+                Primitives2D.FillEllipse(spriteBatch, area, new Color(35, 20, 15));
+                Primitives2D.EllipseOutline(spriteBatch, area, palette.Accent * .7f, Math.Max(2, (int)scale), 30);
+                var inner = area;
+                inner.Inflate(-Math.Max(3, width / 5), -Math.Max(2, height / 5));
+                Primitives2D.EllipseOutline(spriteBatch, inner, new Color(12, 12, 11), 2, 24);
+                break;
+
+            case PathDecorationKind.CinderPlate:
+                Primitives2D.FillRect(spriteBatch, area, new Color(48, 34, 27));
+                Primitives2D.RectOutline(spriteBatch, area, palette.WallTop * .7f, 2);
+                Primitives2D.Line(spriteBatch,
+                    new Vector2(area.Left + 4, area.Top + 4),
+                    new Vector2(area.Right - 4, area.Bottom - 4),
+                    palette.Accent * .55f, 2);
+                foreach (Point corner in new[]
+                {
+                    new Point(area.Left + 4, area.Top + 4),
+                    new Point(area.Right - 5, area.Top + 4),
+                    new Point(area.Left + 4, area.Bottom - 5),
+                    new Point(area.Right - 5, area.Bottom - 5),
+                })
+                {
+                    Primitives2D.FillCircle(spriteBatch, corner.ToVector2(), 2, palette.Detail);
+                }
+                break;
+
+            case PathDecorationKind.TreasureSeal:
+                float radius = Math.Max(18f, 15f * scale);
+                var seal = new[]
+                {
+                    center + new Vector2(0, -radius),
+                    center + new Vector2(radius, 0),
+                    center + new Vector2(0, radius),
+                    center + new Vector2(-radius, 0),
+                };
+                Primitives2D.FillPolygon(spriteBatch, seal, new Color(64, 45, 19) * .82f);
+                Primitives2D.PolygonOutline(spriteBatch, seal, palette.Accent, Math.Max(3, (int)(1.3f * scale)));
+                Primitives2D.CircleOutline(spriteBatch, center, Math.Max(8, (int)(radius * .48f)),
+                    palette.Detail, Math.Max(2, (int)scale), 28);
+                Primitives2D.Line(spriteBatch, center - Vector2.UnitX * radius * .72f,
+                    center + Vector2.UnitX * radius * .72f, UiTheme.Ink * .8f, Math.Max(2, (int)scale));
+                Primitives2D.Line(spriteBatch, center - Vector2.UnitY * radius * .72f,
+                    center + Vector2.UnitY * radius * .72f, UiTheme.Ink * .8f, Math.Max(2, (int)scale));
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)center.X - Math.Max(3, (int)(3 * scale)),
+                        (int)center.Y - Math.Max(4, (int)(5 * scale)),
+                        Math.Max(7, (int)(7 * scale)), Math.Max(9, (int)(10 * scale))),
+                    palette.Accent);
+                Primitives2D.FillCircle(spriteBatch, center - new Vector2(0, 2 * scale),
+                    Math.Max(2, (int)(2 * scale)), UiTheme.Ink);
+                break;
+        }
+    }
+
     /// <summary>
     /// Ported from _raised_scenery: the small subset of tiles that need
     /// full-resolution per-frame drawing. Public/static (pure function of a
@@ -162,7 +595,7 @@ public sealed class ArenaRenderer
                 {
                     walls.Add((x, y, tile, biome));
                 }
-                else if (tile == TileType.Default)
+                else if (tile == TileType.Default && battleground.VisualThemeKey is null)
                 {
                     int marker = (x * 43 + y * 89 + x * y) % 211;
                     double distanceFromCenter = Math.Sqrt((x - centerX) * (double)(x - centerX) + (y - centerY) * (double)(y - centerY));
@@ -191,18 +624,29 @@ public sealed class ArenaRenderer
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
         float halfTile = Battleground.TileSize / 2f;
 
-        var visibleItems = new List<(float ScreenY, int Kind, int X, int Y, TileType Tile, int Biome)>();
+        var visibleItems = new List<(float ScreenY, int Kind, int X, int Y, TileType Tile, int Biome, PathDecoration? PathDecoration)>();
         foreach (var (x, y, tile, biome) in _walls)
         {
             var center = camera.WorldToScreen(new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile), playerWorldPosition, screenShake);
             if (visibility.Contains(center.ToPoint()))
-                visibleItems.Add((center.Y, 0, x, y, tile, biome));
+                visibleItems.Add((center.Y, 0, x, y, tile, biome, null));
         }
         foreach (var (x, y, biome) in _decorations)
         {
             var center = camera.WorldToScreen(new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile), playerWorldPosition, screenShake);
             if (visibility.Contains(center.ToPoint()))
-                visibleItems.Add((center.Y, 1, x, y, TileType.Default, biome));
+                visibleItems.Add((center.Y, 1, x, y, TileType.Default, biome, null));
+        }
+        foreach (var decoration in _pathRaisedDecorations)
+        {
+            var center = camera.WorldToScreen(decoration.WorldPosition, playerWorldPosition, screenShake);
+            if (visibility.Contains(center.ToPoint()))
+            {
+                int tileX = Math.Clamp((int)(decoration.WorldPosition.X / Battleground.TileSize), 0, _bakedFor.Width - 1);
+                int tileY = Math.Clamp((int)(decoration.WorldPosition.Y / Battleground.TileSize), 0, _bakedFor.Height - 1);
+                int biome = _bakedFor.BiomeForTile(tileX, tileY);
+                visibleItems.Add((center.Y, 2, tileX, tileY, TileType.Default, biome, decoration));
+            }
         }
         visibleItems.Sort((a, b) => a.ScreenY.CompareTo(b.ScreenY));
 
@@ -211,13 +655,175 @@ public sealed class ArenaRenderer
             var palette = _bakedFor.Palettes[item.Biome];
             if (item.Kind == 0)
                 DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Tile, palette);
-            else
+            else if (item.Kind == 1)
                 DrawRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Biome, palette);
+            else if (item.PathDecoration is not null)
+                DrawPathRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.PathDecoration, palette);
         }
 
         spriteBatch.End();
         graphicsDevice.ScissorRectangle = previousScissor;
     }
+
+    /// <summary>
+    /// Returns painter depth for a point resting on the ground plane. Smaller
+    /// values are farther toward screen-north and therefore paint first.
+    /// Keeping this derived from Camera.WorldVectorToScreen makes occlusion
+    /// rotate with the camera instead of being hard-coded to world Y.
+    /// </summary>
+    public static float GroundDepth(Camera camera, Vector2 worldAnchor) =>
+        camera.WorldVectorToScreen(worldAnchor).Y;
+
+    /// <summary>
+    /// Repaints raised scenery and draws grounded combat objects in one
+    /// camera-depth order. Raised scenery was already present in the
+    /// background pass; repainting it here is intentional:
+    ///
+    /// - an object north/behind a wall paints first, then the wall cap/face
+    ///   covers the overlapping pixels;
+    /// - an object south/in front paints after that wall and stays readable.
+    ///
+    /// The caller owns SpriteBatch.Begin/End so this can share the same
+    /// world-zoom transform as actors and projectiles.
+    /// </summary>
+    public void DrawDepthSortedWorld(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle viewport,
+        IReadOnlyList<WorldDepthDrawItem> dynamicItems)
+    {
+        if (_bakedFor is null)
+        {
+            foreach (var item in dynamicItems
+                         .OrderBy(item => GroundDepth(camera, item.WorldAnchor))
+                         .ThenBy(item => item.PaintPriority)
+                         .ThenBy(item => item.StableOrder))
+                item.Draw(spriteBatch);
+            return;
+        }
+
+        var visibility = camera.LogicalViewport(viewport);
+        visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
+        float halfTile = Battleground.TileSize / 2f;
+        var scene = new List<DepthSceneItem>(
+            dynamicItems.Count + _walls.Count + _decorations.Count + _pathRaisedDecorations.Count);
+
+        for (int index = 0; index < dynamicItems.Count; index++)
+        {
+            var item = dynamicItems[index];
+            scene.Add(new DepthSceneItem(
+                GroundDepth(camera, item.WorldAnchor),
+                item.PaintPriority,
+                item.StableOrder,
+                DynamicIndex: index,
+                Kind: -1,
+                X: 0,
+                Y: 0,
+                Tile: TileType.Default,
+                Biome: 0,
+                PathDecoration: null));
+        }
+
+        int sceneryOrder = dynamicItems.Count;
+        foreach (var (x, y, tile, biome) in _walls)
+        {
+            var anchor = new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile);
+            var center = camera.WorldToScreen(anchor, playerWorldPosition, screenShake);
+            if (!visibility.Contains(center.ToPoint()))
+                continue;
+            scene.Add(new DepthSceneItem(
+                GroundDepth(camera, anchor),
+                SceneryPaintPriority,
+                sceneryOrder++,
+                DynamicIndex: -1,
+                Kind: 0,
+                X: x,
+                Y: y,
+                Tile: tile,
+                Biome: biome,
+                PathDecoration: null));
+        }
+        foreach (var (x, y, biome) in _decorations)
+        {
+            var anchor = new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile);
+            var center = camera.WorldToScreen(anchor, playerWorldPosition, screenShake);
+            if (!visibility.Contains(center.ToPoint()))
+                continue;
+            scene.Add(new DepthSceneItem(
+                GroundDepth(camera, anchor),
+                SceneryPaintPriority,
+                sceneryOrder++,
+                DynamicIndex: -1,
+                Kind: 1,
+                X: x,
+                Y: y,
+                Tile: TileType.Default,
+                Biome: biome,
+                PathDecoration: null));
+        }
+        foreach (var decoration in _pathRaisedDecorations)
+        {
+            var center = camera.WorldToScreen(decoration.WorldPosition, playerWorldPosition, screenShake);
+            if (!visibility.Contains(center.ToPoint()))
+                continue;
+            int tileX = Math.Clamp((int)(decoration.WorldPosition.X / Battleground.TileSize), 0, _bakedFor.Width - 1);
+            int tileY = Math.Clamp((int)(decoration.WorldPosition.Y / Battleground.TileSize), 0, _bakedFor.Height - 1);
+            int biome = _bakedFor.BiomeForTile(tileX, tileY);
+            scene.Add(new DepthSceneItem(
+                GroundDepth(camera, decoration.WorldPosition),
+                SceneryPaintPriority,
+                sceneryOrder++,
+                DynamicIndex: -1,
+                Kind: 2,
+                X: tileX,
+                Y: tileY,
+                Tile: TileType.Default,
+                Biome: biome,
+                PathDecoration: decoration));
+        }
+
+        scene.Sort(static (left, right) =>
+        {
+            int comparison = left.Depth.CompareTo(right.Depth);
+            if (comparison != 0)
+                return comparison;
+            comparison = left.PaintPriority.CompareTo(right.PaintPriority);
+            return comparison != 0 ? comparison : left.StableOrder.CompareTo(right.StableOrder);
+        });
+
+        foreach (var item in scene)
+        {
+            if (item.DynamicIndex >= 0)
+            {
+                dynamicItems[item.DynamicIndex].Draw(spriteBatch);
+                continue;
+            }
+
+            var palette = _bakedFor.Palettes[item.Biome];
+            if (item.Kind == 0)
+                DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Tile, palette);
+            else if (item.Kind == 1)
+                DrawRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Biome, palette);
+            else if (item.PathDecoration is not null)
+                DrawPathRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.PathDecoration, palette);
+        }
+    }
+
+    private const int SceneryPaintPriority = 100;
+
+    private readonly record struct DepthSceneItem(
+        float Depth,
+        int PaintPriority,
+        int StableOrder,
+        int DynamicIndex,
+        int Kind,
+        int X,
+        int Y,
+        TileType Tile,
+        int Biome,
+        PathDecoration? PathDecoration);
 
     /// <summary>Ported from _wall_screen_geometry. Public/static for the same testability reasoning as <see cref="ComputeRaisedScenery"/>.</summary>
     public static (Vector2[] Ground, Vector2[] Cap) WallScreenGeometry(Camera camera, Vector2 playerWorldPosition, Vector2 screenShake, int tileX, int tileY, int height)
@@ -292,6 +898,8 @@ public sealed class ArenaRenderer
             var accentLeft = new Vector2(lowerLeft.X * .82f + lowerRight.X * .18f, lowerLeft.Y * .82f + lowerRight.Y * .18f - 5);
             var accentRight = new Vector2(lowerLeft.X * .18f + lowerRight.X * .82f, lowerLeft.Y * .18f + lowerRight.Y * .82f - 5);
             Primitives2D.Line(spriteBatch, accentLeft, accentRight, palette.Accent, 2);
+            DrawPathWallMaterial(spriteBatch, face, tileX, tileY,
+                _bakedFor.VisualThemeKey, palette);
         }
 
         Primitives2D.FillPolygon(spriteBatch, cap, palette.WallTop);
@@ -307,6 +915,72 @@ public sealed class ArenaRenderer
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)centerX - 3, (int)centerY - 3, 6, 6), palette.Accent);
         else if ((tileX + tileY) % 2 == 0)
             Primitives2D.Line(spriteBatch, new Vector2(centerX - 9, centerY), new Vector2(centerX + 9, centerY), palette.Accent, 2);
+
+        if (_bakedFor.VisualThemeKey is not null && (tileX * 31 + tileY * 17) % 3 == 0)
+        {
+            Vector2 capCenter = new(centerX, centerY);
+            if (_bakedFor.VisualThemeKey == "phantasia")
+                Primitives2D.FillCircle(spriteBatch, capCenter, 3, palette.Detail);
+            else
+                Primitives2D.Line(spriteBatch, capCenter - new Vector2(7, 3),
+                    capCenter + new Vector2(7, 3), palette.Detail * .72f, 1);
+        }
+    }
+
+    private static void DrawPathWallMaterial(
+        SpriteBatch spriteBatch,
+        Vector2[] face,
+        int tileX,
+        int tileY,
+        string? themeKey,
+        BiomePalette palette)
+    {
+        if (themeKey is null)
+            return;
+
+        Vector2 Top(float amount) => Vector2.Lerp(face[0], face[1], amount);
+        Vector2 Bottom(float amount) => Vector2.Lerp(face[3], face[2], amount);
+        Vector2 Across(float amount, float depth) =>
+            Vector2.Lerp(Vector2.Lerp(face[0], face[3], depth),
+                Vector2.Lerp(face[1], face[2], depth), amount);
+        int hash = Math.Abs(tileX * 47 + tileY * 83);
+        Color line = palette.Detail * .38f;
+
+        switch (themeKey)
+        {
+            case "touch":
+                Primitives2D.Line(spriteBatch, Across(0, .48f), Across(1, .48f), line, 1);
+                Primitives2D.Line(spriteBatch, Top(hash % 2 == 0 ? .34f : .66f),
+                    Across(hash % 2 == 0 ? .34f : .66f, .48f), line, 1);
+                break;
+            case "sight":
+                Primitives2D.Line(spriteBatch, Top(.5f), Across(.2f, .55f), line, 1);
+                Primitives2D.Line(spriteBatch, Top(.5f), Across(.8f, .55f), line, 1);
+                Primitives2D.Line(spriteBatch, Across(.2f, .55f), Bottom(.5f), line, 1);
+                Primitives2D.Line(spriteBatch, Across(.8f, .55f), Bottom(.5f), line, 1);
+                break;
+            case "sound":
+                for (int band = 1; band <= 3; band++)
+                {
+                    float depth = band * .2f;
+                    float inset = band == 2 ? .16f : .08f;
+                    Primitives2D.Line(spriteBatch, Across(inset, depth),
+                        Across(1f - inset, depth), line, 1);
+                }
+                break;
+            case "phantasia":
+                Vector2 star = Across(.3f + (hash % 4) * .13f, .42f);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)star.X - 1, (int)star.Y - 1, 3, 3),
+                    palette.Detail * .65f);
+                break;
+            case "chemesthesis":
+                Primitives2D.Polyline(spriteBatch, new[]
+                {
+                    Top(.32f), Across(.55f, .36f), Across(.42f, .65f), Bottom(.7f),
+                }, false, line, 1);
+                break;
+        }
     }
 
     /// <summary>Ported from _draw_raised_decoration: a small biome-specific "2.5D landmark" prop with a top, face, and grounded shadow.</summary>
@@ -351,6 +1025,226 @@ public sealed class ArenaRenderer
                 new Vector2(cx + 7, floorY - height), new Vector2(cx, floorY - height + 4),
             }, palette.WallTop);
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)(cx - 2), (int)(floorY - height + 7), 4, 7), palette.Accent);
+        }
+    }
+
+    private static void DrawPathRaisedDecoration(
+        SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake,
+        PathDecoration decoration, BiomePalette palette)
+    {
+        Vector2 center = camera.WorldToScreen(decoration.WorldPosition, playerWorldPosition, screenShake);
+        float scale = decoration.Scale;
+        float cx = center.X;
+        float floorY = center.Y + Battleground.TileSize * .32f;
+        int S(float value) => Math.Max(1, (int)MathF.Round(value * scale));
+        Rectangle Rect(float x, float y, float width, float height) =>
+            new((int)(cx + x * scale), (int)(floorY + y * scale), S(width), S(height));
+        Vector2 P(float x, float y) => new(cx + x * scale, floorY + y * scale);
+
+        Primitives2D.FillEllipse(spriteBatch, Rect(-15, -3, 32, 11), DecorationShadow * .9f);
+        switch (decoration.Kind)
+        {
+            case PathDecorationKind.PipeStack:
+                for (int pipe = 0; pipe < 3; pipe++)
+                {
+                    int offset = (pipe - 1) * S(7);
+                    int height = S(18 + pipe * 5);
+                    Primitives2D.FillRect(spriteBatch, new Rectangle((int)cx + offset - S(3), (int)floorY - height, S(7), height), UiTheme.Ink);
+                    Primitives2D.FillRect(spriteBatch, new Rectangle((int)cx + offset - S(2), (int)floorY - height + S(2), S(4), height - S(3)), palette.WallFace);
+                    Primitives2D.FillEllipse(spriteBatch, new Rectangle((int)cx + offset - S(4), (int)floorY - height - S(2), S(9), S(5)), palette.Detail);
+                }
+                break;
+
+            case PathDecorationKind.Valve:
+                Primitives2D.FillRect(spriteBatch, Rect(-3, -22, 6, 23), palette.WallFace);
+                Primitives2D.CircleOutline(spriteBatch, P(0, -23), S(10), palette.Detail, S(3), 20);
+                for (int spoke = 0; spoke < 4; spoke++)
+                {
+                    float angle = spoke * MathF.PI / 2f;
+                    Primitives2D.Line(spriteBatch, P(0, -23), P(MathF.Cos(angle) * 9, -23 + MathF.Sin(angle) * 9), palette.Accent, S(2));
+                }
+                Primitives2D.FillCircle(spriteBatch, P(0, -23), S(3), UiTheme.Ink);
+                break;
+
+            case PathDecorationKind.Pump:
+                Primitives2D.FillRect(spriteBatch, Rect(-11, -20, 22, 21), UiTheme.Ink);
+                Primitives2D.FillRect(spriteBatch, Rect(-8, -18, 16, 17), palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-10, -20), P(0, -27), P(10, -20), P(0, -14) }, palette.WallTop);
+                Primitives2D.FillCircle(spriteBatch, P(0, -8), S(4), palette.Accent);
+                Primitives2D.Line(spriteBatch, P(8, -18), P(17, -18), palette.Detail, S(4));
+                break;
+
+            case PathDecorationKind.PressureTank:
+                Primitives2D.FillRect(spriteBatch, Rect(-11, -34, 22, 35), UiTheme.Ink);
+                Primitives2D.FillRect(spriteBatch, Rect(-8, -32, 16, 31), palette.WallFace);
+                Primitives2D.FillEllipse(spriteBatch, Rect(-8, -38, 16, 11), palette.WallTop);
+                Primitives2D.EllipseOutline(spriteBatch, Rect(-9, -39, 18, 12),
+                    palette.Detail, S(2), 20);
+                Primitives2D.Line(spriteBatch, P(-8, -18), P(8, -18), palette.Accent, S(3));
+                Primitives2D.FillCircle(spriteBatch, P(0, -25), S(4), UiTheme.Ink);
+                Primitives2D.FillCircle(spriteBatch, P(0, -25), S(2), palette.Accent);
+                Primitives2D.Line(spriteBatch, P(8, -8), P(17, -8), palette.Detail, S(4));
+                break;
+
+            case PathDecorationKind.LensBuoy:
+                Primitives2D.FillRect(spriteBatch, Rect(-3, -22, 6, 23), palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -35), P(13, -24), P(0, -14), P(-13, -24) }, UiTheme.Ink);
+                Primitives2D.FillEllipse(spriteBatch, Rect(-10, -30, 20, 13), palette.WallTop);
+                Primitives2D.FillCircle(spriteBatch, P(0, -24), S(5), palette.Accent);
+                Primitives2D.FillRect(spriteBatch, Rect(-2, -27, 3, 3), palette.Detail);
+                break;
+
+            case PathDecorationKind.SteppingStone:
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-13, -6), P(-5, -12), P(11, -10), P(15, -4), P(8, 0), P(-10, 0) }, palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-13, -7), P(-5, -13), P(11, -11), P(15, -5), P(2, -2) }, palette.WallTop);
+                Primitives2D.PolygonOutline(spriteBatch, new[] { P(-13, -7), P(-5, -13), P(11, -11), P(15, -5), P(2, -2) }, palette.Detail, S(2));
+                break;
+
+            case PathDecorationKind.BrokenColumn:
+                Primitives2D.FillRect(spriteBatch, Rect(-9, -25, 18, 26), UiTheme.Ink);
+                Primitives2D.FillRect(spriteBatch, Rect(-6, -23, 12, 22), palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-8, -25), P(-3, -30), P(2, -25), P(7, -29), P(9, -24) }, palette.WallTop);
+                Primitives2D.Line(spriteBatch, P(-4, -19), P(4, -12), palette.Accent, S(2));
+                break;
+
+            case PathDecorationKind.MirrorArch:
+                Primitives2D.FillRect(spriteBatch, Rect(-17, -32, 7, 33), UiTheme.Ink);
+                Primitives2D.FillRect(spriteBatch, Rect(10, -32, 7, 33), UiTheme.Ink);
+                Primitives2D.Arc(spriteBatch, Rect(-17, -48, 34, 32),
+                    MathF.PI, MathF.Tau, UiTheme.Ink, S(7), 28);
+                Primitives2D.Arc(spriteBatch, Rect(-12, -43, 24, 25),
+                    MathF.PI, MathF.Tau, palette.Detail, S(3), 28);
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    P(0, -39), P(10, -28), P(7, -4), P(-7, -4), P(-10, -28),
+                }, palette.WallFace);
+                Primitives2D.Line(spriteBatch, P(-4, -31), P(5, -10),
+                    palette.Accent * .85f, S(2));
+                break;
+
+            case PathDecorationKind.EchoPylon:
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -39), P(10, -27), P(7, -1), P(-7, -1), P(-10, -27) }, UiTheme.Ink);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -35), P(7, -25), P(4, -3), P(-4, -3), P(-7, -25) }, palette.WallFace);
+                for (int ring = 0; ring < 3; ring++)
+                    Primitives2D.Arc(spriteBatch, Rect(-15 - ring * 3, -34 - ring * 2, 30 + ring * 6, 20 + ring * 4), MathF.PI, MathF.Tau, palette.Accent * (.9f - ring * .18f), S(2), 18);
+                break;
+
+            case PathDecorationKind.Chime:
+                Primitives2D.Line(spriteBatch, P(0, -36), P(0, -25), palette.Detail, S(2));
+                Primitives2D.Line(spriteBatch, P(-13, -25), P(13, -25), palette.WallTop, S(3));
+                for (int chime = -1; chime <= 1; chime++)
+                {
+                    int length = 13 + (1 - Math.Abs(chime)) * 7;
+                    Primitives2D.Line(spriteBatch, P(chime * 9, -25), P(chime * 9, -25 + length), palette.Detail, S(3));
+                    Primitives2D.FillRect(spriteBatch, Rect(chime * 9 - 2, -25 + length, 5, 4), palette.Accent);
+                }
+                break;
+
+            case PathDecorationKind.LightningRod:
+                Primitives2D.FillRect(spriteBatch, Rect(-3, -34, 6, 35), palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -46), P(7, -34), P(1, -35), P(6, -24), P(-7, -37), P(-1, -36) }, palette.Detail);
+                Primitives2D.Line(spriteBatch, P(-11, -3), P(0, -10), palette.WallTop, S(3));
+                Primitives2D.Line(spriteBatch, P(11, -3), P(0, -10), palette.WallTop, S(3));
+                break;
+
+            case PathDecorationKind.OrganStack:
+                for (int pipe = -2; pipe <= 2; pipe++)
+                {
+                    int pipeHeight = 22 + (2 - Math.Abs(pipe)) * 8;
+                    Primitives2D.FillRect(spriteBatch,
+                        Rect(pipe * 7 - 3, -pipeHeight, 7, pipeHeight + 1),
+                        UiTheme.Ink);
+                    Primitives2D.FillRect(spriteBatch,
+                        Rect(pipe * 7 - 1, -pipeHeight + 2, 3, pipeHeight - 3),
+                        pipe == 0 ? palette.Accent : palette.WallFace);
+                    Primitives2D.FillEllipse(spriteBatch,
+                        Rect(pipe * 7 - 3, -pipeHeight - 3, 7, 6),
+                        palette.Detail);
+                }
+                Primitives2D.FillRect(spriteBatch, Rect(-19, -7, 39, 8), palette.WallTop);
+                break;
+
+            case PathDecorationKind.Asteroid:
+                var asteroid = new[] { P(-14, -15), P(-5, -27), P(10, -24), P(16, -13), P(8, -2), P(-9, -3) };
+                Primitives2D.FillPolygon(spriteBatch, asteroid, palette.WallFace);
+                Primitives2D.PolygonOutline(spriteBatch, asteroid, UiTheme.Ink, S(2));
+                Primitives2D.FillCircle(spriteBatch, P(4, -16), S(4), palette.Accent * .72f);
+                Primitives2D.FillRect(spriteBatch, Rect(-8, -11, 4, 4), palette.Detail);
+                break;
+
+            case PathDecorationKind.PrismObelisk:
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -43), P(12, -25), P(8, -1), P(-8, -1), P(-12, -25) }, UiTheme.Ink);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -39), P(8, -24), P(5, -4), P(0, -8) }, palette.Accent);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -39), P(0, -8), P(-5, -4), P(-8, -24) }, palette.WallTop);
+                Primitives2D.Line(spriteBatch, P(0, -35), P(0, -10), palette.Detail, S(2));
+                break;
+
+            case PathDecorationKind.OrbitShrine:
+                Primitives2D.FillRect(spriteBatch, Rect(-7, -18, 14, 19), palette.WallFace);
+                Primitives2D.FillCircle(spriteBatch, P(0, -22), S(8), palette.Accent);
+                Primitives2D.EllipseOutline(spriteBatch, Rect(-18, -30, 36, 15), palette.Detail, S(2), 24);
+                Primitives2D.FillCircle(spriteBatch, P(15, -22), S(3), palette.WallTop);
+                break;
+
+            case PathDecorationKind.LanternSpire:
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    P(0, -51), P(8, -39), P(6, -2), P(-6, -2), P(-8, -39),
+                }, UiTheme.Ink);
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    P(0, -46), P(5, -37), P(4, -5), P(-4, -5), P(-5, -37),
+                }, palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    P(0, -38), P(7, -29), P(0, -20), P(-7, -29),
+                }, palette.Accent);
+                Primitives2D.CircleOutline(spriteBatch, P(0, -29), S(12),
+                    palette.Detail * .8f, S(2), 24);
+                Primitives2D.FillCircle(spriteBatch, P(0, -29), S(4), palette.Detail);
+                break;
+
+            case PathDecorationKind.RustBarricade:
+                Primitives2D.FillRect(spriteBatch, Rect(-16, -17, 32, 7), UiTheme.Ink);
+                Primitives2D.FillRect(spriteBatch, Rect(-14, -15, 28, 4), palette.Accent);
+                Primitives2D.Line(spriteBatch, P(-11, 0), P(-5, -24), palette.Detail, S(4));
+                Primitives2D.Line(spriteBatch, P(11, 0), P(5, -24), palette.Detail, S(4));
+                for (int spike = -1; spike <= 1; spike++)
+                    Primitives2D.FillPolygon(spriteBatch, new[] { P(spike * 10 - 3, -16), P(spike * 10, -28), P(spike * 10 + 3, -16) }, palette.WallTop);
+                break;
+
+            case PathDecorationKind.DeadTree:
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-6, 0), P(-4, -27), P(2, -39), P(6, -28), P(5, 0) }, palette.WallFace);
+                Primitives2D.Line(spriteBatch, P(0, -27), P(-16, -38), palette.WallFace, S(5));
+                Primitives2D.Line(spriteBatch, P(-13, -36), P(-18, -46), palette.Detail, S(3));
+                Primitives2D.Line(spriteBatch, P(3, -31), P(17, -42), palette.WallFace, S(5));
+                Primitives2D.Line(spriteBatch, P(14, -39), P(19, -50), palette.Detail, S(3));
+                break;
+
+            case PathDecorationKind.RuinSlab:
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-13, 0), P(-10, -32), P(-3, -39), P(11, -33), P(13, 0) }, UiTheme.Ink);
+                Primitives2D.FillPolygon(spriteBatch, new[] { P(-9, -2), P(-7, -30), P(-2, -35), P(8, -30), P(9, -2) }, palette.WallFace);
+                Primitives2D.Polyline(spriteBatch, new[] { P(-2, -29), P(4, -21), P(-1, -13), P(5, -6) }, false, palette.Accent, S(2));
+                break;
+
+            case PathDecorationKind.FurnaceIdol:
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    P(-13, 0), P(-15, -31), P(-8, -42), P(8, -42),
+                    P(15, -31), P(13, 0),
+                }, UiTheme.Ink);
+                Primitives2D.FillRect(spriteBatch, Rect(-10, -35, 20, 33), palette.WallFace);
+                Primitives2D.FillPolygon(spriteBatch, new[]
+                {
+                    P(-7, -27), P(0, -34), P(7, -27), P(5, -19), P(-5, -19),
+                }, palette.WallTop);
+                Primitives2D.FillCircle(spriteBatch, P(-4, -25), S(2), palette.Accent);
+                Primitives2D.FillCircle(spriteBatch, P(4, -25), S(2), palette.Accent);
+                Primitives2D.FillRect(spriteBatch, Rect(-6, -14, 12, 9), palette.Accent);
+                for (int grate = -1; grate <= 1; grate++)
+                    Primitives2D.Line(spriteBatch, P(grate * 4, -13), P(grate * 4, -6),
+                        UiTheme.Ink, S(1));
+                break;
         }
     }
 }

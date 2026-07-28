@@ -251,10 +251,16 @@ public class KageTests
 
         Assert.Contains(context.ProjectileSink, projectile =>
             projectile.Owner == "kage_chemesthesis_stagnant_mirror" &&
-            projectile.Path == "sine");
+            projectile.Path == "sine" &&
+            projectile.Amplitude >= Simulation.TileSize);
         Assert.Contains(context.ProjectileSink, projectile =>
             projectile.Owner == "kage_chemesthesis_stagnation" &&
             projectile.Path == "mine");
+        var snap = Assert.Single(context.ProjectileSink, projectile =>
+            projectile.Owner == "kage_chemesthesis_mirror_snap");
+        Assert.Equal("bomb", snap.Path);
+        Assert.Equal(new Vector2(context.PlayerWorldX, context.PlayerWorldY),
+            snap.Target);
     }
 
     [Fact]

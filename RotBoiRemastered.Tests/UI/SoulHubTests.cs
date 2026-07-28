@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
@@ -151,5 +152,29 @@ public sealed class SoulHubTests
             soulHub.Update(session, 1.0 / 60);
 
         Assert.Equal(originalZoom, session.Camera.Zoom, precision: 3);
+    }
+
+    [Fact]
+    public void ConvergencePortal_ConfirmsAndReturnsCompositePathDestination()
+    {
+        var session = new GameSession(Battleground.GenerateSoul(), 1280, 720, new Random(1));
+        var soulHub = new SoulHub();
+        soulHub.Enter(session);
+        Vector2 portal = soulHub.CompositePortalWorld;
+        float half = (float)session.State.PlayerSize / 2f;
+        session.Player.SetPosition(portal.X - half, portal.Y - half);
+
+        Assert.Null(soulHub.HandleInput(
+            session, new HashSet<Keys> { Keys.F }, Point.Zero, false, false));
+        Assert.True(soulHub.OverlayOpen);
+        Assert.Null(soulHub.HandleInput(
+            session, new HashSet<Keys> { Keys.F }, Point.Zero, false, false));
+        Assert.True(soulHub.IsEnteringPortal);
+
+        for (int tick = 0; tick < 30; tick++)
+            soulHub.Update(session, .05);
+
+        Assert.Equal(SoulHub.CompositePathPortalKey, soulHub.HandleInput(
+            session, new HashSet<Keys>(), Point.Zero, false, false));
     }
 }

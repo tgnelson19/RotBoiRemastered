@@ -349,6 +349,15 @@ public class AcheTests
         Assert.True(pressure.HazardQuadrants.Count >= 3);
     }
 
+    [Fact]
+    public void UndirectedMisfiresStillMarkThePlayersCurrentPosition()
+    {
+        var pressure = SimulatePressure(1, seed: 404, duration: 20.0);
+
+        Assert.Contains("ache_chemesthesis_stationary_reflex", pressure.Owners);
+        Assert.Contains("ache_chemesthesis_misfire_splinter", pressure.Owners);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -866,6 +875,35 @@ public class RotTests
             float difference = MathF.Abs(MathF.Atan2(MathF.Sin(angle - boss.SafeCorridorAngle), MathF.Cos(angle - boss.SafeCorridorAngle)));
             Assert.True(difference >= .65f);
         });
+    }
+
+    [Fact]
+    public void ChokingStillnessUsesLongRakesAndCurvedSpores()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Rot(1000, 1000, battleground, new Random(31));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(4);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 6 &&
+             (!context.ProjectileSink.Any(projectile =>
+                  projectile.Owner == "rot_touch_stillness_rake") ||
+              !context.ProjectileSink.Any(projectile =>
+                  projectile.Owner == "rot_touch_stillness_spiral")); tick++)
+            StepRot(boss, context);
+
+        var rake = context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "rot_touch_stillness_rake").ToList();
+        Assert.True(rake.Count >= 11);
+        Assert.All(rake, projectile =>
+        {
+            Assert.Equal("bank", projectile.Path);
+            Assert.True(projectile.TelegraphDuration >= .9f);
+        });
+        Assert.Contains(context.ProjectileSink, projectile =>
+            projectile.Owner == "rot_touch_stillness_spiral" &&
+            projectile.Path == "sine" && projectile.Amplitude > 0);
     }
 
     [Fact]

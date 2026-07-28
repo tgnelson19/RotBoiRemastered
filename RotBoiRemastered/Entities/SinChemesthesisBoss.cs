@@ -118,14 +118,15 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         string shape = "diamond", string path = "linear", float? lifetime = null, float speedDecay = 0f,
         float orbitRadius = 0f, float angularSpeed = 0f, string ownerSuffix = "sin", string? affliction = null,
         double afflictionDuration = 0.0, double afflictionStrength = 0.0, double exposure = 0.0,
-        Vector2? afflictionSource = null)
+        Vector2? afflictionSource = null, float amplitude = 0f, float frequency = .035f)
     {
         var center = Center();
         float size = Size * scale;
         var shot = new EnemyProjectile(
             center.X - size / 2f, center.Y - size / 2f, direction, speed, damage, size,
             travelRange: Simulation.TileSize * (float)Config.ShotRangeTiles, color: PhaseAccent,
-            shape: shape, path: path, lifetime: lifetime, speedDecay: speedDecay,
+            shape: shape, path: path, amplitude: amplitude, frequency: frequency,
+            lifetime: lifetime, speedDecay: speedDecay,
             orbitCenter: orbitRadius != 0f ? center : null, orbitRadius: orbitRadius, orbitAngle: direction,
             angularSpeed: angularSpeed, owner: $"{Config.OwnerPrefix}_{ownerSuffix}", ignoreWalls: true)
         {

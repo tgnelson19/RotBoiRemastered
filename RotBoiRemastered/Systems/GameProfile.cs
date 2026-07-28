@@ -78,6 +78,11 @@ public sealed class GameProfileData
     public Dictionary<string, int> NewGamePlusUnlocked { get; set; } = new();
     /// <summary>Last selected NG+ tier per path, clamped against NewGamePlusUnlocked when read.</summary>
     public Dictionary<string, int> SelectedNewGamePlus { get; set; } = new();
+    /// <summary>
+    /// Most recent aggregate boss encounters for local balance inspection.
+    /// This list contains no player identity or frame-level input history.
+    /// </summary>
+    public List<BossEncounterTelemetryData> RecentBossEncounters { get; set; } = new();
 }
 
 /// <summary>
@@ -209,6 +214,10 @@ public static class GameProfile
         profile.PathMastery ??= new();
         profile.NewGamePlusUnlocked ??= new();
         profile.SelectedNewGamePlus ??= new();
+        profile.RecentBossEncounters ??= new();
+        if (profile.RecentBossEncounters.Count > 50)
+            profile.RecentBossEncounters.RemoveRange(
+                0, profile.RecentBossEncounters.Count - 50);
         // Pre-NG+ saves already recorded ordinary clears in PathMastery. Preserve
         // that accomplishment by opening NG+1, but never infer higher tiers from
         // the old repeat-clear count because those clears had no NG+ difficulty.
@@ -247,6 +256,14 @@ public static class GameProfile
         Profile.BestKills = Math.Max(Profile.BestKills, kills);
         if (completed)
             Profile.CompletedRuns += 1;
+        SaveProfile();
+    }
+
+    public static void RecordBossEncounter(BossEncounterTelemetryData encounter)
+    {
+        Profile.RecentBossEncounters.Add(encounter);
+        if (Profile.RecentBossEncounters.Count > 50)
+            Profile.RecentBossEncounters.RemoveAt(0);
         SaveProfile();
     }
 
