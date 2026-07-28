@@ -148,16 +148,25 @@ public sealed class ExperienceBubble
         Primitives2D.CircleOutline(spriteBatch, center, radius * 1.35f, new Color(UiTheme.Cream, 65), 2);
 
         float angle = VisualAge * 2.4f;
-        var diamond = new Vector2[4];
+        Span<Vector2> diamond = stackalloc Vector2[4];
         for (int i = 0; i < 4; i++)
         {
             float a = angle + i * MathF.PI / 2f;
             diamond[i] = center + new Vector2(MathF.Cos(a), MathF.Sin(a)) * radius;
         }
-        var shadowDiamond = diamond.Select(p => p + new Vector2(3, 3)).ToArray();
-        Primitives2D.FillPolygon(spriteBatch, shadowDiamond, UiTheme.Shadow);
-        Primitives2D.FillPolygon(spriteBatch, diamond, UiTheme.Green);
-        Primitives2D.PolygonOutline(spriteBatch, diamond, UiTheme.Cream, Math.Max(2, (int)(radius * 0.18f)));
+        Vector2 shadow = new(3, 3);
+        Primitives2D.FillQuad(
+            spriteBatch,
+            diamond[0] + shadow,
+            diamond[1] + shadow,
+            diamond[2] + shadow,
+            diamond[3] + shadow,
+            UiTheme.Shadow);
+        Primitives2D.FillQuad(
+            spriteBatch, diamond[0], diamond[1], diamond[2], diamond[3], UiTheme.Green);
+        Primitives2D.QuadOutline(
+            spriteBatch, diamond[0], diamond[1], diamond[2], diamond[3],
+            UiTheme.Cream, Math.Max(2, (int)(radius * 0.18f)));
         Primitives2D.FillCircle(spriteBatch, center, Math.Max(2f, radius * 0.28f), UiTheme.Text);
 
         for (int i = 0; i < 4; i++)

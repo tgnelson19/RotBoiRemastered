@@ -65,6 +65,14 @@ the Python source:
 - `PathFloorBlueprints.cs` owns macro-layout coordinates and separates spatial
   silhouette (`PathRoomShape`) from gameplay purpose (`PathRoomType`). This is
   what lets an Assault be an arena on one floor and a maze on another.
+- `PathFogOfWar.cs` owns persistent discovery and current line of sight for
+  generated floors. Rays use the player's real sub-tile position and traverse
+  grid boundaries without a range cap. A non-cascading presentation pass keeps
+  walls beside visible floor lit and reveals true L-shaped wall corners when
+  either adjoining wall is visible, avoiding corridor wedges and corner-tile
+  flicker without revealing the sealed space behind them. Immutable topology,
+  flat visibility buffers, and reusable corner support storage keep moving LOS
+  refreshes allocation-free.
 - `PathThemeVisuals.cs` supplies the generated floors' semantic scenery
   contract. Touch uses sewer channels, grates, pumps, and sludge; Sight uses
   water, caustics, lens buoys, and drowned ruins; Sound uses cloud banks, wind
@@ -78,7 +86,10 @@ the Python source:
   motifs, varies wall-face materials by sense, painter-sorts raised props with
   walls, and leaves ambient emitters to `GameSession`; floors six through ten
   add deterioration, stronger atmospheric density, and a darker material
-  grade. Protected starts are now full ceremonial thresholds with a
+  grade. The live Path draw uses one combined raised-scenery/actor pass,
+  allocation-free wall quads, retained painter buffers, and coalesced fog runs
+  instead of redrawing the raised layer or submitting one mask per tile.
+  Protected starts are now full ceremonial thresholds with a
   sense-specific central crest, processional floor axis, paired landmarks, and
   denser ambience. Every `GrandArena` room has also been recomposed around a
   large sense emblem, an eight-part material ring, perimeter monuments, and an

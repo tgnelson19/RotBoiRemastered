@@ -26,6 +26,7 @@ public sealed class PathRun
 
     private readonly Random _rng;
     private readonly List<string> _senseOrder;
+    private readonly List<PathRoom> _activeCombatRooms = new();
 
     public int FloorNumber { get; private set; } = 1;
     public string CurrentSenseKey => _senseOrder[FloorNumber - 1];
@@ -38,9 +39,7 @@ public sealed class PathRun
         _ => PathFloorBossTier.Guardian,
     };
     public PathFloorLayout Layout { get; private set; }
-    public IReadOnlyList<PathRoom> ActiveCombatRooms => Layout.Rooms
-        .Where(room => room.IsCombatRoom && room.IsActivated && !room.IsCleared)
-        .ToList();
+    public IReadOnlyList<PathRoom> ActiveCombatRooms => _activeCombatRooms;
     public bool ExitPortalOpen { get; private set; }
     public bool IsComplete { get; private set; }
     public double FloorStartedAtRunSeconds { get; private set; }
@@ -111,15 +110,31 @@ public sealed class PathRun
     /// </summary>
     public IReadOnlyList<PathRoom> CompleteReadyCombatRooms(IReadOnlyList<Enemy> enemies)
     {
-        var completed = new List<PathRoom>();
-        foreach (var room in ActiveCombatRooms)
+        List<PathRoom>? completedRooms = null;
+        for (int roomIndex = _activeCombatRooms.Count - 1; roomIndex >= 0; roomIndex--)
         {
-            if (enemies.Any(enemy => enemy.EncounterKey == room.EncounterKey))
+            PathRoom room = _activeCombatRooms[roomIndex];
+            bool hasLivingEnemy = false;
+            for (int enemyIndex = 0; enemyIndex < enemies.Count; enemyIndex++)
+            {
+                if (enemies[enemyIndex].EncounterKey == room.EncounterKey)
+                {
+                    hasLivingEnemy = true;
+                    break;
+                }
+            }
+            if (hasLivingEnemy)
                 continue;
             room.IsCleared = true;
-            completed.Add(room);
+            _activeCombatRooms.RemoveAt(roomIndex);
+            (completedRooms ??= new List<PathRoom>()).Add(room);
         }
-        return completed;
+        // Reverse traversal makes removal allocation-free; one in-place
+        // reversal restores the activation order exposed by the old query.
+        completedRooms?.Reverse();
+        return completedRooms is null
+            ? Array.Empty<PathRoom>()
+            : completedRooms;
     }
 
     /// <summary>
@@ -139,7 +154,9 @@ public sealed class PathRun
         room.IsActivated = true;
         LastEnteredRoom = room;
         RoomEnteredAtRunSeconds = runTimeSeconds;
-        if (!room.IsCombatRoom && room.Type != PathRoomType.Boss)
+        if (room.IsCombatRoom)
+            _activeCombatRooms.Add(room);
+        else if (room.Type != PathRoomType.Boss)
             room.IsCleared = true;
         return room;
     }
@@ -174,6 +191,7 @@ public sealed class PathRun
             return false;
         FloorNumber += 1;
         Layout = PathFloorGenerator.Generate(CurrentSenseKey, FloorNumber, _rng);
+        _activeCombatRooms.Clear();
         ExitPortalOpen = false;
         FloorStartedAtRunSeconds = runTimeSeconds;
         LastEnteredRoom = null;

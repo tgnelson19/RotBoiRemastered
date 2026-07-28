@@ -19,7 +19,7 @@ public sealed class PathFogOfWarTests
     {
         var battleground = OpenGrid();
         battleground.Tiles[4, 4] = TileType.ArenaWall;
-        var fog = new PathFogOfWar(battleground, sightRadiusTiles: 8);
+        var fog = new PathFogOfWar(battleground);
 
         fog.Update(TileCenter(2.5f, 4.5f));
 
@@ -31,7 +31,10 @@ public sealed class PathFogOfWarTests
     [Fact]
     public void Update_KeepsOldSightExploredButNoLongerVisible()
     {
-        var fog = new PathFogOfWar(OpenGrid(20, 8), sightRadiusTiles: 3);
+        var battleground = OpenGrid(20, 8);
+        for (int y = 0; y < battleground.Height; y++)
+            battleground.Tiles[y, 10] = TileType.BuildingWall;
+        var fog = new PathFogOfWar(battleground);
         fog.Update(TileCenter(2.5f, 3.5f));
         Assert.True(fog.IsVisible(2, 3));
 
@@ -47,7 +50,7 @@ public sealed class PathFogOfWarTests
     {
         var battleground = OpenGrid();
         battleground.Tiles[3, 4] = TileType.BuildingWall;
-        var fog = new PathFogOfWar(battleground, sightRadiusTiles: 8);
+        var fog = new PathFogOfWar(battleground);
 
         Assert.False(fog.HasLineOfSight(3.5f, 3.5f, 5, 4));
         Assert.True(fog.HasLineOfSight(3.5f, 4.4f, 5, 4));
@@ -56,7 +59,10 @@ public sealed class PathFogOfWarTests
     [Fact]
     public void IsWorldAreaVisible_ReturnsTrueWhenAnyCoveredTileIsLit()
     {
-        var fog = new PathFogOfWar(OpenGrid(), sightRadiusTiles: 3);
+        var battleground = OpenGrid();
+        for (int y = 0; y < battleground.Height; y++)
+            battleground.Tiles[y, 6] = TileType.BuildingWall;
+        var fog = new PathFogOfWar(battleground);
         fog.Update(TileCenter(2.5f, 2.5f));
 
         Assert.True(fog.IsWorldAreaVisible(new Rectangle(
@@ -65,5 +71,57 @@ public sealed class PathFogOfWarTests
         Assert.False(fog.IsWorldAreaVisible(new Rectangle(
             8 * Battleground.TileSize, 8 * Battleground.TileSize,
             Battleground.TileSize, Battleground.TileSize)));
+    }
+
+    [Fact]
+    public void Update_RevealsAnUnobstructedHallwayToTheFarEdgeOfTheFloor()
+    {
+        var battleground = OpenGrid(width: 141, height: 7);
+        for (int x = 0; x < battleground.Width; x++)
+        {
+            battleground.Tiles[1, x] = TileType.BuildingWall;
+            battleground.Tiles[5, x] = TileType.BuildingWall;
+        }
+        var fog = new PathFogOfWar(battleground);
+
+        fog.Update(TileCenter(2.5f, 3.5f));
+
+        Assert.True(fog.IsVisible(138, 3));
+        Assert.True(fog.IsVisible(138, 1));
+        Assert.True(fog.IsVisible(138, 5));
+    }
+
+    [Fact]
+    public void Update_RevealsAnObscuredConvexCornerWhenItsNeighborWallIsVisible()
+    {
+        var battleground = OpenGrid();
+        battleground.Tiles[5, 4] = TileType.BuildingWall;
+        battleground.Tiles[5, 5] = TileType.BuildingWall;
+        battleground.Tiles[4, 5] = TileType.BuildingWall;
+        var fog = new PathFogOfWar(battleground);
+        Vector2 observer = TileCenter(3.5f, 5.5f);
+
+        Assert.False(fog.HasLineOfSight(3.5f, 5.5f, 5, 5));
+
+        fog.Update(observer);
+
+        Assert.True(fog.IsVisible(4, 5));
+        Assert.True(fog.IsVisible(5, 5));
+    }
+
+    [Fact]
+    public void Update_DoesNotCascadeCornerSupportAlongAnObscuredWall()
+    {
+        var battleground = OpenGrid();
+        battleground.Tiles[5, 4] = TileType.BuildingWall;
+        battleground.Tiles[5, 5] = TileType.BuildingWall;
+        battleground.Tiles[4, 5] = TileType.BuildingWall;
+        battleground.Tiles[4, 6] = TileType.BuildingWall;
+        var fog = new PathFogOfWar(battleground);
+
+        fog.Update(TileCenter(3.5f, 5.5f));
+
+        Assert.True(fog.IsVisible(5, 5));
+        Assert.False(fog.IsVisible(6, 4));
     }
 }

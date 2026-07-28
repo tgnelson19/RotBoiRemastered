@@ -606,9 +606,10 @@ public class RotBoiGame : Game
 
         _spriteBatch.Begin();
         session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);
-        session.DrawBountyIndicator(_spriteBatch);
+        BountyInfo? bounty = session.SelectBountyTarget();
+        session.DrawBountyIndicator(_spriteBatch, bounty);
         session.DrawBossPortalIndicator(_spriteBatch);
-        session.DrawInformationSheet(_spriteBatch, InputState.MousePosition);
+        session.DrawInformationSheet(_spriteBatch, InputState.MousePosition, bounty);
         session.HandleInformationSheetDrag(InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
         session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
         _spriteBatch.End();

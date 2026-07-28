@@ -11,11 +11,21 @@ namespace RotBoiRemastered.World;
 /// floor, not the top of its artwork. PaintPriority only breaks exact depth
 /// ties; screen-space ground depth remains the primary ordering rule.
 /// </summary>
+public enum WorldDepthDrawKind
+{
+    Bullet,
+    Encounter,
+    Enemy,
+    Player,
+    EnemyProjectile,
+}
+
 public readonly record struct WorldDepthDrawItem(
     Vector2 WorldAnchor,
     int PaintPriority,
     int StableOrder,
-    Action<SpriteBatch> Draw);
+    WorldDepthDrawKind Kind,
+    object Drawable);
 
 /// <summary>
 /// Bakes each Battleground's floor plane into a RenderTarget2D once, then
@@ -63,6 +73,9 @@ public sealed class ArenaRenderer
     private List<(int X, int Y, TileType Tile, int Biome)> _walls = new();
     private List<(int X, int Y, int Biome)> _decorations = new();
     private List<PathDecoration> _pathRaisedDecorations = new();
+    private readonly List<(float ScreenY, int Kind, int X, int Y, TileType Tile, int Biome, PathDecoration? PathDecoration)>
+        _visibleItemScratch = new();
+    private readonly List<DepthSceneItem> _depthSceneScratch = new();
 
     /// <summary>No-op once already baked for this exact Battleground reference. Call once at the top of the frame, before the frame's own SpriteBatch.Begin().</summary>
     public void EnsureBaked(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Battleground battleground)
@@ -608,7 +621,14 @@ public sealed class ArenaRenderer
     }
 
     /// <summary>Draws the baked ground plane rotated, then camera-facing walls/decorations sorted by screen Y, clipped to viewport.</summary>
-    public void Draw(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake, Rectangle viewport)
+    public void Draw(
+        SpriteBatch spriteBatch,
+        GraphicsDevice graphicsDevice,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle viewport,
+        bool drawRaisedScenery = true)
     {
         if (_bakedGround is null || _bakedFor is null)
             return;
@@ -620,22 +640,29 @@ public sealed class ArenaRenderer
         float rotation = -MathHelper.ToRadians(camera.AngleDegrees);
         spriteBatch.Draw(_bakedGround, camera.Lock + screenShake, null, Color.White, rotation, playerWorldPosition, 1f, SpriteEffects.None, 0f);
 
+        if (!drawRaisedScenery)
+        {
+            spriteBatch.End();
+            graphicsDevice.ScissorRectangle = previousScissor;
+            return;
+        }
+
         var visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
         float halfTile = Battleground.TileSize / 2f;
 
-        var visibleItems = new List<(float ScreenY, int Kind, int X, int Y, TileType Tile, int Biome, PathDecoration? PathDecoration)>();
+        _visibleItemScratch.Clear();
         foreach (var (x, y, tile, biome) in _walls)
         {
             var center = camera.WorldToScreen(new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile), playerWorldPosition, screenShake);
             if (visibility.Contains(center.ToPoint()))
-                visibleItems.Add((center.Y, 0, x, y, tile, biome, null));
+                _visibleItemScratch.Add((center.Y, 0, x, y, tile, biome, null));
         }
         foreach (var (x, y, biome) in _decorations)
         {
             var center = camera.WorldToScreen(new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile), playerWorldPosition, screenShake);
             if (visibility.Contains(center.ToPoint()))
-                visibleItems.Add((center.Y, 1, x, y, TileType.Default, biome, null));
+                _visibleItemScratch.Add((center.Y, 1, x, y, TileType.Default, biome, null));
         }
         foreach (var decoration in _pathRaisedDecorations)
         {
@@ -645,12 +672,12 @@ public sealed class ArenaRenderer
                 int tileX = Math.Clamp((int)(decoration.WorldPosition.X / Battleground.TileSize), 0, _bakedFor.Width - 1);
                 int tileY = Math.Clamp((int)(decoration.WorldPosition.Y / Battleground.TileSize), 0, _bakedFor.Height - 1);
                 int biome = _bakedFor.BiomeForTile(tileX, tileY);
-                visibleItems.Add((center.Y, 2, tileX, tileY, TileType.Default, biome, decoration));
+                _visibleItemScratch.Add((center.Y, 2, tileX, tileY, TileType.Default, biome, decoration));
             }
         }
-        visibleItems.Sort((a, b) => a.ScreenY.CompareTo(b.ScreenY));
+        _visibleItemScratch.Sort(static (a, b) => a.ScreenY.CompareTo(b.ScreenY));
 
-        foreach (var item in visibleItems)
+        foreach (var item in _visibleItemScratch)
         {
             var palette = _bakedFor.Palettes[item.Biome];
             if (item.Kind == 0)
@@ -675,9 +702,9 @@ public sealed class ArenaRenderer
         camera.WorldVectorToScreen(worldAnchor).Y;
 
     /// <summary>
-    /// Repaints raised scenery and draws grounded combat objects in one
-    /// camera-depth order. Raised scenery was already present in the
-    /// background pass; repainting it here is intentional:
+    /// Draws raised scenery and grounded combat objects in one camera-depth
+    /// order. The regular gameplay background pass stops after the baked
+    /// ground plane so this is the one authoritative raised-scenery pass:
     ///
     /// - an object north/behind a wall paints first, then the wall cap/face
     ///   covers the overlapping pixels;
@@ -692,28 +719,42 @@ public sealed class ArenaRenderer
         Vector2 playerWorldPosition,
         Vector2 screenShake,
         Rectangle viewport,
-        IReadOnlyList<WorldDepthDrawItem> dynamicItems)
+        IReadOnlyList<WorldDepthDrawItem> dynamicItems,
+        Action<SpriteBatch, WorldDepthDrawItem> drawDynamic)
     {
+        _depthSceneScratch.Clear();
+        _depthSceneScratch.EnsureCapacity(
+            dynamicItems.Count + _walls.Count + _decorations.Count + _pathRaisedDecorations.Count);
         if (_bakedFor is null)
         {
-            foreach (var item in dynamicItems
-                         .OrderBy(item => GroundDepth(camera, item.WorldAnchor))
-                         .ThenBy(item => item.PaintPriority)
-                         .ThenBy(item => item.StableOrder))
-                item.Draw(spriteBatch);
+            for (int index = 0; index < dynamicItems.Count; index++)
+            {
+                WorldDepthDrawItem item = dynamicItems[index];
+                _depthSceneScratch.Add(new DepthSceneItem(
+                    GroundDepth(camera, item.WorldAnchor),
+                    item.PaintPriority,
+                    item.StableOrder,
+                    DynamicIndex: index,
+                    Kind: -1,
+                    X: 0,
+                    Y: 0,
+                    Tile: TileType.Default,
+                    Biome: 0,
+                    PathDecoration: null));
+            }
+            SortDepthScene();
+            foreach (DepthSceneItem sceneItem in _depthSceneScratch)
+                drawDynamic(spriteBatch, dynamicItems[sceneItem.DynamicIndex]);
             return;
         }
 
         var visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
         float halfTile = Battleground.TileSize / 2f;
-        var scene = new List<DepthSceneItem>(
-            dynamicItems.Count + _walls.Count + _decorations.Count + _pathRaisedDecorations.Count);
-
         for (int index = 0; index < dynamicItems.Count; index++)
         {
             var item = dynamicItems[index];
-            scene.Add(new DepthSceneItem(
+            _depthSceneScratch.Add(new DepthSceneItem(
                 GroundDepth(camera, item.WorldAnchor),
                 item.PaintPriority,
                 item.StableOrder,
@@ -733,7 +774,7 @@ public sealed class ArenaRenderer
             var center = camera.WorldToScreen(anchor, playerWorldPosition, screenShake);
             if (!visibility.Contains(center.ToPoint()))
                 continue;
-            scene.Add(new DepthSceneItem(
+            _depthSceneScratch.Add(new DepthSceneItem(
                 GroundDepth(camera, anchor),
                 SceneryPaintPriority,
                 sceneryOrder++,
@@ -751,7 +792,7 @@ public sealed class ArenaRenderer
             var center = camera.WorldToScreen(anchor, playerWorldPosition, screenShake);
             if (!visibility.Contains(center.ToPoint()))
                 continue;
-            scene.Add(new DepthSceneItem(
+            _depthSceneScratch.Add(new DepthSceneItem(
                 GroundDepth(camera, anchor),
                 SceneryPaintPriority,
                 sceneryOrder++,
@@ -771,7 +812,7 @@ public sealed class ArenaRenderer
             int tileX = Math.Clamp((int)(decoration.WorldPosition.X / Battleground.TileSize), 0, _bakedFor.Width - 1);
             int tileY = Math.Clamp((int)(decoration.WorldPosition.Y / Battleground.TileSize), 0, _bakedFor.Height - 1);
             int biome = _bakedFor.BiomeForTile(tileX, tileY);
-            scene.Add(new DepthSceneItem(
+            _depthSceneScratch.Add(new DepthSceneItem(
                 GroundDepth(camera, decoration.WorldPosition),
                 SceneryPaintPriority,
                 sceneryOrder++,
@@ -784,20 +825,13 @@ public sealed class ArenaRenderer
                 PathDecoration: decoration));
         }
 
-        scene.Sort(static (left, right) =>
-        {
-            int comparison = left.Depth.CompareTo(right.Depth);
-            if (comparison != 0)
-                return comparison;
-            comparison = left.PaintPriority.CompareTo(right.PaintPriority);
-            return comparison != 0 ? comparison : left.StableOrder.CompareTo(right.StableOrder);
-        });
+        SortDepthScene();
 
-        foreach (var item in scene)
+        foreach (var item in _depthSceneScratch)
         {
             if (item.DynamicIndex >= 0)
             {
-                dynamicItems[item.DynamicIndex].Draw(spriteBatch);
+                drawDynamic(spriteBatch, dynamicItems[item.DynamicIndex]);
                 continue;
             }
 
@@ -810,6 +844,16 @@ public sealed class ArenaRenderer
                 DrawPathRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.PathDecoration, palette);
         }
     }
+
+    private void SortDepthScene() =>
+        _depthSceneScratch.Sort(static (left, right) =>
+        {
+            int comparison = left.Depth.CompareTo(right.Depth);
+            if (comparison != 0)
+                return comparison;
+            comparison = left.PaintPriority.CompareTo(right.PaintPriority);
+            return comparison != 0 ? comparison : left.StableOrder.CompareTo(right.StableOrder);
+        });
 
     private const int SceneryPaintPriority = 100;
 
@@ -879,38 +923,78 @@ public sealed class ArenaRenderer
     private void DrawCameraFacingWall(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake, int tileX, int tileY, TileType tile, BiomePalette palette)
     {
         int height = _bakedFor!.WallHeight + (tile == TileType.ArenaWall ? 2 : 0);
-        var (ground, cap) = WallScreenGeometry(camera, playerWorldPosition, screenShake, tileX, tileY, height);
-
-        foreach (var (_, face) in VisibleWallFaces(camera, _bakedFor, tileX, tileY, ground, cap))
+        int size = Battleground.TileSize;
+        Span<Vector2> ground = stackalloc Vector2[4]
         {
-            Primitives2D.FillPolygon(spriteBatch, face, palette.WallFace);
-            // A closed two-pixel outline put black strokes on both vertical
-            // sides of every projected face. At oblique camera angles those
-            // independently rounded strokes occasionally doubled into the
-            // conspicuous black bars seen between otherwise continuous walls.
-            // Keep the depth-defining horizontal seams, but let neighboring
-            // face fills meet without a black vertical strip between them.
-            var seam = palette.WallFace * .68f;
-            Primitives2D.Line(spriteBatch, face[0], face[1], seam, 1);
-            Primitives2D.Line(spriteBatch, face[3], face[2], seam, 1);
-            var lowerLeft = face[3];
-            var lowerRight = face[2];
-            var accentLeft = new Vector2(lowerLeft.X * .82f + lowerRight.X * .18f, lowerLeft.Y * .82f + lowerRight.Y * .18f - 5);
-            var accentRight = new Vector2(lowerLeft.X * .18f + lowerRight.X * .82f, lowerLeft.Y * .18f + lowerRight.Y * .82f - 5);
-            Primitives2D.Line(spriteBatch, accentLeft, accentRight, palette.Accent, 2);
-            DrawPathWallMaterial(spriteBatch, face, tileX, tileY,
-                _bakedFor.VisualThemeKey, palette);
+            camera.WorldToScreen(new Vector2(tileX * size, tileY * size), playerWorldPosition, screenShake),
+            camera.WorldToScreen(new Vector2((tileX + 1) * size, tileY * size), playerWorldPosition, screenShake),
+            camera.WorldToScreen(new Vector2((tileX + 1) * size, (tileY + 1) * size), playerWorldPosition, screenShake),
+            camera.WorldToScreen(new Vector2(tileX * size, (tileY + 1) * size), playerWorldPosition, screenShake),
+        };
+        Span<Vector2> cap = stackalloc Vector2[4];
+        for (int index = 0; index < 4; index++)
+            cap[index] = new Vector2(ground[index].X, ground[index].Y - height);
+
+        Span<int> visibleEdges = stackalloc int[2];
+        Span<float> visibleNormals = stackalloc float[2];
+        int visibleCount = 0;
+        for (int edge = 0; edge < 4; edge++)
+        {
+            int neighborX = tileX;
+            int neighborY = tileY;
+            Vector2 normal;
+            switch (edge)
+            {
+                case 0: neighborY--; normal = new Vector2(0, -1); break;
+                case 1: neighborX++; normal = new Vector2(1, 0); break;
+                case 2: neighborY++; normal = new Vector2(0, 1); break;
+                default: neighborX--; normal = new Vector2(-1, 0); break;
+            }
+            if (_bakedFor.IsRaisedAt(neighborX, neighborY))
+                continue;
+            float normalY = camera.WorldVectorToScreen(normal).Y;
+            if (normalY <= .001f)
+                continue;
+            int insertion = visibleCount;
+            while (insertion > 0 && normalY < visibleNormals[insertion - 1])
+            {
+                visibleNormals[insertion] = visibleNormals[insertion - 1];
+                visibleEdges[insertion] = visibleEdges[insertion - 1];
+                insertion--;
+            }
+            visibleNormals[insertion] = normalY;
+            visibleEdges[insertion] = edge;
+            visibleCount++;
         }
 
-        Primitives2D.FillPolygon(spriteBatch, cap, palette.WallTop);
-        Primitives2D.PolygonOutline(spriteBatch, cap, UiTheme.Ink, 2);
-        var topEdge = Enumerable.Range(0, 4)
-            .Select(i => (Start: cap[i], End: cap[(i + 1) % 4]))
-            .OrderBy(e => (e.Start.Y + e.End.Y) / 2f)
-            .First();
-        Primitives2D.Line(spriteBatch, topEdge.Start, topEdge.End, palette.Detail, 2);
+        for (int index = 0; index < visibleCount; index++)
+        {
+            int start = visibleEdges[index];
+            int end = (start + 1) % 4;
+            DrawWallFace(spriteBatch, cap[start], cap[end], ground[end], ground[start],
+                tileX, tileY, palette);
+        }
 
-        float centerX = cap.Average(p => p.X), centerY = cap.Average(p => p.Y);
+        Primitives2D.FillQuad(spriteBatch, cap[0], cap[1], cap[2], cap[3], palette.WallTop);
+        for (int edge = 0; edge < 4; edge++)
+            Primitives2D.Line(spriteBatch, cap[edge], cap[(edge + 1) % 4], UiTheme.Ink, 2);
+
+        int topEdgeIndex = 0;
+        float topEdgeY = (cap[0].Y + cap[1].Y) * .5f;
+        for (int edge = 1; edge < 4; edge++)
+        {
+            float edgeY = (cap[edge].Y + cap[(edge + 1) % 4].Y) * .5f;
+            if (edgeY < topEdgeY)
+            {
+                topEdgeY = edgeY;
+                topEdgeIndex = edge;
+            }
+        }
+        Primitives2D.Line(spriteBatch, cap[topEdgeIndex], cap[(topEdgeIndex + 1) % 4],
+            palette.Detail, 2);
+
+        float centerX = (cap[0].X + cap[1].X + cap[2].X + cap[3].X) * .25f;
+        float centerY = (cap[0].Y + cap[1].Y + cap[2].Y + cap[3].Y) * .25f;
         if (tile == TileType.ArenaWall)
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)centerX - 3, (int)centerY - 3, 6, 6), palette.Accent);
         else if ((tileX + tileY) % 2 == 0)
@@ -927,9 +1011,35 @@ public sealed class ArenaRenderer
         }
     }
 
+    private void DrawWallFace(
+        SpriteBatch spriteBatch,
+        Vector2 topLeft,
+        Vector2 topRight,
+        Vector2 bottomRight,
+        Vector2 bottomLeft,
+        int tileX,
+        int tileY,
+        BiomePalette palette)
+    {
+        Primitives2D.FillQuad(
+            spriteBatch, topLeft, topRight, bottomRight, bottomLeft, palette.WallFace);
+        Color seam = palette.WallFace * .68f;
+        Primitives2D.Line(spriteBatch, topLeft, topRight, seam, 1);
+        Primitives2D.Line(spriteBatch, bottomLeft, bottomRight, seam, 1);
+        Vector2 accentLeft = Vector2.Lerp(bottomLeft, bottomRight, .18f) - new Vector2(0, 5);
+        Vector2 accentRight = Vector2.Lerp(bottomLeft, bottomRight, .82f) - new Vector2(0, 5);
+        Primitives2D.Line(spriteBatch, accentLeft, accentRight, palette.Accent, 2);
+        DrawPathWallMaterial(
+            spriteBatch, topLeft, topRight, bottomRight, bottomLeft,
+            tileX, tileY, _bakedFor!.VisualThemeKey, palette);
+    }
+
     private static void DrawPathWallMaterial(
         SpriteBatch spriteBatch,
-        Vector2[] face,
+        Vector2 topLeft,
+        Vector2 topRight,
+        Vector2 bottomRight,
+        Vector2 bottomLeft,
         int tileX,
         int tileY,
         string? themeKey,
@@ -938,11 +1048,11 @@ public sealed class ArenaRenderer
         if (themeKey is null)
             return;
 
-        Vector2 Top(float amount) => Vector2.Lerp(face[0], face[1], amount);
-        Vector2 Bottom(float amount) => Vector2.Lerp(face[3], face[2], amount);
+        Vector2 Top(float amount) => Vector2.Lerp(topLeft, topRight, amount);
+        Vector2 Bottom(float amount) => Vector2.Lerp(bottomLeft, bottomRight, amount);
         Vector2 Across(float amount, float depth) =>
-            Vector2.Lerp(Vector2.Lerp(face[0], face[3], depth),
-                Vector2.Lerp(face[1], face[2], depth), amount);
+            Vector2.Lerp(Vector2.Lerp(topLeft, bottomLeft, depth),
+                Vector2.Lerp(topRight, bottomRight, depth), amount);
         int hash = Math.Abs(tileX * 47 + tileY * 83);
         Color line = palette.Detail * .38f;
 
@@ -975,11 +1085,45 @@ public sealed class ArenaRenderer
                     palette.Detail * .65f);
                 break;
             case "chemesthesis":
-                Primitives2D.Polyline(spriteBatch, new[]
-                {
-                    Top(.32f), Across(.55f, .36f), Across(.42f, .65f), Bottom(.7f),
-                }, false, line, 1);
+                Vector2 crackStart = Top(.32f);
+                Vector2 crackMidA = Across(.55f, .36f);
+                Vector2 crackMidB = Across(.42f, .65f);
+                Vector2 crackEnd = Bottom(.7f);
+                Primitives2D.Line(spriteBatch, crackStart, crackMidA, line, 1);
+                Primitives2D.Line(spriteBatch, crackMidA, crackMidB, line, 1);
+                Primitives2D.Line(spriteBatch, crackMidB, crackEnd, line, 1);
                 break;
+        }
+    }
+
+    /// <summary>Draws a complete dark wall volume without temporary geometry arrays.</summary>
+    public static void DrawWallOcclusionMask(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        int tileX,
+        int tileY,
+        int height,
+        Color color)
+    {
+        int size = Battleground.TileSize;
+        Span<Vector2> ground = stackalloc Vector2[4]
+        {
+            camera.WorldToScreen(new Vector2(tileX * size, tileY * size), playerWorldPosition, screenShake),
+            camera.WorldToScreen(new Vector2((tileX + 1) * size, tileY * size), playerWorldPosition, screenShake),
+            camera.WorldToScreen(new Vector2((tileX + 1) * size, (tileY + 1) * size), playerWorldPosition, screenShake),
+            camera.WorldToScreen(new Vector2(tileX * size, (tileY + 1) * size), playerWorldPosition, screenShake),
+        };
+        Span<Vector2> cap = stackalloc Vector2[4];
+        for (int index = 0; index < 4; index++)
+            cap[index] = new Vector2(ground[index].X, ground[index].Y - height);
+        Primitives2D.FillQuad(spriteBatch, cap[0], cap[1], cap[2], cap[3], color);
+        for (int edge = 0; edge < 4; edge++)
+        {
+            int next = (edge + 1) % 4;
+            Primitives2D.FillQuad(
+                spriteBatch, cap[edge], cap[next], ground[next], ground[edge], color);
         }
     }
 

@@ -184,7 +184,9 @@ records what each review found, what was promoted into the next pass, and why.
   arena.
 - Added persistent tile discovery and sub-tile LOS ray marching. Walls remain
   readable while occluding tiles behind them; explored areas darken after the
-  player leaves.
+  player leaves. LOS now has no arbitrary range cutoff, visible corridor floor
+  supports its bordering wall faces, and a non-cascading corner pass keeps
+  convex wall turns from flashing dark when an adjoining wall remains visible.
 - Hidden enemies, hostile pools/projectiles, bounties, boss health UI, room
   footprints, and routes now follow the same visibility contract.
 - Added treasure seals, symmetric authored landmark groups, five new floor
@@ -219,6 +221,42 @@ records what each review found, what was promoted into the next pass, and why.
 - Moved randomized Path entry into that convergence portal, including its own
   confirmation and pull/fade sequence, and removed the title-screen button and
   keyboard shortcut.
+
+## Iteration 6 — Performance and traversal smoothness
+
+### Review
+
+- Unlimited sub-tile fog refreshed by tracing every target independently and
+  allocated short-lived neighbor iterators/support lists on every movement
+  frame.
+- Actor collision rebuilt rotated polygons and separating-axis collections
+  several times per enemy per frame.
+- Raised scenery was rendered in the background pass and then rendered again
+  in the authoritative actor/scenery depth pass.
+- Combat updates and HUD drawing repeatedly rebuilt derived room, projectile,
+  hitbox, bounty, minimap, and painter-order collections.
+- Fog masking submitted one ground sprite per hidden tile and rebuilt wall
+  geometry arrays for every obscured wall in view.
+
+### Implemented
+
+- Flattened immutable fog topology and visibility state into cache-friendly
+  arrays, retained exact sub-tile/unlimited LOS behavior, and made the
+  presentation support passes allocation-free.
+- Cached camera trigonometry, immutable layout/decor metadata, active-room
+  state, build snapshots, hitboxes, and reusable frame scratch buffers.
+- Added allocation-free screen-aligned rectangle collision and quad rendering
+  for actors, projectiles, pickups, walls, and wall fog volumes.
+- Removed the duplicate raised-scenery pass while preserving the combined
+  actor/wall painter order.
+- Coalesced adjacent fog tiles with the same discovery state into rotated row
+  runs and retained raised-wall masking as a separate volume pass.
+- Reused the spatial collision index and projectile tails, removed repeated
+  LINQ/list materialization from active Path update/draw loops, and selected
+  the frame bounty once for both HUD consumers.
+- A representative 141x81 floor's LOS refresh improved from about 2.01 ms and
+  67.6 KB allocated per update to about 0.40 ms with zero steady-state
+  allocation in the local release probe.
 
 ## Future priority backlog
 

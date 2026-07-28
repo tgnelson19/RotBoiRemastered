@@ -218,6 +218,66 @@ public static class Primitives2D
         }
     }
 
+    /// <summary>
+    /// Allocation-free specialization for the wall caps/faces and fog masks
+    /// that dominate Path rendering. It preserves FillPolygon's even-odd
+    /// scanline rasterization without creating a point array and intersection
+    /// list for every visible wall.
+    /// </summary>
+    public static void FillQuad(
+        SpriteBatch spriteBatch,
+        Vector2 first,
+        Vector2 second,
+        Vector2 third,
+        Vector2 fourth,
+        Color color)
+    {
+        Span<Vector2> points = stackalloc Vector2[4] { first, second, third, fourth };
+        float minY = Math.Min(Math.Min(first.Y, second.Y), Math.Min(third.Y, fourth.Y));
+        float maxY = Math.Max(Math.Max(first.Y, second.Y), Math.Max(third.Y, fourth.Y));
+        int yStart = (int)MathF.Floor(minY);
+        int yEnd = (int)MathF.Ceiling(maxY);
+        Span<float> intersections = stackalloc float[4];
+        for (int y = yStart; y <= yEnd; y++)
+        {
+            int count = 0;
+            for (int index = 0; index < points.Length; index++)
+            {
+                Vector2 a = points[index];
+                Vector2 b = points[(index + 1) % points.Length];
+                if (a.Y == b.Y)
+                    continue;
+                if ((y >= a.Y && y < b.Y) || (y >= b.Y && y < a.Y))
+                    intersections[count++] = a.X + (y - a.Y) / (b.Y - a.Y) * (b.X - a.X);
+            }
+            if (count < 2)
+                continue;
+            intersections[..count].Sort();
+            for (int index = 0; index + 1 < count; index += 2)
+            {
+                int xStart = (int)MathF.Round(intersections[index]);
+                int xEnd = (int)MathF.Round(intersections[index + 1]);
+                if (xEnd > xStart)
+                    FillRect(spriteBatch, new Rectangle(xStart, y, xEnd - xStart, 1), color);
+            }
+        }
+    }
+
+    public static void QuadOutline(
+        SpriteBatch spriteBatch,
+        Vector2 first,
+        Vector2 second,
+        Vector2 third,
+        Vector2 fourth,
+        Color color,
+        int width)
+    {
+        Line(spriteBatch, first, second, color, width);
+        Line(spriteBatch, second, third, color, width);
+        Line(spriteBatch, third, fourth, color, width);
+        Line(spriteBatch, fourth, first, color, width);
+    }
+
     /// <summary>Polygon outline (pygame.draw.polygon with width>0) -- closed Polyline.</summary>
     public static void PolygonOutline(SpriteBatch spriteBatch, IReadOnlyList<Vector2> points, Color color, int width)
         => Polyline(spriteBatch, points, closed: true, color, width);

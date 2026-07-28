@@ -315,12 +315,14 @@ public sealed class PathVariantEnemy : WanderingRangedEnemy
         }
         else
         {
-            var diamond = new[]
-            {
-                center + new Vector2(0, -radius), center + new Vector2(radius, 0),
-                center + new Vector2(0, radius), center + new Vector2(-radius, 0),
-            };
-            Primitives2D.PolygonOutline(spriteBatch, diamond, UiTheme.Cream, stroke);
+            Primitives2D.QuadOutline(
+                spriteBatch,
+                center + new Vector2(0, -radius),
+                center + new Vector2(radius, 0),
+                center + new Vector2(0, radius),
+                center + new Vector2(-radius, 0),
+                UiTheme.Cream,
+                stroke);
             Primitives2D.FillCircle(spriteBatch, center, Math.Max(2, radius / 4), UiTheme.Gold);
         }
     }

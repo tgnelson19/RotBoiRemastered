@@ -37,4 +37,24 @@ public class SpatialHashTests
         Assert.Single(result);
         Assert.Same(spanning, result[0]);
     }
+
+    [Fact]
+    public void BufferedQuery_ReusesStorageAndClearRemovesPriorFrameItems()
+    {
+        var grid = new SpatialHash<Marker>(cellSize: 10);
+        var first = new Marker();
+        var second = new Marker();
+        var results = new List<Marker>();
+        var seen = new HashSet<Marker>(ReferenceEqualityComparer.Instance);
+
+        grid.Insert(first, new Rectangle(8, 8, 6, 6));
+        grid.Query(new Rectangle(0, 0, 20, 20), results, seen);
+        Assert.Equal(new[] { first }, results);
+
+        grid.Clear();
+        grid.Insert(second, new Rectangle(12, 12, 3, 3));
+        grid.Query(new Rectangle(0, 0, 20, 20), results, seen);
+
+        Assert.Equal(new[] { second }, results);
+    }
 }

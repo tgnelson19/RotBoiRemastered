@@ -122,7 +122,11 @@ temporary banners identify both the sense and each new room.
 Path floors use persistent line-of-sight fog: unexplored tiles and enemies are
 hidden, explored areas remain mapped but darken when out of sight, and edging
 past a doorway reveals space around the corner from the player's actual
-position. The compact floor map follows the same discovery rules.
+position. Sight has no arbitrary distance cutoff, so an unobstructed hallway
+remains readable to its far end. Visible floor also keeps its bordering wall
+faces lit, and convex wall corners inherit visibility from a visible adjoining
+wall to avoid harsh single-tile flicker. The compact floor map follows the same
+discovery rules.
 
 Ordinary enemies use a substantially lower equipment-drop table in this mode;
 forge Fragments and experience still work normally. Treasure encounters do not
@@ -130,7 +134,7 @@ roll ordinary enemy equipment at all. Their cleared rooms instead contain
 large guaranteed chests with at least two rolled items, making the optional
 dangerous branches the reliable source of equipment during a composite run.
 
-The five-pass dungeon review, completed work, and ranked future backlog are
+The six-pass dungeon review, completed work, and ranked future backlog are
 tracked in [`docs/PATH_DUNGEON_ITERATIONS.md`](docs/PATH_DUNGEON_ITERATIONS.md).
 The five-pass Malady/Dissonance-based boss review and its completed final
 implementation pass are tracked separately in

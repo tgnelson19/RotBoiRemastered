@@ -42,6 +42,7 @@ public sealed class Battleground
     public string? VisualThemeKey { get; }
     public int PathFloorNumber { get; }
     public IReadOnlyList<PathDecoration> PathDecorations { get; }
+    public IReadOnlyList<PathDecoration> AmbientPathDecorations { get; }
 
     private (int X, int Y)[]? _openTiles;
     private readonly int[,]? _biomeMap;
@@ -72,6 +73,21 @@ public sealed class Battleground
         VisualThemeKey = visualThemeKey;
         PathFloorNumber = pathFloorNumber;
         PathDecorations = pathDecorations ?? Array.Empty<PathDecoration>();
+        if (PathDecorations.Count == 0)
+        {
+            AmbientPathDecorations = Array.Empty<PathDecoration>();
+        }
+        else
+        {
+            var ambient = new List<PathDecoration>();
+            for (int index = 0; index < PathDecorations.Count; index++)
+            {
+                PathDecoration decoration = PathDecorations[index];
+                if (decoration.Layer == PathDecorationLayer.Ambient)
+                    ambient.Add(decoration);
+            }
+            AmbientPathDecorations = ambient.ToArray();
+        }
         _biomeMap = biomeMap;
     }
 
@@ -128,8 +144,16 @@ public sealed class Battleground
     {
         if (polygon.Count < 3)
             return false;
-        float minX = polygon.Min(point => point.X), maxX = polygon.Max(point => point.X);
-        float minY = polygon.Min(point => point.Y), maxY = polygon.Max(point => point.Y);
+        float minX = float.PositiveInfinity, maxX = float.NegativeInfinity;
+        float minY = float.PositiveInfinity, maxY = float.NegativeInfinity;
+        for (int index = 0; index < polygon.Count; index++)
+        {
+            Vector2 point = polygon[index];
+            minX = Math.Min(minX, point.X);
+            maxX = Math.Max(maxX, point.X);
+            minY = Math.Min(minY, point.Y);
+            maxY = Math.Max(maxY, point.Y);
+        }
         if (minX < 0 || minY < 0 || maxX > Width * TileSize || maxY > Height * TileSize)
             return true;
 
@@ -149,44 +173,166 @@ public sealed class Battleground
         return false;
     }
 
+    /// <summary>
+    /// Allocation-free collision for the screen-aligned rectangles used by
+    /// actors while the camera rotates. The anchor is the world position that
+    /// projects to the rectangle's top-left screen corner.
+    /// </summary>
+    public bool ScreenAlignedRectangleHitsWall(
+        Vector2 worldAnchor, float width, float height, Camera camera)
+    {
+        Span<Vector2> polygon = stackalloc Vector2[4];
+        polygon[0] = worldAnchor;
+        polygon[1] = worldAnchor + camera.ScreenVectorToWorld(new Vector2(width, 0));
+        polygon[2] = worldAnchor + camera.ScreenVectorToWorld(new Vector2(width, height));
+        polygon[3] = worldAnchor + camera.ScreenVectorToWorld(new Vector2(0, height));
+        return ConvexPolygonHitsWall(polygon);
+    }
+
+    /// <summary>Allocation-free actor/obstacle overlap using the same footprint as <see cref="ScreenAlignedRectangleHitsWall"/>.</summary>
+    public static bool ScreenAlignedRectangleIntersectsRectangle(
+        Vector2 worldAnchor, float width, float height, Camera camera, Rectangle rectangle)
+    {
+        Span<Vector2> polygon = stackalloc Vector2[4];
+        polygon[0] = worldAnchor;
+        polygon[1] = worldAnchor + camera.ScreenVectorToWorld(new Vector2(width, 0));
+        polygon[2] = worldAnchor + camera.ScreenVectorToWorld(new Vector2(width, height));
+        polygon[3] = worldAnchor + camera.ScreenVectorToWorld(new Vector2(0, height));
+        return ConvexPolygonIntersectsRectangle(polygon, rectangle);
+    }
+
+    private bool ConvexPolygonHitsWall(ReadOnlySpan<Vector2> polygon)
+    {
+        if (polygon.Length < 3)
+            return false;
+        PolygonBounds(polygon, out float minX, out float minY, out float maxX, out float maxY);
+        if (minX < 0 || minY < 0 || maxX > Width * TileSize || maxY > Height * TileSize)
+            return true;
+
+        const float edgeEpsilon = 0.0001f;
+        int left = Math.Clamp((int)Math.Floor(minX / TileSize), 0, Width - 1);
+        int top = Math.Clamp((int)Math.Floor(minY / TileSize), 0, Height - 1);
+        int right = Math.Clamp((int)Math.Floor((maxX - edgeEpsilon) / TileSize), 0, Width - 1);
+        int bottom = Math.Clamp((int)Math.Floor((maxY - edgeEpsilon) / TileSize), 0, Height - 1);
+        for (int y = top; y <= bottom; y++)
+        {
+            for (int x = left; x <= right; x++)
+            {
+                if (Tiles[y, x].IsSolid()
+                    && ConvexPolygonIntersectsRectangle(
+                        polygon,
+                        new Rectangle(x * TileSize, y * TileSize, TileSize, TileSize)))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /// <summary>Separating-axis intersection for a convex polygon and an axis-aligned rectangle.</summary>
     public static bool ConvexPolygonIntersectsRectangle(IReadOnlyList<Vector2> polygon, Rectangle rectangle)
     {
         if (polygon.Count < 3)
             return false;
-        var rectangleCorners = new[]
+
+        if (Separates(polygon, rectangle, Vector2.UnitX)
+            || Separates(polygon, rectangle, Vector2.UnitY))
         {
-            new Vector2(rectangle.Left, rectangle.Top), new Vector2(rectangle.Right, rectangle.Top),
-            new Vector2(rectangle.Right, rectangle.Bottom), new Vector2(rectangle.Left, rectangle.Bottom),
-        };
-        var axes = new List<Vector2> { Vector2.UnitX, Vector2.UnitY };
+            return false;
+        }
         for (int index = 0; index < polygon.Count; index++)
         {
             Vector2 edge = polygon[(index + 1) % polygon.Count] - polygon[index];
-            if (edge.LengthSquared() > 0.000001f)
-                axes.Add(new Vector2(-edge.Y, edge.X));
-        }
-
-        foreach (var axis in axes)
-        {
-            float polygonMin = float.PositiveInfinity, polygonMax = float.NegativeInfinity;
-            foreach (var point in polygon)
+            if (edge.LengthSquared() > 0.000001f
+                && Separates(polygon, rectangle, new Vector2(-edge.Y, edge.X)))
             {
-                float projection = Vector2.Dot(point, axis);
-                polygonMin = Math.Min(polygonMin, projection);
-                polygonMax = Math.Max(polygonMax, projection);
-            }
-            float rectangleMin = float.PositiveInfinity, rectangleMax = float.NegativeInfinity;
-            foreach (var point in rectangleCorners)
-            {
-                float projection = Vector2.Dot(point, axis);
-                rectangleMin = Math.Min(rectangleMin, projection);
-                rectangleMax = Math.Max(rectangleMax, projection);
-            }
-            if (polygonMax <= rectangleMin || rectangleMax <= polygonMin)
                 return false;
+            }
         }
         return true;
+    }
+
+    private static bool ConvexPolygonIntersectsRectangle(
+        ReadOnlySpan<Vector2> polygon, Rectangle rectangle)
+    {
+        if (polygon.Length < 3)
+            return false;
+        if (Separates(polygon, rectangle, Vector2.UnitX)
+            || Separates(polygon, rectangle, Vector2.UnitY))
+        {
+            return false;
+        }
+        for (int index = 0; index < polygon.Length; index++)
+        {
+            Vector2 edge = polygon[(index + 1) % polygon.Length] - polygon[index];
+            if (edge.LengthSquared() > 0.000001f
+                && Separates(polygon, rectangle, new Vector2(-edge.Y, edge.X)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool Separates(
+        IReadOnlyList<Vector2> polygon, Rectangle rectangle, Vector2 axis)
+    {
+        float polygonMin = float.PositiveInfinity, polygonMax = float.NegativeInfinity;
+        for (int index = 0; index < polygon.Count; index++)
+        {
+            float projection = Vector2.Dot(polygon[index], axis);
+            polygonMin = Math.Min(polygonMin, projection);
+            polygonMax = Math.Max(polygonMax, projection);
+        }
+        RectangleProjection(rectangle, axis, out float rectangleMin, out float rectangleMax);
+        return polygonMax <= rectangleMin || rectangleMax <= polygonMin;
+    }
+
+    private static bool Separates(
+        ReadOnlySpan<Vector2> polygon, Rectangle rectangle, Vector2 axis)
+    {
+        float polygonMin = float.PositiveInfinity, polygonMax = float.NegativeInfinity;
+        foreach (Vector2 point in polygon)
+        {
+            float projection = Vector2.Dot(point, axis);
+            polygonMin = Math.Min(polygonMin, projection);
+            polygonMax = Math.Max(polygonMax, projection);
+        }
+        RectangleProjection(rectangle, axis, out float rectangleMin, out float rectangleMax);
+        return polygonMax <= rectangleMin || rectangleMax <= polygonMin;
+    }
+
+    private static void RectangleProjection(
+        Rectangle rectangle, Vector2 axis, out float minimum, out float maximum)
+    {
+        float centerX = (rectangle.Left + rectangle.Right) * .5f;
+        float centerY = (rectangle.Top + rectangle.Bottom) * .5f;
+        float center = centerX * axis.X + centerY * axis.Y;
+        float radius = rectangle.Width * .5f * MathF.Abs(axis.X)
+            + rectangle.Height * .5f * MathF.Abs(axis.Y);
+        minimum = center - radius;
+        maximum = center + radius;
+    }
+
+    private static void PolygonBounds(
+        ReadOnlySpan<Vector2> polygon,
+        out float minX,
+        out float minY,
+        out float maxX,
+        out float maxY)
+    {
+        minX = float.PositiveInfinity;
+        minY = float.PositiveInfinity;
+        maxX = float.NegativeInfinity;
+        maxY = float.NegativeInfinity;
+        foreach (Vector2 point in polygon)
+        {
+            minX = Math.Min(minX, point.X);
+            maxX = Math.Max(maxX, point.X);
+            minY = Math.Min(minY, point.Y);
+            maxY = Math.Max(maxY, point.Y);
+        }
     }
 
     private (int X, int Y)[] OpenTiles()

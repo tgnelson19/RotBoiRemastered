@@ -182,25 +182,43 @@ public static class GamePaths
     public static void TuneNewProjectiles(IEnumerable<EnemyProjectile> projectiles)
     {
         var path = Active();
-        var style = path.Style;
         if (path.Key == "sound")
             return;
 
         foreach (var projectile in projectiles)
-        {
-            if (projectile.ContentPath == path.Key)
-                continue;
-            projectile.ContentPath = path.Key;
-            projectile.Speed *= (float)style.ProjectileSpeed;
-            projectile.Size *= (float)style.ProjectileSize;
-            projectile.Damage = MathF.Round(projectile.Damage * (float)style.ProjectileDamage);
-            projectile.RemainingRange *= (float)style.ProjectileRange;
-            if (style.ProjectileLifetime.HasValue)
-                projectile.Lifetime = Math.Max(projectile.Lifetime ?? 0, (float)style.ProjectileLifetime.Value);
-            if (style.AimedChance < 1 && ProjectileRng.NextDouble() > style.AimedChance)
-                projectile.Direction += (float)(ProjectileRng.NextDouble() * Math.PI * 2 - Math.PI);
-            if (style.Colors is { Count: > 0 })
-                projectile.Color = style.Colors[^1];
-        }
+            TuneProjectile(projectile, path);
+    }
+
+    /// <summary>
+    /// Index-based overload for a live projectile sink. Enemy updates append
+    /// to that sink, so tuning only its new tail avoids materializing a
+    /// Skip(...).ToList() collection for every enemy on every frame.
+    /// </summary>
+    public static void TuneNewProjectiles(
+        IReadOnlyList<EnemyProjectile> projectiles, int startIndex)
+    {
+        var path = Active();
+        if (path.Key == "sound")
+            return;
+        for (int index = Math.Max(0, startIndex); index < projectiles.Count; index++)
+            TuneProjectile(projectiles[index], path);
+    }
+
+    private static void TuneProjectile(EnemyProjectile projectile, GamePath path)
+    {
+        var style = path.Style;
+        if (projectile.ContentPath == path.Key)
+            return;
+        projectile.ContentPath = path.Key;
+        projectile.Speed *= (float)style.ProjectileSpeed;
+        projectile.Size *= (float)style.ProjectileSize;
+        projectile.Damage = MathF.Round(projectile.Damage * (float)style.ProjectileDamage);
+        projectile.RemainingRange *= (float)style.ProjectileRange;
+        if (style.ProjectileLifetime.HasValue)
+            projectile.Lifetime = Math.Max(projectile.Lifetime ?? 0, (float)style.ProjectileLifetime.Value);
+        if (style.AimedChance < 1 && ProjectileRng.NextDouble() > style.AimedChance)
+            projectile.Direction += (float)(ProjectileRng.NextDouble() * Math.PI * 2 - Math.PI);
+        if (style.Colors is { Count: > 0 })
+            projectile.Color = style.Colors[^1];
     }
 }

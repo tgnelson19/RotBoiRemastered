@@ -161,11 +161,13 @@ public sealed class SnakeEnemy : Enemy
         if (attack > .05f)
         {
             var muzzle = new Vector2(headRect.Center.X, headRect.Top - HeadSize * (.12f + attack * .16f));
-            Primitives2D.FillPolygon(spriteBatch, new[]
-            {
-                muzzle + new Vector2(0, -HeadSize * .11f), muzzle + new Vector2(HeadSize * .08f, 0),
-                muzzle + new Vector2(0, HeadSize * .11f), muzzle + new Vector2(-HeadSize * .08f, 0),
-            }, UiTheme.Cream);
+            Primitives2D.FillQuad(
+                spriteBatch,
+                muzzle + new Vector2(0, -HeadSize * .11f),
+                muzzle + new Vector2(HeadSize * .08f, 0),
+                muzzle + new Vector2(0, HeadSize * .11f),
+                muzzle + new Vector2(-HeadSize * .08f, 0),
+                UiTheme.Cream);
         }
         if (_segments.Count > 0)
         {

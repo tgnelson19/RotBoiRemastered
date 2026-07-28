@@ -106,6 +106,19 @@ public class RunStateTests : IDisposable
     }
 
     [Fact]
+    public void BuildSnapshot_ReflectsDirectUpgradeCountChanges()
+    {
+        var state = new RunState();
+
+        var first = state.BuildSnapshot();
+        state.UpgradeTypeCounts["Defense"] = 1;
+        var changed = state.BuildSnapshot();
+
+        Assert.NotSame(first, changed);
+        Assert.Equal(1, changed.Types["Defense"]);
+    }
+
+    [Fact]
     public void RecoverHealth_AccumulatesFractionalVitality_AndStopsAtMax()
     {
         var state = new RunState();

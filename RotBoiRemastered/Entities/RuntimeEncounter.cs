@@ -70,19 +70,47 @@ public sealed class RuntimeEncounter
     /// </summary>
     public static int NextId => _nextId;
 
-    public double ThreatCost => Members.Where(enemy => !enemy.IsDead()).Sum(enemy => enemy.ThreatCost);
+    public double ThreatCost
+    {
+        get
+        {
+            double threat = 0;
+            for (int index = 0; index < Members.Count; index++)
+            {
+                Enemy enemy = Members[index];
+                if (!enemy.IsDead())
+                    threat += enemy.ThreatCost;
+            }
+            return threat;
+        }
+    }
 
     public Vector2 Center()
     {
-        var living = Members.Where(enemy => !enemy.IsDead()).ToList();
-        if (living.Count == 0)
+        float sumX = 0;
+        float sumY = 0;
+        int livingCount = 0;
+        for (int index = 0; index < Members.Count; index++)
+        {
+            Enemy enemy = Members[index];
+            if (enemy.IsDead())
+                continue;
+            sumX += enemy.WorldX + enemy.Size / 2f;
+            sumY += enemy.WorldY + enemy.Size / 2f;
+            livingCount++;
+        }
+        if (livingCount == 0)
             return Anchor;
-        return new Vector2(
-            living.Average(enemy => enemy.WorldX + enemy.Size / 2f),
-            living.Average(enemy => enemy.WorldY + enemy.Size / 2f));
+        return new Vector2(sumX / livingCount, sumY / livingCount);
     }
 
-    public float DistanceTo(float playerX, float playerY) => Vector2.Distance(new Vector2(playerX, playerY), Center());
+    public float DistanceTo(float playerX, float playerY)
+    {
+        Vector2 center = Center();
+        float deltaX = playerX - center.X;
+        float deltaY = playerY - center.Y;
+        return MathF.Sqrt(deltaX * deltaX + deltaY * deltaY);
+    }
 
     public void Update(float playerX, float playerY, Battleground battleground, bool allowed = true)
     {

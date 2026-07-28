@@ -9,7 +9,10 @@ public sealed class StatusEffectState
     public int Stacks { get; set; }
 }
 
-public sealed record StatusControl(double MovementMultiplier = 1, double AttackDelay = 0, bool Stunned = false);
+public readonly record struct StatusControl(
+    double MovementMultiplier = 1,
+    double AttackDelay = 0,
+    bool Stunned = false);
 
 /// <summary>
 /// Player-owned ailments. Periodic damage is explicitly tagged as damage over
@@ -79,12 +82,14 @@ public static class StatusEffects
         enemy.StatusControlResistance = Math.Max(0, enemy.StatusControlResistance - seconds * .035);
         double dotPerSecond = 0, movement = 1, daze = 0;
         bool stunned = false;
-        foreach (var (kind, effect) in enemy.StatusEffects.ToArray())
+        List<string>? expired = null;
+        foreach (var (kind, effect) in enemy.StatusEffects)
         {
             effect.Remaining -= seconds;
             if (effect.Remaining <= 0)
             {
-                enemy.StatusEffects.Remove(kind);
+                expired ??= new List<string>();
+                expired.Add(kind);
                 continue;
             }
             switch (kind)
@@ -96,6 +101,11 @@ public static class StatusEffects
                 case "daze": daze = Math.Max(daze, effect.Potency); break;
                 case "stun": stunned = true; break;
             }
+        }
+        if (expired is not null)
+        {
+            for (int index = 0; index < expired.Count; index++)
+                enemy.StatusEffects.Remove(expired[index]);
         }
         if (dotPerSecond > 0 && enemy.Hp > 0)
         {

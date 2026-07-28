@@ -23,12 +23,12 @@ public enum TileType
 /// </summary>
 public static class TileTypeExtensions
 {
-    private static readonly HashSet<TileType> RaisedTiles = new() { TileType.ArenaWall, TileType.BuildingWall };
-    private static readonly HashSet<TileType> SolidTilesSet = new()
-    {
-        TileType.ArenaWall, TileType.BuildingWall, TileType.OuterVoid,
-    };
+    // These predicates sit inside collision, fog, generation, and rendering
+    // loops. Direct enum comparisons avoid a HashSet lookup for every tile
+    // touched while preserving the exact membership of the original sets.
+    public static bool IsRaised(this TileType tile) =>
+        tile is TileType.ArenaWall or TileType.BuildingWall;
 
-    public static bool IsRaised(this TileType tile) => RaisedTiles.Contains(tile);
-    public static bool IsSolid(this TileType tile) => SolidTilesSet.Contains(tile);
+    public static bool IsSolid(this TileType tile) =>
+        tile is TileType.ArenaWall or TileType.BuildingWall or TileType.OuterVoid;
 }

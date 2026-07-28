@@ -348,17 +348,18 @@ public sealed class EnemyProjectile
 
     private void DrawDiamondShape(SpriteBatch spriteBatch, Rectangle rect)
     {
-        var points = new[]
-        {
-            new Vector2(rect.X + rect.Width / 2f, rect.Y),
-            new Vector2(rect.Right, rect.Y + rect.Height / 2f),
-            new Vector2(rect.X + rect.Width / 2f, rect.Bottom),
-            new Vector2(rect.X, rect.Y + rect.Height / 2f),
-        };
-        var shadowPoints = points.Select(p => p + new Vector2(3, 3)).ToArray();
-        Primitives2D.FillPolygon(spriteBatch, shadowPoints, UiTheme.Shadow);
-        Primitives2D.FillPolygon(spriteBatch, points, Color);
-        Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, Math.Max(2, (int)(Size * .1f)));
+        Vector2 top = new(rect.X + rect.Width / 2f, rect.Y);
+        Vector2 right = new(rect.Right, rect.Y + rect.Height / 2f);
+        Vector2 bottom = new(rect.X + rect.Width / 2f, rect.Bottom);
+        Vector2 left = new(rect.X, rect.Y + rect.Height / 2f);
+        Vector2 shadow = new(3, 3);
+        Primitives2D.FillQuad(
+            spriteBatch, top + shadow, right + shadow, bottom + shadow, left + shadow,
+            UiTheme.Shadow);
+        Primitives2D.FillQuad(spriteBatch, top, right, bottom, left, Color);
+        Primitives2D.QuadOutline(
+            spriteBatch, top, right, bottom, left,
+            UiTheme.Ink, Math.Max(2, (int)(Size * .1f)));
 
         var center = new Vector2(rect.Center.X, rect.Center.Y);
         if (Shape == "mine")

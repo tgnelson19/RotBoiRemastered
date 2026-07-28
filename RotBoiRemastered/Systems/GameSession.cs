@@ -64,6 +64,31 @@ public sealed class GameSession
     // Survives ResetAll -- it re-bakes lazily against the new Battleground
     // reference on the next DrawBackground call, no explicit reset needed.
     private readonly ArenaRenderer _arenaRenderer = new();
+    private readonly List<WorldDepthDrawItem> _worldDepthItemScratch = new();
+    private readonly HashSet<int> _drawnEncounterIdScratch = new();
+    private readonly Action<SpriteBatch, WorldDepthDrawItem> _drawWorldDepthItem;
+    private readonly List<RuntimeEncounter> _encounterScratch = new();
+    private readonly HashSet<int> _encounterIdScratch = new();
+    private readonly List<Enemy> _ungroupedEnemyScratch = new();
+    private readonly List<(Enemy Owner, List<Enemy> Group, bool Atomic)> _spawnedGroupScratch = new();
+    private readonly HashSet<Enemy> _rejectedOwnerScratch = new(ReferenceEqualityComparer.Instance);
+    private readonly List<EnemyProjectile> _spawnedProjectileScratch = new();
+    private readonly SpatialHash<Enemy> _enemyCollisionGrid =
+        new(Math.Max(64, (int)(Simulation.TileSize * 2)));
+    private readonly Dictionary<Enemy, IReadOnlyList<(string Part, Rectangle Rect)>>
+        _enemyHitboxScratch = new(ReferenceEqualityComparer.Instance);
+    private readonly List<Enemy> _collisionCandidateScratch = new();
+    private readonly List<Enemy> _orderedCollisionCandidateScratch = new();
+    private readonly HashSet<Enemy> _collisionCandidateSet =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<Enemy> _deadEnemyScratch =
+        new(ReferenceEqualityComparer.Instance);
+    private readonly EnemyUpdateContext _enemyUpdateContext;
+    private readonly Comparison<RuntimeEncounter> _encounterDistanceComparison;
+    private readonly Comparison<Enemy> _enemyDistanceComparison;
+    private readonly HashSet<int> _bountyEncounterIdScratch = new();
+    private PlayerBuildSnapshot? _playerBuildSnapshot;
+    private Vector2 _enemySortCenter;
     private string? _activeBossKey;
     private BossEncounterTelemetryTracker? _bossTelemetry;
     private bool _bossTelemetryDeathCueEmitted;
@@ -90,6 +115,15 @@ public sealed class GameSession
 
     public GameSession(Battleground battleground, int screenWidth, int screenHeight, Random? rng = null)
     {
+        _drawWorldDepthItem = DrawWorldDepthItem;
+        _encounterDistanceComparison = CompareEncountersForPressure;
+        _enemyDistanceComparison = CompareEnemiesForPressure;
+        _enemyUpdateContext = new EnemyUpdateContext
+        {
+            PlayerWorldX = 0,
+            PlayerWorldY = 0,
+            Battleground = battleground,
+        };
         Battleground = battleground;
         ScreenWidth = screenWidth;
         ScreenHeight = screenHeight;
@@ -105,6 +139,8 @@ public sealed class GameSession
     /// <summary>Ported from character.py's resetAllStats() (the parts not already covered by RunState.Reset()).</summary>
     public void ResetAll(Battleground battleground, Random? rng = null)
     {
+        _enemyCollisionGrid.Reset();
+        _playerBuildSnapshot = null;
         PathRun = null;
         PathFog = null;
         State.Reset();
@@ -127,6 +163,8 @@ public sealed class GameSession
     /// <summary>Starts a fresh ten-floor composite Path run.</summary>
     public void StartPathRun(Random? rng = null)
     {
+        _enemyCollisionGrid.Reset();
+        _playerBuildSnapshot = null;
         rng ??= Random.Shared;
         var pathRun = new PathRun(rng);
         GamePaths.SetActive(pathRun.CurrentSenseKey);
@@ -167,6 +205,8 @@ public sealed class GameSession
     {
         if (PathRun is null)
             return;
+        _enemyCollisionGrid.Reset();
+        _playerBuildSnapshot = null;
         GamePaths.SetActive(PathRun.CurrentSenseKey);
         Battleground = PathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
@@ -247,7 +287,8 @@ public sealed class GameSession
     {
         _arenaRenderer.EnsureBaked(graphicsDevice, spriteBatch, Battleground);
         _arenaRenderer.Draw(spriteBatch, graphicsDevice, Camera, PlayerWorldCenter, ScreenShake,
-            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight));
+            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight),
+            drawRaisedScenery: false);
     }
 
     public void DrawBackgroundFull(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
@@ -703,25 +744,21 @@ public sealed class GameSession
     {
         var playerCenter = new Vector2(Player.WorldX + (float)State.PlayerSize / 2f, Player.WorldY + (float)State.PlayerSize / 2f);
         double pressureUsed = 0.0;
-        var encounters = new List<RuntimeEncounter>();
-        var seen = new HashSet<int>();
-        var ungrouped = new List<Enemy>();
+        _encounterScratch.Clear();
+        _encounterIdScratch.Clear();
+        _ungroupedEnemyScratch.Clear();
         foreach (var enemy in State.EnemyHolster)
         {
             var encounter = enemy.Encounter;
             if (encounter is null)
-                ungrouped.Add(enemy);
-            else if (seen.Add(encounter.Id))
-                encounters.Add(encounter);
+                _ungroupedEnemyScratch.Add(enemy);
+            else if (_encounterIdScratch.Add(encounter.Id))
+                _encounterScratch.Add(encounter);
         }
 
-        encounters.Sort((a, b) =>
-        {
-            int engagedCompare = (a.State != "engaged").CompareTo(b.State != "engaged");
-            return engagedCompare != 0 ? engagedCompare
-                : a.DistanceTo(playerCenter.X, playerCenter.Y).CompareTo(b.DistanceTo(playerCenter.X, playerCenter.Y));
-        });
-        foreach (var encounter in encounters)
+        _enemySortCenter = playerCenter;
+        _encounterScratch.Sort(_encounterDistanceComparison);
+        foreach (var encounter in _encounterScratch)
         {
             bool wantsPressure = encounter.State == "engaged" || encounter.DistanceTo(playerCenter.X, playerCenter.Y) <= encounter.ActivationRange;
             bool allowed = !wantsPressure || pressureUsed + encounter.ThreatCost <= State.EnemyThreatCap;
@@ -730,7 +767,8 @@ public sealed class GameSession
                 pressureUsed += encounter.ThreatCost;
         }
 
-        foreach (var enemy in ungrouped.OrderBy(e => Vector2.Distance(new Vector2(e.WorldX + e.Size / 2f, e.WorldY + e.Size / 2f), playerCenter)))
+        _ungroupedEnemyScratch.Sort(_enemyDistanceComparison);
+        foreach (var enemy in _ungroupedEnemyScratch)
         {
             double cost = enemy.ThreatCost;
             bool isBoss = ReferenceEquals(enemy, State.ActiveBoss);
@@ -739,14 +777,19 @@ public sealed class GameSession
                 pressureUsed += cost;
         }
 
-        var spawnedGroups = new List<(Enemy Owner, List<Enemy> Group, bool Atomic)>();
-        var context = new EnemyUpdateContext
-        {
-            PlayerWorldX = playerCenter.X, PlayerWorldY = playerCenter.Y, Battleground = Battleground,
-            ProjectileSink = State.EnemyProjectileHolster, AllEnemies = State.EnemyHolster, ExperienceBubbles = State.ExperienceList,
-            Camera = Camera, BossAfflictions = State.BossAfflictions, PlayerBuildSnapshot = State.BuildSnapshot(),
-            PlayerBullets = State.BulletHolster, DreamState = State.DreamState,
-        };
+        _spawnedGroupScratch.Clear();
+        _enemyUpdateContext.PlayerWorldX = playerCenter.X;
+        _enemyUpdateContext.PlayerWorldY = playerCenter.Y;
+        _enemyUpdateContext.Battleground = Battleground;
+        _enemyUpdateContext.ProjectileSink = State.EnemyProjectileHolster;
+        _enemyUpdateContext.AllEnemies = State.EnemyHolster;
+        _enemyUpdateContext.ExperienceBubbles = State.ExperienceList;
+        _enemyUpdateContext.Camera = Camera;
+        _enemyUpdateContext.BossAfflictions = State.BossAfflictions;
+        _enemyUpdateContext.PlayerBuildSnapshot = CurrentPlayerBuildSnapshot();
+        _enemyUpdateContext.PlayerBullets = State.BulletHolster;
+        _enemyUpdateContext.DreamState = State.DreamState;
+        var context = _enemyUpdateContext;
         foreach (var enemy in State.EnemyHolster)
         {
             enemy.SetCollisionCamera(Camera);
@@ -764,16 +807,15 @@ public sealed class GameSession
             // A few authored attacks teleport directly rather than using
             // TryAxisMove; validate those destinations as well.
             enemy.EnsureCollisionSafePosition(Battleground);
-            var newProjectiles = State.EnemyProjectileHolster.Skip(projectileStart).ToList();
             if (UsesAuthoredBossBalance(enemy))
             {
                 string pathKey = enemy.ContentPath ?? GamePaths.Active().Key;
-                foreach (var projectile in newProjectiles)
-                    projectile.ContentPath ??= pathKey;
+                for (int index = projectileStart; index < State.EnemyProjectileHolster.Count; index++)
+                    State.EnemyProjectileHolster[index].ContentPath ??= pathKey;
             }
             else
             {
-                GamePaths.TuneNewProjectiles(newProjectiles);
+                GamePaths.TuneNewProjectiles(State.EnemyProjectileHolster, projectileStart);
             }
             if (enemy.TransitionCleanupRequested)
             {
@@ -784,27 +826,31 @@ public sealed class GameSession
                 enemy.TransitionCleanupRequested = false;
             }
             if (enemy.SpawnedEnemies.Count > 0)
-                spawnedGroups.Add((enemy, new List<Enemy>(enemy.SpawnedEnemies), enemy.AtomicSpawnGroup));
+                _spawnedGroupScratch.Add((enemy, new List<Enemy>(enemy.SpawnedEnemies), enemy.AtomicSpawnGroup));
             enemy.SpawnedEnemies.Clear();
         }
 
-        var rejectedAtomicOwners = new HashSet<Enemy>();
-        foreach (var (owner, group, atomic) in spawnedGroups)
+        _rejectedOwnerScratch.Clear();
+        double currentPopulationThreat = 0;
+        for (int index = 0; index < State.EnemyHolster.Count; index++)
+            currentPopulationThreat += State.EnemyHolster[index].ThreatCost;
+        foreach (var (owner, group, atomic) in _spawnedGroupScratch)
         {
-            double currentThreat = State.EnemyHolster.Sum(e => e.ThreatCost);
-            double groupThreat = group.Sum(e => e.ThreatCost);
-            if (atomic && (State.EnemyHolster.Count + group.Count > State.EnemyCap || currentThreat + groupThreat > State.EnemyPopulationThreatCap))
+            double groupThreat = 0;
+            for (int index = 0; index < group.Count; index++)
+                groupThreat += group[index].ThreatCost;
+            if (atomic && (State.EnemyHolster.Count + group.Count > State.EnemyCap
+                || currentPopulationThreat + groupThreat > State.EnemyPopulationThreatCap))
             {
-                rejectedAtomicOwners.Add(owner);
+                _rejectedOwnerScratch.Add(owner);
                 continue;
             }
             foreach (var enemy in group)
             {
                 ApplyRunDifficulty(enemy);
-                currentThreat = State.EnemyHolster.Sum(e => e.ThreatCost);
                 if (State.EnemyHolster.Count >= State.EnemyCap)
                     break;
-                if (currentThreat + enemy.ThreatCost > State.EnemyPopulationThreatCap)
+                if (currentPopulationThreat + enemy.ThreatCost > State.EnemyPopulationThreatCap)
                     break;
                 if (owner.Encounter is not null && enemy.Encounter is null)
                 {
@@ -814,10 +860,11 @@ public sealed class GameSession
                     owner.Encounter.Members.Add(enemy);
                 }
                 State.EnemyHolster.Add(enemy);
+                currentPopulationThreat += enemy.ThreatCost;
             }
         }
-        if (rejectedAtomicOwners.Count > 0)
-            State.EnemyHolster.RemoveAll(e => rejectedAtomicOwners.Contains(e));
+        if (_rejectedOwnerScratch.Count > 0)
+            State.EnemyHolster.RemoveAll(e => _rejectedOwnerScratch.Contains(e));
         State.CurrEnemyCount = State.EnemyHolster.Count;
         UpdateBossTelemetry();
 
@@ -828,14 +875,67 @@ public sealed class GameSession
             ScreenShake = dissonance.ComputeScreenShake(GameProfile.Profile.ScreenShake);
     }
 
+    private PlayerBuildSnapshot CurrentPlayerBuildSnapshot()
+    {
+        if (_playerBuildSnapshot is { } snapshot
+            && snapshot.Types.Count == State.UpgradeTypeCounts.Count
+            && SnapshotTypesMatch(snapshot.Types)
+            && snapshot.Stats["projectile_count"] == State.ProjectileCount
+            && snapshot.Stats["pierce"] == State.BulletPierce
+            && snapshot.Stats["crit_chance"] == State.CritChance
+            && snapshot.Stats["crit_damage"] == State.CritDamage
+            && snapshot.Stats["bullet_speed"] == State.BulletSpeed
+            && snapshot.Stats["bullet_size"] == State.BulletSize)
+        {
+            return snapshot;
+        }
+
+        return _playerBuildSnapshot = State.BuildSnapshot();
+    }
+
+    private bool SnapshotTypesMatch(IReadOnlyDictionary<string, int> snapshotTypes)
+    {
+        foreach (var (name, count) in State.UpgradeTypeCounts)
+        {
+            if (!snapshotTypes.TryGetValue(name, out int snapshotCount) || snapshotCount != count)
+                return false;
+        }
+        return true;
+    }
+
+    private int CompareEncountersForPressure(
+        RuntimeEncounter left, RuntimeEncounter right)
+    {
+        int engagedCompare =
+            (left.State != "engaged").CompareTo(right.State != "engaged");
+        return engagedCompare != 0
+            ? engagedCompare
+            : left.DistanceTo(_enemySortCenter.X, _enemySortCenter.Y)
+                .CompareTo(right.DistanceTo(_enemySortCenter.X, _enemySortCenter.Y));
+    }
+
+    private int CompareEnemiesForPressure(Enemy left, Enemy right)
+    {
+        float leftX = left.WorldX + left.Size / 2f - _enemySortCenter.X;
+        float leftY = left.WorldY + left.Size / 2f - _enemySortCenter.Y;
+        float rightX = right.WorldX + right.Size / 2f - _enemySortCenter.X;
+        float rightY = right.WorldY + right.Size / 2f - _enemySortCenter.Y;
+        return (leftX * leftX + leftY * leftY)
+            .CompareTo(rightX * rightX + rightY * rightY);
+    }
+
     public void DrawEnemies(SpriteBatch spriteBatch)
     {
-        var seen = new HashSet<int>();
-        foreach (var enemy in State.EnemyHolster.Where(enemy =>
-                     PathFog is null || PathFog.IsWorldAreaVisible(enemy.WorldRect())))
+        _drawnEncounterIdScratch.Clear();
+        foreach (var enemy in State.EnemyHolster)
         {
+            if (PathFog is not null
+                && !PathFog.IsWorldAreaVisible(enemy.WorldRect()))
+            {
+                continue;
+            }
             var encounter = enemy.Encounter;
-            if (encounter is not null && seen.Add(encounter.Id))
+            if (encounter is not null && _drawnEncounterIdScratch.Add(encounter.Id))
                 encounter.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
             enemy.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
         }
@@ -844,7 +944,7 @@ public sealed class GameSession
     /// <summary>Ported from character.py's handlingEnemyProjectileUpdating(), including boss-arena containment and overflow trimming.</summary>
     public void UpdateEnemyProjectiles()
     {
-        var spawnedProjectiles = new List<EnemyProjectile>();
+        _spawnedProjectileScratch.Clear();
         bool casualMode = GameProfile.Profile.CasualMode;
         (Vector2 Center, float Radius)? radialArena = State.ActiveBoss switch
         {
@@ -870,12 +970,12 @@ public sealed class GameSession
             if (bossDying)
                 projectile.RemFlag = true;
             projectile.Update(Battleground, casualMode);
-            spawnedProjectiles.AddRange(projectile.SpawnedProjectiles);
+            _spawnedProjectileScratch.AddRange(projectile.SpawnedProjectiles);
             projectile.SpawnedProjectiles.Clear();
         }
         State.EnemyProjectileHolster.RemoveAll(p => p.RemFlag);
-        GamePaths.TuneNewProjectiles(spawnedProjectiles);
-        State.EnemyProjectileHolster.AddRange(spawnedProjectiles);
+        GamePaths.TuneNewProjectiles(_spawnedProjectileScratch);
+        State.EnemyProjectileHolster.AddRange(_spawnedProjectileScratch);
         if (State.ActiveBoss is not null && State.EnemyProjectileHolster.Count > MaxBossProjectiles)
             State.EnemyProjectileHolster.RemoveRange(0, State.EnemyProjectileHolster.Count - MaxBossProjectiles);
     }
@@ -884,20 +984,32 @@ public sealed class GameSession
     public void DrawGroundEnemyProjectiles(SpriteBatch spriteBatch)
     {
         bool highContrast = GameProfile.Profile.HighContrast;
-        foreach (var projectile in State.EnemyProjectileHolster.Where(projectile =>
-                     projectile.Path == "pool"
-                     && (PathFog is null || PathFog.IsWorldAreaVisible(projectile.WorldRect()))))
+        foreach (var projectile in State.EnemyProjectileHolster)
+        {
+            if (projectile.Path != "pool"
+                || (PathFog is not null
+                    && !PathFog.IsWorldAreaVisible(projectile.WorldRect())))
+            {
+                continue;
+            }
             projectile.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake, highContrast);
+        }
     }
 
     /// <summary>Airborne hostile shots and telegraphs render above combat actors.</summary>
     public void DrawEnemyProjectiles(SpriteBatch spriteBatch)
     {
         bool highContrast = GameProfile.Profile.HighContrast;
-        foreach (var projectile in State.EnemyProjectileHolster.Where(projectile =>
-                     projectile.Path != "pool"
-                     && (PathFog is null || PathFog.IsWorldAreaVisible(projectile.WorldRect()))))
+        foreach (var projectile in State.EnemyProjectileHolster)
+        {
+            if (projectile.Path == "pool"
+                || (PathFog is not null
+                    && !PathFog.IsWorldAreaVisible(projectile.WorldRect())))
+            {
+                continue;
+            }
             projectile.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake, highContrast);
+        }
     }
 
     /// <summary>
@@ -912,44 +1024,55 @@ public sealed class GameSession
     /// </summary>
     public void DrawDepthSortedCombatWorld(SpriteBatch spriteBatch)
     {
-        var items = new List<WorldDepthDrawItem>(
-            State.BulletHolster.Count + State.EnemyHolster.Count + State.EnemyProjectileHolster.Count + 8);
+        _worldDepthItemScratch.Clear();
+        _worldDepthItemScratch.EnsureCapacity(
+            State.BulletHolster.Count + State.EnemyHolster.Count
+            + State.EnemyProjectileHolster.Count + 8);
         int stableOrder = 0;
 
         foreach (var bullet in State.BulletHolster)
         {
             Vector2 anchor = new(bullet.WorldX + bullet.Size / 2f, bullet.WorldY + bullet.Size / 2f);
-            items.Add(new WorldDepthDrawItem(anchor, 10, stableOrder++,
-                batch => bullet.Draw(batch, Camera, PlayerWorldCenter, ScreenShake)));
+            _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                anchor, 10, stableOrder++, WorldDepthDrawKind.Bullet, bullet));
         }
 
-        var seenEncounters = new HashSet<int>();
-        foreach (var enemy in State.EnemyHolster.Where(enemy =>
-                     PathFog is null || PathFog.IsWorldAreaVisible(enemy.WorldRect())))
+        _drawnEncounterIdScratch.Clear();
+        foreach (var enemy in State.EnemyHolster)
         {
-            var encounter = enemy.Encounter;
-            if (encounter is not null && seenEncounters.Add(encounter.Id))
+            if (PathFog is not null
+                && !PathFog.IsWorldAreaVisible(enemy.WorldRect()))
             {
-                items.Add(new WorldDepthDrawItem(encounter.Center(), 15, stableOrder++,
-                    batch => encounter.Draw(batch, Camera, PlayerWorldCenter, ScreenShake)));
+                continue;
+            }
+            var encounter = enemy.Encounter;
+            if (encounter is not null && _drawnEncounterIdScratch.Add(encounter.Id))
+            {
+                _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                    encounter.Center(), 15, stableOrder++,
+                    WorldDepthDrawKind.Encounter, encounter));
             }
 
             Vector2 anchor = new(enemy.WorldX + enemy.Size / 2f, enemy.WorldY + enemy.Size / 2f);
-            items.Add(new WorldDepthDrawItem(anchor, 20, stableOrder++,
-                batch => enemy.Draw(batch, Camera, PlayerWorldCenter, ScreenShake)));
+            _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                anchor, 20, stableOrder++, WorldDepthDrawKind.Enemy, enemy));
         }
 
-        items.Add(new WorldDepthDrawItem(PlayerWorldCenter, 30, stableOrder++,
-            batch => Player.Draw(batch, State, Camera)));
+        _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+            PlayerWorldCenter, 30, stableOrder++, WorldDepthDrawKind.Player, Player));
 
-        bool highContrast = GameProfile.Profile.HighContrast;
-        foreach (var projectile in State.EnemyProjectileHolster.Where(projectile =>
-                     projectile.Path != "pool"
-                     && (PathFog is null || PathFog.IsWorldAreaVisible(projectile.WorldRect()))))
+        foreach (var projectile in State.EnemyProjectileHolster)
         {
+            if (projectile.Path == "pool"
+                || (PathFog is not null
+                    && !PathFog.IsWorldAreaVisible(projectile.WorldRect())))
+            {
+                continue;
+            }
             Vector2 anchor = new(projectile.WorldX + projectile.Size / 2f, projectile.WorldY + projectile.Size / 2f);
-            items.Add(new WorldDepthDrawItem(anchor, 40, stableOrder++,
-                batch => projectile.Draw(batch, Camera, PlayerWorldCenter, ScreenShake, highContrast)));
+            _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                anchor, 40, stableOrder++,
+                WorldDepthDrawKind.EnemyProjectile, projectile));
         }
 
         _arenaRenderer.DrawDepthSortedWorld(
@@ -958,42 +1081,90 @@ public sealed class GameSession
             PlayerWorldCenter,
             ScreenShake,
             new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight),
-            items);
+            _worldDepthItemScratch,
+            _drawWorldDepthItem);
+    }
+
+    private void DrawWorldDepthItem(SpriteBatch spriteBatch, WorldDepthDrawItem item)
+    {
+        switch (item.Kind)
+        {
+            case WorldDepthDrawKind.Bullet:
+                ((Bullet)item.Drawable).Draw(
+                    spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+                break;
+            case WorldDepthDrawKind.Encounter:
+                ((RuntimeEncounter)item.Drawable).Draw(
+                    spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+                break;
+            case WorldDepthDrawKind.Enemy:
+                ((Enemy)item.Drawable).Draw(
+                    spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+                break;
+            case WorldDepthDrawKind.Player:
+                Player.Draw(spriteBatch, State, Camera);
+                break;
+            case WorldDepthDrawKind.EnemyProjectile:
+                ((EnemyProjectile)item.Drawable).Draw(
+                    spriteBatch, Camera, PlayerWorldCenter, ScreenShake,
+                    GameProfile.Profile.HighContrast);
+                break;
+        }
     }
 
     /// <summary>Ported from character.py's handlingDamagingEnemies(). Portal-hit routing is deferred (no current enemy type implements it).</summary>
     public void HandleDamagingEnemies(Random? rng = null)
     {
         rng ??= Random.Shared;
-        var enemyGrid = new SpatialHash<Enemy>(Math.Max(64, (int)(Simulation.TileSize * 2)));
+        _enemyCollisionGrid.Clear();
+        _enemyHitboxScratch.Clear();
         foreach (var enemy in State.EnemyHolster)
         {
             if (ReferenceEquals(enemy, State.ActiveBoss) && DeathSpectacleActive(enemy))
                 continue;
-            foreach (var (_, hitbox) in enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake))
-                enemyGrid.Insert(enemy, hitbox);
+            var hitboxes = enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake);
+            _enemyHitboxScratch[enemy] = hitboxes;
+            for (int index = 0; index < hitboxes.Count; index++)
+                _enemyCollisionGrid.Insert(enemy, hitboxes[index].Rect);
         }
 
-        var deadEnemies = new HashSet<Enemy>();
+        _deadEnemyScratch.Clear();
         foreach (var bullet in State.BulletHolster)
         {
             var bulletScreenPos = Camera.WorldToScreen(new Vector2(bullet.WorldX, bullet.WorldY), PlayerWorldCenter, ScreenShake);
             var bulletRect = new Rectangle((int)bulletScreenPos.X, (int)bulletScreenPos.Y, (int)bullet.Size, (int)bullet.Size);
-            var candidates = enemyGrid.Query(bulletRect)
-                .Select(enemy => (Enemy: enemy, HasShield: enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake)
-                    .Any(h => h.Part == "shield" && bulletRect.Intersects(h.Rect))))
-                .OrderBy(item => item.HasShield ? 0 : 1)
-                .Select(item => item.Enemy)
-                .ToList();
-
-            foreach (var enemy in candidates)
+            _enemyCollisionGrid.Query(
+                bulletRect, _collisionCandidateScratch, _collisionCandidateSet);
+            _orderedCollisionCandidateScratch.Clear();
+            for (int pass = 0; pass < 2; pass++)
             {
-                if (deadEnemies.Contains(enemy))
+                for (int index = 0; index < _collisionCandidateScratch.Count; index++)
+                {
+                    Enemy candidate = _collisionCandidateScratch[index];
+                    bool shieldHit = HasShieldIntersection(
+                        _enemyHitboxScratch[candidate], bulletRect);
+                    if (shieldHit == (pass == 0))
+                        _orderedCollisionCandidateScratch.Add(candidate);
+                }
+            }
+
+            foreach (var enemy in _orderedCollisionCandidateScratch)
+            {
+                if (_deadEnemyScratch.Contains(enemy))
                     continue;
-                var hitboxes = enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake);
-                var collided = hitboxes.FirstOrDefault(h => bulletRect.Intersects(h.Rect));
-                if (collided.Part is null)
+                var hitboxes = _enemyHitboxScratch[enemy];
+                int collidedIndex = -1;
+                for (int index = 0; index < hitboxes.Count; index++)
+                {
+                    if (bulletRect.Intersects(hitboxes[index].Rect))
+                    {
+                        collidedIndex = index;
+                        break;
+                    }
+                }
+                if (collidedIndex < 0)
                     continue;
+                var collided = hitboxes[collidedIndex];
                 if (enemy.CantTouchMeList.Contains(bullet))
                     continue;
                 if (collided.Part.StartsWith("portal:") && enemy is Dissonance dissonance
@@ -1033,15 +1204,15 @@ public sealed class GameSession
                 var textWorld = Camera.ScreenToWorld(new Vector2(collided.Rect.X, collided.Rect.Y), PlayerWorldCenter, ScreenShake);
                 State.DamageTextList.Add(new DamageText(textWorld.X, textWorld.Y, currColor, displayValue, collided.Rect.Width, Simulation.FrameRate));
                 if (result.Killed)
-                    deadEnemies.Add(enemy);
+                    _deadEnemyScratch.Add(enemy);
             }
         }
 
         foreach (var enemy in State.EnemyHolster)
             if (enemy.IsDead())
-                deadEnemies.Add(enemy);
+                _deadEnemyScratch.Add(enemy);
 
-        foreach (var enemy in deadEnemies)
+        foreach (var enemy in _deadEnemyScratch)
         {
             State.NumOfEnemiesKilled += 1;
             GameProfile.IncrementQuest("enemies_defeated");
@@ -1109,12 +1280,25 @@ public sealed class GameSession
                 PathRun?.NotifyBossDefeated();
             }
         }
-        if (deadEnemies.Count > 0)
+        if (_deadEnemyScratch.Count > 0)
         {
-            State.EnemyHolster.RemoveAll(e => deadEnemies.Contains(e));
+            State.EnemyHolster.RemoveAll(e => _deadEnemyScratch.Contains(e));
             State.CurrEnemyCount = State.EnemyHolster.Count;
         }
         State.BulletHolster.RemoveAll(b => b.RemFlag);
+    }
+
+    private static bool HasShieldIntersection(
+        IReadOnlyList<(string Part, Rectangle Rect)> hitboxes,
+        Rectangle bulletRect)
+    {
+        for (int index = 0; index < hitboxes.Count; index++)
+        {
+            var hitbox = hitboxes[index];
+            if (hitbox.Part == "shield" && bulletRect.Intersects(hitbox.Rect))
+                return true;
+        }
+        return false;
     }
 
     private static string? BossKeyFor(Enemy enemy) => enemy switch
@@ -1229,13 +1413,14 @@ public sealed class GameSession
     public void ExpForPlayer()
     {
         var playerRect = Player.WorldRect(State);
-        foreach (var bubble in State.ExperienceList.ToList())
+        for (int index = State.ExperienceList.Count - 1; index >= 0; index--)
         {
+            ExperienceBubble bubble = State.ExperienceList[index];
             var bubbleRect = bubble.WorldRect();
             if (playerRect.Intersects(bubbleRect))
             {
                 State.ExpCount += bubble.Value;
-                State.ExperienceList.Remove(bubble);
+                State.ExperienceList.RemoveAt(index);
                 continue;
             }
 
@@ -1256,13 +1441,14 @@ public sealed class GameSession
             }
         }
 
-        foreach (var fragment in State.FragmentList.ToList())
+        for (int index = State.FragmentList.Count - 1; index >= 0; index--)
         {
+            FragmentPickup fragment = State.FragmentList[index];
             var fragmentRect = fragment.WorldRect();
             if (playerRect.Intersects(fragmentRect))
             {
                 State.Fragments += 1;
-                State.FragmentList.Remove(fragment);
+                State.FragmentList.RemoveAt(index);
                 continue;
             }
 
@@ -1288,8 +1474,11 @@ public sealed class GameSession
     {
         var run = PathRun!;
         PathFog?.Update(PlayerWorldCenter);
-        foreach (var completedRoom in run.CompleteReadyCombatRooms(State.EnemyHolster))
+        IReadOnlyList<PathRoom> completedRooms =
+            run.CompleteReadyCombatRooms(State.EnemyHolster);
+        for (int index = 0; index < completedRooms.Count; index++)
         {
+            PathRoom completedRoom = completedRooms[index];
             if (completedRoom.Type == PathRoomType.Treasure)
                 SpawnPathTreasure(completedRoom, rng);
             else if (completedRoom.Type == PathRoomType.Challenge)
@@ -1836,9 +2025,11 @@ public sealed class GameSession
                 double.PositiveInfinity, boss.Family, boss);
         }
 
-        BountyInfo? best = null;
         double bestScore = double.NegativeInfinity;
-        var seenEncounters = new HashSet<int>();
+        Vector2 bestWorld = default;
+        string? bestLabel = null;
+        object? bestTarget = null;
+        _bountyEncounterIdScratch.Clear();
         foreach (var enemy in State.EnemyHolster)
         {
             if (enemy.IsDead()
@@ -1847,23 +2038,39 @@ public sealed class GameSession
             var encounter = enemy.Encounter;
             if (encounter is not null)
             {
-                if (!seenEncounters.Add(encounter.Id))
+                if (!_bountyEncounterIdScratch.Add(encounter.Id))
                     continue;
-                var living = encounter.Members.Where(member =>
-                    !member.IsDead()
-                    && (PathFog is null || PathFog.IsWorldAreaVisible(member.WorldRect()))).ToList();
-                if (living.Count == 0)
+                int livingCount = 0;
+                double worldX = 0;
+                double worldY = 0;
+                double reward = 0;
+                double threat = 0;
+                for (int index = 0; index < encounter.Members.Count; index++)
+                {
+                    Enemy member = encounter.Members[index];
+                    if (member.IsDead()
+                        || (PathFog is not null
+                            && !PathFog.IsWorldAreaVisible(member.WorldRect())))
+                    {
+                        continue;
+                    }
+                    livingCount++;
+                    worldX += member.WorldX + member.Size / 2f;
+                    worldY += member.WorldY + member.Size / 2f;
+                    reward += member.ExpValue;
+                    threat += member.ThreatCost;
+                }
+                if (livingCount == 0)
                     continue;
-                var world = new Vector2(
-                    living.Average(member => member.WorldX + member.Size / 2f),
-                    living.Average(member => member.WorldY + member.Size / 2f));
-                double reward = living.Sum(member => member.ExpValue);
-                double threat = living.Sum(member => member.ThreatCost);
                 double score = reward + threat * 4;
                 if (score > bestScore)
                 {
                     bestScore = score;
-                    best = new BountyInfo(world, score, encounter.Key.Replace("_", " ").ToUpperInvariant(), encounter);
+                    bestWorld = new Vector2(
+                        (float)(worldX / livingCount),
+                        (float)(worldY / livingCount));
+                    bestLabel = encounter.Key;
+                    bestTarget = encounter;
                 }
             }
             else
@@ -1873,13 +2080,21 @@ public sealed class GameSession
                 if (score > bestScore)
                 {
                     bestScore = score;
-                    best = new BountyInfo(
-                        new Vector2(enemy.WorldX + enemy.Size / 2f, enemy.WorldY + enemy.Size / 2f),
-                        score, enemy.Family.Replace("_", " ").ToUpperInvariant(), enemy);
+                    bestWorld = new Vector2(
+                        enemy.WorldX + enemy.Size / 2f,
+                        enemy.WorldY + enemy.Size / 2f);
+                    bestLabel = enemy.Family;
+                    bestTarget = enemy;
                 }
             }
         }
-        return best;
+        return bestTarget is null
+            ? null
+            : new BountyInfo(
+                bestWorld,
+                bestScore,
+                bestLabel!.Replace("_", " ").ToUpperInvariant(),
+                bestTarget);
     }
 
     /// <summary>
@@ -1892,7 +2107,11 @@ public sealed class GameSession
     /// </summary>
     public void DrawBountyIndicator(SpriteBatch spriteBatch)
     {
-        var bounty = SelectBountyTarget();
+        DrawBountyIndicator(spriteBatch, SelectBountyTarget());
+    }
+
+    public void DrawBountyIndicator(SpriteBatch spriteBatch, BountyInfo? bounty)
+    {
         if (bounty is null)
             return;
         var targetScreen = Camera.ApplyZoom(Camera.WorldToScreen(bounty.World, PlayerWorldCenter, ScreenShake));
@@ -2027,13 +2246,13 @@ public sealed class GameSession
             }
         }
 
-        var activeRooms = PathRun.ActiveCombatRooms.Select(room => room.Id).ToHashSet();
         foreach (var room in PathRun.Layout.Rooms)
         {
             if (PathFog is not null && !PathFog.AnyExplored(room.TileBounds))
                 continue;
             Rectangle roomRect = PathMinimapRoomRect(room, Battleground, mapArea);
-            Color color = activeRooms.Contains(room.Id)
+            bool activeRoom = room.IsCombatRoom && room.IsActivated && !room.IsCleared;
+            Color color = activeRoom
                 ? UiTheme.Red
                 : room.IsCleared
                     ? UiTheme.Green
@@ -2089,8 +2308,7 @@ public sealed class GameSession
 
         float time = (float)State.RunTimeSeconds;
         Color accent = PathRun.CurrentSense.Accent;
-        foreach (var emitter in Battleground.PathDecorations.Where(
-            decoration => decoration.Layer == PathDecorationLayer.Ambient))
+        foreach (var emitter in Battleground.AmbientPathDecorations)
         {
             Vector2 emitterScreen = Camera.WorldToScreen(emitter.WorldPosition, PlayerWorldCenter, ScreenShake);
             if (emitterScreen.X < -100 || emitterScreen.X > InformationSheet.ArenaWidth + 100
@@ -2172,49 +2390,76 @@ public sealed class GameSession
 
         var displayViewport = new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight);
         Rectangle logicalViewport = Camera.LogicalViewport(displayViewport);
-        Vector2[] viewportWorld =
-        {
-            Camera.ScreenToWorld(new Vector2(logicalViewport.Left, logicalViewport.Top), PlayerWorldCenter, ScreenShake),
-            Camera.ScreenToWorld(new Vector2(logicalViewport.Right, logicalViewport.Top), PlayerWorldCenter, ScreenShake),
-            Camera.ScreenToWorld(new Vector2(logicalViewport.Right, logicalViewport.Bottom), PlayerWorldCenter, ScreenShake),
-            Camera.ScreenToWorld(new Vector2(logicalViewport.Left, logicalViewport.Bottom), PlayerWorldCenter, ScreenShake),
-        };
-        int left = Math.Clamp((int)MathF.Floor(viewportWorld.Min(point => point.X) / Battleground.TileSize) - 2,
+        Vector2 corner0 = Camera.ScreenToWorld(
+            new Vector2(logicalViewport.Left, logicalViewport.Top),
+            PlayerWorldCenter, ScreenShake);
+        Vector2 corner1 = Camera.ScreenToWorld(
+            new Vector2(logicalViewport.Right, logicalViewport.Top),
+            PlayerWorldCenter, ScreenShake);
+        Vector2 corner2 = Camera.ScreenToWorld(
+            new Vector2(logicalViewport.Right, logicalViewport.Bottom),
+            PlayerWorldCenter, ScreenShake);
+        Vector2 corner3 = Camera.ScreenToWorld(
+            new Vector2(logicalViewport.Left, logicalViewport.Bottom),
+            PlayerWorldCenter, ScreenShake);
+        float minWorldX = Math.Min(Math.Min(corner0.X, corner1.X), Math.Min(corner2.X, corner3.X));
+        float maxWorldX = Math.Max(Math.Max(corner0.X, corner1.X), Math.Max(corner2.X, corner3.X));
+        float minWorldY = Math.Min(Math.Min(corner0.Y, corner1.Y), Math.Min(corner2.Y, corner3.Y));
+        float maxWorldY = Math.Max(Math.Max(corner0.Y, corner1.Y), Math.Max(corner2.Y, corner3.Y));
+        int left = Math.Clamp((int)MathF.Floor(minWorldX / Battleground.TileSize) - 2,
             0, Battleground.Width - 1);
-        int right = Math.Clamp((int)MathF.Ceiling(viewportWorld.Max(point => point.X) / Battleground.TileSize) + 2,
+        int right = Math.Clamp((int)MathF.Ceiling(maxWorldX / Battleground.TileSize) + 2,
             0, Battleground.Width - 1);
-        int top = Math.Clamp((int)MathF.Floor(viewportWorld.Min(point => point.Y) / Battleground.TileSize) - 2,
+        int top = Math.Clamp((int)MathF.Floor(minWorldY / Battleground.TileSize) - 2,
             0, Battleground.Height - 1);
-        int bottom = Math.Clamp((int)MathF.Ceiling(viewportWorld.Max(point => point.Y) / Battleground.TileSize) + 2,
+        int bottom = Math.Clamp((int)MathF.Ceiling(maxWorldY / Battleground.TileSize) + 2,
             0, Battleground.Height - 1);
         float rotation = -MathHelper.ToRadians(Camera.AngleDegrees);
-        Vector2 tileSize = new(Battleground.TileSize + 1f, Battleground.TileSize + 1f);
 
         for (int y = top; y <= bottom; y++)
         {
-            for (int x = left; x <= right; x++)
+            int x = left;
+            while (x <= right)
             {
                 if (PathFog.IsVisible(x, y))
+                {
+                    x++;
+                    continue;
+                }
+
+                bool explored = PathFog.IsExplored(x, y);
+                int runStart = x++;
+                while (x <= right
+                    && !PathFog.IsVisible(x, y)
+                    && PathFog.IsExplored(x, y) == explored)
+                {
+                    x++;
+                }
+                Color fog = explored
+                    ? new Color(4, 7, 13, 178)
+                    : new Color(2, 3, 7, 250);
+                Vector2 topLeft = Camera.WorldToScreen(
+                    new Vector2(runStart * Battleground.TileSize, y * Battleground.TileSize),
+                    PlayerWorldCenter, ScreenShake);
+                Vector2 runSize = new(
+                    (x - runStart) * Battleground.TileSize + 1f,
+                    Battleground.TileSize + 1f);
+                Primitives2D.FillRotatedRect(
+                    spriteBatch, topLeft, runSize, rotation, fog);
+            }
+
+            for (x = left; x <= right; x++)
+            {
+                if (PathFog.IsVisible(x, y))
+                    continue;
+                if (!Battleground.IsRaisedAt(x, y))
                     continue;
                 Color fog = PathFog.IsExplored(x, y)
                     ? new Color(4, 7, 13, 178)
                     : new Color(2, 3, 7, 250);
-                Vector2 topLeft = Camera.WorldToScreen(
-                    new Vector2(x * Battleground.TileSize, y * Battleground.TileSize),
-                    PlayerWorldCenter, ScreenShake);
-                Primitives2D.FillRotatedRect(spriteBatch, topLeft, tileSize, rotation, fog);
-
-                if (!Battleground.IsRaisedAt(x, y))
-                    continue;
-                var (ground, cap) = ArenaRenderer.WallScreenGeometry(
-                    Camera, PlayerWorldCenter, ScreenShake, x, y, Battleground.WallHeight);
-                Primitives2D.FillPolygon(spriteBatch, cap, fog);
-                for (int edge = 0; edge < 4; edge++)
-                {
-                    int next = (edge + 1) % 4;
-                    Primitives2D.FillPolygon(spriteBatch,
-                        [cap[edge], cap[next], ground[next], ground[edge]], fog);
-                }
+                ArenaRenderer.DrawWallOcclusionMask(
+                    spriteBatch, Camera, PlayerWorldCenter, ScreenShake,
+                    x, y, Battleground.WallHeight, fog);
             }
         }
     }
@@ -2389,19 +2634,33 @@ public sealed class GameSession
         if (distance < 1)
             return null;
         var direction = delta / distance;
-        var intersections = new List<float>();
+        float edgeDistance = float.PositiveInfinity;
         if (direction.X > 0)
-            intersections.Add((viewport.Right - origin.X) / direction.X);
+        {
+            float candidate = (viewport.Right - origin.X) / direction.X;
+            if (candidate > 0)
+                edgeDistance = Math.Min(edgeDistance, candidate);
+        }
         else if (direction.X < 0)
-            intersections.Add((viewport.Left - origin.X) / direction.X);
+        {
+            float candidate = (viewport.Left - origin.X) / direction.X;
+            if (candidate > 0)
+                edgeDistance = Math.Min(edgeDistance, candidate);
+        }
         if (direction.Y > 0)
-            intersections.Add((viewport.Bottom - origin.Y) / direction.Y);
+        {
+            float candidate = (viewport.Bottom - origin.Y) / direction.Y;
+            if (candidate > 0)
+                edgeDistance = Math.Min(edgeDistance, candidate);
+        }
         else if (direction.Y < 0)
-            intersections.Add((viewport.Top - origin.Y) / direction.Y);
-        var positive = intersections.Where(value => value > 0).ToList();
-        if (positive.Count == 0)
+        {
+            float candidate = (viewport.Top - origin.Y) / direction.Y;
+            if (candidate > 0)
+                edgeDistance = Math.Min(edgeDistance, candidate);
+        }
+        if (float.IsPositiveInfinity(edgeDistance))
             return null;
-        float edgeDistance = positive.Min();
         var tip = origin + direction * edgeDistance;
         var perpendicular = new Vector2(-direction.Y, direction.X);
         const float length = 38, headLength = 17, shaftHalf = 6, headHalf = 13;
@@ -2417,7 +2676,12 @@ public sealed class GameSession
 
     /// <summary>Convenience wrapper matching MovePlayer/DrawPlayer's shape: call once per frame, before <see cref="HandleInformationSheetDrag"/>.</summary>
     public void DrawInformationSheet(SpriteBatch spriteBatch, Point mousePosition) =>
-        InformationSheet.DrawSheet(spriteBatch, State, PlayerWorldCenter, SelectBountyTarget(), mousePosition, PathRun);
+        DrawInformationSheet(spriteBatch, mousePosition, SelectBountyTarget());
+
+    public void DrawInformationSheet(
+        SpriteBatch spriteBatch, Point mousePosition, BountyInfo? bounty) =>
+        InformationSheet.DrawSheet(
+            spriteBatch, State, PlayerWorldCenter, bounty, mousePosition, PathRun);
 
     public SidebarAction HandleInformationSheetAction(Point mousePosition, bool mousePressed) =>
         InformationSheet.HandleAction(State, mousePosition, mousePressed);
@@ -2507,8 +2771,9 @@ public sealed class GameSession
                 continue;
             var hitboxes = enemy.GetScreenHitboxes(Camera, PlayerWorldCenter, ScreenShake);
             Rectangle? collidedHitbox = null;
-            foreach (var (_, hitbox) in hitboxes)
+            for (int index = 0; index < hitboxes.Count; index++)
             {
+                Rectangle hitbox = hitboxes[index].Rect;
                 if (playerScreenRect.Intersects(hitbox))
                 {
                     collidedHitbox = hitbox;

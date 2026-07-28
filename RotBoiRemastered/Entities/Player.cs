@@ -125,27 +125,40 @@ public sealed class Player
         float newAbsPosX = WorldX - state.DX;
         float newAbsPosY = WorldY - state.DY;
 
-        var nextXPolygon = WorldCollisionPolygon(state, camera, newAbsPosX, WorldY);
-        if (!battleground.ConvexPolygonHitsWall(nextXPolygon) && !HitsObstacle(nextXPolygon, obstacles))
+        float halfSize = (float)state.PlayerSize / 2f;
+        float playerSize = (float)state.PlayerSize;
+        Vector2 nextXAnchor = new Vector2(newAbsPosX + halfSize, WorldY + halfSize)
+            + camera.ScreenVectorToWorld(new Vector2(-halfSize, -halfSize));
+        if (!battleground.ScreenAlignedRectangleHitsWall(nextXAnchor, playerSize, playerSize, camera)
+            && !HitsObstacle(nextXAnchor, playerSize, camera, obstacles))
             WorldX = newAbsPosX;
         else
             state.DX = 0;
 
-        var nextYPolygon = WorldCollisionPolygon(state, camera, WorldX, newAbsPosY);
-        if (!battleground.ConvexPolygonHitsWall(nextYPolygon) && !HitsObstacle(nextYPolygon, obstacles))
+        Vector2 nextYAnchor = new Vector2(WorldX + halfSize, newAbsPosY + halfSize)
+            + camera.ScreenVectorToWorld(new Vector2(-halfSize, -halfSize));
+        if (!battleground.ScreenAlignedRectangleHitsWall(nextYAnchor, playerSize, playerSize, camera)
+            && !HitsObstacle(nextYAnchor, playerSize, camera, obstacles))
             WorldY = newAbsPosY;
         else
             state.DY = 0;
     }
 
-    private static bool HitsObstacle(IReadOnlyList<Vector2> polygon, IReadOnlyList<Rectangle>? obstacles)
+    private static bool HitsObstacle(
+        Vector2 worldAnchor,
+        float size,
+        Camera camera,
+        IReadOnlyList<Rectangle>? obstacles)
     {
         if (obstacles is null)
             return false;
         for (int i = 0; i < obstacles.Count; i++)
         {
-            if (Battleground.ConvexPolygonIntersectsRectangle(polygon, obstacles[i]))
+            if (Battleground.ScreenAlignedRectangleIntersectsRectangle(
+                    worldAnchor, size, size, camera, obstacles[i]))
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -195,20 +208,28 @@ public sealed class Player
 
     private static void DrawCoreForgeRings(SpriteBatch spriteBatch, RunState state, Vector2 center, float drawSize)
     {
-        var pathOrder = GamePaths.Paths.Select((path, index) => (path.Key, index))
-            .ToDictionary(pair => pair.Key, pair => pair.index);
-        var cores = Items.EquippedCoreForges(state.Equipment.Values)
-            .OrderBy(core => pathOrder.GetValueOrDefault(core.PathKey))
-            .ToList();
-        if (cores.Count == 0)
-            return;
-
         float pulse = .96f + .035f * MathF.Sin(Environment.TickCount64 / 260f);
-        for (int index = 0; index < cores.Count; index++)
+        int coreIndex = 0;
+        for (int pathIndex = 0; pathIndex < GamePaths.Paths.Count; pathIndex++)
         {
-            float radius = drawSize * Math.Max(.58f, .82f - index * .06f) * pulse;
-            Color color = GamePaths.PathsByKey[cores[index].PathKey].Accent;
+            string pathKey = GamePaths.Paths[pathIndex].Key;
+            if (!Items.CoreForgesByPathKey.TryGetValue(pathKey, out var core))
+                continue;
+            bool equipped = false;
+            foreach (ItemDrop? item in state.Equipment.Values)
+            {
+                if (item?.CoreForge == core.Key)
+                {
+                    equipped = true;
+                    break;
+                }
+            }
+            if (!equipped)
+                continue;
+            float radius = drawSize * Math.Max(.58f, .82f - coreIndex * .06f) * pulse;
+            Color color = GamePaths.PathsByKey[pathKey].Accent;
             Primitives2D.CircleOutline(spriteBatch, center, radius, color * .88f, Math.Max(2, (int)(drawSize * .055f)));
+            coreIndex++;
         }
     }
 }

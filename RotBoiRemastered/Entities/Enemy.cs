@@ -43,17 +43,17 @@ public enum DamageSource { Direct, DamageOverTime }
 /// </summary>
 public sealed class EnemyUpdateContext
 {
-    public required float PlayerWorldX { get; init; }
-    public required float PlayerWorldY { get; init; }
-    public required Battleground Battleground { get; init; }
-    public List<EnemyProjectile> ProjectileSink { get; init; } = new();
-    public IReadOnlyList<Enemy> AllEnemies { get; init; } = Array.Empty<Enemy>();
-    public List<ExperienceBubble> ExperienceBubbles { get; init; } = new();
-    public Camera? Camera { get; init; }
-    public BossAfflictions? BossAfflictions { get; init; }
-    public PlayerBuildSnapshot? PlayerBuildSnapshot { get; init; }
-    public IReadOnlyList<Bullet> PlayerBullets { get; init; } = Array.Empty<Bullet>();
-    public RotBoiRemastered.Systems.DreamState? DreamState { get; init; }
+    public required float PlayerWorldX { get; set; }
+    public required float PlayerWorldY { get; set; }
+    public required Battleground Battleground { get; set; }
+    public List<EnemyProjectile> ProjectileSink { get; set; } = new();
+    public IReadOnlyList<Enemy> AllEnemies { get; set; } = Array.Empty<Enemy>();
+    public List<ExperienceBubble> ExperienceBubbles { get; set; } = new();
+    public Camera? Camera { get; set; }
+    public BossAfflictions? BossAfflictions { get; set; }
+    public PlayerBuildSnapshot? PlayerBuildSnapshot { get; set; }
+    public IReadOnlyList<Bullet> PlayerBullets { get; set; } = Array.Empty<Bullet>();
+    public RotBoiRemastered.Systems.DreamState? DreamState { get; set; }
 }
 
 /// <summary>
@@ -159,6 +159,11 @@ public class Enemy
 
     private Vector2 _lastVisualWorld;
     private readonly Random _rng;
+    private Vector2 _lastCollisionSafePosition;
+    private float _lastCollisionSafeCameraAngle;
+    private bool _hasCollisionSafePosition;
+    private readonly (string Part, Rectangle Rect)[] _singleWorldHitbox = new (string, Rectangle)[1];
+    private readonly (string Part, Rectangle Rect)[] _singleScreenHitbox = new (string, Rectangle)[1];
     private Camera? _collisionCamera;
 
     private static readonly IReadOnlyDictionary<string, int> TierRanks =
@@ -218,13 +223,23 @@ public class Enemy
     private bool PositionHitsWall(float x, float y, Battleground battleground) =>
         _collisionCamera is null
             ? battleground.RectHitsWall(WorldRectAt(x, y))
-            : battleground.ConvexPolygonHitsWall(WorldCollisionPolygon(_collisionCamera, x, y));
+            : battleground.ScreenAlignedRectangleHitsWall(
+                new Vector2(x, y), Size, Size, _collisionCamera);
 
     /// <summary>Moves a newly spawned or camera-rotated body out of any wall overlap.</summary>
     public void EnsureCollisionSafePosition(Battleground battleground)
     {
+        float cameraAngle = _collisionCamera?.AngleDegrees ?? 0f;
+        var position = new Vector2(WorldX, WorldY);
+        if (_hasCollisionSafePosition
+            && position == _lastCollisionSafePosition
+            && cameraAngle == _lastCollisionSafeCameraAngle)
+        {
+            return;
+        }
         if (PositionHitsWall(WorldX, WorldY, battleground))
             FindNearestCollisionSafePosition(battleground);
+        MarkCollisionSafe();
     }
 
     protected bool TryAxisMove(float amount, string axis, Battleground battleground)
@@ -237,7 +252,15 @@ public class Enemy
             return false;
         WorldX = nextX;
         WorldY = nextY;
+        MarkCollisionSafe();
         return true;
+    }
+
+    private void MarkCollisionSafe()
+    {
+        _lastCollisionSafePosition = new Vector2(WorldX, WorldY);
+        _lastCollisionSafeCameraAngle = _collisionCamera?.AngleDegrees ?? 0f;
+        _hasCollisionSafePosition = true;
     }
 
     /// <summary>
@@ -444,13 +467,21 @@ public class Enemy
         }
     }
 
-    public virtual IReadOnlyList<(string Part, Rectangle Rect)> GetWorldHitboxes() => new[] { ("body", WorldRect()) };
+    public virtual IReadOnlyList<(string Part, Rectangle Rect)> GetWorldHitboxes()
+    {
+        _singleWorldHitbox[0] = ("body", WorldRect());
+        return _singleWorldHitbox;
+    }
 
     public virtual IReadOnlyList<(string Part, Rectangle Rect)> GetScreenHitboxes(
         Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        return new[] { ("body", new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size)) };
+        _singleScreenHitbox[0] = (
+            "body",
+            new Rectangle(
+                (int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size));
+        return _singleScreenHitbox;
     }
 
     public virtual HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
@@ -499,14 +530,13 @@ public class Enemy
         switch (Archetype)
         {
             case "runner":
-                var points = new[]
-                {
+                Primitives2D.FillQuad(
+                    spriteBatch,
                     new Vector2(rect.Center.X, rect.Y + rect.Height * .2f),
                     new Vector2(rect.Right - rect.Width * .2f, rect.Center.Y),
                     new Vector2(rect.Center.X, rect.Bottom - rect.Height * .2f),
                     new Vector2(rect.X + rect.Width * .2f, rect.Center.Y),
-                };
-                Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Lighten(Color, 55));
+                    UiTheme.Lighten(Color, 55));
                 break;
             case "bulwark":
                 var inset = rect;

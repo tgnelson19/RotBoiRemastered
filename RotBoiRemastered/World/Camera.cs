@@ -25,6 +25,8 @@ public sealed class Camera
     public const double MaxDefaultZoomScale = 1.5;
     private const int ReferenceWidth = 1920;
     private const int ReferenceHeight = 1080;
+    private float _cosine = 1f;
+    private float _sine;
     public float AngleDegrees { get; private set; }
     public float Zoom { get; private set; } = 1f;
     public float DefaultZoom { get; private set; } = 1f;
@@ -42,6 +44,9 @@ public sealed class Camera
         if (normalized < 0)
             normalized += 360f;
         AngleDegrees = normalized;
+        float radians = MathHelper.ToRadians(normalized);
+        _cosine = MathF.Cos(radians);
+        _sine = MathF.Sin(radians);
     }
 
     /// <summary>Compatibility helper for callers that want an exact cardinal view.</summary>
@@ -104,29 +109,15 @@ public sealed class Camera
             (int)MathF.Ceiling(bottomRight.X - topLeft.X), (int)MathF.Ceiling(bottomRight.Y - topLeft.Y));
     }
 
-    private (float Cos, float Sin) CameraComponents()
-    {
-        float angle = MathHelper.ToRadians(AngleDegrees);
-        return (MathF.Cos(angle), MathF.Sin(angle));
-    }
-
     /// <summary>Rotate a world-space vector into the current camera orientation.</summary>
-    public Vector2 WorldVectorToScreen(Vector2 delta)
-    {
-        var (cosine, sine) = CameraComponents();
-        return new Vector2(
-            delta.X * cosine + delta.Y * sine,
-            -delta.X * sine + delta.Y * cosine);
-    }
+    public Vector2 WorldVectorToScreen(Vector2 delta) => new(
+        delta.X * _cosine + delta.Y * _sine,
+        -delta.X * _sine + delta.Y * _cosine);
 
     /// <summary>Rotate a screen-space vector back onto the world's ground plane.</summary>
-    public Vector2 ScreenVectorToWorld(Vector2 delta)
-    {
-        var (cosine, sine) = CameraComponents();
-        return new Vector2(
-            delta.X * cosine - delta.Y * sine,
-            delta.X * sine + delta.Y * cosine);
-    }
+    public Vector2 ScreenVectorToWorld(Vector2 delta) => new(
+        delta.X * _cosine - delta.Y * _sine,
+        delta.X * _sine + delta.Y * _cosine);
 
     public Vector2 WorldToScreen(Vector2 worldPosition, Vector2 playerWorldPosition, Vector2 screenShake)
     {

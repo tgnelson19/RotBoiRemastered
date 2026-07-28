@@ -185,9 +185,9 @@ public sealed class PathFloorLayout
     public IReadOnlyList<PathConnection> Connections { get; }
     public PathLayoutStyle Style { get; }
     public PathBossArenaVariant BossArenaVariant { get; }
-    public PathRoom StartRoom => Rooms.Single(room => room.Type == PathRoomType.Start);
-    public PathRoom BossRoom => Rooms.Single(room => room.Type == PathRoomType.Boss);
-    public IReadOnlyList<PathRoom> TreasureRooms => Rooms.Where(room => room.Type == PathRoomType.Treasure).ToList();
+    public PathRoom StartRoom { get; }
+    public PathRoom BossRoom { get; }
+    public IReadOnlyList<PathRoom> TreasureRooms { get; }
     public IReadOnlyList<PathDecoration> Decorations => Battleground.PathDecorations;
 
     public PathFloorLayout(Battleground battleground, IReadOnlyList<PathRoom> rooms,
@@ -200,10 +200,36 @@ public sealed class PathFloorLayout
         Connections = connections;
         Style = style;
         BossArenaVariant = bossArenaVariant;
+        PathRoom? startRoom = null;
+        PathRoom? bossRoom = null;
+        var treasureRooms = new List<PathRoom>();
+        for (int index = 0; index < rooms.Count; index++)
+        {
+            PathRoom room = rooms[index];
+            if (room.Type == PathRoomType.Start)
+                startRoom = room;
+            else if (room.Type == PathRoomType.Boss)
+                bossRoom = room;
+            else if (room.Type == PathRoomType.Treasure)
+                treasureRooms.Add(room);
+        }
+        StartRoom = startRoom
+            ?? throw new ArgumentException("Path layouts require a start room.", nameof(rooms));
+        BossRoom = bossRoom
+            ?? throw new ArgumentException("Path layouts require a boss room.", nameof(rooms));
+        TreasureRooms = treasureRooms.ToArray();
     }
 
-    public PathRoom? RoomAt(Vector2 worldPosition) =>
-        Rooms.FirstOrDefault(room => room.ContainsWorld(worldPosition));
+    public PathRoom? RoomAt(Vector2 worldPosition)
+    {
+        for (int index = 0; index < Rooms.Count; index++)
+        {
+            PathRoom room = Rooms[index];
+            if (room.ContainsWorld(worldPosition))
+                return room;
+        }
+        return null;
+    }
 
     /// <summary>Finds a random open footprint inside a specific room, never elsewhere on the floor.</summary>
     public Rectangle FindSpawnRect(PathRoom room, int size, Random? rng = null)

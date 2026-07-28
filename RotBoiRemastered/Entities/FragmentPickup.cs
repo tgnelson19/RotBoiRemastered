@@ -55,15 +55,26 @@ public sealed class FragmentPickup
         float pulse = 1f + .12f * MathF.Sin(VisualAge * 8f);
         Primitives2D.FillCircle(spriteBatch, center, Size * 1.15f * pulse, new Color(UiTheme.Gold, 38));
         float angle = VisualAge * 2.8f;
-        var shard = new[]
-        {
-            center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Size * .62f,
-            center + new Vector2(MathF.Cos(angle + MathF.PI * .62f), MathF.Sin(angle + MathF.PI * .62f)) * Size * .38f,
-            center + new Vector2(MathF.Cos(angle + MathF.PI), MathF.Sin(angle + MathF.PI)) * Size * .62f,
-            center + new Vector2(MathF.Cos(angle - MathF.PI * .62f), MathF.Sin(angle - MathF.PI * .62f)) * Size * .38f,
-        };
-        Primitives2D.FillPolygon(spriteBatch, shard.Select(point => point + new Vector2(2, 3)).ToArray(), UiTheme.Shadow);
-        Primitives2D.FillPolygon(spriteBatch, shard, UiTheme.Gold);
-        Primitives2D.PolygonOutline(spriteBatch, shard, UiTheme.Cream, 2);
+        Vector2 first = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Size * .62f;
+        Vector2 second = center + new Vector2(
+            MathF.Cos(angle + MathF.PI * .62f),
+            MathF.Sin(angle + MathF.PI * .62f)) * Size * .38f;
+        Vector2 third = center + new Vector2(
+            MathF.Cos(angle + MathF.PI),
+            MathF.Sin(angle + MathF.PI)) * Size * .62f;
+        Vector2 fourth = center + new Vector2(
+            MathF.Cos(angle - MathF.PI * .62f),
+            MathF.Sin(angle - MathF.PI * .62f)) * Size * .38f;
+        Vector2 shadow = new(2, 3);
+        Primitives2D.FillQuad(
+            spriteBatch,
+            first + shadow,
+            second + shadow,
+            third + shadow,
+            fourth + shadow,
+            UiTheme.Shadow);
+        Primitives2D.FillQuad(spriteBatch, first, second, third, fourth, UiTheme.Gold);
+        Primitives2D.QuadOutline(
+            spriteBatch, first, second, third, fourth, UiTheme.Cream, 2);
     }
 }

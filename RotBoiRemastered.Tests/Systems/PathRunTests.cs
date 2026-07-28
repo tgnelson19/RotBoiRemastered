@@ -44,11 +44,14 @@ public sealed class PathRunTests
 
         var enemy = new Enemy(skirmish.WorldCenter.X, skirmish.WorldCenter.Y, 1, 20, Color.Red,
             10, 10, 1, 1, 100) { EncounterKey = skirmish.EncounterKey };
-        Assert.Equal(new[] { assault }, run.CompleteReadyCombatRooms(new[] { enemy }));
+        IReadOnlyList<PathRoom> firstCompletion =
+            run.CompleteReadyCombatRooms(new[] { enemy });
+        Assert.Equal(new[] { assault }, firstCompletion);
         Assert.False(skirmish.IsCleared);
         Assert.True(assault.IsCleared);
 
         Assert.Equal(new[] { skirmish }, run.CompleteReadyCombatRooms(Array.Empty<Enemy>()));
+        Assert.Equal(new[] { assault }, firstCompletion);
         Assert.True(skirmish.IsCleared);
         Assert.Empty(run.ActiveCombatRooms);
     }

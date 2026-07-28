@@ -93,6 +93,36 @@ public class BattlegroundTests
     }
 
     [Fact]
+    public void ScreenAlignedRectangleHitsWall_MatchesExplicitRotatedFootprint()
+    {
+        var battleground = SmallOpenRoom();
+        var camera = new Camera();
+        camera.SetAngle(37);
+
+        foreach (Vector2 anchor in new[]
+                 {
+                     new Vector2(48, 75),
+                     new Vector2(75, 75),
+                     new Vector2(125, 125),
+                 })
+        {
+            const float size = 30;
+            var polygon = new[]
+            {
+                anchor,
+                anchor + camera.ScreenVectorToWorld(new Vector2(size, 0)),
+                anchor + camera.ScreenVectorToWorld(new Vector2(size, size)),
+                anchor + camera.ScreenVectorToWorld(new Vector2(0, size)),
+            };
+
+            Assert.Equal(
+                battleground.ConvexPolygonHitsWall(polygon),
+                battleground.ScreenAlignedRectangleHitsWall(
+                    anchor, size, size, camera));
+        }
+    }
+
+    [Fact]
     public void FindPathAroundWalls_ReturnsSafeStep()
     {
         var battleground = SmallOpenRoom();
