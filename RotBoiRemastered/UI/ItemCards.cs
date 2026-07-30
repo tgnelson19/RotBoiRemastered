@@ -9,50 +9,10 @@ namespace RotBoiRemastered.UI;
 /// <summary>Resolution-independent icons and mini cards for equippable loot items. Ported from itemCards.py.</summary>
 public static class ItemCards
 {
-    /// <summary>Sprite folder per slot type -- see Content/Sprites/README.md. Filename is the item's VisualKind, so e.g. slot "weapon" + kind "dagger" looks up Content/Sprites/Weapons/dagger.png.</summary>
-    private static readonly Dictionary<string, string> SpriteFolderBySlot = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["weapon"] = "Weapons", ["armor"] = "Armor", ["ring"] = "Rings", ["accessory"] = "Accessories",
-    };
-    private static readonly Dictionary<string, string> SlugCache = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, string> NormalizedSlotNames = new(StringComparer.Ordinal);
 
     private static void DrawLine(SpriteBatch spriteBatch, Color color, Vector2 start, Vector2 end, float width)
         => Primitives2D.Line(spriteBatch, start, end, color, Math.Max(1, (int)width));
-
-    /// <summary>
-    /// Draws a sprite for (slotType, itemName, visualKind) if one has been
-    /// added under Content/Sprites, scaled to fill rect. Tries the specific
-    /// item name first (e.g. Weapons/bow_of_dread.png) so a unique -- or any
-    /// item that outgrows sharing its VisualKind's generic art -- can get a
-    /// sprite distinct from every other item of that same silhouette,
-    /// falling back to the shared VisualKind sprite otherwise. Unlike the
-    /// procedural symbol below, neither tier applies `color` -- authored art
-    /// carries its own palette rather than being flattened to a single ink tint.
-    /// </summary>
-    private static bool TryDrawItemSprite(SpriteBatch spriteBatch, string slotType, string? itemName, string visualKind, Rectangle rect)
-    {
-        if (!SpriteFolderBySlot.TryGetValue(slotType, out var folder))
-            return false;
-        var sprite = (itemName is not null ? Sprites.TryGet($"{folder}/{Slug(itemName)}") : null)
-            ?? Sprites.TryGet($"{folder}/{visualKind}");
-        if (sprite is null)
-            return false;
-        spriteBatch.Draw(sprite, rect, Color.White);
-        return true;
-    }
-
-    /// <summary>"Bow of Dread" -> "bow_of_dread", matching how a sprite file for a specific item should be named.</summary>
-    private static string Slug(string name)
-    {
-        if (SlugCache.TryGetValue(name, out string? slug))
-            return slug;
-
-        var cleaned = new string(name.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray());
-        slug = string.Join('_', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
-        SlugCache[name] = slug;
-        return slug;
-    }
 
     private static string NormalizeSlotName(string slotType)
     {
@@ -67,9 +27,6 @@ public static class ItemCards
     public static void DrawItemSymbol(SpriteBatch spriteBatch, string slotType, Rectangle rect, Color? color = null,
         string? visualKind = null, string? itemName = null)
     {
-        if (visualKind is not null && TryDrawItemSprite(spriteBatch, slotType, itemName, visualKind, rect))
-            return;
-
         Color drawColor = color ?? UiTheme.Text;
         float cx = rect.Center.X, cy = rect.Center.Y;
         float unit = Math.Max(1f, Math.Min(rect.Width, rect.Height) / 20f);
@@ -207,7 +164,12 @@ public static class ItemCards
         }
     }
 
-    public static Rectangle DrawItemCard(SpriteBatch spriteBatch, Rectangle rect, ItemDrop item, bool hovered = false)
+    public static Rectangle DrawItemCard(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        ItemDrop item,
+        bool hovered = false,
+        float animationTime = 0f)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(item.Rarity, out var color) ? color : UiTheme.Border;
         var core = Items.CoreForgeFor(item);
@@ -215,7 +177,7 @@ public static class ItemCards
         int cornerRadius = Math.Max(2, rect.Width / 8);
 
         if (coreColor is Color glowColor)
-            DrawCoreGlow(spriteBatch, rect, glowColor, cornerRadius);
+            DrawCoreGlow(spriteBatch, rect, glowColor, cornerRadius, animationTime);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
         Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
 
@@ -233,12 +195,11 @@ public static class ItemCards
         inner.Inflate((int)(-rect.Width * .15f), (int)(-rect.Height * .18f));
         // The procedural symbol's line color has to flip to something light
         // for uniques -- it's normally Ink-on-bright-fill, and Ink-on-Ink
-        // would be invisible now that the fill itself is dark. Sprites
-        // ignore this color entirely either way (see TryDrawItemSprite).
+        // would be invisible now that the fill itself is dark.
         DrawItemSymbol(spriteBatch, item.SlotType, inner, isUnique ? UiTheme.Gold : UiTheme.Ink, item.Definition.VisualKind, item.Name);
 
         if (isUnique)
-            DrawUniqueSheen(spriteBatch, rect);
+            DrawUniqueSheen(spriteBatch, rect, animationTime);
 
         Color gradeColor = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Muted);
         int badgeSize = Math.Max(12, rect.Width / 3);
@@ -249,7 +210,7 @@ public static class ItemCards
 
         if (coreColor is Color coreBadgeColor)
         {
-            float pulse = .75f + .2f * MathF.Sin(Environment.TickCount64 / 210f);
+            float pulse = .75f + .2f * MathF.Sin(animationTime * 4.75f);
             Primitives2D.FillCircle(spriteBatch,
                 new Vector2(rect.X + badgeSize * .45f, rect.Y + badgeSize * .45f),
                 Math.Max(3, badgeSize * .20f), coreBadgeColor * pulse);
@@ -257,9 +218,14 @@ public static class ItemCards
         return rect;
     }
 
-    private static void DrawCoreGlow(SpriteBatch spriteBatch, Rectangle rect, Color color, int cornerRadius)
+    private static void DrawCoreGlow(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        Color color,
+        int cornerRadius,
+        float animationTime)
     {
-        float pulse = .55f + .25f * MathF.Sin(Environment.TickCount64 / 240f);
+        float pulse = .55f + .25f * MathF.Sin(animationTime * 4.15f);
         for (int layer = 3; layer >= 1; layer--)
         {
             var glow = rect;
@@ -286,20 +252,17 @@ public static class ItemCards
     /// icon (a separate small draw path, not DrawItemCard) can apply the
     /// same shine to stay visually consistent.
     ///
-    /// Timed off the real-time system clock (Environment.TickCount64)
-    /// rather than any RunState/SoulHub clock passed in -- RunState.RunTimeSeconds
-    /// specifically only advances during UpdateGameRun (by design: it's a
-    /// gameplay stat, not a frame clock), so it sits frozen while browsing
-    /// the Soul's inventory sidebar, which is exactly where a unique's card
-    /// is most commonly just sitting there being looked at. A wall-clock
-    /// read keeps this purely-cosmetic animation running in every game
-    /// state uniformly, with no per-call-site plumbing required.
+    /// The caller supplies its state's presentation clock. Run cards freeze
+    /// with gameplay while the Soul uses its own independently advanced time.
     /// </summary>
-    public static void DrawUniqueSheen(SpriteBatch spriteBatch, Rectangle rect)
+    public static void DrawUniqueSheen(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float animationTime = 0f)
     {
         const double period = 1.6;
         const double activeFraction = .7; // sweeps for 70% of the cycle, pauses for the rest
-        double t = Environment.TickCount64 / 1000.0 % period / period;
+        double t = animationTime % period / period;
         if (t > activeFraction)
             return;
         float sweep = (float)(t / activeFraction); // 0..1 across the active window

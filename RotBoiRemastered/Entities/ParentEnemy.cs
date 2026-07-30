@@ -61,6 +61,7 @@ public sealed class ParentEnemy : Enemy
         var child = new ChildEnemy(
             safe.X, safe.Y, Speed * 3.4f, childSize, UiTheme.Red, Damage * .48, Math.Max(1, MaxHp * .08),
             ExpValue * .12, Difficulty, AwarenessRange, archetype: "runner", difficultyTier: DifficultyTier, rng: _rng);
+        child.Parent = this;
         SpawnedEnemies.Add(child);
     }
 
@@ -124,8 +125,7 @@ public sealed class ParentEnemy : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
         Primitives2D.FillCircle(spriteBatch, center, (int)(Size * .28f), UiTheme.Purple);
         Primitives2D.FillCircle(spriteBatch, center, (int)(Size * .12f), UiTheme.Cream);

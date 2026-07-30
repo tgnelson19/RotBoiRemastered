@@ -30,6 +30,11 @@ public sealed class GameProfileData
     public bool DamageNumbers { get; set; } = true;
     public bool AimGuide { get; set; }
     public bool HighContrast { get; set; }
+    /// <summary>
+    /// Density of optional ambience, trails, and debris. Essential combat
+    /// telegraphs and basic pose animation deliberately ignore this value.
+    /// </summary>
+    public double VisualEffectsIntensity { get; set; } = 1.0;
     /// <summary>Sections included in the in-run details view opened with the HUD-detail key (Tab by default).</summary>
     public bool TabShowWeaponStats { get; set; } = true;
     public bool TabShowActiveQuests { get; set; }
@@ -197,6 +202,7 @@ public static class GameProfile
         profile.GuiScale = SnapToNearest(UiTheme.GuiScaleLevels, profile.GuiScale);
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         profile.CameraZoom = Math.Clamp(profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
+        profile.VisualEffectsIntensity = Math.Clamp(profile.VisualEffectsIntensity, 0.0, 1.0);
         profile.MaxFrameRate = FramePacing.NormalizeFrameRate(profile.MaxFrameRate);
         profile.Keybinds ??= new();
         profile.SkillLevels ??= new();

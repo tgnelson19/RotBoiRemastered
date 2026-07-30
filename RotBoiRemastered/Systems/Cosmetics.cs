@@ -64,6 +64,11 @@ public static class Cosmetics
         new ProjectileDesign("lance", "Lance", "Long, narrow and strongly directional."),
         new ProjectileDesign("comet", "Comet", "Round leading core with a tapered wake."),
         new ProjectileDesign("fork", "Fork", "Split trailing fins behind a solid striking head."),
+        new ProjectileDesign("prism", "Prism", "A tumbling faceted diamond."),
+        new ProjectileDesign("cog", "Cog", "A hard-edged spinning gear."),
+        new ProjectileDesign("satellite", "Satellite", "A core escorted by two orbiting pixels."),
+        new ProjectileDesign("wave", "Wave", "A flexing, directional waveform."),
+        new ProjectileDesign("sigil", "Cross-Sigil", "A rotating geometric cross."),
     };
 
     public static CosmeticColor SelectedCore => Find(CoreColors, GameProfile.Profile.PlayerCoreColor, "midnight");

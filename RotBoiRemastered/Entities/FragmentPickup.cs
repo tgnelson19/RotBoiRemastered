@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -52,6 +53,20 @@ public sealed class FragmentPickup
     {
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var center = screen + new Vector2(Size / 2f);
+        if (!NaturalSpawn && GameProfile.Profile.VisualEffectsIntensity > 0)
+        {
+            int trailCount = Math.Max(1,
+                (int)Math.Ceiling(3 * GameProfile.Profile.VisualEffectsIntensity));
+            Vector2 tail = new(MathF.Cos(Direction), MathF.Sin(Direction));
+            for (int index = 1; index <= trailCount; index++)
+            {
+                Vector2 point = center + tail * index * Size * .5f;
+                int chip = Math.Max(2, 5 - index);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)point.X, (int)point.Y, chip, chip),
+                    UiTheme.Gold * (.58f - index * .1f));
+            }
+        }
         float pulse = 1f + .12f * MathF.Sin(VisualAge * 8f);
         Primitives2D.FillCircle(spriteBatch, center, Size * 1.15f * pulse, new Color(UiTheme.Gold, 38));
         float angle = VisualAge * 2.8f;

@@ -13,7 +13,7 @@ public static class Simulation
 {
     public const int TileSize = 50;
     public const int FrameRate = 120;
-    private const double ReferenceFps = 240;
+    public const double ReferenceFps = 240;
 
     private static double _deltaMilliseconds = 1000.0 / FrameRate;
     private static bool _hasFrameDelta;

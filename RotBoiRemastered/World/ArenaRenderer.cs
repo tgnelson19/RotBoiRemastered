@@ -16,6 +16,8 @@ public enum WorldDepthDrawKind
     Bullet,
     Encounter,
     Enemy,
+    LootCrate,
+    Portal,
     Player,
     EnemyProjectile,
 }
@@ -585,6 +587,233 @@ public sealed class ArenaRenderer
     }
 
     /// <summary>
+    /// Draws only moving accents over the baked decoration bodies. Motion is
+    /// deterministic from time plus immutable room/variant metadata, so this
+    /// layer needs no live particle objects and never mutates world state.
+    /// </summary>
+    public void DrawAnimatedFloorAccents(
+        SpriteBatch spriteBatch,
+        Battleground battleground,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle viewport,
+        float time,
+        float intensity,
+        IReadOnlyDictionary<int, float>? roomVisualEnergy = null)
+    {
+        if (intensity <= 0)
+            return;
+
+        Rectangle visibility = camera.LogicalViewport(viewport);
+        visibility.Inflate(Battleground.TileSize * 2, Battleground.TileSize * 2);
+        foreach (PathDecoration decoration in battleground.PathDecorations)
+        {
+            if (decoration.Layer is not (PathDecorationLayer.Floor or PathDecorationLayer.Low))
+                continue;
+            Vector2 center = camera.WorldToScreen(
+                decoration.WorldPosition, playerWorldPosition, screenShake);
+            if (!visibility.Contains(center.ToPoint()))
+                continue;
+
+            int tileX = Math.Clamp(
+                (int)(decoration.WorldPosition.X / Battleground.TileSize),
+                0,
+                battleground.Width - 1);
+            int tileY = Math.Clamp(
+                (int)(decoration.WorldPosition.Y / Battleground.TileSize),
+                0,
+                battleground.Height - 1);
+            BiomePalette palette =
+                battleground.Palettes[battleground.BiomeForTile(tileX, tileY)];
+            float energy = .42f;
+            if (roomVisualEnergy is not null
+                && roomVisualEnergy.TryGetValue(decoration.RoomId, out float authoredEnergy))
+            {
+                energy = authoredEnergy;
+            }
+            DrawAnimatedFloorAccent(
+                spriteBatch, decoration, center, palette,
+                time, intensity, energy);
+        }
+    }
+
+    private static void DrawAnimatedFloorAccent(
+        SpriteBatch spriteBatch,
+        PathDecoration decoration,
+        Vector2 center,
+        BiomePalette palette,
+        float time,
+        float intensity,
+        float roomEnergy)
+    {
+        float scale = decoration.Scale;
+        float seed = decoration.Variant * 1.71f + decoration.RoomId * .37f;
+        float activity = intensity * (.35f + roomEnergy * .65f);
+        int optionalCount = Math.Max(1, (int)MathF.Ceiling(3f * activity));
+        int Pixel(float value) => (int)MathF.Round(value);
+
+        switch (decoration.Kind)
+        {
+            case PathDecorationKind.SewerChannel:
+                for (int index = 0; index < optionalCount; index++)
+                {
+                    float phase = (time * (.42f + roomEnergy * .35f) + seed + index * .31f) % 1f;
+                    float x = center.X + (phase - .5f) * 34f * scale;
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(Pixel(x) - 3, Pixel(center.Y) - 2 + index * 2, 7, 3),
+                        palette.Accent * (.35f + roomEnergy * .4f));
+                }
+                break;
+
+            case PathDecorationKind.SludgePool:
+            case PathDecorationKind.RotPatch:
+                for (int index = 0; index < optionalCount; index++)
+                {
+                    float phase = (time * (.6f + index * .13f) + seed + index * .27f) % 1f;
+                    Vector2 bubble = center + new Vector2(
+                        MathF.Sin(seed * 3f + index * 2.3f) * 13f * scale,
+                        (phase - .5f) * 7f * scale);
+                    int radius = Math.Max(2, Pixel((2f + phase * 2f) * scale));
+                    Primitives2D.CircleOutline(spriteBatch, bubble, radius,
+                        palette.Detail * ((1f - phase) * .72f), 1, 12);
+                }
+                break;
+
+            case PathDecorationKind.WaterPool:
+                for (int index = 0; index < optionalCount; index++)
+                {
+                    float phase = (time * .42f + seed + index / (float)optionalCount) % 1f;
+                    int width = Pixel((9f + phase * 27f) * scale);
+                    int height = Math.Max(3, width / 3);
+                    Primitives2D.EllipseOutline(spriteBatch,
+                        new Rectangle(Pixel(center.X) - width, Pixel(center.Y) - height,
+                            width * 2, height * 2),
+                        palette.Detail * ((1f - phase) * .56f), 1, 20);
+                }
+                break;
+
+            case PathDecorationKind.CausticCurrent:
+            case PathDecorationKind.WindLane:
+                for (int index = 0; index < optionalCount; index++)
+                {
+                    float phase = (time * (.5f + roomEnergy * .4f) + seed + index * .29f) % 1f;
+                    float x = center.X + (phase - .5f) * 42f * scale;
+                    float y = center.Y + (index - 1) * 5f * scale;
+                    Primitives2D.Line(spriteBatch,
+                        new Vector2(Pixel(x - 5f * scale), Pixel(y + 2)),
+                        new Vector2(Pixel(x + 5f * scale), Pixel(y - 2)),
+                        palette.Accent * (.32f + roomEnergy * .38f), 2);
+                }
+                break;
+
+            case PathDecorationKind.CloudBank:
+                for (int index = 0; index < optionalCount; index++)
+                {
+                    float phase = (time * .12f + seed + index * .37f) % 1f;
+                    Vector2 puff = center + new Vector2(
+                        (phase - .5f) * 30f * scale,
+                        MathF.Sin(time * .7f + seed + index) * 3f);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(Pixel(puff.X), Pixel(puff.Y), 5 + index * 2, 2),
+                        palette.Detail * .28f);
+                }
+                break;
+
+            case PathDecorationKind.StormCrack:
+                if ((time * (1.5f + roomEnergy) + seed) % 1f > .88f)
+                {
+                    Primitives2D.Line(spriteBatch,
+                        center + new Vector2(-10, -5) * scale,
+                        center + new Vector2(3, 1) * scale,
+                        palette.Detail * (.55f + roomEnergy * .4f), 3);
+                    Primitives2D.Line(spriteBatch,
+                        center + new Vector2(3, 1) * scale,
+                        center + new Vector2(12, 7) * scale,
+                        palette.Accent * .8f, 2);
+                }
+                break;
+
+            case PathDecorationKind.ResonanceTiles:
+                for (int bar = -2; bar <= 2; bar++)
+                {
+                    float wave = .5f + .5f * MathF.Sin(time * (3f + roomEnergy * 2f) + seed + bar);
+                    int height = Pixel((2f + wave * 7f * roomEnergy) * scale);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(Pixel(center.X + bar * 5f * scale) - 1,
+                            Pixel(center.Y) - height, 3, height),
+                        (bar == 0 ? palette.Detail : palette.Accent) * .62f);
+                }
+                break;
+
+            case PathDecorationKind.StarField:
+            case PathDecorationKind.Nebula:
+                for (int index = 0; index < optionalCount + 1; index++)
+                {
+                    float angle = time * (.4f + index * .08f) + seed + index * 2.399f;
+                    float radius = (7f + index * 5f) * scale;
+                    Vector2 star = center + new Vector2(
+                        MathF.Cos(angle) * radius,
+                        MathF.Sin(angle) * radius * .42f);
+                    int size = index % 3 == 0 ? 3 : 2;
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(Pixel(star.X), Pixel(star.Y), size, size),
+                        palette.Detail * (.45f + roomEnergy * .4f));
+                }
+                break;
+
+            case PathDecorationKind.Constellation:
+                {
+                    float phase = (time * .28f + seed) % 1f;
+                    Vector2 spark = center + new Vector2(
+                        MathHelper.Lerp(-16f, 16f, phase) * scale,
+                        MathF.Sin(phase * MathF.Tau) * 7f * scale);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(Pixel(spark.X) - 2, Pixel(spark.Y) - 2, 5, 5),
+                        palette.Detail * (.45f + roomEnergy * .5f));
+                    break;
+                }
+
+            case PathDecorationKind.VoidRift:
+                {
+                    float pulse = 1f + MathF.Sin(time * 2.2f + seed) * .16f * roomEnergy;
+                    float radius = 12f * scale * pulse;
+                    Primitives2D.QuadOutline(spriteBatch,
+                        center + new Vector2(0, -radius),
+                        center + new Vector2(radius * 1.55f, 0),
+                        center + new Vector2(0, radius),
+                        center + new Vector2(-radius * 1.55f, 0),
+                        palette.Detail * .64f, 2);
+                    break;
+                }
+
+            case PathDecorationKind.ScorchedCrater:
+            case PathDecorationKind.CinderPlate:
+                for (int index = 0; index < optionalCount; index++)
+                {
+                    float phase = (time * (.5f + index * .11f) + seed + index * .31f) % 1f;
+                    Vector2 ember = center + new Vector2(
+                        MathF.Sin(seed + index * 2.4f) * 15f * scale,
+                        (phase * -15f + 6f) * scale);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle(Pixel(ember.X), Pixel(ember.Y), 3, 3),
+                        (index % 2 == 0 ? palette.Accent : palette.Detail)
+                        * ((1f - phase) * .72f));
+                }
+                break;
+
+            case PathDecorationKind.TreasureSeal:
+                {
+                    float pulse = .5f + .5f * MathF.Sin(time * (2f + roomEnergy * 3f) + seed);
+                    float radius = (18f + pulse * 5f) * scale;
+                    Primitives2D.CircleOutline(spriteBatch, center, radius,
+                        palette.Detail * (.18f + roomEnergy * .5f), 2, 28);
+                    break;
+                }
+        }
+    }
+
+    /// <summary>
     /// Ported from _raised_scenery: the small subset of tiles that need
     /// full-resolution per-frame drawing. Public/static (pure function of a
     /// Battleground, no GraphicsDevice involved) so the deterministic
@@ -720,7 +949,10 @@ public sealed class ArenaRenderer
         Vector2 screenShake,
         Rectangle viewport,
         IReadOnlyList<WorldDepthDrawItem> dynamicItems,
-        Action<SpriteBatch, WorldDepthDrawItem> drawDynamic)
+        Action<SpriteBatch, WorldDepthDrawItem> drawDynamic,
+        float visualTime = 0f,
+        float visualIntensity = 1f,
+        IReadOnlyDictionary<int, float>? roomVisualEnergy = null)
     {
         _depthSceneScratch.Clear();
         _depthSceneScratch.EnsureCapacity(
@@ -841,7 +1073,10 @@ public sealed class ArenaRenderer
             else if (item.Kind == 1)
                 DrawRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Biome, palette);
             else if (item.PathDecoration is not null)
-                DrawPathRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.PathDecoration, palette);
+                DrawPathRaisedDecoration(
+                    spriteBatch, camera, playerWorldPosition, screenShake,
+                    item.PathDecoration, palette, visualTime, visualIntensity,
+                    roomVisualEnergy?.GetValueOrDefault(item.PathDecoration.RoomId, .42f) ?? .42f);
         }
     }
 
@@ -1180,12 +1415,17 @@ public sealed class ArenaRenderer
 
     private static void DrawPathRaisedDecoration(
         SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake,
-        PathDecoration decoration, BiomePalette palette)
+        PathDecoration decoration, BiomePalette palette,
+        float visualTime = 0f, float visualIntensity = 1f, float roomEnergy = .42f)
     {
         Vector2 center = camera.WorldToScreen(decoration.WorldPosition, playerWorldPosition, screenShake);
         float scale = decoration.Scale;
         float cx = center.X;
         float floorY = center.Y + Battleground.TileSize * .32f;
+        float seed = decoration.Variant * 1.71f + decoration.RoomId * .37f;
+        float motion = .25f + .75f * visualIntensity;
+        if (decoration.Kind == PathDecorationKind.LensBuoy)
+            floorY += MathF.Round(MathF.Sin(visualTime * 1.5f + seed) * 3f * motion);
         int S(float value) => Math.Max(1, (int)MathF.Round(value * scale));
         Rectangle Rect(float x, float y, float width, float height) =>
             new((int)(cx + x * scale), (int)(floorY + y * scale), S(width), S(height));
@@ -1210,7 +1450,8 @@ public sealed class ArenaRenderer
                 Primitives2D.CircleOutline(spriteBatch, P(0, -23), S(10), palette.Detail, S(3), 20);
                 for (int spoke = 0; spoke < 4; spoke++)
                 {
-                    float angle = spoke * MathF.PI / 2f;
+                    float angle = spoke * MathF.PI / 2f
+                        + visualTime * .8f * motion * (.35f + roomEnergy * .65f);
                     Primitives2D.Line(spriteBatch, P(0, -23), P(MathF.Cos(angle) * 9, -23 + MathF.Sin(angle) * 9), palette.Accent, S(2));
                 }
                 Primitives2D.FillCircle(spriteBatch, P(0, -23), S(3), UiTheme.Ink);
@@ -1378,7 +1619,12 @@ public sealed class ArenaRenderer
                 Primitives2D.FillRect(spriteBatch, Rect(-7, -18, 14, 19), palette.WallFace);
                 Primitives2D.FillCircle(spriteBatch, P(0, -22), S(8), palette.Accent);
                 Primitives2D.EllipseOutline(spriteBatch, Rect(-18, -30, 36, 15), palette.Detail, S(2), 24);
-                Primitives2D.FillCircle(spriteBatch, P(15, -22), S(3), palette.WallTop);
+                {
+                    float orbit = visualTime * .9f * motion + seed;
+                    Primitives2D.FillCircle(spriteBatch,
+                        P(MathF.Cos(orbit) * 16, -22 + MathF.Sin(orbit) * 6),
+                        S(3), palette.WallTop);
+                }
                 break;
 
             case PathDecorationKind.LanternSpire:
@@ -1461,6 +1707,129 @@ public sealed class ArenaRenderer
                     Primitives2D.Line(spriteBatch, P(grate * 4, -13), P(grate * 4, -6),
                         UiTheme.Ink, S(1));
                 break;
+        }
+
+        float activity = visualIntensity * (.35f + roomEnergy * .65f);
+        if (activity <= 0)
+            return;
+
+        switch (decoration.Kind)
+        {
+            case PathDecorationKind.Pump:
+                {
+                    int piston = S(3 + (2f + 2f * MathF.Sin(
+                        visualTime * (3f + roomEnergy * 2f) + seed)));
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)cx + S(12), (int)floorY - S(21), S(4), piston),
+                        palette.Accent * .8f);
+                    break;
+                }
+            case PathDecorationKind.PressureTank:
+                for (int puff = 0; puff < Math.Max(1, (int)MathF.Ceiling(2 * activity)); puff++)
+                {
+                    float phase = (visualTime * .32f + seed + puff * .43f) % 1f;
+                    Vector2 vapor = P(17 + MathF.Sin(seed + puff) * 4,
+                        -11 - phase * 22);
+                    int size = S(2 + phase * 3);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)vapor.X, (int)vapor.Y, size, size),
+                        palette.Detail * ((1f - phase) * .48f));
+                }
+                break;
+            case PathDecorationKind.MirrorArch:
+                {
+                    float phase = (visualTime * .35f + seed) % 1f;
+                    Vector2 glint = P(-7 + phase * 14, -32 + phase * 22);
+                    Primitives2D.Line(spriteBatch, glint - new Vector2(S(4), 0),
+                        glint + new Vector2(S(4), 0), palette.Detail * .75f, S(2));
+                    Primitives2D.Line(spriteBatch, glint - new Vector2(0, S(4)),
+                        glint + new Vector2(0, S(4)), palette.Detail * .75f, S(2));
+                    break;
+                }
+            case PathDecorationKind.EchoPylon:
+                {
+                    float pulse = (visualTime * (.55f + roomEnergy * .4f) + seed) % 1f;
+                    int radius = S(11 + pulse * 17);
+                    Primitives2D.Arc(spriteBatch,
+                        new Rectangle((int)cx - radius, (int)floorY - S(32) - radius / 2,
+                            radius * 2, radius),
+                        MathF.PI, MathF.Tau,
+                        palette.Accent * ((1f - pulse) * .42f), S(2), 18);
+                    break;
+                }
+            case PathDecorationKind.Chime:
+                for (int chime = -1; chime <= 1; chime++)
+                {
+                    float sway = MathF.Round(MathF.Sin(
+                        visualTime * 1.7f + seed + chime * .8f) * 3f * activity);
+                    Primitives2D.FillRect(spriteBatch,
+                        Rect(chime * 9 - 2 + sway, -9 + Math.Abs(chime) * -7, 5, 4),
+                        palette.Accent * .82f);
+                }
+                break;
+            case PathDecorationKind.LightningRod:
+                if ((visualTime * (1.2f + roomEnergy) + seed) % 1f > .88f)
+                {
+                    Primitives2D.PolylineSpan(spriteBatch, stackalloc Vector2[]
+                    {
+                        P(0, -46), P(7, -52), P(2, -57), P(11, -64),
+                    }, false, palette.Detail * .9f, S(2));
+                }
+                break;
+            case PathDecorationKind.OrganStack:
+                for (int pipe = -2; pipe <= 2; pipe++)
+                {
+                    float pulse = .5f + .5f * MathF.Sin(
+                        visualTime * (2.4f + roomEnergy) + seed + pipe * .8f);
+                    int height = S(4 + pulse * 9);
+                    Primitives2D.FillRect(spriteBatch,
+                        Rect(pipe * 7 - 1, -height - 4, 3, height),
+                        (pipe == 0 ? palette.Detail : palette.Accent) * .72f);
+                }
+                break;
+            case PathDecorationKind.Asteroid:
+            case PathDecorationKind.PrismObelisk:
+                {
+                    float orbit = visualTime * .65f + seed;
+                    Vector2 chip = P(MathF.Cos(orbit) * 17, -18 + MathF.Sin(orbit) * 9);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)chip.X - S(2), (int)chip.Y - S(2), S(4), S(4)),
+                        palette.Detail * .72f);
+                    break;
+                }
+            case PathDecorationKind.LanternSpire:
+                {
+                    float pulse = .5f + .5f * MathF.Sin(visualTime * 2.5f + seed);
+                    Primitives2D.CircleOutline(spriteBatch, P(0, -29),
+                        S(12 + pulse * 5), palette.Accent * (.2f + pulse * .42f),
+                        S(2), 20);
+                    break;
+                }
+            case PathDecorationKind.DeadTree:
+                for (int ash = 0; ash < Math.Max(1, (int)MathF.Ceiling(3 * activity)); ash++)
+                {
+                    float phase = (visualTime * (.24f + ash * .04f) + seed + ash * .31f) % 1f;
+                    Vector2 point = P(
+                        MathF.Sin(seed + ash * 2f + phase * 3f) * 18,
+                        -42 + phase * 38);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)point.X, (int)point.Y, S(2), S(2)),
+                        palette.Detail * ((1f - phase) * .46f));
+                }
+                break;
+            case PathDecorationKind.FurnaceIdol:
+                {
+                    float pulse = .55f + .45f * MathF.Sin(
+                        visualTime * (2.1f + roomEnergy) + seed);
+                    Primitives2D.FillRect(spriteBatch, Rect(-5, -13, 10, 7),
+                        palette.Accent * (.52f + pulse * .42f));
+                    if (pulse > .82f)
+                    {
+                        Primitives2D.FillRect(spriteBatch, Rect(-2, -20, 4, 4),
+                            palette.Detail * .72f);
+                    }
+                    break;
+                }
         }
     }
 }

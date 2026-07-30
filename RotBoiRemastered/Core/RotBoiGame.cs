@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
@@ -99,6 +100,12 @@ public class RotBoiGame : Game
     protected override void Update(GameTime gameTime)
     {
         Simulation.SetDeltaTime(gameTime.ElapsedGameTime.TotalMilliseconds);
+        if (State == GameState.TitleScreen)
+            _titleScreen.AdvancePresentation(
+                gameTime.ElapsedGameTime.TotalSeconds);
+        if (State is GameState.Paused or GameState.Results)
+            _menus.AdvancePresentation(
+                gameTime.ElapsedGameTime.TotalSeconds);
         CollectInput();
 
         IsMouseVisible = State != GameState.GameRun || _session is null
@@ -427,6 +434,7 @@ public class RotBoiGame : Game
         session.UpdateEnemies();
         session.UpdateEnemyProjectiles();
         session.HandleDamagingEnemies();
+        session.UpdateVisualEffects(gameTime.ElapsedGameTime.TotalSeconds);
 
         session.UpdateDamageTexts();
         session.UpdateExperience();
@@ -629,15 +637,16 @@ public class RotBoiGame : Game
 
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawPathAmbience(_spriteBatch);
+        session.DrawVisualEffects(_spriteBatch, BitVfxLayer.Ground);
         session.DrawGroundEnemyProjectiles(_spriteBatch);
         // Actors, shots, and raised scenery share a camera-relative painter
         // pass so wall caps/faces can cover anything physically behind them.
         session.DrawDepthSortedCombatWorld(_spriteBatch);
+        session.DrawVisualEffects(_spriteBatch, BitVfxLayer.World);
         session.DrawDamageTexts(_spriteBatch);
         session.DrawExperience(_spriteBatch);
+        session.DrawVisualEffects(_spriteBatch, BitVfxLayer.Overlay);
         _spriteBatch.End();
-        session.DrawLootCrates(_spriteBatch, GraphicsDevice);
-        session.DrawBossPortal(_spriteBatch, GraphicsDevice);
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawPathFogOfWar(_spriteBatch);
         _spriteBatch.End();
@@ -700,6 +709,8 @@ public class RotBoiGame : Game
             NumOfEnemiesKilled = session.State.NumOfEnemiesKilled,
             RunTimeSeconds = session.State.RunTimeSeconds,
             UpgradeTypeCounts = session.State.UpgradeTypeCounts,
+            PathKey = session.PathRun?.CurrentSenseKey
+                ?? GamePaths.Active().Key,
         };
         _spriteBatch.Begin();
         _menus.DrawResults(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height, snapshot, InputState.MousePosition, InputState.MouseDown);

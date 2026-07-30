@@ -92,10 +92,12 @@ public sealed class BombEnemy : WanderingRangedEnemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        var rect = pose.Rect;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
-        Primitives2D.FillCircle(spriteBatch, center, Math.Max(4, (int)(Size * .22f)), UiTheme.Gold);
-        Primitives2D.Line(spriteBatch, center, new Vector2(rect.Center.X, rect.Top), UiTheme.Cream, 3);
+        float pulse = .22f + .04f * MathF.Sin(Age * .18f) + pose.AttackPulse * .08f;
+        Primitives2D.FillCircle(spriteBatch, center, Math.Max(4, (int)(Size * pulse)), UiTheme.Gold);
+        float spark = MathF.Sin(Age * .31f) * Size * .08f;
+        Primitives2D.Line(spriteBatch, center, new Vector2(rect.Center.X + spark, rect.Top), UiTheme.Cream, 3);
     }
 }

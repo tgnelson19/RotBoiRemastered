@@ -30,11 +30,12 @@ public sealed class TreasureChest : LootCrate
         ThemeKey = themeKey;
     }
 
-    public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    protected override void DrawAt(
+        SpriteBatch spriteBatch,
+        Vector2 center,
+        float size,
+        float animationTime)
     {
-        Vector2 worldCenter = new(WorldX + Size / 2f, WorldY + Size / 2f);
-        Vector2 center = camera.ApplyZoom(camera.WorldToScreen(worldCenter, playerWorldPosition, screenShake));
-        float size = Size * camera.Zoom;
         var body = new Rectangle(
             (int)(center.X - size / 2f),
             (int)(center.Y - size * .38f),
@@ -45,7 +46,7 @@ public sealed class TreasureChest : LootCrate
         Color themeAccent = ThemeKey is not null ? GamePaths.PathsByKey[ThemeKey].Accent : UiTheme.Gold;
         Color accent = Items.Count == 0 ? UiTheme.Border : Color.Lerp(Tint(), themeAccent, .62f);
 
-        float pulse = .82f + .12f * MathF.Sin((float)(Environment.TickCount64 / 1000.0) * 3.2f);
+        float pulse = .82f + .12f * MathF.Sin(animationTime * 3.2f);
         Primitives2D.CircleOutline(spriteBatch, center, size * .68f, themeAccent * pulse, Math.Max(2, (int)(size * .035f)));
         Primitives2D.FillEllipse(spriteBatch,
             new Rectangle(body.X + 3, body.Bottom - body.Height / 8, body.Width, Math.Max(5, body.Height / 4)),

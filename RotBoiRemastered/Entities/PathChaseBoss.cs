@@ -117,6 +117,7 @@ public class PathChaseBoss : Enemy
     public double VisualTransitionRemaining { get; protected set; }
 
     protected virtual bool VisualSurvivalActive => EntranceRemaining > 0 || VisualTransitionRemaining > 0 || FinaleActive;
+    public bool PresentationSurvivalActive => VisualSurvivalActive;
     protected virtual bool UsesSharedDeathSpectacle => true;
     protected virtual bool UsesFinaleSequence => Config.FinalBoss;
     protected float DeathProgress => Dying ? (float)Math.Clamp(1.0 - DeathRemaining / DeathDuration, 0.0, 1.0) : 0f;
@@ -586,13 +587,8 @@ public class PathChaseBoss : Enemy
 
     protected void DrawBossHealth(SpriteBatch spriteBatch, Rectangle bar)
     {
-        if (Hp >= MaxHp || Dying)
-            return;
-        Primitives2D.FillRect(spriteBatch, bar, UiTheme.Ink);
-        var fill = bar;
-        fill.Inflate(-1, -1);
-        fill.Width = (int)(fill.Width * Math.Max(0f, (float)Hp / MaxHp));
-        Primitives2D.FillRect(spriteBatch, fill, PhaseAccent);
+        // Full bosses use GameSession's single shared HUD. This method stays
+        // as a compatibility hook for the authored body renderers.
     }
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)

@@ -77,57 +77,91 @@ public class LootCrate
     /// Size, so it became an obvious "the chest floats/drifts loose from the
     /// floor" wobble once unique crates got 2x bigger.
     /// </summary>
-    public virtual void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    public virtual void Draw(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        float animationTime = 0f)
     {
         Vector2 worldCenter = new(WorldX + Size / 2f, WorldY + Size / 2f);
         Vector2 screenCenter = camera.ApplyZoom(camera.WorldToScreen(worldCenter, playerWorldPosition, screenShake));
         float size = Size * camera.Zoom;
+        DrawAt(spriteBatch, screenCenter, size, animationTime);
+    }
+
+    public void DrawInWorldPass(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        float animationTime)
+    {
+        Vector2 worldCenter = new(WorldX + Size / 2f, WorldY + Size / 2f);
+        Vector2 screenCenter = camera.WorldToScreen(
+            worldCenter, playerWorldPosition, screenShake);
+        DrawAt(spriteBatch, screenCenter, Size, animationTime);
+    }
+
+    protected virtual void DrawAt(
+        SpriteBatch spriteBatch,
+        Vector2 screenCenter,
+        float size,
+        float animationTime)
+    {
         var rect = new Rectangle((int)(screenCenter.X - size / 2f), (int)(screenCenter.Y - size / 2f), (int)size, (int)size);
         Color accent = Tint();
 
         if (CoreAccent is Color coreAccent)
-            DrawCoreAura(spriteBatch, rect, coreAccent);
+            DrawCoreAura(spriteBatch, rect, coreAccent, animationTime);
 
         var shadowRect = new Rectangle(rect.X + 4, (int)(rect.Bottom - rect.Height * 0.18f), rect.Width, (int)(rect.Height * 0.18f));
         Primitives2D.FillEllipse(spriteBatch, shadowRect, UiTheme.Shadow);
 
-        // A crate holding a unique drop gets its own art (Content/Sprites/Misc/treasure.png)
-        // instead of the plain procedural box every other crate uses, same
-        // "PNG overrides procedural" pattern as ItemCards/ProjectileVisuals --
-        // see Content/Sprites/README.md.
-        var treasureSprite = ContainsUnique ? Sprites.TryGet("Misc/treasure") : null;
-        if (treasureSprite is not null)
-        {
-            DrawTreasureAura(spriteBatch, rect);
-            spriteBatch.Draw(treasureSprite, rect, Color.White);
-            return;
-        }
+        if (ContainsUnique)
+            DrawTreasureAura(spriteBatch, rect, animationTime);
 
         int border = Math.Max(2, (int)(size * 0.08f));
         Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
         Primitives2D.RectOutline(spriteBatch, rect, accent, border);
 
-        float lidY = rect.Y + rect.Height * 0.35f;
+        float seconds = animationTime;
+        float activity = (float)GameProfile.Profile.VisualEffectsIntensity;
+        float lidLift = MathF.Round(
+            (.5f + .5f * MathF.Sin(seconds * 2.3f + WorldX * .01f)) * 2f * activity);
+        float lidY = rect.Y + rect.Height * 0.35f - lidLift;
         Primitives2D.Line(spriteBatch, new Vector2(rect.X, lidY), new Vector2(rect.Right, lidY), accent, Math.Max(2, (int)(size * 0.06f)));
         Primitives2D.Line(spriteBatch, new Vector2(rect.Center.X, rect.Y), new Vector2(rect.Center.X, rect.Bottom), accent, Math.Max(1, (int)(size * 0.04f)));
+        if (activity > 0)
+        {
+            float phase = (seconds * .32f + WorldY * .013f) % 1f;
+            Vector2 glint = new(
+                MathHelper.Lerp(rect.Left + border, rect.Right - border, phase),
+                lidY);
+            int glintSize = Math.Max(2, (int)(size * .08f));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)glint.X - glintSize / 2,
+                    (int)glint.Y - glintSize / 2, glintSize, glintSize),
+                UiTheme.Cream * (.35f + activity * .5f));
+        }
     }
 
     /// <summary>
     /// Two golden points orbit the chest in a flattened ellipse (matching the
     /// squashed shadow ellipse drawn above), each dragging a fading trail of
     /// shrinking dots behind it -- reads as a beam of light swirling around
-    /// the chest rather than a static glow. Wall-clock timed
-    /// (Environment.TickCount64), same reasoning as ItemCards.DrawUniqueSheen:
-    /// keeps running uniformly with no elapsedSeconds threaded through Draw's
-    /// call chain.
+    /// the chest rather than a static glow.
     /// </summary>
-    private static void DrawTreasureAura(SpriteBatch spriteBatch, Rectangle rect)
+    private static void DrawTreasureAura(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float animationTime)
     {
         const double period = 2.4; // seconds per full orbit
         const int trailSegments = 16;
         const float trailSpan = MathHelper.TwoPi * .5f; // how much of the orbit the fading trail covers
 
-        float headAngle = (float)(Environment.TickCount64 / 1000.0 % period / period * MathHelper.TwoPi);
+        float headAngle = (float)(animationTime % period / period * MathHelper.TwoPi);
         float orbitRx = rect.Width * .85f;
         float orbitRy = rect.Height * .5f;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
@@ -148,9 +182,13 @@ public class LootCrate
     }
 
     /// <summary>Path-colored glow plus drifting motes for any crate carrying a Core-Forged item.</summary>
-    private static void DrawCoreAura(SpriteBatch spriteBatch, Rectangle rect, Color color)
+    private static void DrawCoreAura(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        Color color,
+        float animationTime)
     {
-        double seconds = Environment.TickCount64 / 1000.0;
+        double seconds = animationTime;
         float pulse = .9f + .12f * MathF.Sin((float)seconds * 4f);
         var center = rect.Center.ToVector2();
         for (int layer = 3; layer >= 1; layer--)

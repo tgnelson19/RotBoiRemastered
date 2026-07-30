@@ -89,11 +89,31 @@ public sealed class WarderEnemy : WanderingRangedEnemy
         if (ShieldHp > 0)
         {
             var shield = ShieldScreenRect(camera, playerWorldPosition, screenShake);
+            EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+            Vector2 raw = camera.WorldToScreen(
+                new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+            shield.Offset(pose.Rect.X - (int)raw.X, pose.Rect.Y - (int)raw.Y);
             var inked = shield;
             inked.Inflate(5, 5);
             Primitives2D.FillRect(spriteBatch, inked, UiTheme.Ink);
             Primitives2D.FillRect(spriteBatch, shield, UiTheme.Blue);
             Primitives2D.RectOutline(spriteBatch, shield, UiTheme.Cream, 2);
+            float ratio = (float)Math.Clamp(ShieldHp / Math.Max(1, MaxShieldHp), 0, 1);
+            int cracks = ratio < .67f ? ratio < .34f ? 3 : 2 : 0;
+            for (int crack = 0; crack < cracks; crack++)
+            {
+                float y = shield.Top + shield.Height * (crack + 1f) / (cracks + 1f);
+                Primitives2D.Line(spriteBatch,
+                    new Vector2(shield.Left, y),
+                    new Vector2(shield.Right, y + (crack % 2 == 0 ? 5 : -5)),
+                    UiTheme.Ink, 2);
+            }
+            if (VisualHitTimer > 0)
+            {
+                var ripple = shield;
+                ripple.Inflate(6, 8);
+                Primitives2D.RectOutline(spriteBatch, ripple, UiTheme.Cream, 2);
+            }
         }
     }
 }

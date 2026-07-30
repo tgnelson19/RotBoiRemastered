@@ -113,15 +113,14 @@ public sealed class VolleyEnemy : WanderingRangedEnemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
         int bars = Tier switch { "small" => 1, "medium" => 2, "large" => 3, _ => 1 };
         for (int index = 0; index < bars; index++)
         {
             float offset = (index - (bars - 1) / 2f) * Size * .18f;
             Primitives2D.Line(spriteBatch,
                 new Vector2(rect.Center.X - Size * .2f, rect.Center.Y + offset),
-                new Vector2(rect.Center.X + Size * .25f, rect.Center.Y + offset), UiTheme.Gold, 3);
+                new Vector2(rect.Center.X + Size * (.25f + .05f * MathF.Sin(Age * .11f + index)), rect.Center.Y + offset), UiTheme.Gold, 3);
         }
         if (_charging)
         {

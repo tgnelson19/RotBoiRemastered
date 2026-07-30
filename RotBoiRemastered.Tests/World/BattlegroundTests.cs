@@ -178,18 +178,88 @@ public class BattlegroundTests
     }
 
     [Fact]
-    public void Soul_IsAnAsymmetricHoldoutTunnelAndPortalChamber()
+    public void Soul_IsAChapelTransitionAndFiveBranchCrown()
     {
         var soul = Battleground.GenerateSoul();
         int spawnTileX = (int)((soul.SpawnPosition.X + Battleground.TileSize / 2f) / Battleground.TileSize);
         int spawnTileY = (int)((soul.SpawnPosition.Y + Battleground.TileSize / 2f) / Battleground.TileSize);
 
         Assert.True(spawnTileY > soul.Height * .7);
-        Assert.Equal(TileType.BuildingFloor, soul.TileAt(spawnTileX, spawnTileY));
-        Assert.Equal(TileType.Road, soul.TileAt(soul.Width / 2, 45));
-        Assert.False(soul.TileAt(soul.Width / 2, 22).IsSolid());
-        Assert.True(soul.TileAt(soul.Width / 2 - 33, 22).IsSolid());
-        Assert.False(soul.TileAt(soul.Width / 2, 37).IsSolid());
-        Assert.Equal(TileType.BuildingFloor, soul.TileAt(soul.Width / 2 + 2, 38));
+        Assert.False(soul.TileAt(spawnTileX, spawnTileY).IsSolid());
+        Assert.Equal(TileType.Road, soul.TileAt(SoulLayout.TunnelSouthTile.X, SoulLayout.TunnelSouthTile.Y));
+        Assert.False(soul.TileAt(SoulLayout.NexusTile.X, SoulLayout.NexusTile.Y).IsSolid());
+        Assert.All(SoulLayout.StationTiles.Values,
+            tile => Assert.False(soul.TileAt(tile.X, tile.Y).IsSolid()));
+        Assert.All(SoulLayout.PortalTiles.Values,
+            tile => Assert.False(soul.TileAt(tile.X, tile.Y).IsSolid()));
+        Assert.False(soul.TileAt(SoulLayout.DummyTile.X, SoulLayout.DummyTile.Y).IsSolid());
+        Assert.True(soul.TileAt(20, 30).IsSolid());
+    }
+
+    [Fact]
+    public void Soul_AllDestinationsAreReachableWithoutAStartupHike()
+    {
+        var soul = Battleground.GenerateSoul();
+
+        Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.NexusTile), 1, 23);
+        foreach (Point portal in SoulLayout.PortalTiles.Values)
+            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, portal), 1, 52);
+        foreach (Point station in SoulLayout.StationTiles.Values)
+            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, station), 0, 18);
+        Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.DummyTile), 1, 18);
+    }
+
+    [Fact]
+    public void Soul_PathAlcovesRemainDistinctBeyondTheSharedNexus()
+    {
+        Point[] portals = SoulLayout.PortalTiles.Values.ToArray();
+        for (int left = 0; left < portals.Length; left++)
+            for (int right = left + 1; right < portals.Length; right++)
+                Assert.True(Vector2.Distance(portals[left].ToVector2(), portals[right].ToVector2()) >= 6f);
+    }
+
+    [Fact]
+    public void Soul_SelectionCrownUsesDoubledAuthoredPortalVectors()
+    {
+        Assert.Equal(2, SoulLayout.SelectionAreaScale);
+        foreach (var (key, offset) in SoulLayout.PortalOffsets)
+        {
+            Point portal = SoulLayout.PortalTiles[key];
+            Assert.Equal(
+                new Point(
+                    SoulLayout.NexusTile.X
+                        + offset.X * SoulLayout.SelectionAreaScale,
+                    SoulLayout.NexusTile.Y
+                        + offset.Y * SoulLayout.SelectionAreaScale),
+                portal);
+        }
+    }
+
+    private static int ShortestPath(Battleground battleground, Point start, Point destination)
+    {
+        var queue = new Queue<(Point Tile, int Distance)>();
+        var visited = new HashSet<Point> { start };
+        queue.Enqueue((start, 0));
+        Point[] directions =
+        {
+            new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
+        };
+        while (queue.Count > 0)
+        {
+            var (tile, distance) = queue.Dequeue();
+            if (tile == destination)
+                return distance;
+            foreach (Point direction in directions)
+            {
+                Point next = tile + direction;
+                if (next.X < 0 || next.Y < 0
+                    || next.X >= battleground.Width || next.Y >= battleground.Height
+                    || battleground.TileAt(next.X, next.Y).IsSolid()
+                    || !visited.Add(next))
+                    continue;
+                queue.Enqueue((next, distance + 1));
+            }
+        }
+        return -1;
     }
 }

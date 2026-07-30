@@ -43,9 +43,10 @@ public sealed class ShotgunEnemy : WanderingRangedEnemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        foreach (float offset in new[] { -.22f, 0f, .22f })
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        var rect = pose.Rect;
+        float spread = .22f + pose.AttackPulse * .12f;
+        foreach (float offset in new[] { -spread, 0f, spread })
         {
             float y = rect.Center.Y + rect.Height * offset;
             Primitives2D.Line(spriteBatch, new Vector2(rect.X + rect.Width * .25f, y),

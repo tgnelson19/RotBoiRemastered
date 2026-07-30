@@ -1,11 +1,22 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Entities;
+
+public readonly record struct EnemyRenderPose(
+    Rectangle Rect,
+    Vector2 Center,
+    Vector2 Facing,
+    Vector2 WorldRight,
+    Vector2 WorldDown,
+    float WalkPhase,
+    float AttackPulse,
+    bool HitFlash);
 
 /// <summary>Ported from enemy.py's HitResult frozen dataclass.</summary>
 public sealed record HitResult(bool Applied, bool Killed, double Amount = 0, bool Blocked = false);
@@ -125,6 +136,7 @@ public class Enemy
     public float VisualAttackTimer { get; private set; }
     public float VisualAttackCooldown { get; private set; }
     public bool Moved { get; private set; }
+    public float VisualHitTimer { get; private set; }
     public RuntimeEncounter? Encounter { get; set; }
     public int EncounterSlot { get; set; }
     public Vector2? EncounterPatrolTarget { get; set; }
@@ -158,6 +170,7 @@ public class Enemy
     public string? TransitionCleanupOwner { get; set; }
 
     private Vector2 _lastVisualWorld;
+    private Vector2 _visualFacing = Vector2.UnitX;
     private readonly Random _rng;
     private Vector2 _lastCollisionSafePosition;
     private float _lastCollisionSafeCameraAngle;
@@ -196,6 +209,8 @@ public class Enemy
     }
 
     public void MarkAttack(float duration = .22f) => VisualAttackTimer = Math.Max(VisualAttackTimer, Simulation.FrameRate * duration);
+    public void MarkVisualHit(float duration = .1f) =>
+        VisualHitTimer = Math.Max(VisualHitTimer, Simulation.FrameRate * duration);
 
     /// <summary>Hook for the path layer's ranged-distance multiplier.</summary>
     public virtual void ScaleAttackRange(double multiplier) { }
@@ -276,6 +291,7 @@ public class Enemy
         float timerStep = (float)Simulation.GetTimerStep();
         Age += timerStep;
         VisualAttackTimer = Math.Max(0f, VisualAttackTimer - timerStep);
+        VisualHitTimer = Math.Max(0f, VisualHitTimer - timerStep);
     }
 
     /// <summary>
@@ -288,7 +304,10 @@ public class Enemy
     protected void FinishMovementTracking()
     {
         var current = new Vector2(WorldX, WorldY);
-        Moved = Vector2.Distance(current, _lastVisualWorld) > .02f;
+        Vector2 delta = current - _lastVisualWorld;
+        Moved = delta.LengthSquared() > .0004f;
+        if (Moved)
+            _visualFacing = Vector2.Normalize(delta);
         _lastVisualWorld = current;
     }
 
@@ -501,59 +520,20 @@ public class Enemy
 
     public virtual void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        float walk = Moved ? MathF.Sin(Age * (.16f + TierRank * .018f)) : 0f;
-        int bob = (int)(Math.Abs(walk) * Math.Min(4f, Size * .055f));
-        float squash = Moved ? Math.Abs(walk) * .045f : 0f;
-        if (VisualAttackTimer > 0)
-        {
-            float attackProgress = VisualAttackTimer / Math.Max(1f, Simulation.FrameRate * .22f);
-            squash -= MathF.Sin(Math.Min(1f, attackProgress) * MathF.PI) * .12f;
-        }
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        Rectangle rect = pose.Rect;
+        Color bodyColor = pose.HitFlash ? UiTheme.Cream : Color;
 
-        int width = (int)(Size * (1 + squash)), height = (int)(Size * (1 - squash));
-        float midBottomX = screenPosition.X + Size / 2f, midBottomY = screenPosition.Y + Size - bob;
-        var rect = new Rectangle((int)(midBottomX - width / 2f), (int)(midBottomY - height), width, height);
+        EnemyVisualProfile visual = SoulVisualLanguage.Enemy(
+            ContentPath ?? GamePaths.Active().Key,
+            Family,
+            DifficultyTier);
+        EnemyVisualRenderer.DrawBody(
+            spriteBatch, pose, visual, bodyColor, Size, Archetype,
+            BehaviorModifier, ModifierColor,
+            NewGamePlusLevelApplied);
 
-        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 4, rect.Y + 4, rect.Width, rect.Height), UiTheme.Shadow);
-        Primitives2D.FillRect(spriteBatch, rect, Color);
-        int borderWidth = Math.Max(2, (int)(Size * (Archetype == "bulwark" ? .1f : .07f)));
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, borderWidth);
-
-        if (BehaviorModifier is not null)
-        {
-            int pip = Math.Max(4, (int)(Size * .11f));
-            Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Right - pip - 3, rect.Y + 3, pip + 2, pip + 2), UiTheme.Ink);
-            Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Right - pip - 2, rect.Y + 4, pip, pip), ModifierColor ?? UiTheme.Ink);
-        }
-
-        switch (Archetype)
-        {
-            case "runner":
-                Primitives2D.FillQuad(
-                    spriteBatch,
-                    new Vector2(rect.Center.X, rect.Y + rect.Height * .2f),
-                    new Vector2(rect.Right - rect.Width * .2f, rect.Center.Y),
-                    new Vector2(rect.Center.X, rect.Bottom - rect.Height * .2f),
-                    new Vector2(rect.X + rect.Width * .2f, rect.Center.Y),
-                    UiTheme.Lighten(Color, 55));
-                break;
-            case "bulwark":
-                var inset = rect;
-                inset.Inflate(-(int)(Size * .34f), -(int)(Size * .34f));
-                Primitives2D.RectOutline(spriteBatch, inset, UiTheme.Lighten(Color, 38), 3);
-                break;
-            case "skirmisher":
-                int crossWidth = Math.Max(2, (int)(Size * .08f));
-                Primitives2D.Line(spriteBatch, new Vector2(rect.Center.X, rect.Top), new Vector2(rect.Center.X, rect.Bottom), UiTheme.Lighten(Color, 60), crossWidth);
-                Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Center.Y), new Vector2(rect.Right, rect.Center.Y), UiTheme.Lighten(Color, 60), crossWidth);
-                break;
-            default:
-                var highlight = rect;
-                highlight.Inflate(-(int)(Size * .48f), -(int)(Size * .48f));
-                Primitives2D.FillRect(spriteBatch, highlight, UiTheme.Lighten(Color, 42));
-                break;
-        }
+        DrawStatusAccents(spriteBatch, pose);
 
         if (Hp < MaxHp)
         {
@@ -562,6 +542,71 @@ public class Enemy
             var fill = bar;
             fill.Width = (int)(bar.Width * Math.Max(0f, (float)Hp / MaxHp));
             Primitives2D.FillRect(spriteBatch, fill, UiTheme.Red);
+        }
+    }
+
+    public EnemyRenderPose RenderPose(
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake)
+    {
+        Vector2 screenPosition = camera.WorldToScreen(
+            new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        float walk = Moved ? MathF.Sin(Age * (.16f + TierRank * .018f)) : 0f;
+        int bob = (int)(Math.Abs(walk) * Math.Min(4f, Size * .055f));
+        float squash = Moved ? Math.Abs(walk) * .045f : 0f;
+        float attackPulse = 0f;
+        if (VisualAttackTimer > 0)
+        {
+            float attackProgress = VisualAttackTimer / Math.Max(1f, Simulation.FrameRate * .22f);
+            attackPulse = MathF.Sin(Math.Min(1f, attackProgress) * MathF.PI);
+            squash -= attackPulse * .12f;
+        }
+
+        int width = (int)(Size * (1 + squash)), height = (int)(Size * (1 - squash));
+        float midBottomX = screenPosition.X + Size / 2f, midBottomY = screenPosition.Y + Size - bob;
+        var rect = new Rectangle((int)(midBottomX - width / 2f), (int)(midBottomY - height), width, height);
+        Vector2 facing = camera.WorldVectorToScreen(_visualFacing);
+        if (facing.LengthSquared() > .0001f)
+            facing.Normalize();
+        else
+            facing = Vector2.UnitX;
+        return new EnemyRenderPose(
+            rect,
+            new Vector2(rect.Center.X, rect.Center.Y),
+            facing,
+            camera.WorldVectorToScreen(Vector2.UnitX),
+            camera.WorldVectorToScreen(Vector2.UnitY),
+            walk,
+            attackPulse,
+            VisualHitTimer > 0);
+    }
+
+    private void DrawStatusAccents(SpriteBatch spriteBatch, EnemyRenderPose pose)
+    {
+        if (StatusEffects.Count == 0)
+            return;
+        int index = 0;
+        foreach (string key in StatusEffects.Keys)
+        {
+            float phase = Age * .08f + index * 1.7f;
+            Vector2 point = pose.Center + new Vector2(
+                (index - (StatusEffects.Count - 1) / 2f) * Math.Max(5, Size * .13f),
+                -Size * .58f + MathF.Sin(phase) * 2f);
+            Color statusColor = key switch
+            {
+                "bleed" => UiTheme.Red,
+                "dread" => UiTheme.Purple,
+                "bane" => UiTheme.Gold,
+                _ => UiTheme.Green,
+            };
+            int size = Math.Max(2, (int)(Size * .055f));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)point.X - size / 2, (int)point.Y - size / 2, size, size),
+                statusColor);
+            index++;
+            if (index >= 5)
+                break;
         }
     }
 }

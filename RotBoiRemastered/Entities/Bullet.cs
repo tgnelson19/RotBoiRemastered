@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -31,6 +32,8 @@ public sealed class Bullet
     public bool IsCritical { get; }
     public bool RemFlag { get; set; }
     public float PortalCooldown { get; set; }
+    public float VisualAge { get; private set; }
+    public List<Vector2> Trail { get; } = new(6);
 
     public Bullet(float worldX, float worldY, float speed, float direction, float bulletRange,
         float size, Color color, int pierce, float damage, bool isCritical, Color? edgeColor = null, string design = "bulb")
@@ -66,9 +69,14 @@ public sealed class Bullet
         float distance = Speed * (float)Simulation.GetFrameScale();
         float seconds = (float)Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         PortalCooldown = Math.Max(0f, PortalCooldown - seconds);
+        VisualAge += seconds;
         WorldX += MathF.Cos(Direction) * distance;
         WorldY -= MathF.Sin(Direction) * distance;
         Range -= distance;
+
+        Trail.Add(new Vector2(WorldX + Size / 2f, WorldY + Size / 2f));
+        if (Trail.Count > 6)
+            Trail.RemoveAt(0);
 
         if (battleground.RectHitsWall(WorldRect()) || Range <= 0)
             RemFlag = true;
@@ -80,6 +88,23 @@ public sealed class Bullet
         Vector2 center = camera.WorldToScreen(centerWorld, playerWorldPosition, screenShake);
         Vector2 movement = new(MathF.Cos(Direction), -MathF.Sin(Direction));
         Vector2 forward = camera.WorldVectorToScreen(movement);
+        float intensity = (float)GameProfile.Profile.VisualEffectsIntensity;
+        if (intensity > 0 && Trail.Count > 1)
+        {
+            int visible = Math.Max(1, (int)MathF.Ceiling((Trail.Count - 1) * intensity));
+            int first = Math.Max(0, Trail.Count - 1 - visible);
+            for (int index = first; index < Trail.Count - 1; index++)
+            {
+                Vector2 trail = camera.WorldToScreen(
+                    Trail[index], playerWorldPosition, screenShake);
+                float progress = (index - first + 1f) / Math.Max(1, visible);
+                int trailSize = Math.Max(2, (int)(Size * (.08f + progress * .12f)));
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)trail.X - trailSize / 2,
+                        (int)trail.Y - trailSize / 2, trailSize, trailSize),
+                    (index % 2 == 0 ? EdgeColor : Color) * (.18f + progress * .32f));
+            }
+        }
         ProjectileVisuals.Draw(
             spriteBatch,
             center,
@@ -89,6 +114,9 @@ public sealed class Bullet
             EdgeColor,
             Design,
             IsCritical,
-            camera.Zoom);
+            camera.Zoom,
+            VisualAge,
+            drawShadow: true,
+            intensity: intensity);
     }
 }

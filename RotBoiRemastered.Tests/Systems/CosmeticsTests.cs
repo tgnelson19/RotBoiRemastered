@@ -27,6 +27,9 @@ public sealed class CosmeticsTests : IDisposable
     {
         Assert.Equal("reference", Cosmetics.SelectedProjectile.Id);
         Assert.Equal("bulb", Cosmetics.SelectedDesign.Id);
+        Assert.Equal(10, Cosmetics.ProjectileDesigns.Count);
+        Assert.Contains(Cosmetics.ProjectileDesigns, design => design.Id == "prism");
+        Assert.Contains(Cosmetics.ProjectileDesigns, design => design.Id == "sigil");
     }
 
     [Fact]

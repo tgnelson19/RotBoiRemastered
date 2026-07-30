@@ -13,6 +13,8 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class ChildEnemy : Enemy
 {
+    public Enemy? Parent { get; set; }
+
     public ChildEnemy(float worldX, float worldY, float speed, float size, Color color, double damage, double hp,
         double expValue, double difficulty, float awarenessRange, string archetype = "runner",
         string difficultyTier = "easy", Random? rng = null)
@@ -26,8 +28,16 @@ public sealed class ChildEnemy : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
+        if (Parent is not null && !Parent.IsDead())
+        {
+            Vector2 parent = camera.WorldToScreen(
+                new Vector2(Parent.WorldX + Parent.Size / 2f, Parent.WorldY + Parent.Size / 2f),
+                playerWorldPosition, screenShake);
+            Primitives2D.Line(spriteBatch,
+                new Vector2(rect.Center.X, rect.Center.Y), parent,
+                UiTheme.Purple * (.25f + .18f * MathF.Sin(Age * .13f)), 2);
+        }
         Primitives2D.FillCircle(spriteBatch, new Vector2(rect.Center.X, rect.Center.Y), Math.Max(2, (int)(Size * .12f)), UiTheme.Cream);
     }
 }

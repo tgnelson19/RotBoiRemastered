@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
@@ -28,12 +29,20 @@ public sealed class Player
 {
     public float WorldX { get; private set; }
     public float WorldY { get; private set; }
+    private float _visualAge;
+    private float _fireRecoil;
+    private bool _visualMoved;
+    private Vector2 _visualFacing = Vector2.UnitX;
+    private Vector2 _lastVisualPosition;
 
     public Player(float worldX, float worldY)
     {
         WorldX = worldX;
         WorldY = worldY;
+        _lastVisualPosition = new Vector2(worldX, worldY);
     }
+
+    public void MarkFired() => _fireRecoil = 1f;
 
     public void SetPosition(float worldX, float worldY)
     {
@@ -142,6 +151,16 @@ public sealed class Player
             WorldY = newAbsPosY;
         else
             state.DY = 0;
+
+        float visualSeconds = (float)seconds;
+        _visualAge += visualSeconds;
+        _fireRecoil = Math.Max(0, _fireRecoil - visualSeconds * 8f);
+        Vector2 current = new(WorldX, WorldY);
+        Vector2 visualDelta = current - _lastVisualPosition;
+        _visualMoved = visualDelta.LengthSquared() > .0004f;
+        if (_visualMoved)
+            _visualFacing = Vector2.Normalize(visualDelta);
+        _lastVisualPosition = current;
     }
 
     private static bool HitsObstacle(
@@ -176,39 +195,177 @@ public sealed class Player
         bool flashOn = state.PlayerInvulnerabilityTimer > 0 && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
         Color color = flashOn ? new Color(235, 245, 255) : state.PlayerColor;
         float drawSize = state.PlayerSize * sizeScale;
-        DrawCoreForgeRings(spriteBatch, state, camera.Lock, drawSize);
-
-        // One fixed sprite slot, not a selectable list like ProjectileDesign
-        // -- there's no wardrobe UI for alternate skins yet. Never rotated
-        // (the camera turns instead of the character), but still tinted for
-        // the dash/invulnerability cues so those keep reading once real art
-        // replaces the procedural body.
-        var sprite = Sprites.TryGet("Player/character");
-        if (sprite is not null)
-        {
-            var origin = new Vector2(sprite.Width / 2f, sprite.Height / 2f);
-            float scale = drawSize / Math.Max(sprite.Width, sprite.Height);
-            Color tint = flashOn ? new Color(235, 245, 255) : state.Dashing ? UiTheme.Cream : Color.White;
-            spriteBatch.Draw(sprite, camera.Lock + new Vector2(4f, 4f), null, UiTheme.Shadow, 0f, origin, scale, SpriteEffects.None, 0f);
-            spriteBatch.Draw(sprite, camera.Lock, null, tint, 0f, origin, scale, SpriteEffects.None, 0f);
-            return;
-        }
+        DrawCoreForgeRings(
+            spriteBatch, state, camera.Lock, drawSize,
+            (float)state.RunTimeSeconds);
 
         int half = (int)Math.Round(drawSize / 2f);
-        var rect = new Rectangle((int)camera.Lock.X - half, (int)camera.Lock.Y - half,
-            (int)drawSize, (int)drawSize);
+        float step = _visualMoved
+            ? MathF.Abs(MathF.Sin(_visualAge * 11f))
+            : .5f + .5f * MathF.Sin(_visualAge * 2.2f);
+        int squash = (int)MathF.Round(drawSize * (_visualMoved ? .06f : .018f) * step);
+        Vector2 facing = camera.WorldVectorToScreen(_visualFacing);
+        if (facing.LengthSquared() > .0001f)
+            facing.Normalize();
+        Vector2 recoil = -facing * MathF.Round(_fireRecoil * drawSize * .08f);
+        Vector2 axisX = camera.WorldVectorToScreen(Vector2.UnitX);
+        Vector2 axisY = camera.WorldVectorToScreen(Vector2.UnitY);
+        if (axisX.LengthSquared() > .0001f) axisX.Normalize();
+        if (axisY.LengthSquared() > .0001f) axisY.Normalize();
+        var rect = new Rectangle(
+            (int)(camera.Lock.X - half + recoil.X - squash / 2f),
+            (int)(camera.Lock.Y - half + recoil.Y + squash),
+            (int)drawSize + squash,
+            Math.Max(4, (int)drawSize - squash));
 
-        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 4, rect.Y + 4, rect.Width, rect.Height), UiTheme.Shadow);
-        Primitives2D.FillRect(spriteBatch, rect, color);
-        Primitives2D.RectOutline(spriteBatch, rect, state.Dashing ? UiTheme.Cream : state.PlayerEdgeColor, 3);
-        var inset = rect;
-        inset.Inflate(-(int)(drawSize * .42f), -(int)(drawSize * .42f));
-        Primitives2D.FillRect(spriteBatch, inset, UiTheme.Lighten(color, 45));
+        float intensity = (float)GameProfile.Profile.VisualEffectsIntensity;
+        Vector2 bodyCenter = rect.Center.ToVector2();
+        Vector2 P(float x, float y) =>
+            bodyCenter
+            + axisX * (x * rect.Width * .5f)
+            + axisY * (y * rect.Height * .5f);
+        PlayerRegaliaRenderer.DrawRear(
+            spriteBatch, state, bodyCenter, axisX, axisY,
+            drawSize, (float)state.RunTimeSeconds, intensity);
+        if (state.Dashing && intensity > 0)
+        {
+            int ghosts = Math.Max(1, (int)MathF.Ceiling(3 * intensity));
+            for (int index = ghosts; index >= 1; index--)
+            {
+                Vector2 offset = facing * -index * drawSize * .28f;
+                Primitives2D.FillQuad(spriteBatch,
+                    P(-1, -1) + offset, P(1, -1) + offset,
+                    P(1, 1) + offset, P(-1, 1) + offset,
+                    state.PlayerEdgeColor * (.08f + (ghosts - index) * .06f));
+            }
+        }
+
+        Vector2 worldShadow = axisX * 4f + axisY * 4f;
+        Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+        {
+            P(-1, -1) + worldShadow, P(1, -1) + worldShadow,
+            P(1, 1) + worldShadow, P(-1, 1) + worldShadow,
+        }, UiTheme.Shadow);
+        Span<Vector2> body = stackalloc Vector2[]
+        {
+            P(-1, -1), P(1, -1), P(1, 1), P(-1, 1),
+        };
+        Primitives2D.FillPolygonSpan(spriteBatch, body, color);
+        Primitives2D.PolygonOutlineSpan(spriteBatch, body,
+            state.Dashing ? UiTheme.Cream : state.PlayerEdgeColor, 3);
+        Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+        {
+            P(0, -.18f), P(.18f, 0), P(0, .18f), P(-.18f, 0),
+        }, UiTheme.Lighten(color, 45));
+        PlayerRegaliaRenderer.DrawFront(
+            spriteBatch, state, bodyCenter, axisX, axisY,
+            drawSize, (float)state.RunTimeSeconds);
+
+        if (_fireRecoil > 0)
+        {
+            Vector2 muzzle = new Vector2(rect.Center.X, rect.Center.Y) + facing * drawSize * .7f;
+            int muzzleSize = Math.Max(3, (int)(drawSize * .12f * _fireRecoil));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)muzzle.X - muzzleSize / 2,
+                    (int)muzzle.Y - muzzleSize / 2, muzzleSize, muzzleSize),
+                state.BulletEdgeColor);
+        }
+        if (state.HealthPoints < state.MaxHealthPoints * .25)
+        {
+            float warning = .35f + .25f * MathF.Sin(_visualAge * 7f);
+            var warningRect = rect;
+            warningRect.Inflate(4, 4);
+            Primitives2D.RectOutline(spriteBatch, warningRect,
+                UiTheme.Red * warning, 2);
+        }
+        if (state.BossAfflictions.Exposure > 0
+            || state.BossAfflictions.SlowRemaining > 0
+            || state.BossAfflictions.PullRemaining > 0)
+        {
+            Color affliction = state.BossAfflictions.PullRemaining > 0
+                ? UiTheme.Purple
+                : state.BossAfflictions.SlowRemaining > 0
+                    ? UiTheme.Blue
+                    : UiTheme.Gold;
+            float strength = (float)Math.Clamp(
+                .25 + state.BossAfflictions.Exposure * .06, .25, .85);
+            var afflictionRect = rect;
+            afflictionRect.Inflate(2, 2);
+            Primitives2D.RectOutline(spriteBatch, afflictionRect,
+                affliction * strength, 2);
+            for (int index = 0; index < 3; index++)
+            {
+                float phase = _visualAge * (2.2f + index * .2f) + index * 2.1f;
+                Vector2 mote = new(
+                    rect.Center.X + MathF.Cos(phase) * drawSize * .65f,
+                    rect.Center.Y + MathF.Sin(phase) * drawSize * .35f);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)mote.X, (int)mote.Y, 3, 3),
+                    affliction * strength);
+            }
+        }
+
+        DrawHealthBar(spriteBatch, state, rect);
     }
 
-    private static void DrawCoreForgeRings(SpriteBatch spriteBatch, RunState state, Vector2 center, float drawSize)
+    internal static int HealthBarFillWidth(
+        int barWidth,
+        int health,
+        int maximumHealth)
     {
-        float pulse = .96f + .035f * MathF.Sin(Environment.TickCount64 / 260f);
+        float ratio = Math.Clamp(
+            health / (float)Math.Max(1, maximumHealth),
+            0f, 1f);
+        return (int)MathF.Round(Math.Max(0, barWidth) * ratio);
+    }
+
+    private static void DrawHealthBar(
+        SpriteBatch spriteBatch,
+        RunState state,
+        Rectangle playerRect)
+    {
+        int width = Math.Max(28, playerRect.Width);
+        const int height = 5;
+        var bar = new Rectangle(
+            playerRect.Center.X - width / 2,
+            playerRect.Bottom + 7,
+            width,
+            height);
+        Primitives2D.FillRect(spriteBatch, bar, UiTheme.Ink);
+        var inner = new Rectangle(
+            bar.X + 1, bar.Y + 1,
+            Math.Max(0, bar.Width - 2),
+            Math.Max(1, bar.Height - 2));
+        int fillWidth = HealthBarFillWidth(
+            inner.Width,
+            state.HealthPoints,
+            state.MaxHealthPoints);
+        if (fillWidth > 0)
+        {
+            Color fill = state.HealthPoints
+                <= state.MaxHealthPoints * .25
+                ? UiTheme.Red
+                : UiTheme.Green;
+            Primitives2D.FillRect(
+                spriteBatch,
+                new Rectangle(
+                    inner.X, inner.Y,
+                    fillWidth, inner.Height),
+                fill);
+        }
+        Primitives2D.RectOutline(
+            spriteBatch, bar,
+            UiTheme.Border * .9f, 1);
+    }
+
+    private static void DrawCoreForgeRings(
+        SpriteBatch spriteBatch,
+        RunState state,
+        Vector2 center,
+        float drawSize,
+        float animationTime)
+    {
+        float pulse = .96f + .035f * MathF.Sin(animationTime * 3.85f);
         int coreIndex = 0;
         for (int pathIndex = 0; pathIndex < GamePaths.Paths.Count; pathIndex++)
         {

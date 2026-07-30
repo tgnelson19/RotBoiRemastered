@@ -28,6 +28,7 @@ public sealed class Camera
     private float _cosine = 1f;
     private float _sine;
     public float AngleDegrees { get; private set; }
+    public float AngleRadians => MathHelper.ToRadians(AngleDegrees);
     public float Zoom { get; private set; } = 1f;
     public float DefaultZoom { get; private set; } = 1f;
 
@@ -113,6 +114,17 @@ public sealed class Camera
     public Vector2 WorldVectorToScreen(Vector2 delta) => new(
         delta.X * _cosine + delta.Y * _sine,
         -delta.X * _sine + delta.Y * _cosine);
+
+    /// <summary>
+    /// Converts a world-authored angle into the clockwise-positive screen
+    /// angle used by primitive silhouettes. Unlike transforming a position,
+    /// this is independent of the player pivot and screen shake.
+    /// </summary>
+    public float WorldAngleToScreen(float worldRadians) =>
+        worldRadians - AngleRadians;
+
+    public float ScreenAngleToWorld(float screenRadians) =>
+        screenRadians + AngleRadians;
 
     /// <summary>Rotate a screen-space vector back onto the world's ground plane.</summary>
     public Vector2 ScreenVectorToWorld(Vector2 delta) => new(

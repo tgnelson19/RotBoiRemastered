@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -99,8 +100,8 @@ public sealed class RammerEnemy : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        var rect = pose.Rect;
         if (_ramState == "windup")
         {
             var end = new Vector2(rect.Center.X + MathF.Cos(_ramDirection) * Simulation.TileSize * 6,
@@ -114,5 +115,20 @@ public sealed class RammerEnemy : Enemy
             new Vector2(rect.Center.X, rect.Bottom - 7),
         };
         Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Cream);
+        if (_ramState == "charging" && GameProfile.Profile.VisualEffectsIntensity > 0)
+        {
+            int dust = Math.Max(1,
+                (int)Math.Ceiling(4 * GameProfile.Profile.VisualEffectsIntensity));
+            for (int index = 1; index <= dust; index++)
+            {
+                Vector2 point = pose.Center - pose.Facing * Size * (.45f + index * .2f)
+                    + new Vector2(-pose.Facing.Y, pose.Facing.X)
+                    * MathF.Sin(Age * .21f + index) * Size * .18f;
+                int chip = Math.Max(2, 6 - index);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)point.X, (int)point.Y, chip, chip),
+                    UiTheme.Muted * (.55f - index * .07f));
+            }
+        }
     }
 }

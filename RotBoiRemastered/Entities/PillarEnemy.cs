@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -146,10 +147,24 @@ public sealed class PillarEnemy : Enemy
             Primitives2D.Line(spriteBatch, new Vector2(target.Left, target.Center.Y), new Vector2(target.Right, target.Center.Y), UiTheme.Cream, 2);
         }
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
         var inset = rect;
         inset.Inflate(-(int)(Size * .45f), -(int)(Size * .14f));
         Primitives2D.FillRect(spriteBatch, inset, UiTheme.Gold);
+        if (_jumpTarget.HasValue && GameProfile.Profile.VisualEffectsIntensity > 0)
+        {
+            int debris = Math.Max(2,
+                (int)Math.Ceiling(5 * GameProfile.Profile.VisualEffectsIntensity));
+            for (int index = 0; index < debris; index++)
+            {
+                float angle = index * MathF.Tau / debris + Age * .04f;
+                Vector2 chip = new Vector2(rect.Center.X, rect.Bottom)
+                    + new Vector2(MathF.Cos(angle) * Size * .42f,
+                        MathF.Sin(angle) * Size * .13f);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)chip.X, (int)chip.Y, 4, 4),
+                    index % 2 == 0 ? UiTheme.Gold : UiTheme.Muted);
+            }
+        }
     }
 }

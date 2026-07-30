@@ -108,13 +108,16 @@ public class WanderingRangedEnemy : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        var rect = pose.Rect;
         var inkRect = rect;
-        inkRect.Inflate(-(int)(Size * .35f), -(int)(Size * .35f));
+        inkRect.Inflate(
+            -(int)(Size * (.35f - pose.AttackPulse * .07f)),
+            -(int)(Size * (.35f - pose.AttackPulse * .07f)));
         Primitives2D.FillRect(spriteBatch, inkRect, UiTheme.Ink);
         var redRect = rect;
         redRect.Inflate(-(int)(Size * .58f), -(int)(Size * .58f));
-        Primitives2D.FillRect(spriteBatch, redRect, UiTheme.Red);
+        Primitives2D.FillRect(spriteBatch, redRect,
+            Color.Lerp(UiTheme.Red, UiTheme.Cream, pose.AttackPulse * .55f));
     }
 }

@@ -761,102 +761,19 @@ public sealed class Battleground
     }
 
     /// <summary>
-    /// Authored sanctuary used only by The Soul. The player begins in the
-    /// compact southern holdout, crosses a narrow northbound light tunnel,
-    /// and emerges into a broad oval chamber whose five open bays are owned
-    /// by the path portals. Unlike combat maps, its asymmetry is intentional:
-    /// the spawn is low in the map so the architecture reads as a journey
-    /// from safety toward possibility rather than another arena ring.
+    /// Authored sanctuary used only by The Soul. The player begins in a
+    /// southern chapel, crosses a short northbound transition, and reaches a
+    /// composite dais whose five walled branches each terminate in a Path
+    /// shrine. SoulLayout owns both this geometry and SoulHub's interaction
+    /// anchors so the rendered furnishings cannot drift from collision.
     /// </summary>
     public static Battleground GenerateSoul()
     {
-        const int width = 79, height = 81;
-        int centerX = width / 2;
-        const int spawnY = 65;
-        var grid = new TileType[height, width];
-        for (int y = 0; y < height; y++)
-            for (int x = 0; x < width; x++)
-                grid[y, x] = TileType.OuterVoid;
-
-        // The portal chamber: a low, wide ellipse with a solid architectural
-        // lip. Its interior is deliberately simple because SoulHub supplies
-        // the animated paths and portal-specific decorative bleed.
-        const int chamberY = 22, chamberRadiusX = 33, chamberRadiusY = 19;
-        for (int y = 1; y < height - 1; y++)
-        {
-            for (int x = 1; x < width - 1; x++)
-            {
-                double dx = (x - centerX) / (double)chamberRadiusX;
-                double dy = (y - chamberY) / (double)chamberRadiusY;
-                double distance = dx * dx + dy * dy;
-                if (distance <= 1)
-                    grid[y, x] = distance >= .84 ? TileType.ArenaWall : TileType.BuildingFloor;
-            }
-        }
-
-        // A five-tile-wide processional tunnel joins the two spaces. Building
-        // walls make the colored ribbons feel enclosed and dimensional.
-        for (int y = 37; y <= 58; y++)
-        {
-            for (int x = centerX - 5; x <= centerX + 5; x++)
-                grid[y, x] = Math.Abs(x - centerX) == 5 ? TileType.BuildingWall : TileType.Road;
-        }
-
-        // Compact holdout with one northern opening. Everything interactive
-        // is positioned along its lower half by SoulHub.Enter.
-        const int holdoutLeft = 25, holdoutRight = 53, holdoutTop = 55, holdoutBottom = 77;
-        for (int y = holdoutTop; y <= holdoutBottom; y++)
-        {
-            for (int x = holdoutLeft; x <= holdoutRight; x++)
-            {
-                bool boundary = x == holdoutLeft || x == holdoutRight || y == holdoutTop || y == holdoutBottom;
-                bool northDoor = y == holdoutTop && Math.Abs(x - centerX) <= 4;
-                grid[y, x] = boundary && !northDoor ? TileType.BuildingWall : TileType.BuildingFloor;
-            }
-        }
-
-        // The tunnel terminates in a broad convergence dais rather than
-        // spilling directly onto the chamber floor. Alternating neutral
-        // masonry and road rings give the final composite portal a permanent
-        // architectural foundation even before its animated energy is drawn.
-        const int junctionY = 37;
-        for (int y = junctionY - 6; y <= junctionY + 6; y++)
-        {
-            for (int x = centerX - 6; x <= centerX + 6; x++)
-            {
-                if (grid[y, x].IsSolid())
-                    continue;
-                double distance = Hypot(x - centerX, y - junctionY);
-                if (distance <= 6.15)
-                    grid[y, x] = distance >= 4.65 ? TileType.Road : TileType.BuildingFloor;
-                if (distance is >= 2.55 and <= 3.35)
-                    grid[y, x] = TileType.Road;
-            }
-        }
-
-        // Radial floor inlays give each portal bay a permanent spine. The
-        // animated path ribbons sit directly over these and appear to pour
-        // out of the convergence portal.
-        var portalTiles = new[] { (15, 25), (27, 20), (39, 18), (51, 20), (63, 25) };
-        foreach (var portal in portalTiles)
-            PaintRoad(grid, (centerX, junctionY), portal, 1);
-
-        // Five dark teeth at the edge of the dais make the branching point
-        // legible from the tunnel. They never block a route: each sits in the
-        // wedge between two painted portal spines.
-        var daisTeeth = new[] { (-5, -2), (-3, -5), (0, -6), (3, -5), (5, -2) };
-        foreach (var (offsetX, offsetY) in daisTeeth)
-        {
-            int x = centerX + offsetX;
-            int y = junctionY + offsetY;
-            if (!grid[y, x].IsSolid())
-                grid[y, x] = TileType.BuildingFloor;
-        }
-
-        var spawn = new Vector2(
-            centerX * TileSize - TileSize / 2f,
-            spawnY * TileSize - TileSize / 2f);
-        return new Battleground(grid, BiomePalettes.Soul, wallHeight: 24, spawnPosition: spawn);
+        return new Battleground(
+            SoulLayout.BuildTiles(),
+            BiomePalettes.Soul,
+            wallHeight: 24,
+            spawnPosition: SoulLayout.SpawnTopLeft);
     }
 
     /// <summary>

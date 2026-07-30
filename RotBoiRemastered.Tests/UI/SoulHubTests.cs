@@ -136,6 +136,80 @@ public sealed class SoulHubTests
     }
 
     [Fact]
+    public void SoulLayout_DrivesEveryInteractionAnchor()
+    {
+        var session = new GameSession(Battleground.GenerateSoul(), 1280, 720, new Random(1));
+        var soulHub = new SoulHub();
+        soulHub.Enter(session);
+
+        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.DummyTile), soulHub.DummyWorld);
+        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.NexusTile), soulHub.CompositePortalWorld);
+        foreach (var (key, tile) in SoulLayout.StationTiles)
+            Assert.Equal(SoulLayout.TileWorldCenter(tile), soulHub.StationWorld(key));
+        foreach (var (key, tile) in SoulLayout.PortalTiles)
+            Assert.Equal(SoulLayout.TileWorldCenter(tile), soulHub.PortalWorld(key));
+    }
+
+    [Theory]
+    [InlineData(-5, 0)]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(4, 4)]
+    [InlineData(99, 5)]
+    public void MasteryTier_UsesABoundedArchitecturalProgression(int mastery, int expected)
+    {
+        Assert.Equal(expected, SoulVisualRenderer.MasteryTier(mastery));
+    }
+
+    [Fact]
+    public void OptionalSoulEffects_DisappearAtZeroIntensity()
+    {
+        Assert.Equal(0, SoulVisualRenderer.OptionalEffectCount(24, 0));
+        Assert.Equal(12, SoulVisualRenderer.OptionalEffectCount(24, .5f));
+        Assert.Equal(24, SoulVisualRenderer.OptionalEffectCount(24, 1));
+    }
+
+    [Fact]
+    public void SoulVeinsWakeLocallyAsThePlayerCrossesThem()
+    {
+        Vector2 start = Vector2.Zero;
+        Vector2 end = new(Battleground.TileSize * 4, 0);
+
+        float crossing = SoulVisualRenderer.VeinProximity(
+            new Vector2(Battleground.TileSize * 2, 0),
+            start, end);
+        float nearby = SoulVisualRenderer.VeinProximity(
+            new Vector2(
+                Battleground.TileSize * 2,
+                Battleground.TileSize * 1.25f),
+            start, end);
+        float distant = SoulVisualRenderer.VeinProximity(
+            new Vector2(
+                Battleground.TileSize * 2,
+                Battleground.TileSize * 8),
+            start, end);
+
+        Assert.Equal(1, crossing);
+        Assert.InRange(nearby, .4f, .7f);
+        Assert.Equal(0, distant);
+    }
+
+    [Theory]
+    [InlineData(null, null, null, 0)]
+    [InlineData("sound", null, null, 1)]
+    [InlineData("sound", "sound", null, 2)]
+    [InlineData("sound", "sound", "sound", 3)]
+    public void PortalPresentationState_FollowsInteractionPriority(
+        string? nearby,
+        string? confirming,
+        string? entering,
+        int expected)
+    {
+        Assert.Equal(expected,
+            (int)SoulVisualRenderer.ResolvePortalState("sound", nearby, confirming, entering));
+    }
+
+    [Fact]
     public void EnteringPortalChamber_DoesNotChangeCameraZoom()
     {
         var session = new GameSession(Battleground.GenerateSoul(), 1280, 720, new Random(1));

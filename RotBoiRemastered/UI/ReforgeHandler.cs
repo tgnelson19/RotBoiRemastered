@@ -144,10 +144,17 @@ public sealed class ReforgeHandler
             bool selected = slot == _selectedSlot;
             var panel = rect;
             panel.Inflate(Px(8), Px(8));
-            UiTheme.DrawPanel(spriteBatch, panel, selected ? UiTheme.PanelHover : UiTheme.Panel,
-                selected ? UiTheme.Gold : UiTheme.Border, shadow: selected ? 8 : 4, hovered: rect.Contains(mousePosition));
+            UiTheme.DrawLivingPanel(
+                spriteBatch, panel, GamePaths.Active().Key,
+                (float)state.RunTimeSeconds,
+                selected ? UiTheme.PanelHover : UiTheme.Panel,
+                selected ? UiTheme.Gold : UiTheme.Border,
+                shadow: selected ? 8 : 4,
+                hovered: rect.Contains(mousePosition));
             if (item is not null)
-                ItemCards.DrawItemCard(spriteBatch, rect, item, rect.Contains(mousePosition));
+                ItemCards.DrawItemCard(
+                    spriteBatch, rect, item, rect.Contains(mousePosition),
+                    (float)state.RunTimeSeconds);
             else
             {
                 Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
@@ -182,7 +189,9 @@ public sealed class ReforgeHandler
         var rect = new Rectangle((_screenWidth - width) / 2, top, width, Px(225));
         Color rarity = UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border);
         Color grade = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, rarity, shadow: 7);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect, GamePaths.Active().Key,
+            0f, UiTheme.PanelRaised, rarity, shadow: 7);
         UiTheme.DrawText(spriteBatch, item.DisplayName.ToUpperInvariant(), Px(24), UiTheme.Text,
             new Vector2(rect.X + Px(20), rect.Y + Px(15)));
         UiTheme.DrawText(spriteBatch, $"{item.Rarity.ToUpperInvariant()} RARITY  //  GRADE {item.Grade} ({Items.GradePower(item.Grade):P0} STATS)",

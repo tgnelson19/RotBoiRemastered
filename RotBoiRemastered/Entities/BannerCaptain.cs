@@ -69,15 +69,22 @@ public sealed class BannerCaptain : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        var rect = pose.Rect;
         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Center.X - 3, rect.Y - 10, 6, 16), UiTheme.Gold);
         var pennant = new[]
         {
             new Vector2(rect.Center.X + 3, rect.Y - 10),
-            new Vector2(rect.Center.X + Size * .35f, rect.Y - 3),
+            new Vector2(rect.Center.X + Size * (.35f + .05f * MathF.Sin(Age * .16f)), rect.Y - 3 + pose.AttackPulse * 3),
             new Vector2(rect.Center.X + 3, rect.Y + 3),
         };
         Primitives2D.FillPolygon(spriteBatch, pennant, UiTheme.Cream);
+        if (pose.AttackPulse > 0)
+            Primitives2D.EllipseOutline(spriteBatch,
+                new Rectangle((int)(pose.Center.X - Size * (.55f + pose.AttackPulse * .3f)),
+                    (int)(rect.Bottom - Size * .18f),
+                    (int)(Size * (1.1f + pose.AttackPulse * .6f)),
+                    Math.Max(5, (int)(Size * .28f))),
+                UiTheme.Gold * (.35f + pose.AttackPulse * .4f), 2, 20);
     }
 }

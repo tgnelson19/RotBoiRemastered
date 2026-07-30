@@ -116,4 +116,23 @@ public class EnemyTests
         enemy.ApplyKnockback(-1000, 0, battleground); // shove hard into the left wall
         Assert.False(battleground.RectHitsWall(enemy.WorldRect()));
     }
+
+    [Fact]
+    public void RenderPose_ExposesHitFlashAndMovementFacing()
+    {
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var enemy = MakeEnemy(60, 125, awarenessRange: 1000f, speed: 4f);
+        enemy.Update(MakeContext(190, 125, battleground));
+        enemy.MarkVisualHit();
+        var camera = new Camera();
+
+        EnemyRenderPose pose = enemy.RenderPose(
+            camera,
+            new Vector2(125, 125),
+            Vector2.Zero);
+
+        Assert.True(pose.HitFlash);
+        Assert.True(pose.Facing.X > 0);
+        Assert.True(pose.Rect.Width > 0);
+    }
 }

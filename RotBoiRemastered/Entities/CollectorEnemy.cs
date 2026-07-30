@@ -87,8 +87,7 @@ public sealed class CollectorEnemy : Enemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
         var points = new[]
         {
             new Vector2(rect.Center.X, rect.Top),
@@ -97,5 +96,14 @@ public sealed class CollectorEnemy : Enemy
             new Vector2(rect.Left, rect.Center.Y),
         };
         Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Green);
+        for (int index = 0; index < 3; index++)
+        {
+            float angle = Age * .08f + index * MathF.Tau / 3f;
+            Vector2 mote = new(rect.Center.X + MathF.Cos(angle) * Size * .38f,
+                rect.Center.Y + MathF.Sin(angle) * Size * .2f);
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)mote.X - 2, (int)mote.Y - 2, 4, 4),
+                index == 0 ? UiTheme.Cream : UiTheme.Green);
+        }
     }
 }

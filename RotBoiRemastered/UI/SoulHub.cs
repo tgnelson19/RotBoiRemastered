@@ -21,16 +21,6 @@ public sealed class SoulHub
     private const float StationCloseRadiusTiles = 1.85f;
     private const float PathPortalInteractRadiusTiles = 1.6f;
     private const float PathPortalConfirmCloseRadiusTiles = 2.1f;
-    private const float PortalJunctionOffsetTiles = -28f;
-    /// <summary>
-    /// Five authored bays in the northern chamber, expressed relative to the
-    /// southern holdout spawn. Their shallow arc leaves every title readable
-    /// while letting each path visually claim a large slice of the room.
-    /// </summary>
-    private static readonly (float X, float Y)[] PathPortalOffsetsTiles =
-    {
-        (-24, -40), (-12, -45), (0, -47), (12, -45), (24, -40),
-    };
     /// <summary>Time spent visibly pulling the player from where they confirmed into the portal's center.</summary>
     private const double PortalPullSeconds = 0.9;
     /// <summary>Time spent held at full black after the pull, so the scene swap underneath is never visible.</summary>
@@ -52,6 +42,7 @@ public sealed class SoulHub
     private double _currentDps;
     private double _sessionBest;
     private double _lastRecordSave;
+    private double _dummyHitFlash;
     /// <summary>Portal key awaiting an "ENTER X?" confirmation -- set on F near a portal, cleared by re-pressing F (confirm), walking away, or Escape.</summary>
     private string? _confirmingPortalKey;
     /// <summary>Portal key the player has committed to; drives the pull-in/fade animation until PortalPullSeconds + PortalFadeSeconds elapses.</summary>
@@ -73,6 +64,8 @@ public sealed class SoulHub
     public Vector2 DummyWorld => _dummyWorld;
     /// <summary>World center of the convergence portal after Enter has authored the current Soul layout.</summary>
     public Vector2 CompositePortalWorld => _pathPortalWorld.GetValueOrDefault(CompositePathPortalKey);
+    internal Vector2 StationWorld(string key) => _stationWorld[key];
+    internal Vector2 PortalWorld(string key) => _pathPortalWorld[key];
     public double CurrentDps => _currentDps;
     /// <summary>Whether the training dummy is currently carrying the given status effect (e.g. "bleed", "bane") -- lets tests confirm status effects actually land on it instead of only checking the DPS number they produce.</summary>
     public bool DummyHasStatus(string kind) => _dummy.StatusEffects.ContainsKey(kind);
@@ -96,26 +89,15 @@ public sealed class SoulHub
         session.State.AutoFire = false;
         session.State.EnemyHolster.Clear();
         session.State.EnemyProjectileHolster.Clear();
-        _dummyWorld = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 8, Simulation.TileSize * -2);
+        _dummyWorld = SoulLayout.TileWorldCenter(SoulLayout.DummyTile);
         _dummy = new TrainingDummy(_dummyWorld.X, _dummyWorld.Y);
         _stationWorld.Clear();
-        // The entire permanent-progression loop is visible in one glance
-        // along the holdout's southern service wall.
-        _stationWorld["storage"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * -8, Simulation.TileSize * 6);
-        _stationWorld["quests"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * -4, Simulation.TileSize * 6);
-        _stationWorld["skills"] = session.PlayerWorldCenter + new Vector2(0, Simulation.TileSize * 6);
-        _stationWorld["wardrobe"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 4, Simulation.TileSize * 6);
-        _stationWorld["hard_mode"] = session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 8, Simulation.TileSize * 6);
+        foreach (var (key, tile) in SoulLayout.StationTiles)
+            _stationWorld[key] = SoulLayout.TileWorldCenter(tile);
         _pathPortalWorld.Clear();
-        var paths = GamePaths.Paths;
-        for (int index = 0; index < paths.Count; index++)
-        {
-            var authored = PathPortalOffsetsTiles[index];
-            var offset = new Vector2(authored.X, authored.Y) * Simulation.TileSize;
-            _pathPortalWorld[paths[index].Key] = session.PlayerWorldCenter + offset;
-        }
-        var junctionOffset = new Vector2(0, PortalJunctionOffsetTiles) * Simulation.TileSize;
-        _pathPortalWorld[CompositePathPortalKey] = session.PlayerWorldCenter + junctionOffset;
+        foreach (var (key, tile) in SoulLayout.PortalTiles)
+            _pathPortalWorld[key] = SoulLayout.TileWorldCenter(tile);
+        _pathPortalWorld[CompositePathPortalKey] = SoulLayout.TileWorldCenter(SoulLayout.NexusTile);
         _dummyHits.Clear();
         _seconds = 0;
         _measurementStart = 0;
@@ -123,6 +105,7 @@ public sealed class SoulHub
         _currentDps = 0;
         _sessionBest = 0;
         _lastRecordSave = 0;
+        _dummyHitFlash = 0;
         _overlay = null;
         _confirmingPortalKey = null;
         _enteringPortalKey = null;
@@ -133,12 +116,14 @@ public sealed class SoulHub
     public void Update(GameSession session, double elapsedSeconds)
     {
         _seconds += Math.Min(.05, elapsedSeconds);
+        _dummyHitFlash = Math.Max(0, _dummyHitFlash - elapsedSeconds);
         if (_enteringPortalKey is not null)
             UpdatePortalTravel(session);
         var dummyRect = new Rectangle((int)(_dummyWorld.X - 34), (int)(_dummyWorld.Y - 44), 68, 88);
         foreach (var bullet in session.State.BulletHolster.Where(bullet => !bullet.RemFlag && dummyRect.Intersects(bullet.WorldRect())).ToArray())
         {
             bullet.RemFlag = true;
+            _dummyHitFlash = .13;
             double hitDamage = bullet.Damage * StatusEffects.DamageMultiplier(_dummy, bullet);
             _dummy.TakeDamage(hitDamage);
             RecordDummyHit(session, _dummy.DrainUnrecordedDamage(), bullet.IsCritical);
@@ -343,15 +328,37 @@ public sealed class SoulHub
     public void DrawWorld(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
         _targets.Clear();
-        DrawSoulEnergy(spriteBatch, session);
+        float visualIntensity = (float)GameProfile.Profile.VisualEffectsIntensity;
+        SoulVisualRenderer.DrawEnvironment(
+            spriteBatch, session, (float)_seconds, visualIntensity, _pathPortalWorld);
         var screen = session.Camera.WorldToScreen(_dummyWorld, session.PlayerWorldCenter, Vector2.Zero);
-        var body = new Rectangle((int)screen.X - 24, (int)screen.Y - 20, 48, 68);
+        Color effigyBody = _dummyHitFlash > 0 ? UiTheme.Cream : new Color(64, 50, 68);
+        var body = new Rectangle((int)screen.X - 25, (int)screen.Y - 22, 50, 69);
+        var plinth = new Rectangle((int)screen.X - 38, (int)screen.Y + 43, 76, 18);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(plinth.X + 6, plinth.Y + 7, plinth.Width, plinth.Height), UiTheme.Shadow);
+        Primitives2D.FillRect(spriteBatch, plinth, new Color(39, 32, 48));
+        Primitives2D.RectOutline(spriteBatch, plinth, UiTheme.Red * .72f, 3);
         Primitives2D.FillRect(spriteBatch, new Rectangle(body.X + 6, body.Y + 8, body.Width, body.Height), UiTheme.Shadow);
-        Primitives2D.FillRect(spriteBatch, body, UiTheme.PanelRaised);
+        Primitives2D.FillRect(spriteBatch, body, effigyBody);
         Primitives2D.RectOutline(spriteBatch, body, UiTheme.Red, 4);
-        Primitives2D.FillCircle(spriteBatch, new Vector2(screen.X, screen.Y - 38), 18, UiTheme.PanelRaised);
-        Primitives2D.CircleOutline(spriteBatch, new Vector2(screen.X, screen.Y - 38), 18, UiTheme.Red, 4);
-        Primitives2D.Line(spriteBatch, new Vector2(screen.X, screen.Y + 48), new Vector2(screen.X, screen.Y + 76), UiTheme.Red, 5);
+        Primitives2D.Line(spriteBatch, new Vector2(screen.X - 48, screen.Y - 6),
+            new Vector2(screen.X + 48, screen.Y - 6), UiTheme.Red * .72f, 9);
+        Primitives2D.FillPolygon(spriteBatch, new[]
+        {
+            new Vector2(screen.X, screen.Y - 62), new Vector2(screen.X + 20, screen.Y - 43),
+            new Vector2(screen.X + 14, screen.Y - 25), new Vector2(screen.X - 14, screen.Y - 25),
+            new Vector2(screen.X - 20, screen.Y - 43),
+        }, effigyBody);
+        Primitives2D.PolygonOutline(spriteBatch, new[]
+        {
+            new Vector2(screen.X, screen.Y - 62), new Vector2(screen.X + 20, screen.Y - 43),
+            new Vector2(screen.X + 14, screen.Y - 25), new Vector2(screen.X - 14, screen.Y - 25),
+            new Vector2(screen.X - 20, screen.Y - 43),
+        }, UiTheme.Red, 4);
+        Primitives2D.RectOutline(spriteBatch,
+            new Rectangle((int)screen.X - 13, (int)screen.Y - 9, 26, 26), UiTheme.Cream * .75f, 3);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle((int)screen.X - 4, (int)screen.Y, 8, 8), UiTheme.Red);
 
         int sideX = screen.X < session.ScreenWidth * .68f ? (int)screen.X + 58 : (int)screen.X - 268;
         var readout = new Rectangle(sideX, (int)screen.Y - 68, 210, 128);
@@ -361,8 +368,13 @@ public sealed class SoulHub
         UiTheme.DrawText(spriteBatch, "DAMAGE PER SECOND", 9, UiTheme.Red, new Vector2(readout.X + 14, readout.Y + 74));
         UiTheme.DrawText(spriteBatch, $"SESSION {_sessionBest:0}  //  RECORD {GameProfile.Profile.BestDummyDps:0}", 8, UiTheme.Cream,
             new Vector2(readout.X + 14, readout.Y + 98));
-        DrawStations(spriteBatch, session);
-        DrawPathPortals(spriteBatch, session);
+        SoulVisualRenderer.DrawStations(
+            spriteBatch, session, (float)_seconds, _stationWorld,
+            NearbyStation(session), _overlay);
+        SoulVisualRenderer.DrawPortals(
+            spriteBatch, session, (float)_seconds, _pathPortalWorld,
+            NearbyPathPortal(session), _confirmingPortalKey, _enteringPortalKey,
+            _portalAnimationStart);
     }
 
     /// <summary>
@@ -377,7 +389,7 @@ public sealed class SoulHub
         float t = (float)_seconds;
         Vector2 spawn = session.Battleground.SpawnPosition + new Vector2(Simulation.TileSize / 2f);
         Vector2 tunnelStart = spawn + new Vector2(0, Simulation.TileSize * -7f);
-        Vector2 junction = spawn + new Vector2(0, Simulation.TileSize * PortalJunctionOffsetTiles);
+        Vector2 junction = SoulLayout.TileWorldCenter(SoulLayout.NexusTile);
         var pathColors = GamePaths.Paths.Select(path => path.Accent).ToArray();
         float awakening = TunnelAwakening(session.PlayerWorldCenter.Y, tunnelStart.Y, junction.Y);
         float ambientAwakening = .12f + awakening * .88f;
@@ -825,7 +837,9 @@ public sealed class SoulHub
         // Drawn last so the dragged-item icon (part of this call, see
         // InformationSheet.DrawCarriedLoadout) always renders on top, wherever the
         // cursor currently is -- including over the Vault panel drawn just above.
-        if (SidebarShown) session.DrawCarriedLoadout(spriteBatch, mouse);
+        if (SidebarShown)
+            session.DrawCarriedLoadout(
+                spriteBatch, mouse, (float)_seconds);
         // Absolute last: once committed, the fade must cover everything above
         // (sidebar included) so the ResetAll scene swap underneath is never visible.
         if (_enteringPortalKey is not null) DrawPortalFade(spriteBatch, session);
@@ -867,9 +881,9 @@ public sealed class SoulHub
     {
         var labels = new Dictionary<string, (string Label, Color Accent)>
         {
-            ["storage"] = ("VAULT", UiTheme.Gold), ["quests"] = ("QUEST ALTAR", UiTheme.Green),
-            ["skills"] = ("SOUL GRID", UiTheme.Purple), ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
-            ["hard_mode"] = (GameProfile.Profile.HardModeEnabled ? "DISABLE HARD MODE" : "ENABLE HARD MODE",
+            ["storage"] = ("VAULT RELIQUARY", UiTheme.Gold), ["quests"] = ("VOW LECTERN", UiTheme.Green),
+            ["skills"] = ("SOUL ROSE", UiTheme.Purple), ["wardrobe"] = ("VESTMENT MIRROR", UiTheme.Blue),
+            ["hard_mode"] = (GameProfile.Profile.HardModeEnabled ? "EXTINGUISH THE TRIAL" : "LIGHT THE TRIAL",
                 GameProfile.Profile.HardModeEnabled ? UiTheme.Red : UiTheme.Gold),
         };
         var nearby = NearbyStation(session);
@@ -1108,7 +1122,8 @@ public sealed class SoulHub
             Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, arenaWidth, screenHeight), UiTheme.Void * .94f);
             var vaultPanel = new Rectangle((int)(arenaWidth * .07f), (int)(screenHeight * .12f),
                 (int)(arenaWidth * .55f), (int)(screenHeight * .72f));
-            UiTheme.DrawPanel(spriteBatch, vaultPanel, UiTheme.PanelRaised, UiTheme.Gold, shadow: 10);
+            SoulVisualRenderer.DrawOverlayFrame(
+                spriteBatch, vaultPanel, "storage", UiTheme.Gold);
             DrawVault(spriteBatch, vaultPanel, mouse);
             if (_tooltip is not null) DrawTooltip(spriteBatch, mouse, vaultPanel);
             return;
@@ -1117,7 +1132,14 @@ public sealed class SoulHub
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight), UiTheme.Void * .94f);
         var panel = new Rectangle((int)(screenWidth * .055f), (int)(screenHeight * .07f),
             (int)(screenWidth * .89f), (int)(screenHeight * .80f));
-        UiTheme.DrawPanel(spriteBatch, panel, UiTheme.PanelRaised, UiTheme.Green, shadow: 10);
+        Color accent = _overlay switch
+        {
+            "quests" => UiTheme.Green,
+            "skills" => UiTheme.Purple,
+            "wardrobe" => UiTheme.Blue,
+            _ => UiTheme.Cream,
+        };
+        SoulVisualRenderer.DrawOverlayFrame(spriteBatch, panel, _overlay!, accent);
         if (_overlay == "quests") DrawQuests(spriteBatch, panel, mouse);
         if (_overlay == "skills") DrawSkills(spriteBatch, panel, mouse);
         if (_overlay == "wardrobe") DrawWardrobe(spriteBatch, panel, mouse);
@@ -1137,8 +1159,8 @@ public sealed class SoulHub
     /// </summary>
     private void DrawVault(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "VAULT", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
-        UiTheme.DrawText(spriteBatch, "SAFE, PERMANENT  //  DRAG ITEMS TO AND FROM YOUR INVENTORY", Fs(9), UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "VAULT RELIQUARY", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, "SAFE MEMORY  //  DRAG RELICS TO AND FROM YOUR INVENTORY", Fs(9), UiTheme.Gold,
             new Vector2(panel.X + Px(26), panel.Y + Px(53)));
 
         int slotSize = Px(44), gap = Px(8);
@@ -1155,7 +1177,8 @@ public sealed class SoulHub
             if (index >= GameProfile.Profile.Storage.Count) continue;
             var drop = Items.Deserialize(GameProfile.Profile.Storage[index]);
             if (drop is null) continue;
-            ItemCards.DrawItemCard(spriteBatch, rect, drop, rect.Contains(mouse));
+            ItemCards.DrawItemCard(
+                spriteBatch, rect, drop, rect.Contains(mouse), (float)_seconds);
             if (rect.Contains(mouse)) _tooltip = $"{drop.Rarity} {drop.Name}  //  Drag to your inventory to carry it into a run.";
         }
         int vaultRows = (MetaProgression.StorageCapacity + vaultColumns - 1) / vaultColumns;
@@ -1189,8 +1212,8 @@ public sealed class SoulHub
     private void DrawQuests(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
         MetaProgression.CompleteReadyQuests();
-        UiTheme.DrawText(spriteBatch, "QUEST GRID", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
-        UiTheme.DrawText(spriteBatch, "GENERIC OBJECTIVES PERSIST ACROSS RUNS  //  GREEN BARS SHOW COMPLETION", Fs(9), UiTheme.Green,
+        UiTheme.DrawText(spriteBatch, "THE VOW LECTERN", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, "VOWS PERSIST ACROSS RUNS  //  GREEN SEALS MARK FULFILLMENT", Fs(9), UiTheme.Green,
             new Vector2(panel.X + Px(26), panel.Y + Px(53)));
         int columns = 4, gap = Px(9), tileWidth = (panel.Width - Px(52) - gap * 3) / 4;
         int tileHeight = (panel.Height - Px(105) - gap * 5) / 6;
@@ -1270,8 +1293,8 @@ public sealed class SoulHub
 
     private void DrawSkills(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "SOUL GRID", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
-        UiTheme.DrawText(spriteBatch, $"SOUL TOKENS  {GameProfile.Profile.SoulTokens}  //  CLICK A TILE TO BUY ONE RANK", Fs(9), UiTheme.Purple,
+        UiTheme.DrawText(spriteBatch, "THE SOUL ROSE", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, $"SOUL TOKENS  {GameProfile.Profile.SoulTokens}  //  AWAKEN ONE PETAL PER RANK", Fs(9), UiTheme.Purple,
             new Vector2(panel.X + Px(26), panel.Y + Px(53)));
         int columns = 4, gap = Px(12), tileWidth = (panel.Width - Px(52) - gap * 3) / 4;
         int tileHeight = (panel.Height - Px(112) - gap * 2) / 3;
@@ -1297,8 +1320,8 @@ public sealed class SoulHub
 
     private void DrawWardrobe(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "THE WARDROBE", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
-        UiTheme.DrawText(spriteBatch, "COSMETIC ONLY  //  CORE FILLS THE BODY, EDGE FRAMES IT, SHOTS USE A TWO-TONE PALETTE",
+        UiTheme.DrawText(spriteBatch, "THE VESTMENT MIRROR", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, "COSMETIC ONLY  //  THE MIRROR REMEMBERS BODY, EDGE, SHOT COLOR, AND SILHOUETTE",
             Fs(9), UiTheme.Blue, new Vector2(panel.X + Px(26), panel.Y + Px(53)));
 
         int gap = Px(12);
@@ -1318,7 +1341,9 @@ public sealed class SoulHub
         Primitives2D.FillRect(spriteBatch, body, Cosmetics.SelectedCore.Color);
         Primitives2D.RectOutline(spriteBatch, body, Cosmetics.SelectedEdge.Color, Px(4));
         ProjectileVisuals.Draw(spriteBatch, new Vector2(preview.X + Px(94), preview.Y + Px(46)), Vector2.UnitX, Px(27),
-            Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, Cosmetics.SelectedDesign.Id);
+            Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, Cosmetics.SelectedDesign.Id,
+            animationTime: (float)_seconds, drawShadow: true,
+            intensity: (float)GameProfile.Profile.VisualEffectsIntensity);
         UiTheme.DrawText(spriteBatch, "LIVE PREVIEW", Fs(8), UiTheme.Muted, new Vector2(preview.Center.X, preview.Bottom - Px(18)), "center");
     }
 
@@ -1371,7 +1396,9 @@ public sealed class SoulHub
             bool selected = option.Id == GameProfile.Profile.ProjectileDesign;
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, selected ? UiTheme.Cream : UiTheme.Border, hovered: rect.Contains(mouse));
             ProjectileVisuals.Draw(spriteBatch, new Vector2(rect.X + Px(38), rect.Center.Y), Vector2.UnitX, Px(25),
-                Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, option.Id);
+                Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, option.Id,
+                animationTime: (float)_seconds, drawShadow: true,
+                intensity: (float)GameProfile.Profile.VisualEffectsIntensity);
             UiTheme.DrawText(spriteBatch, option.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(rect.X + Px(72), rect.Center.Y), "midleft");
             _targets[$"cosmetic:design:{option.Id}"] = rect;
             if (rect.Contains(mouse)) _tooltip = option.Description;

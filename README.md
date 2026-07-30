@@ -22,7 +22,7 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Y`: toggle player invincibility during boss practice
 - `Space` / `F` / `Enter`: enter the Soul from the title screen
 - `F` near a station in the Soul: open its extraction, quest, or skill menu
-- `F` at the northern box in the Soul: toggle Hard Mode
+- `F` at the Trial Brazier in the Soul: toggle Hard Mode
 - `X` while paused after the midpoint boss: extract the current run and equipment
 - `Escape`: pause during a run or in the Soul; quit from the title screen
 - Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend 5 collected Fragments on an equipped item's grade or modifier
@@ -33,11 +33,20 @@ bounty arrow points toward the highest-value living patrol or elite target.
 
 The pause menu includes a casual assist, persistent autofire, contextual hints,
 an aim guide, damage-number control, high-contrast hostile outlines, adjustable
-screen shake, and independent text, GUI, damage-text, and default-camera-zoom sizing.
+screen shake, a 0-100% optional visual-effects intensity control, and independent
+text, GUI, damage-text, and default-camera-zoom sizing. Full visual spectacle is
+the default; reducing the effects control removes optional ambience, trails, and
+debris without weakening attack telegraphs, shadows, or hit feedback.
 World zoom starts from a resolution-aware baseline so high-resolution displays retain
 the intended character and arena readability. Casual assist reduces incoming damage and hostile projectile speed
 without reducing enemy variety. Preferences and best-run records are saved locally
 in `data/profile.json`.
+
+For visual development, the in-game console command
+`/vfxgallery [0-100] [path] [easy|medium|hard]` places every player and
+hostile projectile silhouette plus the selected Path-native enemy family
+gallery around the player. Its overlay also previews the shared room-role
+glyphs and the adaptive ambience, trail, and debris budgets.
 
 The in-run information sidebar starts in a compact, action-focused mode. Press
 `Tab` for additional weapon outcomes and build-family detail. Damage and fire rate
@@ -50,22 +59,23 @@ sidebar; hover one when you want its name and bonus type.
 ## The Soul and permanent progression
 
 Choose **Enter Soul** from the title screen to visit an authored sanctuary with
-three distinct beats: a compact southern holdout for every permanent system, a
-pulsing northbound ribbon tunnel, and a broad portal chamber where each path's
-color and visual motifs bleed into the neutral Soul architecture. Its extraction
-chest keeps ten permanent item slots and statistics for the ten
+three distinct beats: a quiet southern chapel lined with purpose-built utility
+shrines, a short passage where masonry dissolves into braided soul currents, and
+a five-branch crown surrounding the composite Soul Rose portal. The Vault
+Reliquary keeps ten permanent item slots and statistics for the ten
 most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
-session best, and the all-time record. A 24-tile quest grid awards Soul tokens;
-the matching Soul grid spends those tokens on twelve simple, rankable permanent
-upgrades. The physical wardrobe station offers persistent player Core and Edge
-colors plus two-tone projectile palettes and projectile silhouettes.
+session best, and the all-time record. The Vow Lectern's 24 objectives award Soul
+tokens; the Soul Rose spends those tokens on twelve simple, rankable permanent
+upgrades. The Vestment Mirror offers persistent player Core and Edge colors plus
+two-tone projectile palettes and projectile silhouettes.
 
-The tunnel's pixel ribbons awaken in front of the player instead of running at
-full strength from the start. Cleared paths grow block-built reliquaries and
-floor scars beneath their portals, selected NG+ tiers increase the radius and
-density of square corruption motes, and portals occasionally exchange packets
-of reflected pixels. These effects use the same hard-edged primitive vocabulary
-as combat rather than introducing a smoother visual-effects style.
+The central dungeon portal is the shortest route from spawn. Five compact walled
+branches lead to distinct Sound, Touch, Sight, Chemesthesis, and Phantasia gates
+with their own procedural silhouettes and ambient vocabulary. Cleared paths wake
+permanent architectural details, additional mastery enriches them to a bounded
+cap, and selected NG+ tiers add corruption seams and square motes. Optional
+chapel dust, tunnel motes, and secondary branch effects follow the visual-effects
+intensity setting without hiding portal silhouettes or interaction prompts.
 
 After defeating a path's midpoint boss, the pause menu offers an extraction choice;
 completing a path extracts automatically. The chest keeps the run summary and lets

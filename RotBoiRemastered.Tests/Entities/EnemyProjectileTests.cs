@@ -131,4 +131,41 @@ public class EnemyProjectileTests
         Assert.Equal(100, boss.Damage);
         Assert.Equal(1, normal.Damage);
     }
+
+    [Theory]
+    [InlineData("sound", "wave", "tuning_fork", "chevron")]
+    [InlineData("touch", "rivet", "chain_link", "slab")]
+    [InlineData("sight", "eye", "needle", "lens")]
+    [InlineData("chemesthesis", "ember", "spore", "cracked_core")]
+    [InlineData("phantasia", "star", "crescent", "orbit_core")]
+    public void DefaultShape_ResolvesToPathSpecificVisualVocabulary(
+        string path,
+        string first,
+        string second,
+        string third)
+    {
+        var allowed = new HashSet<string> { first, second, third };
+        for (int index = 0; index < 20; index++)
+        {
+            var projectile = new EnemyProjectile(
+                index * 17, index * 31, 0, 0, 1, 10,
+                owner: $"gallery_{index}")
+            {
+                ContentPath = path,
+            };
+            Assert.Contains(projectile.ResolveVisualShape(), allowed);
+        }
+    }
+
+    [Fact]
+    public void AuthoredShape_IsNotReplacedByPathVocabulary()
+    {
+        var projectile = new EnemyProjectile(
+            0, 0, 0, 0, 1, 10, shape: "diamond")
+        {
+            ContentPath = "phantasia",
+        };
+
+        Assert.Equal("diamond", projectile.ResolveVisualShape());
+    }
 }

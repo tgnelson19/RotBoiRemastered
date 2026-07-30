@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -141,6 +142,21 @@ public sealed class ExperienceBubble
 
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
         var center = new Vector2(rect.Center.X, rect.Center.Y);
+        if (!NaturalSpawn && GameProfile.Profile.VisualEffectsIntensity > 0)
+        {
+            int trailCount = Math.Max(1,
+                (int)Math.Ceiling(4 * GameProfile.Profile.VisualEffectsIntensity));
+            Vector2 tail = new(MathF.Cos(Direction), MathF.Sin(Direction));
+            for (int index = 1; index <= trailCount; index++)
+            {
+                Vector2 point = center + tail * index * Size * .42f
+                    + new Vector2(0, MathF.Sin(VisualAge * 8f + index) * 2f);
+                int chip = Math.Max(2, 5 - index);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)point.X, (int)point.Y, chip, chip),
+                    UiTheme.Green * (.55f - index * .07f));
+            }
+        }
         float pulse = 0.88f + 0.12f * MathF.Sin(VisualAge * 7f);
         float radius = Math.Max(5f, Size * 0.62f * pulse);
 

@@ -279,8 +279,7 @@ public sealed class PathVariantEnemy : WanderingRangedEnemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screen.X, (int)screen.Y, (int)Size, (int)Size);
+        var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
         int stroke = Math.Max(2, (int)(Size * .045f));
         int radius = Math.Max(4, (int)(Size * .2f));

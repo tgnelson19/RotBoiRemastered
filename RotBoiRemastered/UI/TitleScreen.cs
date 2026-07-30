@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 
 namespace RotBoiRemastered.UI;
@@ -30,8 +31,12 @@ public enum TitleAction { None, EnterSoul, Settings, Quit }
 /// </summary>
 public sealed class TitleScreen
 {
+    private readonly PresentationClock _presentationClock = new();
     private Rectangle _soulButton;
     private Rectangle _settingsButton;
+
+    public void AdvancePresentation(double seconds) =>
+        _presentationClock.Advance(seconds);
 
     private static void DrawGrid(SpriteBatch spriteBatch, int screenWidth, int screenHeight)
     {
@@ -49,6 +54,13 @@ public sealed class TitleScreen
         DrawGrid(spriteBatch, screenWidth, screenHeight);
 
         float scale = Math.Min(screenWidth, screenHeight);
+        UiTheme.DrawSoulRose(
+            spriteBatch,
+            new Vector2(screenWidth / 2f, screenHeight * .19f),
+            scale * .14f,
+            _presentationClock.Seconds,
+            .62f,
+            GameProfile.Profile.PathMastery);
         // Text sizes below (scale * .095, etc.) already pick up TextSize
         // through UiTheme.Font internally. Layout (button/panel widths,
         // heights, gaps) only ever scaled with GuiScale via uiScale --
@@ -103,7 +115,9 @@ public sealed class TitleScreen
         float controlsY = Math.Max(screenHeight * .665f, _settingsButton.Bottom + gap * 3);
         var controlsRect = new Rectangle((int)left, (int)controlsY, (int)contentWidth,
             (int)Math.Min(Math.Max(116 * uiScale, screenHeight * .15f), screenHeight * .21f));
-        UiTheme.DrawPanel(spriteBatch, controlsRect, UiTheme.Panel, UiTheme.Border, shadow: 6);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, controlsRect, "sound", _presentationClock.Seconds,
+            UiTheme.Panel, UiTheme.Border, shadow: 6, composite: true);
         UiTheme.DrawText(spriteBatch, "FIELD MANUAL", scale * .018, UiTheme.Text,
             new Vector2(controlsRect.X + 18 * uiScale, controlsRect.Y + 14 * uiScale));
         var controls = new[] { ("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"), ("SPACE", "DASH"), ("Q / E", "ROTATE"), ("I", "AUTOFIRE") };

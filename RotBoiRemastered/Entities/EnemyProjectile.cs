@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
@@ -317,9 +318,13 @@ public sealed class EnemyProjectile
             (int)MathF.Ceiling(visibleSize),
             (int)MathF.Ceiling(visibleSize));
 
-        if (Trail.Count > 1)
+        float vfxIntensity = (float)GameProfile.Profile.VisualEffectsIntensity;
+        if (vfxIntensity > 0 && Trail.Count > 1)
         {
-            for (int index = 0; index < Trail.Count - 1; index++)
+            int visibleTrail = Math.Max(1,
+                (int)MathF.Ceiling((Trail.Count - 1) * vfxIntensity));
+            int firstTrail = Math.Max(0, Trail.Count - 1 - visibleTrail);
+            for (int index = firstTrail; index < Trail.Count - 1; index++)
             {
                 Vector2 trailScreen = camera.WorldToScreen(Trail[index], playerWorldPosition, screenShake);
                 int trailSize = Math.Max(
@@ -339,8 +344,29 @@ public sealed class EnemyProjectile
             }
         }
 
+        string visualShape = ResolveVisualShape();
+        Color dangerTrim = SoulVisualLanguage.CueColor(
+            VisualSemanticCue.Hostile,
+            SoulVisualLanguage.Path(ContentPath ?? GamePaths.Active().Key),
+            highContrast);
+        DrawDangerTrim(
+            spriteBatch,
+            rect,
+            visibleSize,
+            camera.WorldVectorToScreen(
+                new Vector2(MathF.Cos(Direction), MathF.Sin(Direction))),
+            visualShape,
+            dangerTrim);
         if (Shape is "diamond" or "mine" or "bomb")
             DrawDiamondShape(spriteBatch, rect, visibleSize);
+        else if (visualShape != "square")
+            DrawCustomShape(
+                spriteBatch,
+                new Vector2(rect.Center.X, rect.Center.Y),
+                visibleSize,
+                camera.WorldVectorToScreen(
+                    new Vector2(MathF.Cos(Direction), MathF.Sin(Direction))),
+                visualShape);
         else
             DrawSquareShape(spriteBatch, rect, visibleSize);
 
@@ -352,6 +378,18 @@ public sealed class EnemyProjectile
                 Math.Max(2, (int)(visibleSize * .08f)));
 
         var center = new Vector2(rect.Center.X, rect.Center.Y);
+        if (Age < .1f)
+        {
+            int ignition = Math.Max(2, (int)(visibleSize * .12f));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle(rect.Center.X - ignition / 2,
+                    rect.Center.Y - ignition / 2, ignition, ignition),
+                SoulVisualLanguage.CueColor(
+                    VisualSemanticCue.HostileIgnition,
+                    SoulVisualLanguage.Path(
+                        ContentPath ?? GamePaths.Active().Key),
+                    highContrast));
+        }
         if (TruthMarked)
             Primitives2D.FillCircle(
                 spriteBatch,
@@ -365,6 +403,287 @@ public sealed class EnemyProjectile
                 Math.Max(3, (int)(visibleSize * .22f)),
                 UiTheme.Muted,
                 2);
+    }
+
+    private void DrawDangerTrim(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float visibleSize,
+        Vector2 forward,
+        string visualShape,
+        Color dangerTrim)
+    {
+        float trimSize = visibleSize * 1.18f;
+        Vector2 center = rect.Center.ToVector2();
+        if (Shape is "diamond" or "mine" or "bomb")
+        {
+            Primitives2D.FillQuad(spriteBatch,
+                center + new Vector2(0, -trimSize * .5f),
+                center + new Vector2(trimSize * .5f, 0),
+                center + new Vector2(0, trimSize * .5f),
+                center - new Vector2(trimSize * .5f, 0),
+                dangerTrim);
+            return;
+        }
+        if (visualShape == "square")
+        {
+            int trim = Math.Max(2, (int)(visibleSize * .09f));
+            Primitives2D.FillRect(spriteBatch,
+                InflateF(rect, trim, trim), dangerTrim);
+            return;
+        }
+        forward = forward.LengthSquared() > .0001f
+            ? Vector2.Normalize(forward)
+            : Vector2.UnitX;
+        if (visualShape is not ("wave" or "tuning_fork" or "chevron" or "needle"))
+        {
+            float spin = Age
+                * (visualShape is "star" or "cracked_core" ? 2.8f : 1.4f)
+                + StableVisualVariant() * .73f;
+            forward = Rotate(forward, spin);
+        }
+        DrawCustomShapeLayer(
+            spriteBatch,
+            center,
+            trimSize,
+            forward,
+            new Vector2(-forward.Y, forward.X),
+            visualShape,
+            dangerTrim,
+            shadow: true);
+    }
+
+    public string ResolveVisualShape()
+    {
+        if (Shape != "square")
+            return Shape;
+        string path = ContentPath ?? GamePaths.Active().Key;
+        int variant = StableVisualVariant();
+        return path switch
+        {
+            "sound" => variant switch { 0 => "wave", 1 => "tuning_fork", _ => "chevron" },
+            "touch" => variant switch { 0 => "rivet", 1 => "chain_link", _ => "slab" },
+            "sight" => variant switch { 0 => "eye", 1 => "needle", _ => "lens" },
+            "chemesthesis" => variant switch { 0 => "ember", 1 => "spore", _ => "cracked_core" },
+            "phantasia" => variant switch { 0 => "star", 1 => "crescent", _ => "orbit_core" },
+            _ => "square",
+        };
+    }
+
+    private int StableVisualVariant()
+    {
+        int value = (int)MathF.Abs(OriginX * .17f + OriginY * .11f);
+        if (Owner is not null)
+        {
+            for (int index = 0; index < Owner.Length; index++)
+                value = unchecked(value * 31 + Owner[index]);
+        }
+        return Math.Abs(value % 3);
+    }
+
+    private void DrawCustomShape(
+        SpriteBatch spriteBatch,
+        Vector2 center,
+        float size,
+        Vector2 forward,
+        string visualShape)
+    {
+        forward = forward.LengthSquared() < .0001f
+            ? Vector2.UnitX
+            : Vector2.Normalize(forward);
+        float spin = Age * (visualShape is "star" or "cracked_core" ? 2.8f : 1.4f)
+            + StableVisualVariant() * .73f;
+        if (visualShape is "wave" or "tuning_fork" or "chevron" or "needle")
+            spin = 0;
+        else
+            forward = Rotate(forward, spin);
+        Vector2 side = new(-forward.Y, forward.X);
+
+        DrawCustomShapeLayer(
+            spriteBatch, center + new Vector2(3, 4), size, forward, side,
+            visualShape, UiTheme.Shadow, shadow: true);
+        DrawCustomShapeLayer(
+            spriteBatch, center, size, forward, side,
+            visualShape, Color, shadow: false);
+    }
+
+    private static void DrawCustomShapeLayer(
+        SpriteBatch spriteBatch,
+        Vector2 center,
+        float size,
+        Vector2 forward,
+        Vector2 side,
+        string visualShape,
+        Color color,
+        bool shadow)
+    {
+        Vector2 P(float x, float y) => center + forward * (x * size) + side * (y * size);
+        int stroke = Math.Max(2, (int)(size * .09f));
+        Color edge = shadow ? color : UiTheme.Ink;
+        Color light = shadow ? color : UiTheme.Lighten(color, 52);
+
+        switch (visualShape)
+        {
+            case "wave":
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-.62f, -.13f), P(-.28f, -.43f), P(.05f, -.12f),
+                    P(.34f, -.36f), P(.68f, 0), P(.34f, .36f),
+                    P(.05f, .12f), P(-.28f, .43f), P(-.62f, .13f),
+                }, color);
+                if (!shadow)
+                    Primitives2D.Line(spriteBatch, P(-.35f, 0), P(.42f, 0), light, stroke);
+                break;
+            case "tuning_fork":
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-.66f, -.35f), P(.02f, -.35f), P(.02f, -.14f),
+                    P(.65f, -.14f), P(.65f, .14f), P(.02f, .14f),
+                    P(.02f, .35f), P(-.66f, .35f), P(-.38f, 0),
+                }, color);
+                if (!shadow)
+                    Primitives2D.FillCircle(spriteBatch, P(.38f, 0), size * .12f, light);
+                break;
+            case "chevron":
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-.65f, -.42f), P(.68f, 0), P(-.65f, .42f),
+                    P(-.35f, 0),
+                }, color);
+                if (!shadow)
+                    Primitives2D.PolylineSpan(spriteBatch, stackalloc Vector2[]
+                    {
+                        P(-.42f, -.26f), P(.36f, 0), P(-.42f, .26f),
+                    }, false, light, stroke);
+                break;
+            case "rivet":
+                Primitives2D.FillCircle(spriteBatch, center, size * .52f, color);
+                if (!shadow)
+                {
+                    Primitives2D.CircleOutline(spriteBatch, center, size * .5f, edge, stroke, 16);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)(center.X - size * .17f), (int)(center.Y - stroke / 2f),
+                            Math.Max(3, (int)(size * .34f)), stroke), light);
+                }
+                break;
+            case "chain_link":
+                Primitives2D.FillEllipse(spriteBatch,
+                    new Rectangle((int)(center.X - size * .62f), (int)(center.Y - size * .34f),
+                        (int)(size * 1.24f), (int)(size * .68f)), color);
+                if (!shadow)
+                    Primitives2D.EllipseOutline(spriteBatch,
+                        new Rectangle((int)(center.X - size * .38f), (int)(center.Y - size * .17f),
+                            (int)(size * .76f), (int)(size * .34f)), edge, stroke, 18);
+                break;
+            case "slab":
+                {
+                    var slab = new Rectangle((int)(center.X - size * .62f), (int)(center.Y - size * .35f),
+                        (int)(size * 1.24f), (int)(size * .7f));
+                    Primitives2D.FillRect(spriteBatch, slab, color);
+                    if (!shadow)
+                    {
+                        Primitives2D.RectOutline(spriteBatch, slab, edge, stroke);
+                        Primitives2D.Line(spriteBatch, P(-.18f, -.3f), P(.12f, .28f), light, 2);
+                    }
+                    break;
+                }
+            case "eye":
+                Primitives2D.FillEllipse(spriteBatch,
+                    new Rectangle((int)(center.X - size * .62f), (int)(center.Y - size * .34f),
+                        (int)(size * 1.24f), (int)(size * .68f)), color);
+                if (!shadow)
+                {
+                    Primitives2D.EllipseOutline(spriteBatch,
+                        new Rectangle((int)(center.X - size * .62f), (int)(center.Y - size * .34f),
+                            (int)(size * 1.24f), (int)(size * .68f)), edge, stroke, 20);
+                    Primitives2D.FillCircle(spriteBatch, center, size * .18f, light);
+                }
+                break;
+            case "needle":
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-.7f, -.16f), P(.2f, -.23f), P(.72f, 0),
+                    P(.2f, .23f), P(-.7f, .16f),
+                }, color);
+                if (!shadow)
+                    Primitives2D.Line(spriteBatch, P(-.42f, 0), P(.42f, 0), light, 2);
+                break;
+            case "lens":
+                Primitives2D.FillQuad(spriteBatch,
+                    P(0, -.58f), P(.66f, 0), P(0, .58f), P(-.66f, 0), color);
+                if (!shadow)
+                {
+                    Primitives2D.QuadOutline(spriteBatch,
+                        P(0, -.58f), P(.66f, 0), P(0, .58f), P(-.66f, 0), edge, stroke);
+                    Primitives2D.FillCircle(spriteBatch, center, size * .18f, light);
+                }
+                break;
+            case "ember":
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(0, -.66f), P(.42f, -.22f), P(.58f, .3f),
+                    P(.06f, .55f), P(-.48f, .34f), P(-.38f, -.28f),
+                }, color);
+                if (!shadow)
+                    Primitives2D.FillCircle(spriteBatch, center, size * .18f, light);
+                break;
+            case "spore":
+                Primitives2D.FillCircle(spriteBatch, center, size * .46f, color);
+                Primitives2D.FillCircle(spriteBatch, P(.38f, -.28f), size * .22f, color);
+                Primitives2D.FillCircle(spriteBatch, P(-.36f, .3f), size * .2f, color);
+                if (!shadow)
+                    Primitives2D.FillCircle(spriteBatch, P(.1f, -.08f), size * .11f, light);
+                break;
+            case "cracked_core":
+                Primitives2D.FillQuad(spriteBatch,
+                    P(0, -.62f), P(.62f, 0), P(0, .62f), P(-.62f, 0), color);
+                if (!shadow)
+                {
+                    Primitives2D.Line(spriteBatch, P(-.1f, -.48f), P(.08f, -.05f), edge, 2);
+                    Primitives2D.Line(spriteBatch, P(.08f, -.05f), P(-.18f, .44f), light, 2);
+                }
+                break;
+            case "star":
+                {
+                    Span<Vector2> star = stackalloc Vector2[10];
+                    for (int index = 0; index < star.Length; index++)
+                    {
+                        float angle = -MathF.PI / 2f + index * MathF.PI / 5f;
+                        float radius = index % 2 == 0 ? .66f : .28f;
+                        star[index] = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * size * radius;
+                    }
+                    Primitives2D.FillPolygonSpan(spriteBatch, star, color);
+                    if (!shadow)
+                        Primitives2D.FillCircle(spriteBatch, center, size * .14f, light);
+                    break;
+                }
+            case "crescent":
+                Primitives2D.FillCircle(spriteBatch, center, size * .55f, color);
+                if (!shadow)
+                {
+                    Primitives2D.FillCircle(spriteBatch, center + forward * size * .22f,
+                        size * .43f, UiTheme.Ink);
+                    Primitives2D.FillCircle(spriteBatch, center - forward * size * .2f,
+                        size * .09f, light);
+                }
+                break;
+            case "orbit_core":
+                Primitives2D.FillCircle(spriteBatch, center, size * .36f, color);
+                Primitives2D.FillCircle(spriteBatch, P(.62f, 0), size * .16f, color);
+                Primitives2D.FillCircle(spriteBatch, P(-.62f, 0), size * .16f, color);
+                if (!shadow)
+                    Primitives2D.CircleOutline(spriteBatch, center, size * .58f, light, 2, 18);
+                break;
+        }
+    }
+
+    private static Vector2 Rotate(Vector2 value, float angle)
+    {
+        float cosine = MathF.Cos(angle);
+        float sine = MathF.Sin(angle);
+        return new Vector2(
+            value.X * cosine - value.Y * sine,
+            value.X * sine + value.Y * cosine);
     }
 
     private void DrawSquareShape(
@@ -563,6 +882,21 @@ public sealed class EnemyProjectile
             Primitives2D.Line(spriteBatch, start, end, Color, width);
             Color coreColor = Illusory ? UiTheme.Muted : UiTheme.Cream;
             Primitives2D.Line(spriteBatch, start, end, coreColor, Math.Max(2, width / 3));
+            Primitives2D.FillCircle(spriteBatch, start, Math.Max(4, width / 2), Color);
+            Primitives2D.CircleOutline(spriteBatch, start, Math.Max(5, width / 2), UiTheme.Ink, 2, 18);
+            Primitives2D.FillCircle(spriteBatch, end, Math.Max(3, width / 3), coreColor);
+            float intensity = (float)GameProfile.Profile.VisualEffectsIntensity;
+            int packets = (int)MathF.Ceiling(5 * intensity);
+            for (int index = 0; index < packets; index++)
+            {
+                float phase = (Age * (1.7f + index * .08f) + index / (float)Math.Max(1, packets)) % 1f;
+                Vector2 packet = Vector2.Lerp(start, end, phase);
+                int packetSize = Math.Max(2, width / 5);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)packet.X - packetSize / 2,
+                        (int)packet.Y - packetSize / 2, packetSize, packetSize),
+                    coreColor * .75f);
+            }
             if (TruthMarked)
                 Primitives2D.FillCircle(spriteBatch, start, Math.Max(3, width / 3), UiTheme.Cream);
         }

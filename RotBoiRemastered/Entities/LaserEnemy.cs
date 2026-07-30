@@ -58,10 +58,12 @@ public sealed class LaserEnemy : WanderingRangedEnemy
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        EnemyRenderPose pose = RenderPose(camera, playerWorldPosition, screenShake);
+        var rect = pose.Rect;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
-        Primitives2D.CircleOutline(spriteBatch, center, Math.Max(4, (int)(Size * .2f)), UiTheme.Red, 3);
-        Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Center.Y), new Vector2(rect.Right, rect.Center.Y), UiTheme.Cream, 2);
+        float iris = Size * (.2f + .035f * MathF.Sin(Age * .12f) - pose.AttackPulse * .05f);
+        Primitives2D.CircleOutline(spriteBatch, center, Math.Max(4, (int)iris), UiTheme.Red, 3);
+        Vector2 side = new(-pose.Facing.Y, pose.Facing.X);
+        Primitives2D.Line(spriteBatch, center - side * Size * .45f, center + side * Size * .45f, UiTheme.Cream, 2);
     }
 }

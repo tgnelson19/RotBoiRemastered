@@ -2,7 +2,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -30,6 +32,7 @@ public readonly record struct ConsoleResult(ConsoleActionKind Kind = ConsoleActi
 ///   /killall                                -- kills every enemy in the arena, boss included
 ///   /extract                                -- runs the same sequence as the pause menu's
 ///                                               Extract button, bypassing its BeaudisDefeated gate
+///   /vfxgallery [0-100] [path] [tier]       -- spawns the visual-language gallery
 ///   /help                                   -- lists the above
 /// </summary>
 public sealed class DevConsole
@@ -111,6 +114,7 @@ public sealed class DevConsole
             Log("/levelup                                -- force an immediate level up");
             Log("/killall                                -- kill every enemy in the arena, boss included");
             Log("/extract                                -- end the run as an extraction");
+            Log("/vfxgallery [0-100] [path] [tier]       -- spawn the visual-language gallery");
             return default;
         }
         if (session is null)
@@ -127,6 +131,7 @@ public sealed class DevConsole
             case "levelup": return HandleLevelUp(session);
             case "killall": return HandleKillAll(session);
             case "extract": return HandleExtract();
+            case "vfxgallery": return HandleVfxGallery(tokens, session);
             default:
                 Log($"Unknown command: {command} (try /help)");
                 return default;
@@ -185,6 +190,42 @@ public sealed class DevConsole
     {
         session.DebugForceLevelUp();
         Log("Added enough stored EXP for a level up.");
+        return default;
+    }
+
+    private ConsoleResult HandleVfxGallery(
+        IReadOnlyList<string> tokens,
+        GameSession session)
+    {
+        int next = 1;
+        if (tokens.Count > 1)
+        {
+            if (int.TryParse(tokens[1], out int percent))
+            {
+                if (percent is < 0 or > 100)
+                {
+                    Log("Usage: /vfxgallery [0-100] [path] [easy|medium|hard]");
+                    return default;
+                }
+                GameProfile.Profile.VisualEffectsIntensity = percent / 100.0;
+                GameProfile.SaveProfile();
+                next++;
+            }
+        }
+        string path = tokens.Count > next
+            ? tokens[next++].ToLowerInvariant()
+            : GamePaths.Active().Key;
+        string tier = tokens.Count > next
+            ? tokens[next].ToLowerInvariant()
+            : "easy";
+        if (!GamePaths.PathsByKey.ContainsKey(path)
+            || !SoulVisualLanguage.EnemyTiers.Contains(tier))
+        {
+            Log("Usage: /vfxgallery [0-100] [path] [easy|medium|hard]");
+            return default;
+        }
+        int spawned = session.DebugSpawnVfxGallery(path, tier);
+        Log($"Spawned {spawned} {path}/{tier} visual samples at {GameProfile.Profile.VisualEffectsIntensity * 100:0}%.");
         return default;
     }
 

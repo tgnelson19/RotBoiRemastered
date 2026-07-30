@@ -65,6 +65,28 @@ public class CameraTests
         Assert.Equal(10.0, (double)world.Y, precision: 4);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    [InlineData(180)]
+    [InlineData(270)]
+    public void DirectionAndAngleHelpersAgreeAtCardinalRotations(
+        float degrees)
+    {
+        var camera = NewCamera();
+        camera.SetAngle(degrees);
+        Vector2 transformed = camera.WorldVectorToScreen(Vector2.UnitX);
+        float transformedAngle = camera.WorldAngleToScreen(0);
+        Vector2 fromAngle = new(
+            MathF.Cos(transformedAngle),
+            MathF.Sin(transformedAngle));
+
+        Assert.Equal(transformed.X, fromAngle.X, precision: 4);
+        Assert.Equal(transformed.Y, fromAngle.Y, precision: 4);
+        Assert.Equal(0, camera.ScreenAngleToWorld(transformedAngle),
+            precision: 4);
+    }
+
     [Fact]
     public void ArbitraryAngle_RotatesFluidly()
     {

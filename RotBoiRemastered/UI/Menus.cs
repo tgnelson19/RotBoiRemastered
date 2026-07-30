@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
@@ -29,6 +30,7 @@ public sealed class RunResultsSnapshot
     public int NumOfEnemiesKilled { get; init; }
     public double RunTimeSeconds { get; init; }
     public required IReadOnlyDictionary<string, int> UpgradeTypeCounts { get; init; }
+    public string PathKey { get; init; } = "sound";
 }
 
 /// <summary>
@@ -46,6 +48,10 @@ public sealed class RunResultsSnapshot
 /// </summary>
 public sealed class Menus
 {
+    private readonly PresentationClock _presentationClock = new();
+
+    public void AdvancePresentation(double seconds) =>
+        _presentationClock.Advance(seconds);
     private static readonly (string Key, string Label, string Description)[] GameplayOptions =
     {
         ("CasualMode", "CASUAL ASSIST", "20% less incoming damage"),
@@ -164,8 +170,12 @@ public sealed class Menus
     {
         _buttons[name] = rect;
         bool hovered = rect.Contains(mousePosition);
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised,
-            hovered ? UiTheme.Blue : active ? UiTheme.Green : UiTheme.Border, shadow: 3, hovered: hovered);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect, GamePaths.Active().Key,
+            _presentationClock.Seconds,
+            UiTheme.PanelRaised,
+            hovered ? UiTheme.Blue : active ? UiTheme.Green : UiTheme.Border,
+            shadow: 3, hovered: hovered);
         int boxSize = Math.Max(16, (int)(22 * UiTheme.DisplayScale(spriteBatch)));
         var box = new Rectangle(rect.X + 10, rect.Center.Y - boxSize / 2, boxSize, boxSize);
         Primitives2D.FillRect(spriteBatch, box, active ? UiTheme.Green : UiTheme.Ink);
@@ -187,7 +197,12 @@ public sealed class Menus
     private void Slider(SpriteBatch spriteBatch, string name, Rectangle rect, string label, string valueLabel,
         double value, double min, double max, Point mousePosition, Color accent)
     {
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, rect.Contains(mousePosition) ? accent : UiTheme.Border, shadow: 3);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect, GamePaths.Active().Key,
+            _presentationClock.Seconds,
+            UiTheme.PanelRaised,
+            rect.Contains(mousePosition) ? accent : UiTheme.Border,
+            shadow: 3);
         UiTheme.DrawText(spriteBatch, label, 10 * UiTheme.DisplayScale(spriteBatch), UiTheme.Text,
             new Vector2(rect.X + 10, rect.Y + 7));
         UiTheme.DrawText(spriteBatch, valueLabel, 9 * UiTheme.DisplayScale(spriteBatch), accent,
@@ -241,7 +256,10 @@ public sealed class Menus
                 "RETURN TO TITLE", mousePosition, mouseDown, UiTheme.Red, "Q");
 
         var settings = new Rectangle((int)(left + width * .40f), (int)(screenHeight * .25f), (int)(width * .60f), (int)(screenHeight * .48f));
-        UiTheme.DrawPanel(spriteBatch, settings, UiTheme.Panel, UiTheme.Blue, shadow: 6);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, settings, GamePaths.Active().Key,
+            _presentationClock.Seconds,
+            UiTheme.Panel, UiTheme.Blue, shadow: 6);
 
         float tabH = 38 * scale;
         float tabW = settings.Width / (float)Tabs.Length;
@@ -345,6 +363,14 @@ public sealed class Menus
                     vsyncRect.X + 10 * scale,
                     vsyncRect.Bottom - 4 * scale),
                 "bottomleft");
+
+            int fifthRowY = frameRateRect.Bottom + rowGap;
+            var effectsRect = new Rectangle(
+                contentX, fifthRowY, contentWidth, rowHeight);
+            Slider(spriteBatch, "visual_effects", effectsRect,
+                "VISUAL EFFECTS", $"{GameProfile.Profile.VisualEffectsIntensity * 100:0}%",
+                GameProfile.Profile.VisualEffectsIntensity, 0, 1,
+                mousePosition, UiTheme.Purple);
         }
         else if (_settingsTab == "quickview")
         {
@@ -525,6 +551,7 @@ public sealed class Menus
                     if (_activeSlider == "damage_text_size") GameProfile.Profile.DamageTextSize = Math.Round(value, 2);
                     if (_activeSlider == "text_size") GameProfile.Profile.TextSize = Math.Round(value, 2);
                     if (_activeSlider == "camera_zoom") GameProfile.Profile.CameraZoom = Math.Round(value, 2);
+                    if (_activeSlider == "visual_effects") GameProfile.Profile.VisualEffectsIntensity = Math.Round(value, 2);
                     if (_activeSlider == "max_frame_rate")
                         GameProfile.Profile.MaxFrameRate =
                             FramePacing.NormalizeFrameRate((int)Math.Round(value));
@@ -564,7 +591,20 @@ public sealed class Menus
             "Your gear is waiting in the Soul -- claim it before you start again.");
         float width = Math.Min(screenWidth * .62f, 820 * scale);
         var panel = new Rectangle((int)((screenWidth - width) / 2f), (int)(screenHeight * .25f), (int)width, (int)(screenHeight * .38f));
-        UiTheme.DrawPanel(spriteBatch, panel, UiTheme.PanelRaised, accent, shadow: 8);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, panel, results.PathKey,
+            (float)results.RunTimeSeconds,
+            UiTheme.PanelRaised, accent, shadow: 8);
+        if (completed)
+        {
+            UiTheme.DrawSoulRose(
+                spriteBatch,
+                new Vector2(panel.Center.X, panel.Y + 18 * scale),
+                44 * scale,
+                (float)results.RunTimeSeconds,
+                .28f,
+                GameProfile.Profile.PathMastery);
+        }
 
         int totalUpgrades = results.UpgradeTypeCounts.Values.Sum();
         var stats = new (string Label, string Value)[]

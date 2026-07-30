@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -24,6 +25,8 @@ public sealed class LevelUpStatSnapshot
     public double HealthPoints { get; init; }
     public double MaxHealthPoints { get; init; }
     public int PendingLevelUps { get; init; }
+    public string PathKey { get; init; } = "sound";
+    public float PresentationTime { get; init; }
 }
 
 /// <summary>
@@ -150,7 +153,10 @@ public sealed class LevelingHandler
             Color accent = UiTheme.RarityColors.TryGetValue(card.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
             bool pressed = hovered && mouseDown;
             var visualRect = new Rectangle(rect.X, rect.Y + (int)(pressed ? Px(2) : hovered ? -Px(7) : 0), rect.Width, rect.Height);
-            UiTheme.DrawPanel(spriteBatch, visualRect, UiTheme.Panel, hovered ? accent : UiTheme.Border,
+            UiTheme.DrawLivingPanel(
+                spriteBatch, visualRect, stats.PathKey,
+                stats.PresentationTime + index * .23f,
+                UiTheme.Panel, hovered ? accent : UiTheme.Border,
                 shadow: pressed ? 3 : 7, hovered: hovered);
             Primitives2D.FillRect(spriteBatch, new Rectangle(visualRect.X, visualRect.Y, visualRect.Width, (int)Px(9)), accent);
 

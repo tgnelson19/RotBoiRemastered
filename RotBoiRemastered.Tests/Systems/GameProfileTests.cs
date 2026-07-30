@@ -25,6 +25,7 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.DamageNumbers, profile.DamageNumbers);
         Assert.Equal(defaults.AimGuide, profile.AimGuide);
         Assert.Equal(defaults.HighContrast, profile.HighContrast);
+        Assert.Equal(defaults.VisualEffectsIntensity, profile.VisualEffectsIntensity);
         Assert.Equal(defaults.TabShowWeaponStats, profile.TabShowWeaponStats);
         Assert.Equal(defaults.TabShowActiveQuests, profile.TabShowActiveQuests);
         Assert.Equal(defaults.TabShowAllQuests, profile.TabShowAllQuests);
@@ -77,6 +78,22 @@ public class GameProfileTests : IDisposable
         Assert.Equal(Camera.MaxDefaultZoomScale, profile.CameraZoom);
     }
 
+    [Theory]
+    [InlineData(-4, 0)]
+    [InlineData(.42, .42)]
+    [InlineData(9, 1)]
+    public void VisualEffectsIntensity_IsClampedAndMigrationSafe(
+        double saved,
+        double expected)
+    {
+        string path = Path.Combine(_tempDir, "vfx.json");
+        File.WriteAllText(path, $$"""{"VisualEffectsIntensity":{{saved}}}""");
+
+        GameProfileData profile = GameProfile.LoadProfile(path);
+
+        Assert.Equal(expected, profile.VisualEffectsIntensity, precision: 3);
+    }
+
     [Fact]
     public void CorruptProfile_FallsBackSafely()
     {
@@ -104,6 +121,7 @@ public class GameProfileTests : IDisposable
                 TextSize = 1.4,
                 GuiScale = 1.15,
                 DamageTextSize = .65,
+                VisualEffectsIntensity = .42,
                 MaxFrameRate = 144,
                 VSync = false,
                 TabShowWeaponStats = false,
@@ -145,6 +163,7 @@ public class GameProfileTests : IDisposable
             Assert.Equal(1.4, reloaded.TextSize);
             Assert.Equal(1.15, reloaded.GuiScale);
             Assert.Equal(.65, reloaded.DamageTextSize);
+            Assert.Equal(.42, reloaded.VisualEffectsIntensity);
             Assert.Equal(145, reloaded.MaxFrameRate);
             Assert.False(reloaded.VSync);
             Assert.False(reloaded.TabShowWeaponStats);

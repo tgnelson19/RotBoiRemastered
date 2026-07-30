@@ -34,6 +34,7 @@ public sealed record PathGuardianSenseProfile(
 /// </summary>
 public sealed class PathGuardianBoss : Enemy
 {
+    public bool IsMiniGuardian { get; set; }
     public const int ActiveThreatSoftCap = 62;
     public const int MinimumAttacksPerPhase = 2;
     public const double DeathDuration = 1.8;
@@ -1065,7 +1066,7 @@ public sealed class PathGuardianBoss : Enemy
                 TrialActive ? SecondaryAccent : UiTheme.Cream, 4);
         }
 
-        if (EncounterKey is not null && Hp < MaxHp)
+        if (IsMiniGuardian && Hp < MaxHp)
         {
             var health = new Rectangle(body.X, body.Bottom + 9,
                 body.Width, Math.Max(6, body.Height / 13));

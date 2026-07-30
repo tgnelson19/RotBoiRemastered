@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -65,6 +66,7 @@ public sealed class GameSession
     // Survives ResetAll -- it re-bakes lazily against the new Battleground
     // reference on the next DrawBackground call, no explicit reset needed.
     private readonly ArenaRenderer _arenaRenderer = new();
+    private readonly BitVfxSystem _visualEffects = new();
     private readonly List<WorldDepthDrawItem> _worldDepthItemScratch = new();
     private readonly HashSet<int> _drawnEncounterIdScratch = new();
     private readonly Action<SpriteBatch, WorldDepthDrawItem> _drawWorldDepthItem;
@@ -88,6 +90,9 @@ public sealed class GameSession
     private readonly Comparison<RuntimeEncounter> _encounterDistanceComparison;
     private readonly Comparison<Enemy> _enemyDistanceComparison;
     private readonly HashSet<int> _bountyEncounterIdScratch = new();
+    private readonly Dictionary<int, double> _roomClearedAt = new();
+    private readonly Dictionary<int, float> _roomVisualEnergy = new();
+    private VisualDensity _visualDensity = new(1, 1, 1, 1, 1);
     private PlayerBuildSnapshot? _playerBuildSnapshot;
     private bool _pathFogActive;
     private Vector2 _enemySortCenter;
@@ -95,9 +100,13 @@ public sealed class GameSession
     private BossEncounterTelemetryTracker? _bossTelemetry;
     private bool _bossTelemetryDeathCueEmitted;
     private double _controllerPromptRemaining;
+    private bool _debugVisualGallery;
+    private string _debugVisualGalleryPath = "sound";
+    private string _debugVisualGalleryTier = "easy";
 
     public bool BossTelemetryActive => _bossTelemetry is not null;
     public bool PreferControllerPrompts => _controllerPromptRemaining > 0;
+    public VisualDensity CurrentVisualDensity => _visualDensity;
 
     public Vector2 PlayerWorldCenter => new(
         Player.WorldX + (float)State.PlayerSize / 2f,
@@ -142,10 +151,13 @@ public sealed class GameSession
     public void ResetAll(Battleground battleground, Random? rng = null)
     {
         _enemyCollisionGrid.Reset();
+        _visualEffects.Clear();
         _playerBuildSnapshot = null;
         PathRun = null;
         PathFog = null;
         _pathFogActive = false;
+        _roomClearedAt.Clear();
+        _roomVisualEnergy.Clear();
         State.Reset();
         Battleground = battleground;
         Player = new Player(battleground.SpawnPosition.X, battleground.SpawnPosition.Y);
@@ -160,6 +172,7 @@ public sealed class GameSession
         _bossTelemetry = null;
         _bossTelemetryDeathCueEmitted = false;
         _controllerPromptRemaining = 0;
+        _debugVisualGallery = false;
         LoadCarriedItems();
     }
 
@@ -167,11 +180,14 @@ public sealed class GameSession
     public void StartPathRun(Random? rng = null)
     {
         _enemyCollisionGrid.Reset();
+        _visualEffects.Clear();
         _playerBuildSnapshot = null;
         rng ??= Random.Shared;
         var pathRun = new PathRun(rng);
         GamePaths.SetActive(pathRun.CurrentSenseKey);
         PathRun = pathRun;
+        _roomClearedAt.Clear();
+        _roomVisualEnergy.Clear();
         State.Reset();
         // Per-sense NG+ selectors belong to the authored arena paths. The
         // composite mode owns its explicit second-act difficulty curve.
@@ -191,6 +207,7 @@ public sealed class GameSession
         _bossTelemetry = null;
         _bossTelemetryDeathCueEmitted = false;
         _controllerPromptRemaining = 0;
+        _debugVisualGallery = false;
         State.CurrentStage = 1;
         LoadCarriedItems();
     }
@@ -312,6 +329,7 @@ public sealed class GameSession
     public void MovePlayer(bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed, Vector2 controllerMove = default)
     {
         var before = new Vector2(Player.WorldX, Player.WorldY);
+        bool wasDashing = State.Dashing;
         var obstacles = State.ActiveBoss is SinChemesthesisBoss chemicalBoss
             ? chemicalBoss.MovementObstacles()
             : null;
@@ -335,6 +353,17 @@ public sealed class GameSession
             }
         }
         double traveled = Vector2.Distance(before, new Vector2(Player.WorldX, Player.WorldY));
+        if (!wasDashing && State.Dashing)
+        {
+            _visualEffects.Emit(
+                "dash",
+                PlayerWorldCenter,
+                State.PlayerColor,
+                State.PlayerEdgeColor,
+                (int)(State.RunTimeSeconds * 1000) ^ 0x51DA,
+                _visualDensity.Optional,
+                new Vector2((float)State.DX, (float)State.DY) * .08f);
+        }
         if (traveled >= 1)
             GameProfile.IncrementQuest("distance_traveled", (long)Math.Round(traveled));
         RefreshPathFog();
@@ -369,6 +398,69 @@ public sealed class GameSession
         IsPathFogActive ? PathFog : null;
 
     public void DrawPlayer(SpriteBatch spriteBatch, float sizeScale = 1f) => Player.Draw(spriteBatch, State, Camera, sizeScale);
+
+    public void UpdateVisualEffects(double seconds)
+    {
+        int telegraphs = 0;
+        for (int index = 0; index < State.EnemyProjectileHolster.Count; index++)
+        {
+            EnemyProjectile projectile = State.EnemyProjectileHolster[index];
+            if (projectile.Age < projectile.TelegraphDuration
+                && projectile.Path is "laser" or "mine" or "bank" or "pool")
+            {
+                telegraphs++;
+            }
+        }
+        float telegraphCoverage = Math.Clamp(
+            telegraphs / 18f, 0f, 1f);
+        _visualDensity = VisualDensityDirector.Calculate(
+            GameProfile.Profile.VisualEffectsIntensity,
+            State.EnemyHolster.Count,
+            State.EnemyProjectileHolster.Count,
+            telegraphCoverage,
+            State.ActiveBoss is not null,
+            authoredPeak: State.ActiveBoss is Dissonance or PathChaseBoss);
+        _visualEffects.Update(seconds);
+    }
+
+    public VisualRenderContext CurrentVisualContext()
+    {
+        string pathKey = PathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
+        PathRoom? room = PathRun?.Layout.RoomAt(PlayerWorldCenter);
+        RoomPresentationState roomState = RoomPresentationState.Residual;
+        if (room is not null)
+        {
+            float enteredFor = ReferenceEquals(room, PathRun?.LastEnteredRoom)
+                ? (float)Math.Max(0, State.RunTimeSeconds - PathRun!.RoomEnteredAtRunSeconds)
+                : float.MaxValue;
+            float clearedFor = _roomClearedAt.TryGetValue(room.Id, out double clearedAt)
+                ? (float)Math.Max(0, State.RunTimeSeconds - clearedAt)
+                : float.MaxValue;
+            roomState = SoulVisualLanguage.DeriveRoomState(
+                room.IsActivated, room.IsCleared, enteredFor, clearedFor);
+        }
+        return new VisualRenderContext(
+            (float)State.RunTimeSeconds,
+            _visualDensity.UserIntensity,
+            _visualDensity.EffectiveIntensity,
+            Camera.AngleDegrees,
+            Camera.Zoom,
+            pathKey,
+            PathRun?.IsSecondAct == true ? 2 : 1,
+            roomState,
+            State.HardMode,
+            GameProfile.Profile.PathMastery.GetValueOrDefault(pathKey),
+            State.NewGamePlusLevel);
+    }
+
+    public void DrawVisualEffects(SpriteBatch spriteBatch, BitVfxLayer layer) =>
+        _visualEffects.Draw(
+            spriteBatch,
+            layer,
+            Camera,
+            PlayerWorldCenter,
+            ScreenShake,
+            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight));
 
     /// <summary>Ported from character.py's handlingBulletCreation() for mouse and controller aiming.</summary>
     public void HandleBulletCreation(Vector2 mouseScreenPosition, bool mouseDown, bool dragInProgress, Random? rng = null, bool controllerFiring = false)
@@ -418,6 +510,7 @@ public sealed class GameSession
                     (float)State.BulletSpeed, direction, (float)State.BulletRange, (float)State.BulletSize,
                     State.BulletColor, currPierce, (float)currDamage, currCrit, State.BulletEdgeColor, State.BulletDesign));
             }
+            Player.MarkFired();
             GameProfile.IncrementQuest("shots_fired", currProjectileCount);
         }
         else if (State.AttackCooldownTimer > 0)
@@ -1094,6 +1187,28 @@ public sealed class GameSession
                 anchor, 20, stableOrder++, WorldDepthDrawKind.Enemy, enemy));
         }
 
+        foreach (LootCrate crate in State.LootCrateList)
+        {
+            if (fog is not null && !fog.IsWorldAreaVisible(crate.WorldRect()))
+                continue;
+            Vector2 anchor = new(
+                crate.WorldX + crate.Size / 2f,
+                crate.WorldY + crate.Size);
+            _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                anchor, 24, stableOrder++, WorldDepthDrawKind.LootCrate, crate));
+        }
+
+        bool pathExit = PathRun?.ExitPortalOpen == true;
+        if (BossPortalOpen || pathExit)
+        {
+            Vector2 portalWorld = pathExit
+                ? PathRun!.ExitPortalWorld
+                : ArenaCenterWorld;
+            _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                portalWorld, 26, stableOrder++,
+                WorldDepthDrawKind.Portal, portalWorld));
+        }
+
         _worldDepthItemScratch.Add(new WorldDepthDrawItem(
             PlayerWorldCenter, 30, stableOrder++, WorldDepthDrawKind.Player, Player));
 
@@ -1120,7 +1235,10 @@ public sealed class GameSession
             ScreenShake,
             new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight),
             _worldDepthItemScratch,
-            _drawWorldDepthItem);
+            _drawWorldDepthItem,
+            (float)State.RunTimeSeconds,
+            _visualDensity.Optional,
+            _roomVisualEnergy);
 
         // Boss rooms are deliberately clear of fog and traversal occlusion.
         // Drawing their potentially 150 airborne shots as one overlay avoids
@@ -1161,8 +1279,31 @@ public sealed class GameSession
                     spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
                 break;
             case WorldDepthDrawKind.Enemy:
-                ((Enemy)item.Drawable).Draw(
+                Enemy enemy = (Enemy)item.Drawable;
+                enemy.Draw(
                     spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+                if (ReferenceEquals(enemy, State.ActiveBoss)
+                    || enemy is PathGuardianBoss)
+                {
+                    BossVisualRenderer.DrawSoulConstruction(
+                        spriteBatch,
+                        enemy,
+                        Camera,
+                        PlayerWorldCenter,
+                        ScreenShake,
+                        CurrentVisualContext());
+                }
+                break;
+            case WorldDepthDrawKind.LootCrate:
+                ((LootCrate)item.Drawable).DrawInWorldPass(
+                    spriteBatch,
+                    Camera,
+                    PlayerWorldCenter,
+                    ScreenShake,
+                    (float)State.RunTimeSeconds);
+                break;
+            case WorldDepthDrawKind.Portal:
+                DrawBossPortalInWorldPass(spriteBatch);
                 break;
             case WorldDepthDrawKind.Player:
                 Player.Draw(spriteBatch, State, Camera);
@@ -1250,6 +1391,24 @@ public sealed class GameSession
                 }
                 if (result.Applied)
                 {
+                    enemy.MarkVisualHit(result.Blocked ? .16f : .1f);
+                    Vector2 impactWorld = new(
+                        enemy.WorldX + enemy.Size / 2f,
+                        enemy.WorldY + enemy.Size / 2f);
+                    Vector2 bulletBias = new(
+                        MathF.Cos(bullet.Direction),
+                        -MathF.Sin(bullet.Direction));
+                    string recipe = result.Blocked
+                        ? "shield"
+                        : bullet.IsCritical ? "critical" : "impact";
+                    _visualEffects.Emit(
+                        recipe,
+                        impactWorld,
+                        result.Blocked ? UiTheme.Blue : bullet.Color,
+                        bullet.IsCritical ? UiTheme.Purple : UiTheme.Cream,
+                        (int)(bullet.WorldX * 31 + bullet.WorldY * 17 + enemy.Hp),
+                        _visualDensity.Optional,
+                        bulletBias * 1.2f);
                     GameProfile.IncrementQuest("damage_dealt", Math.Max(0, (long)Math.Round(result.Amount)));
                     if (bullet.IsCritical)
                         GameProfile.IncrementQuest("critical_hits");
@@ -1277,6 +1436,14 @@ public sealed class GameSession
 
         foreach (var enemy in _deadEnemyScratch)
         {
+            bool bossDeath = ReferenceEquals(enemy, State.ActiveBoss);
+            _visualEffects.Emit(
+                bossDeath ? "boss_death" : "death",
+                new Vector2(enemy.WorldX + enemy.Size / 2f, enemy.WorldY + enemy.Size / 2f),
+                enemy.Color,
+                UiTheme.Cream,
+                (int)(enemy.WorldX * 13 + enemy.WorldY * 29 + State.NumOfEnemiesKilled),
+                _visualDensity.Optional);
             State.NumOfEnemiesKilled += 1;
             GameProfile.IncrementQuest("enemies_defeated");
             State.ExperienceList.Add(new ExperienceBubble(
@@ -1482,6 +1649,10 @@ public sealed class GameSession
             var bubbleRect = bubble.WorldRect();
             if (playerRect.Intersects(bubbleRect))
             {
+                _visualEffects.Emit(
+                    "pickup", PlayerWorldCenter, UiTheme.Green, UiTheme.Cream,
+                    (int)(bubble.WorldX * 19 + bubble.WorldY * 7),
+                    _visualDensity.Optional);
                 State.ExpCount += bubble.Value;
                 State.ExperienceList.RemoveAt(index);
                 continue;
@@ -1510,6 +1681,10 @@ public sealed class GameSession
             var fragmentRect = fragment.WorldRect();
             if (playerRect.Intersects(fragmentRect))
             {
+                _visualEffects.Emit(
+                    "pickup", PlayerWorldCenter, UiTheme.Gold, UiTheme.Cream,
+                    (int)(fragment.WorldX * 11 + fragment.WorldY * 23),
+                    _visualDensity.Optional);
                 State.Fragments += 1;
                 State.FragmentList.RemoveAt(index);
                 continue;
@@ -1542,6 +1717,14 @@ public sealed class GameSession
         for (int index = 0; index < completedRooms.Count; index++)
         {
             PathRoom completedRoom = completedRooms[index];
+            _roomClearedAt[completedRoom.Id] = State.RunTimeSeconds;
+            _visualEffects.Emit(
+                "room_release",
+                completedRoom.WorldCenter,
+                run.CurrentSense.Accent,
+                UiTheme.Cream,
+                completedRoom.Id * 7919 + run.FloorNumber,
+                _visualDensity.Optional);
             if (completedRoom.Type == PathRoomType.Treasure)
                 SpawnPathTreasure(completedRoom, rng);
             else if (completedRoom.Type == PathRoomType.Challenge)
@@ -1682,6 +1865,7 @@ public sealed class GameSession
             PathGuardianArenaRadius(room))
         {
             EncounterKey = room.EncounterKey,
+            IsMiniGuardian = true,
         };
         guardian.DisengageRange = guardian.AwarenessRange * 1.5f;
         ApplyRunDifficulty(guardian);
@@ -1959,7 +2143,9 @@ public sealed class GameSession
             int zoomedSize = (int)(crate.Size * Camera.Zoom);
             var rect = new Rectangle((int)screen.X, (int)screen.Y, zoomedSize, zoomedSize);
             if (rect.Intersects(new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight)))
-                crate.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+                crate.Draw(
+                    spriteBatch, Camera, PlayerWorldCenter, ScreenShake,
+                    (float)State.RunTimeSeconds);
         }
         spriteBatch.End();
         graphicsDevice.ScissorRectangle = previousScissor;
@@ -2020,6 +2206,66 @@ public sealed class GameSession
 
         spriteBatch.End();
         graphicsDevice.ScissorRectangle = previousScissor;
+    }
+
+    private void DrawBossPortalInWorldPass(SpriteBatch spriteBatch)
+    {
+        bool pathExit = PathRun?.ExitPortalOpen == true;
+        if (!BossPortalOpen && !pathExit)
+            return;
+        Vector2 portalWorld = pathExit
+            ? PathRun!.ExitPortalWorld
+            : ArenaCenterWorld;
+        Vector2 center = Camera.WorldToScreen(
+            portalWorld, PlayerWorldCenter, ScreenShake);
+        float radius = Simulation.TileSize * 1.1f;
+        float time = (float)State.RunTimeSeconds;
+        PathVisualProfile profile = SoulVisualLanguage.Path(
+            pathExit ? PathRun!.CurrentSenseKey : GamePaths.Active().Key);
+        Color interactable = SoulVisualLanguage.CueColor(
+            VisualSemanticCue.Interactable, profile);
+        float pulse = 1f + .06f * MathF.Sin(time * 2.2f);
+
+        Primitives2D.FillCircle(spriteBatch, center,
+            radius * .78f * pulse, UiTheme.Ink);
+        if (pathExit)
+        {
+            SoulVisualLanguage.DrawRoomGlyph(
+                spriteBatch,
+                center,
+                radius * .66f,
+                PathRoomType.Boss,
+                profile,
+                time,
+                .9f,
+                -Camera.AngleRadians);
+        }
+        else
+        {
+            for (int index = 0; index < GamePaths.Paths.Count; index++)
+            {
+                GamePath path = GamePaths.Paths[index];
+                float angle = -Camera.AngleRadians
+                    + index * MathF.Tau / GamePaths.Paths.Count
+                    + time * .16f;
+                Vector2 lobe = center + new Vector2(
+                    MathF.Cos(angle), MathF.Sin(angle)) * radius * .54f;
+                Primitives2D.FillQuad(spriteBatch,
+                    lobe + new Vector2(0, -radius * .18f),
+                    lobe + new Vector2(radius * .15f, 0),
+                    lobe + new Vector2(0, radius * .18f),
+                    lobe - new Vector2(radius * .15f, 0),
+                    path.Accent * .85f);
+            }
+        }
+        Primitives2D.CircleOutline(spriteBatch, center,
+            radius, interactable, 3);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle((int)(center.X - radius * .13f),
+                (int)(center.Y - radius * .13f),
+                Math.Max(3, (int)(radius * .26f)),
+                Math.Max(3, (int)(radius * .26f))),
+            UiTheme.Purple);
     }
 
     /// <summary>
@@ -2174,6 +2420,110 @@ public sealed class GameSession
         DrawBountyIndicator(spriteBatch, SelectBountyTarget());
     }
 
+    /// <summary>
+    /// Developer-only arrangement used to inspect procedural silhouettes and
+    /// ordinary actor poses without needing to wait for encounter RNG.
+    /// </summary>
+    public int DebugSpawnVfxGallery(
+        string? pathKey = null,
+        string tier = "easy")
+    {
+        pathKey = SoulVisualLanguage.Paths.ContainsKey(pathKey ?? "")
+            ? pathKey!
+            : GamePaths.Active().Key;
+        tier = SoulVisualLanguage.EnemyTiers.Contains(tier)
+            ? tier
+            : "easy";
+        _debugVisualGallery = true;
+        _debugVisualGalleryPath = pathKey;
+        _debugVisualGalleryTier = tier;
+        string[] hostileShapes =
+        {
+            "wave", "tuning_fork", "chevron",
+            "rivet", "chain_link", "slab",
+            "eye", "needle", "lens",
+            "ember", "spore", "cracked_core",
+            "star", "crescent", "orbit_core",
+        };
+        string[] friendlyDesigns =
+            Cosmetics.ProjectileDesigns.Select(design => design.Id).ToArray();
+        Vector2 origin = PlayerWorldCenter
+            + Camera.ScreenVectorToWorld(new Vector2(-360, -220));
+        int spawned = 0;
+        for (int index = 0; index < hostileShapes.Length; index++)
+        {
+            int column = index % 5;
+            int row = index / 5;
+            Vector2 position = origin + Camera.ScreenVectorToWorld(
+                new Vector2(column * 78, row * 78));
+            State.EnemyProjectileHolster.Add(new EnemyProjectile(
+                position.X, position.Y, 0f, 0f, 0f, 24f,
+                travelRange: float.PositiveInfinity,
+                color: SoulVisualLanguage.Path(pathKey).Accent,
+                shape: hostileShapes[index],
+                lifetime: 120f,
+                owner: "vfx_gallery",
+                ignoreWalls: true)
+            {
+                ContentPath = pathKey,
+            });
+            spawned++;
+        }
+
+        for (int index = 0; index < friendlyDesigns.Length; index++)
+        {
+            int column = index % 5;
+            int row = index / 5;
+            Vector2 position = origin + Camera.ScreenVectorToWorld(
+                new Vector2(column * 78, 270 + row * 70));
+            State.BulletHolster.Add(new Bullet(
+                position.X, position.Y, 0f, 0f, 99999f, 24f,
+                State.BulletColor, 999, 0, false,
+                State.BulletEdgeColor, friendlyDesigns[index]));
+            spawned++;
+        }
+
+        int level = tier switch
+        {
+            "hard" => 16,
+            "medium" => 8,
+            _ => 2,
+        };
+        IReadOnlyList<EnemyDefinition> definitions =
+            EnemyCatalog.Shared.Available(level, pathKey)
+                .Where(definition =>
+                    definition.ProgressionTier == tier
+                    && !definition.GuaranteedOnly)
+                .GroupBy(definition => definition.Family)
+                .Select(group => group.First())
+                .OrderBy(definition => definition.Family)
+                .ToList();
+        int enemyCount = definitions.Count;
+        for (int index = 0; index < enemyCount; index++)
+        {
+            Vector2 requested = origin + Camera.ScreenVectorToWorld(
+                new Vector2(430 + index % 4 * 78, index / 4 * 72));
+            Rectangle safe = Battleground.FindNearestOpenRect(
+                new Rectangle((int)requested.X, (int)requested.Y,
+                    Simulation.TileSize, Simulation.TileSize));
+            Enemy enemy = EnemyCatalog.Shared.Create(
+                definitions[index].Key,
+                safe.X,
+                safe.Y,
+                level,
+                AwarenessRange,
+                new Random(700 + index),
+                Battleground);
+            enemy.ContentPath = pathKey;
+            enemy.Speed = 0;
+            enemy.EngagementAllowed = false;
+            State.EnemyHolster.Add(enemy);
+            spawned++;
+        }
+        State.CurrEnemyCount = State.EnemyHolster.Count;
+        return spawned;
+    }
+
     public void DrawBountyIndicator(SpriteBatch spriteBatch, BountyInfo? bounty)
     {
         if (bounty is null)
@@ -2218,7 +2568,25 @@ public sealed class GameSession
         var targetScreen = Camera.ApplyZoom(Camera.WorldToScreen(portalWorld, PlayerWorldCenter, ScreenShake));
         int arenaWidth = InformationSheet.ArenaWidth;
         if (new Rectangle(0, 0, arenaWidth, ScreenHeight).Contains(targetScreen.ToPoint()))
+        {
+            bool nearby = pathExit
+                ? PathRun!.PlayerAtExitPortal(
+                    Player.WorldRect(State), BossPortalInteractRadius)
+                : PlayerAtBossPortal();
+            if (nearby)
+            {
+                string keyLabel = PreferControllerPrompts
+                    ? "B"
+                    : Keybinds.LabelForKey(Keybinds.KeyFor("interact"));
+                UiTheme.DrawText(spriteBatch,
+                    $"{keyLabel}  //  {(pathExit ? "NEXT FLOOR" : "ENTER")}",
+                    9, portalColor,
+                    targetScreen + new Vector2(
+                        0, Simulation.TileSize * 1.35f * Camera.Zoom),
+                    "midtop");
+            }
             return;
+        }
 
         int topMargin = State.ActiveBoss is not null ? 112 : 44;
         var viewport = new Rectangle(34, topMargin, Math.Max(1, arenaWidth - 68), Math.Max(1, ScreenHeight - topMargin - 42));
@@ -2252,6 +2620,45 @@ public sealed class GameSession
         DrawLowHealthWarning(spriteBatch);
         DrawRunCompleteBanner(spriteBatch);
         DrawTutorialHint(spriteBatch);
+        DrawDebugVisualGalleryOverlay(spriteBatch);
+    }
+
+    private void DrawDebugVisualGalleryOverlay(SpriteBatch spriteBatch)
+    {
+        if (!_debugVisualGallery)
+            return;
+        float scale = UiTheme.DisplayScale(spriteBatch);
+        var panel = new Rectangle(
+            (int)(18 * scale), (int)(18 * scale),
+            (int)(430 * scale), (int)(82 * scale));
+        PathVisualProfile path =
+            SoulVisualLanguage.Path(_debugVisualGalleryPath);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, panel, _debugVisualGalleryPath,
+            (float)State.RunTimeSeconds,
+            UiTheme.Panel * .96f, path.Accent, shadow: 5);
+        UiTheme.DrawText(spriteBatch,
+            $"LIVING SOUL GALLERY // {_debugVisualGalleryPath.ToUpperInvariant()} // {_debugVisualGalleryTier.ToUpperInvariant()}",
+            11 * scale, UiTheme.Text,
+            new Vector2(panel.X + 12 * scale, panel.Y + 11 * scale));
+        float glyphX = panel.X + 25 * scale;
+        foreach (PathRoomType roomType in Enum.GetValues<PathRoomType>())
+        {
+            SoulVisualLanguage.DrawRoomGlyph(
+                spriteBatch,
+                new Vector2(glyphX, panel.Y + 53 * scale),
+                10 * scale,
+                roomType,
+                path,
+                (float)State.RunTimeSeconds,
+                .8f);
+            glyphX += 42 * scale;
+        }
+        string density =
+            $"AMBIENCE {_visualDensity.Ambience:P0}  TRAILS {_visualDensity.Trails:P0}  DEBRIS {_visualDensity.Debris:P0}";
+        UiTheme.DrawText(spriteBatch, density, 8 * scale, UiTheme.Muted,
+            new Vector2(panel.Right - 10 * scale,
+                panel.Bottom - 8 * scale), "bottomright");
     }
 
     /// <summary>
@@ -2269,7 +2676,11 @@ public sealed class GameSession
             ScreenHeight - (int)(142 * scale),
             (int)(224 * scale),
             (int)(126 * scale));
-        UiTheme.DrawPanel(spriteBatch, panel, UiTheme.Panel * .94f, PathRun.CurrentSense.Accent, shadow: 5);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, panel, PathRun.CurrentSenseKey,
+            (float)State.RunTimeSeconds,
+            UiTheme.Panel * .94f, PathRun.CurrentSense.Accent,
+            shadow: 5);
         UiTheme.DrawText(spriteBatch, $"FLOOR MAP // {PathRun.Layout.Style.ToString().ToUpperInvariant()}",
             9 * scale, UiTheme.Muted, new Vector2(panel.X + 9 * scale, panel.Y + 7 * scale));
 
@@ -2331,21 +2742,38 @@ public sealed class GameSession
                                     : UiTheme.Border;
             if (PathFog is not null && !PathFog.AnyVisible(room.TileBounds))
                 color *= .58f;
+            if (activeRoom)
+            {
+                float pulse = .72f + .28f * MathF.Sin(
+                    (float)State.RunTimeSeconds * 5f + room.Id);
+                color = Color.Lerp(color, UiTheme.Cream, pulse * .28f);
+            }
             Primitives2D.FillRect(spriteBatch, roomRect, UiTheme.Ink * .9f);
             Primitives2D.RectOutline(spriteBatch, roomRect, color, room.IsMainPath ? 2 : 1);
-            if (room.Type == PathRoomType.Treasure)
-                Primitives2D.FillRect(spriteBatch,
-                    new Rectangle(roomRect.Center.X - 1, roomRect.Center.Y - 1, 3, 3), UiTheme.Gold);
+            float glyphSize = Math.Max(2f,
+                Math.Min(roomRect.Width, roomRect.Height) * .2f);
+            SoulVisualLanguage.DrawRoomGlyph(
+                spriteBatch,
+                roomRect.Center.ToVector2(),
+                glyphSize,
+                room.Type,
+                SoulVisualLanguage.Path(PathRun.CurrentSenseKey),
+                (float)State.RunTimeSeconds + room.Id * .13f,
+                activeRoom ? 1f : room.IsCleared ? .72f : .38f);
         }
 
         Point playerTile = new(
             (int)(PlayerWorldCenter.X / Battleground.TileSize),
             (int)(PlayerWorldCenter.Y / Battleground.TileSize));
         Vector2 player = MapPoint(playerTile);
+        int playerMarker = 7 + (int)MathF.Round(
+            (1f + MathF.Sin((float)State.RunTimeSeconds * 6f)) * .8f);
         Primitives2D.FillRect(spriteBatch,
-            new Rectangle((int)player.X - 3, (int)player.Y - 3, 7, 7), UiTheme.Cream);
+            new Rectangle((int)player.X - playerMarker / 2,
+                (int)player.Y - playerMarker / 2, playerMarker, playerMarker), UiTheme.Cream);
         Primitives2D.RectOutline(spriteBatch,
-            new Rectangle((int)player.X - 3, (int)player.Y - 3, 7, 7), UiTheme.Ink, 1);
+            new Rectangle((int)player.X - playerMarker / 2,
+                (int)player.Y - playerMarker / 2, playerMarker, playerMarker), UiTheme.Ink, 1);
     }
 
     public static Rectangle PathMinimapRoomRect(
@@ -2368,9 +2796,29 @@ public sealed class GameSession
     public void DrawPathAmbience(SpriteBatch spriteBatch)
     {
         if (PathRun is null)
+        {
+            DrawStandaloneSanctumAccents(spriteBatch);
             return;
+        }
 
         float time = (float)State.RunTimeSeconds;
+        float intensity = _visualDensity.Optional;
+        RefreshRoomVisualEnergy(time);
+        _arenaRenderer.DrawAnimatedFloorAccents(
+            spriteBatch,
+            Battleground,
+            Camera,
+            PlayerWorldCenter,
+            ScreenShake,
+            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight),
+            time,
+            intensity,
+            _roomVisualEnergy);
+        DrawRoomRoleGlyphs(spriteBatch, time);
+        DrawRareRoomSpectacle(spriteBatch, time, intensity);
+        if (intensity <= 0)
+            return;
+
         Color accent = PathRun.CurrentSense.Accent;
         foreach (var emitter in Battleground.AmbientPathDecorations)
         {
@@ -2381,7 +2829,8 @@ public sealed class GameSession
                 continue;
             }
 
-            int particles = PathRun.IsSecondAct ? 6 : 4;
+            int authoredParticles = PathRun.IsSecondAct ? 6 : 4;
+            int particles = Math.Max(1, (int)MathF.Ceiling(authoredParticles * (float)intensity));
             for (int index = 0; index < particles; index++)
             {
                 float seed = emitter.Variant * 17.3f + emitter.RoomId * 9.7f + index * 23.1f;
@@ -2438,6 +2887,230 @@ public sealed class GameSession
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Standalone runs are the intact central sanctums of their selected
+    /// Path. They use the same room-role language as composite floors without
+    /// changing arena collision, safe pockets, or encounter timing.
+    /// </summary>
+    private void DrawStandaloneSanctumAccents(SpriteBatch spriteBatch)
+    {
+        string pathKey = GamePaths.Active().Key;
+        PathVisualProfile profile = SoulVisualLanguage.Path(pathKey);
+        VisualRenderContext context = CurrentVisualContext();
+        Vector2 center = Camera.WorldToScreen(
+            ArenaCenterWorld, PlayerWorldCenter, ScreenShake);
+        float time = (float)State.RunTimeSeconds;
+        bool bossActive = State.ActiveBoss is not null;
+        PathRoomType role = bossActive || BossPortalOpen
+            ? PathRoomType.Boss
+            : PathRoomType.Start;
+        float energy = bossActive ? 1f : .55f;
+        float size = Simulation.TileSize * (bossActive ? 1.22f : .86f);
+
+        SoulVisualLanguage.DrawRoomGlyph(
+            spriteBatch, center, size, role, profile,
+            time, energy, -Camera.AngleRadians);
+
+        int scarTier = SoulVisualLanguage.ProgressionScarTier(
+            context.Mastery, context.NewGamePlus, context.HardMode);
+        int pips = Math.Min(scarTier, 6);
+        for (int index = 0; index < pips; index++)
+        {
+            float angle = -Camera.AngleRadians
+                + index * MathF.Tau / Math.Max(1, pips);
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Vector2 pip = center + direction * size * 1.32f;
+            int pipSize = 3 + index % 2;
+            Color color = context.HardMode && index == pips - 1
+                ? UiTheme.Red
+                : profile.Secondary;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle(
+                    (int)pip.X - pipSize / 2,
+                    (int)pip.Y - pipSize / 2,
+                    pipSize, pipSize),
+                color * .64f);
+        }
+
+        if (_visualDensity.Ambience <= 0)
+            return;
+        int motes = Math.Max(2,
+            (int)MathF.Ceiling(8 * _visualDensity.Ambience));
+        for (int index = 0; index < motes; index++)
+        {
+            float phase = (time * (.12f + index * .006f)
+                + index * .137f) % 1f;
+            float angle = -Camera.AngleRadians
+                + index * MathF.Tau / motes
+                + MathF.Floor(time * 2f) * .035f;
+            float radius = size * (1.7f + phase * .7f);
+            Vector2 point = center + new Vector2(
+                MathF.Cos(angle) * radius,
+                MathF.Sin(angle) * radius * .62f);
+            int moteSize = index % 3 == 0 ? 4 : 2;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle(
+                    (int)point.X - moteSize / 2,
+                    (int)point.Y - moteSize / 2,
+                    moteSize, moteSize),
+                (index % 4 == 0 ? UiTheme.Cream : profile.Accent)
+                    * (.18f + phase * .22f));
+        }
+    }
+
+    private void DrawRoomRoleGlyphs(SpriteBatch spriteBatch, float time)
+    {
+        if (PathRun is null)
+            return;
+        PathVisualProfile profile =
+            SoulVisualLanguage.Path(PathRun.CurrentSenseKey);
+        Rectangle viewport = new(
+            -120, -120,
+            InformationSheet.ArenaWidth + 240,
+            ScreenHeight + 240);
+        VisualRenderContext context = CurrentVisualContext();
+        int scarTier = SoulVisualLanguage.ProgressionScarTier(
+            context.Mastery, context.NewGamePlus, context.HardMode);
+        foreach (PathRoom room in PathRun.Layout.Rooms)
+        {
+            Vector2 center = Camera.WorldToScreen(
+                room.WorldCenter, PlayerWorldCenter, ScreenShake);
+            if (!viewport.Contains(center.ToPoint()))
+                continue;
+            float energy = _roomVisualEnergy.GetValueOrDefault(room.Id, .15f);
+            float size = room.Type switch
+            {
+                PathRoomType.Boss => Simulation.TileSize * 1.1f,
+                PathRoomType.Treasure or PathRoomType.Challenge =>
+                    Simulation.TileSize * .78f,
+                _ => Simulation.TileSize * .56f,
+            };
+            SoulVisualLanguage.DrawRoomGlyph(
+                spriteBatch,
+                center,
+                size,
+                room.Type,
+                profile,
+                time + room.Id * .17f,
+                energy * .52f,
+                -Camera.AngleRadians);
+
+            if (scarTier <= 0 || !room.IsCleared)
+                continue;
+            int pips = Math.Min(scarTier, 6);
+            for (int index = 0; index < pips; index++)
+            {
+                float angle = -Camera.AngleRadians
+                    + index * MathF.Tau / pips;
+                Vector2 pip = center + new Vector2(
+                    MathF.Cos(angle), MathF.Sin(angle)) * size * 1.22f;
+                int pipSize = 2 + index % 2;
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)pip.X - pipSize / 2,
+                        (int)pip.Y - pipSize / 2, pipSize, pipSize),
+                    (context.HardMode && index == pips - 1
+                        ? UiTheme.Red
+                        : profile.Secondary) * .58f);
+            }
+        }
+    }
+
+    private void DrawRareRoomSpectacle(
+        SpriteBatch spriteBatch,
+        float time,
+        float intensity)
+    {
+        if (PathRun is null || intensity <= 0)
+            return;
+        PathRoom? room = PathRun.Layout.RoomAt(PlayerWorldCenter);
+        if (room is null || !room.IsActivated
+            || (room.Id * 17 + room.Variant * 7 + PathRun.FloorNumber) % 4 != 0)
+        {
+            return;
+        }
+
+        float phase = (time + room.Id * 1.37f) % 8.5f;
+        if (phase > 1.25f)
+            return;
+        float progress = phase / 1.25f;
+        float alpha = MathF.Sin(progress * MathF.PI) * intensity;
+        int count = Math.Max(2, (int)MathF.Ceiling(10 * intensity));
+        Color accent = PathRun.CurrentSense.Accent * (alpha * .42f);
+        Vector2 center = Camera.WorldToScreen(
+            room.WorldCenter, PlayerWorldCenter, ScreenShake);
+        Vector2 half = new(
+            room.WorldBounds.Width * .42f,
+            room.WorldBounds.Height * .34f);
+
+        for (int index = 0; index < count; index++)
+        {
+            float lane = (index + .5f) / count;
+            float seed = room.Id * 2.31f + index * 1.73f;
+            Vector2 point = PathRun.CurrentSenseKey switch
+            {
+                "touch" => center + new Vector2(
+                    (progress * 2f - 1f) * half.X,
+                    MathF.Sin(seed) * half.Y),
+                "sight" => center + new Vector2(
+                    MathHelper.Lerp(-half.X, half.X, (progress + lane) % 1f),
+                    MathHelper.Lerp(half.Y, -half.Y, lane)),
+                "sound" => center + new Vector2(
+                    MathHelper.Lerp(-half.X, half.X, lane),
+                    MathF.Sin(progress * MathF.Tau * 2f + seed) * half.Y * .65f),
+                "phantasia" => center + new Vector2(
+                    MathHelper.Lerp(-half.X, half.X, lane),
+                    MathHelper.Lerp(-half.Y, half.Y, (progress + lane * .33f) % 1f)),
+                _ => center + new Vector2(
+                    MathHelper.Lerp(-half.X, half.X, (progress + lane) % 1f),
+                    MathF.Sin(seed + progress * 5f) * half.Y),
+            };
+            int size = index % 4 == 0 ? 5 : 3;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)point.X, (int)point.Y, size, size),
+                index % 5 == 0 ? UiTheme.Cream * (alpha * .38f) : accent);
+        }
+    }
+
+    private void RefreshRoomVisualEnergy(float time)
+    {
+        _roomVisualEnergy.Clear();
+        if (PathRun is null)
+            return;
+
+        foreach (PathRoom room in PathRun.Layout.Rooms)
+        {
+            float energy;
+            if (!room.IsActivated)
+            {
+                energy = .12f;
+            }
+            else if (!room.IsCleared)
+            {
+                energy = 1f;
+            }
+            else
+            {
+                energy = .42f;
+                if (_roomClearedAt.TryGetValue(room.Id, out double clearedAt))
+                {
+                    float release = 1f - Math.Clamp(
+                        (time - (float)clearedAt) / 1.25f, 0f, 1f);
+                    energy += release * .58f;
+                }
+            }
+
+            if (ReferenceEquals(room, PathRun.LastEnteredRoom))
+            {
+                float entered = Math.Clamp(
+                    (time - (float)PathRun.RoomEnteredAtRunSeconds) / 1.1f,
+                    0f,
+                    1f);
+                energy *= .2f + entered * .8f;
+            }
+            _roomVisualEnergy[room.Id] = energy;
         }
     }
 
@@ -2536,7 +3209,11 @@ public sealed class GameSession
         int width = (int)Math.Min(InformationSheet.ArenaWidth * .72f, 780 * scale);
         var rect = new Rectangle((InformationSheet.ArenaWidth - width) / 2,
             (int)(28 * scale), width, (int)(76 * scale));
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, PathRun.CurrentSense.Accent, shadow: 7);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect, PathRun.CurrentSenseKey,
+            (float)State.RunTimeSeconds,
+            UiTheme.PanelRaised, PathRun.CurrentSense.Accent,
+            shadow: 7);
         UiTheme.DrawText(spriteBatch, PathRun.TitleBanner, 24 * scale, UiTheme.Text,
             new Vector2(rect.Center.X, rect.Y + 10 * scale), "midtop");
         string act = PathRun.IsSecondAct ? "DESCENT II // HARDENED" : "DESCENT I";
@@ -2563,7 +3240,10 @@ public sealed class GameSession
             width,
             (int)(48 * scale));
         Color accent = room.Type == PathRoomType.Challenge ? UiTheme.Gold : PathRun.CurrentSense.Accent;
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, accent, shadow: 5);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect, PathRun.CurrentSenseKey,
+            (float)State.RunTimeSeconds,
+            UiTheme.PanelRaised, accent, shadow: 5);
         UiTheme.DrawText(spriteBatch, room.EntryBanner, 15 * scale, UiTheme.Text,
             rect.Center.ToVector2(), "center");
     }
@@ -2612,7 +3292,11 @@ public sealed class GameSession
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(InformationSheet.ArenaWidth * .62f, 720 * scale);
         var rect = new Rectangle((InformationSheet.ArenaWidth - width) / 2, (int)(16 * scale), width, (int)(70 * scale));
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, phase.Item3, shadow: 6);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect,
+            PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
+            (float)State.RunTimeSeconds,
+            UiTheme.PanelRaised, phase.Item3, shadow: 6);
         string name = boss is PathGuardianBoss guardian
             ? guardian.BossDisplayName
             : (_activeBossKey ?? BossKeyFor(boss) ?? boss.Family)
@@ -2621,7 +3305,23 @@ public sealed class GameSession
         string phasePrefix = boss is PathGuardianBoss { TrialActive: true }
             ? "TRIAL"
             : $"PHASE {phase.Item1}";
-        UiTheme.DrawText(spriteBatch, $"{phasePrefix} // {phase.Item2}", 10 * scale, phase.Item3,
+        BossPresentationState presentation =
+            BossPresentationDirector.Derive(boss);
+        string presentationLabel = presentation switch
+        {
+            BossPresentationState.Entrance => "ASSEMBLING",
+            BossPresentationState.Declaration => "DECLARING",
+            BossPresentationState.PhaseGate => "REFORMING",
+            BossPresentationState.Trial => "SURVIVAL",
+            BossPresentationState.Stagger => "STAGGERED",
+            BossPresentationState.Recovery => "RECOVERING",
+            BossPresentationState.ZeroHealthSeal => "SEALED",
+            BossPresentationState.DeathCollapse => "COLLAPSING",
+            _ => phase.Item2,
+        };
+        UiTheme.DrawText(spriteBatch,
+            $"{phasePrefix} // {presentationLabel}",
+            10 * scale, phase.Item3,
             new Vector2(rect.Right - 14 * scale, rect.Y + 13 * scale), "topright");
         var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + 43 * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
         float progress = boss is PathGuardianBoss { TrialActive: true } trial
@@ -2649,7 +3349,12 @@ public sealed class GameSession
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(InformationSheet.ArenaWidth * .58f, 680 * scale);
         var rect = new Rectangle((InformationSheet.ArenaWidth - width) / 2, (int)(22 * scale), width, (int)(76 * scale));
-        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Cream, shadow: 7);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect,
+            PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
+            (float)State.RunTimeSeconds,
+            UiTheme.PanelRaised, UiTheme.Cream,
+            shadow: 7, composite: PathRun is not null);
         string headline = PathRun is not null
             ? "THE WOVEN PATH TRAVERSED"
             : $"{GamePaths.BossKey(false).ToUpperInvariant()} ENDED";
@@ -2756,8 +3461,12 @@ public sealed class GameSession
         InformationSheet.HandleDrag(State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed);
 
     /// <summary>The Soul's counterpart to DrawInformationSheet/HandleInformationSheetDrag -- see InformationSheet.DrawCarriedLoadout's doc comment.</summary>
-    public void DrawCarriedLoadout(SpriteBatch spriteBatch, Point mousePosition) =>
-        InformationSheet.DrawCarriedLoadout(spriteBatch, State, mousePosition);
+    public void DrawCarriedLoadout(
+        SpriteBatch spriteBatch,
+        Point mousePosition,
+        float animationTime = 0f) =>
+        InformationSheet.DrawCarriedLoadout(
+            spriteBatch, State, mousePosition, animationTime);
 
     /// <summary>Call once per frame, after <see cref="DrawCarriedLoadout"/>, while in the Soul.</summary>
     public void HandleCarriedLoadoutDrag(Point mousePosition, bool mouseDown, bool mousePressed, IReadOnlyList<Rectangle> vaultSlotRects) =>
@@ -2825,6 +3534,13 @@ public sealed class GameSession
             State.DamageTextList.Add(new DamageText(Player.WorldX, Player.WorldY, UiTheme.Red, trueDamage, Simulation.TileSize, Simulation.FrameRate));
             int healthBeforeHit = State.HealthPoints;
             State.HealthPoints = Math.Max(0, State.HealthPoints - (int)trueDamage);
+            _visualEffects.Emit(
+                "impact",
+                PlayerWorldCenter,
+                UiTheme.Red,
+                projectile.Color,
+                (int)(projectile.WorldX * 17 + projectile.WorldY * 31),
+                _visualDensity.Optional);
             _bossTelemetry?.RecordDamage(healthBeforeHit - State.HealthPoints);
             State.PlayerInvulnerabilityTimer = State.PlayerInvulnerabilityMax;
             return State.HealthPoints <= 0 ? FinalizeDefeat() : false;
@@ -2856,6 +3572,13 @@ public sealed class GameSession
             State.DamageTextList.Add(new DamageText(Player.WorldX, Player.WorldY, UiTheme.Red, trueDamage, Simulation.TileSize, Simulation.FrameRate));
             int healthBeforeHit = State.HealthPoints;
             State.HealthPoints = Math.Max(0, State.HealthPoints - (int)trueDamage);
+            _visualEffects.Emit(
+                "impact",
+                PlayerWorldCenter,
+                UiTheme.Red,
+                enemy.Color,
+                (int)(enemy.WorldX * 23 + enemy.WorldY * 13),
+                _visualDensity.Optional);
             _bossTelemetry?.RecordDamage(healthBeforeHit - State.HealthPoints);
             State.PlayerInvulnerabilityTimer = State.PlayerInvulnerabilityMax;
 
@@ -2890,6 +3613,8 @@ public sealed class GameSession
         HealthPoints = State.HealthPoints,
         MaxHealthPoints = State.MaxHealthPoints,
         PendingLevelUps = State.PendingLevelUps,
+        PathKey = PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
+        PresentationTime = (float)State.RunTimeSeconds,
     };
 
     /// <summary>

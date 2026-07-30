@@ -2,7 +2,9 @@ using FontStashSharp;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
@@ -253,6 +255,102 @@ public static class UiTheme
         Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Top), new Vector2(rect.Right - 1, rect.Top),
             Lighten(borderColor, 28), borderWidth);
         return rect;
+    }
+
+    public static Rectangle DrawLivingPanel(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        string? pathKey,
+        float animationTime,
+        Color? fill = null,
+        Color? border = null,
+        int shadow = 5,
+        bool hovered = false,
+        bool composite = false)
+    {
+        PathVisualProfile path = SoulVisualLanguage.Path(pathKey);
+        Color accent = border ?? path.Accent;
+        DrawPanel(spriteBatch, rect, fill, accent, shadow, hovered);
+        int corner = Math.Max(5, Math.Min(rect.Width, rect.Height) / 11);
+        int width = Math.Max(1, corner / 5);
+        float breathe = .68f + .22f * MathF.Sin(
+            animationTime * path.MotionCadence * 2f);
+        Color motif = path.Secondary * breathe;
+        Primitives2D.Line(spriteBatch,
+            new Vector2(rect.Left, rect.Top + corner),
+            new Vector2(rect.Left + corner, rect.Top), motif, width);
+        Primitives2D.Line(spriteBatch,
+            new Vector2(rect.Right - corner, rect.Top),
+            new Vector2(rect.Right, rect.Top + corner), motif, width);
+        Primitives2D.Line(spriteBatch,
+            new Vector2(rect.Left, rect.Bottom - corner),
+            new Vector2(rect.Left + corner, rect.Bottom), motif, width);
+        Primitives2D.Line(spriteBatch,
+            new Vector2(rect.Right - corner, rect.Bottom),
+            new Vector2(rect.Right, rect.Bottom - corner), motif, width);
+
+        int segments = composite ? GamePaths.Paths.Count : 3;
+        float segmentWidth = Math.Min(rect.Width * .42f,
+            170f * DisplayScale(spriteBatch)) / segments;
+        float start = rect.Center.X - segmentWidth * segments / 2f;
+        int lit = Math.Abs((int)MathF.Floor(animationTime * 3f)) % segments;
+        for (int index = 0; index < segments; index++)
+        {
+            Color segmentColor = composite
+                ? GamePaths.Paths[index].Accent
+                : index == 1 ? path.Secondary : path.Accent;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle(
+                    (int)(start + index * segmentWidth + 2),
+                    rect.Top + width,
+                    Math.Max(2, (int)segmentWidth - 4),
+                    Math.Max(1, width)),
+                segmentColor * (index == lit ? .9f : .38f));
+        }
+        return rect;
+    }
+
+    public static void DrawSoulRose(
+        SpriteBatch spriteBatch,
+        Vector2 center,
+        float radius,
+        float animationTime,
+        float alpha = 1f,
+        IReadOnlyDictionary<string, int>? mastery = null)
+    {
+        float stepped = MathF.Floor(animationTime * 12f) / 12f;
+        for (int index = 0; index < GamePaths.Paths.Count; index++)
+        {
+            GamePath path = GamePaths.Paths[index];
+            float angle = -MathF.PI / 2f
+                + index * MathF.Tau / GamePaths.Paths.Count
+                + stepped * .08f;
+            int progress = mastery?.GetValueOrDefault(path.Key) ?? 0;
+            float lobeRadius = radius
+                * (.52f + Math.Min(3, progress) * .035f);
+            Vector2 lobe = center + new Vector2(
+                MathF.Cos(angle), MathF.Sin(angle)) * radius * .58f;
+            Vector2 radial = Vector2.Normalize(lobe - center);
+            Vector2 side = new(-radial.Y, radial.X);
+            Primitives2D.FillQuad(spriteBatch,
+                lobe + radial * lobeRadius * .48f,
+                lobe + side * lobeRadius * .3f,
+                lobe - radial * lobeRadius * .42f,
+                lobe - side * lobeRadius * .3f,
+                path.Accent * (alpha
+                    * (.34f + Math.Min(3, progress) * .12f)));
+        }
+        Primitives2D.FillCircle(spriteBatch, center,
+            radius * .24f, Ink * alpha);
+        Primitives2D.CircleOutline(spriteBatch, center,
+            radius * .24f, Cream * alpha,
+            Math.Max(2, (int)(radius * .035f)));
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle((int)(center.X - radius * .07f),
+                (int)(center.Y - radius * .07f),
+                Math.Max(2, (int)(radius * .14f)),
+                Math.Max(2, (int)(radius * .14f))),
+            Purple * alpha);
     }
 
     public static bool DrawButton(SpriteBatch spriteBatch, Rectangle rect, string label, Point mousePosition,

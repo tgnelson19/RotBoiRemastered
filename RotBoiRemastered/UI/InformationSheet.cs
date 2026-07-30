@@ -148,6 +148,8 @@ public sealed class InformationSheet
     private bool _tabDetailsOpen;
     private Rectangle _levelUpButtonRect;
     private Rectangle _reforgeButtonRect;
+    private string _presentationPath = "sound";
+    private float _presentationTime;
 
     public int ArenaWidth => _posX;
     public bool DragInProgress { get; private set; }
@@ -236,7 +238,10 @@ public sealed class InformationSheet
     private Rectangle Panel(SpriteBatch spriteBatch, int y, int height, Color? accent = null, Color? fill = null)
     {
         var rect = new Rectangle(_posX + _padding, y, _totalLength - _padding * 2, height);
-        UiTheme.DrawPanel(spriteBatch, rect, fill ?? UiTheme.PanelRaised, accent ?? UiTheme.Border, shadow: 3);
+        UiTheme.DrawLivingPanel(
+            spriteBatch, rect, _presentationPath, _presentationTime,
+            fill ?? UiTheme.PanelRaised, accent ?? UiTheme.Border,
+            shadow: 3);
         return rect;
     }
 
@@ -659,7 +664,9 @@ public sealed class InformationSheet
             if (item is not null && !draggingThis)
             {
                 bool hovered = slotRect.Contains(mousePosition);
-                ItemCards.DrawItemCard(spriteBatch, slotRect, item, hovered);
+                ItemCards.DrawItemCard(
+                    spriteBatch, slotRect, item, hovered,
+                    _presentationTime);
                 if (hovered)
                     _tooltipItem = item;
             }
@@ -705,7 +712,9 @@ public sealed class InformationSheet
             if (item is not null && !draggingThis)
             {
                 bool hovered = slotRect.Contains(mousePosition);
-                ItemCards.DrawItemCard(spriteBatch, slotRect, item, hovered);
+                ItemCards.DrawItemCard(
+                    spriteBatch, slotRect, item, hovered,
+                    _presentationTime);
                 if (hovered)
                     _tooltipItem = item;
             }
@@ -750,7 +759,9 @@ public sealed class InformationSheet
             if (!draggingThis)
             {
                 bool hovered = slotRect.Contains(mousePosition);
-                ItemCards.DrawItemCard(spriteBatch, slotRect, item, hovered);
+                ItemCards.DrawItemCard(
+                    spriteBatch, slotRect, item, hovered,
+                    _presentationTime);
                 if (hovered)
                     _tooltipItem = item;
             }
@@ -1181,6 +1192,9 @@ public sealed class InformationSheet
     public void DrawSheet(SpriteBatch spriteBatch, RunState state, Vector2 playerWorldPosition, BountyInfo? currentBounty,
         Point mousePosition, PathRun? pathRun = null)
     {
+        _presentationPath = pathRun?.CurrentSenseKey
+            ?? GamePaths.Active().Key;
+        _presentationTime = (float)state.RunTimeSeconds;
         _tooltip = null;
         _tooltipItem = null;
         _lootPanelSlotRects.Clear();
@@ -1203,7 +1217,9 @@ public sealed class InformationSheet
         {
             int slotSize = Px(38);
             var iconRect = new Rectangle(mousePosition.X - slotSize / 2, mousePosition.Y - slotSize / 2, slotSize, slotSize);
-            ItemCards.DrawItemCard(spriteBatch, iconRect, _draggingItem, hovered: true);
+            ItemCards.DrawItemCard(
+                spriteBatch, iconRect, _draggingItem, hovered: true,
+                animationTime: _presentationTime);
         }
         else
         {
@@ -1220,8 +1236,14 @@ public sealed class InformationSheet
     /// in-run sidebar. Call once per frame, before HandleDrag, same contract
     /// as DrawSheet.
     /// </summary>
-    public void DrawCarriedLoadout(SpriteBatch spriteBatch, RunState state, Point mousePosition)
+    public void DrawCarriedLoadout(
+        SpriteBatch spriteBatch,
+        RunState state,
+        Point mousePosition,
+        float animationTime = 0f)
     {
+        _presentationPath = GamePaths.Active().Key;
+        _presentationTime = animationTime;
         _tooltip = null;
         _tooltipItem = null;
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
@@ -1235,7 +1257,9 @@ public sealed class InformationSheet
         {
             int slotSize = Px(38);
             var iconRect = new Rectangle(mousePosition.X - slotSize / 2, mousePosition.Y - slotSize / 2, slotSize, slotSize);
-            ItemCards.DrawItemCard(spriteBatch, iconRect, _draggingItem, hovered: true);
+            ItemCards.DrawItemCard(
+                spriteBatch, iconRect, _draggingItem, hovered: true,
+                animationTime: _presentationTime);
         }
         else
         {
