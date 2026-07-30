@@ -9,7 +9,7 @@ public static class FramePacing
     public const int MinimumFrameRate = 30;
     public const int MaximumFrameRate = 360;
     public const int FrameRateStep = 5;
-    public const int DefaultFrameRate = 60;
+    public const int DefaultFrameRate = 120;
 
     public static int NormalizeFrameRate(int frameRate)
     {
