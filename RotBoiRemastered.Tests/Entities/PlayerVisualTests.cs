@@ -1,9 +1,56 @@
+using Microsoft.Xna.Framework;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
+using RotBoiRemastered.UI;
 
 namespace RotBoiRemastered.Tests.Entities;
 
 public sealed class PlayerVisualTests
 {
+    [Fact]
+    public void FixedScreenOrientation_AlwaysFacesNorth()
+    {
+        (Vector2 axisX, Vector2 axisY, Vector2 facing) =
+            Player.FixedScreenOrientation();
+
+        Assert.Equal(Vector2.UnitX, axisX);
+        Assert.Equal(Vector2.UnitY, axisY);
+        Assert.Equal(-Vector2.UnitY, facing);
+    }
+
+    [Fact]
+    public void DashInvulnerability_DoesNotReplaceSelectedBodyColor()
+    {
+        var state = new RunState
+        {
+            Dashing = true,
+            PlayerInvulnerabilityTimer = 9,
+            DashDuration = 9,
+        };
+
+        Assert.Equal(state.PlayerColor, Player.ResolveBodyColor(state));
+        Assert.Equal(UiTheme.Cream, Player.ResolveEdgeColor(state));
+
+        state.Dashing = false;
+
+        Assert.Equal(state.PlayerColor, Player.ResolveBodyColor(state));
+        Assert.Equal(state.PlayerEdgeColor, Player.ResolveEdgeColor(state));
+    }
+
+    [Fact]
+    public void DamageInvulnerability_PreservesHitFlash()
+    {
+        var state = new RunState
+        {
+            PlayerInvulnerabilityTimer = 32,
+            DashDuration = 9,
+        };
+
+        Assert.Equal(
+            new Color(235, 245, 255),
+            Player.ResolveBodyColor(state));
+    }
+
     [Theory]
     [InlineData(60, 100, 100, 60)]
     [InlineData(60, 50, 100, 30)]

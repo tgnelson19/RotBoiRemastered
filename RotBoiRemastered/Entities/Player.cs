@@ -32,7 +32,7 @@ public sealed class Player
     private float _visualAge;
     private float _fireRecoil;
     private bool _visualMoved;
-    private Vector2 _visualFacing = Vector2.UnitX;
+    private Vector2 _visualMotionDirection = Vector2.UnitX;
     private Vector2 _lastVisualPosition;
 
     public Player(float worldX, float worldY)
@@ -159,7 +159,7 @@ public sealed class Player
         Vector2 visualDelta = current - _lastVisualPosition;
         _visualMoved = visualDelta.LengthSquared() > .0004f;
         if (_visualMoved)
-            _visualFacing = Vector2.Normalize(visualDelta);
+            _visualMotionDirection = Vector2.Normalize(visualDelta);
         _lastVisualPosition = current;
     }
 
@@ -192,8 +192,7 @@ public sealed class Player
     /// </summary>
     public void Draw(SpriteBatch spriteBatch, RunState state, Camera camera, float sizeScale = 1f)
     {
-        bool flashOn = state.PlayerInvulnerabilityTimer > 0 && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
-        Color color = flashOn ? new Color(235, 245, 255) : state.PlayerColor;
+        Color color = ResolveBodyColor(state);
         float drawSize = state.PlayerSize * sizeScale;
         DrawCoreForgeRings(
             spriteBatch, state, camera.Lock, drawSize,
@@ -204,14 +203,14 @@ public sealed class Player
             ? MathF.Abs(MathF.Sin(_visualAge * 11f))
             : .5f + .5f * MathF.Sin(_visualAge * 2.2f);
         int squash = (int)MathF.Round(drawSize * (_visualMoved ? .06f : .018f) * step);
-        Vector2 facing = camera.WorldVectorToScreen(_visualFacing);
-        if (facing.LengthSquared() > .0001f)
-            facing.Normalize();
-        Vector2 recoil = -facing * MathF.Round(_fireRecoil * drawSize * .08f);
-        Vector2 axisX = camera.WorldVectorToScreen(Vector2.UnitX);
-        Vector2 axisY = camera.WorldVectorToScreen(Vector2.UnitY);
-        if (axisX.LengthSquared() > .0001f) axisX.Normalize();
-        if (axisY.LengthSquared() > .0001f) axisY.Normalize();
+        Vector2 motionDirection =
+            camera.WorldVectorToScreen(_visualMotionDirection);
+        if (motionDirection.LengthSquared() > .0001f)
+            motionDirection.Normalize();
+        (Vector2 axisX, Vector2 axisY, Vector2 facing) =
+            FixedScreenOrientation();
+        Vector2 recoil =
+            -facing * MathF.Round(_fireRecoil * drawSize * .08f);
         var rect = new Rectangle(
             (int)(camera.Lock.X - half + recoil.X - squash / 2f),
             (int)(camera.Lock.Y - half + recoil.Y + squash),
@@ -232,7 +231,8 @@ public sealed class Player
             int ghosts = Math.Max(1, (int)MathF.Ceiling(3 * intensity));
             for (int index = ghosts; index >= 1; index--)
             {
-                Vector2 offset = facing * -index * drawSize * .28f;
+                Vector2 offset =
+                    motionDirection * -index * drawSize * .28f;
                 Primitives2D.FillQuad(spriteBatch,
                     P(-1, -1) + offset, P(1, -1) + offset,
                     P(1, 1) + offset, P(-1, 1) + offset,
@@ -252,7 +252,7 @@ public sealed class Player
         };
         Primitives2D.FillPolygonSpan(spriteBatch, body, color);
         Primitives2D.PolygonOutlineSpan(spriteBatch, body,
-            state.Dashing ? UiTheme.Cream : state.PlayerEdgeColor, 3);
+            ResolveEdgeColor(state), 3);
         Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
         {
             P(0, -.18f), P(.18f, 0), P(0, .18f), P(-.18f, 0),
@@ -307,6 +307,33 @@ public sealed class Player
 
         DrawHealthBar(spriteBatch, state, rect);
     }
+
+    /// <summary>
+    /// The player is a screen-space anchor while the world rotates beneath
+    /// it. Its body, regalia, recoil, and muzzle therefore keep the original
+    /// north-facing presentation at every camera angle.
+    /// </summary>
+    internal static (
+        Vector2 AxisX,
+        Vector2 AxisY,
+        Vector2 Facing) FixedScreenOrientation() =>
+        (Vector2.UnitX, Vector2.UnitY, -Vector2.UnitY);
+
+    internal static Color ResolveBodyColor(RunState state)
+    {
+        // A dash grants a short mechanical invulnerability window, but that
+        // window is not a damage reaction and must not replace the selected
+        // core cosmetic with the hit-flash tint.
+        bool damageFlash = state.PlayerInvulnerabilityTimer
+                > state.DashDuration
+            && (int)(state.PlayerInvulnerabilityTimer / 4) % 2 == 0;
+        return damageFlash
+            ? new Color(235, 245, 255)
+            : state.PlayerColor;
+    }
+
+    internal static Color ResolveEdgeColor(RunState state) =>
+        state.Dashing ? UiTheme.Cream : state.PlayerEdgeColor;
 
     internal static int HealthBarFillWidth(
         int barWidth,

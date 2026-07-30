@@ -226,13 +226,15 @@ public class GameSessionTests
     }
 
     [Fact]
-    public void PathFog_DisablesInsideArenaRoomsAndResumesDuringTraversal()
+    public void PathFog_RemainsActiveInsideOrdinaryBossArena()
     {
         var session = MakeSession();
         session.StartPathRun(new Random(10));
         Assert.True(session.IsPathFogActive);
 
         MoveToPathRoom(session, PathRoomType.Boss);
+        session.HandleEnemyCreation(new Random(110));
+        Assert.NotNull(session.State.ActiveBoss);
         session.MovePlayer(
             moveLeft: false,
             moveRight: false,
@@ -240,7 +242,7 @@ public class GameSessionTests
             moveDown: false,
             dashPressed: false);
 
-        Assert.False(session.IsPathFogActive);
+        Assert.True(session.IsPathFogActive);
 
         PathRoom startRoom = session.PathRun!.Layout.StartRoom;
         session.Player.SetPosition(
@@ -252,6 +254,48 @@ public class GameSessionTests
             moveUp: false,
             moveDown: false,
             dashPressed: false);
+
+        Assert.True(session.IsPathFogActive);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(10)]
+    public void PathFog_DisablesOnlyInsideMajorBossArenas(int floor)
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(111));
+        AdvancePathToFloor(session, floor);
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.HandleEnemyCreation(new Random(1110 + floor));
+        Assert.NotNull(session.State.ActiveBoss);
+
+        session.MovePlayer(
+            moveLeft: false,
+            moveRight: false,
+            moveUp: false,
+            moveDown: false,
+            dashPressed: false);
+
+        Assert.False(session.IsPathFogActive);
+    }
+
+    [Fact]
+    public void PathFog_ResumesAfterLeavingFloorFive()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(112));
+        AdvancePathToFloor(session, 5);
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.MovePlayer(
+            moveLeft: false,
+            moveRight: false,
+            moveUp: false,
+            moveDown: false,
+            dashPressed: false);
+        Assert.False(session.IsPathFogActive);
+
+        AdvancePathToFloor(session, 6);
 
         Assert.True(session.IsPathFogActive);
     }

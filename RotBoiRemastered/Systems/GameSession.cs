@@ -419,11 +419,11 @@ public sealed class GameSession
     }
 
     /// <summary>
-    /// Fog remains a traversal mechanic, but large arena rooms and active
-    /// boss fights need the complete playfield readable at once. Suppression
+    /// Fog remains active throughout ordinary dungeon floors, including
+    /// grand arenas and guardian boss rooms. Only the larger midpoint/finale
+    /// encounters on floors 5 and 10 expose their complete arena. Suppression
     /// applies to every fog consumer, not only the final mask, so enemies,
-    /// projectiles, bounties, and boss UI cannot disappear behind disabled
-    /// presentation fog.
+    /// projectiles, bounties, and boss UI share the same visibility policy.
     /// </summary>
     private void RefreshPathFog()
     {
@@ -434,11 +434,11 @@ public sealed class GameSession
         }
 
         PathRoom? room = PathRun.Layout.RoomAt(PlayerWorldCenter);
-        bool arenaRoom = room is
-        {
-            Shape: PathRoomShape.GrandArena
-        } || room?.Type == PathRoomType.Boss;
-        _pathFogActive = State.ActiveBoss is null && !arenaRoom;
+        bool majorBossFloor = PathRun.FloorNumber is 5 or 10;
+        bool majorBossArena = majorBossFloor
+            && (room?.Type == PathRoomType.Boss
+                || State.ActiveBoss is not null);
+        _pathFogActive = !majorBossArena;
         if (_pathFogActive)
             PathFog.Update(PlayerWorldCenter);
     }
