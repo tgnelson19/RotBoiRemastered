@@ -200,16 +200,15 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
     real 0.55-second declaration and finite lifetime; each damage movement
     must declare twice before its next gate. Sting remains available as the
     legacy final boss for old debug/profile compatibility. Natural Touch
-    progression ends with **`TouchRot.cs`**, a portal-free seven-phase Rot
+    progression ends with **`Rot.cs`**, a portal-free seven-phase Rot
     encounter using slow fronts, bombs, and ground-level sludge pools with
     explicit safe wedges. Following three consecutive turns of the clean bank
     sheds up to ten old burdens without adding a weak-point multiplier. Burial
     contracts five non-damaging square strata behind its hazards. Rot's large
     brown-green slab is drawn behind a foreground pool so it reads as
     half-submerged while brown/red/green cubes fall into absorption ripples.
-  - **`SinChemesthesisBoss.cs`/`Kage.cs`/`Rot.cs`** -- the Chemesthesis
-    content path's midpoint and Ache finale (`Ache` remains in the historical
-    `Rot.cs` filename so the identity change does not overwrite user work).
+  - **`SinChemesthesisBoss.cs`/`Kage.cs`/`Ache.cs`** -- the Chemesthesis
+    content path's midpoint and Ache finale.
     Kage is now a four-movement 93,000-health lesson with player-claiming
     Feast mines, a warned Provocation retort, a real 14-second invulnerable
     Stagnant Mirror, and a finite Lure synthesis. It hesitates at thirty-six

@@ -135,10 +135,10 @@ large guaranteed chests with at least two rolled items, making the optional
 dangerous branches the reliable source of equipment during a composite run.
 
 The six-pass dungeon review, completed work, and ranked future backlog are
-tracked in [`docs/PATH_DUNGEON_ITERATIONS.md`](docs/PATH_DUNGEON_ITERATIONS.md).
+tracked in [`docs/path-dungeon-iterations.md`](docs/path-dungeon-iterations.md).
 The five-pass Malady/Dissonance-based boss review and its completed final
 implementation pass are tracked separately in
-[`docs/PATH_BOSS_ITERATIONS.md`](docs/PATH_BOSS_ITERATIONS.md).
+[`docs/path-boss-iterations.md`](docs/path-boss-iterations.md).
 
 ## Run locally
 

@@ -269,4 +269,4 @@ rises from 28% at level 5 to 46% near level 20, while the existing 18-second pac
 cooldown prevents authored fights from stacking continuously.
 
 Bosses use these same contracts plus the dedicated registry and HUD metadata
-documented in `BOSS_TYPES.md`.
+documented in [`boss-types.md`](boss-types.md).

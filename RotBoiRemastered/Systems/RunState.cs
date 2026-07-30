@@ -11,7 +11,7 @@ public sealed record UpgradeHistoryEntry(string Name, string Rarity, string Math
 /// <summary>
 /// Ported from characterStats.py's `player_build_snapshot()` return value
 /// (an immutable summary bosses may inspect without mutating the build --
-/// used by `Entities/Rot.cs`'s Envy phase). `MappingProxyType`'s
+/// used by build-aware boss mechanics such as Envy). `MappingProxyType`'s
 /// immutability guarantee is naturally covered by using `IReadOnlyDictionary`.
 /// </summary>
 public sealed record PlayerBuildSnapshot(
@@ -501,7 +501,7 @@ public sealed class RunState
         XpMult = Math.Clamp(Equipped("Exp Multiplier"), .5, 4);
     }
 
-    /// <summary>Ported from characterStats.py's player_build_snapshot(). Returns an immutable summary bosses may inspect without mutating the build (used by Rot's Envy phase).</summary>
+    /// <summary>Ported from characterStats.py's player_build_snapshot(). Returns an immutable summary bosses may inspect without mutating the build (used by build-aware boss phases such as Envy).</summary>
     public PlayerBuildSnapshot BuildSnapshot()
     {
         var categories = new Dictionary<string, int>();

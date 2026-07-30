@@ -34,7 +34,7 @@ port first since they were deliberately kept pygame-free in the Python original.
   current run's state), but internally organized into clearly-scoped
   properties and the nested `DreamState`/`BossAfflictions` helper classes
   rather than ~80 flat fields. `PlayerBuildSnapshot` (record) +
-  `BuildSnapshot()` were added for `Entities/Rot.cs`'s Envy phase --
+  `BuildSnapshot()` were added for build-aware boss mechanics such as Envy --
   ported from `characterStats.py`'s `player_build_snapshot()`.
   `HardMode` is captured from the profile at run reset. It suppresses passive
   vitality recovery, lifesteal, and healing from maximum-health changes;
