@@ -85,6 +85,19 @@ public sealed class InformationSheet
             ["power"] = ("HEAVY GUNNER", "Each projectile lands with extra weight."),
         };
 
+    private static readonly (string Label, string Key, float AngleDegrees)[]
+        EquipmentSlots =
+        [
+            ("WEAPON", "weapon", 90f),
+            ("RING", "ring", 18f),
+            ("ACC 2", "accessory_2", -54f),
+            ("ACC 1", "accessory_1", -126f),
+            ("ARMOR", "armor", 162f),
+        ];
+
+    private static readonly (int Level, string Name)[] MilestoneGates =
+        BuildMilestoneGates();
+
     public const int CrateSlotCount = 4;
 
     public const int InventorySlotCount = 8;
@@ -113,9 +126,23 @@ public sealed class InformationSheet
     private ItemDrop? _tooltipItem;
     private ItemDrop? _draggingItem;
     private DragSource? _draggingSource;
-    private Dictionary<string, Rectangle> _equipmentSlotRects = new();
-    private List<Rectangle> _lootPanelSlotRects = new();
-    private List<Rectangle> _inventorySlotRects = new();
+    private readonly Dictionary<string, Rectangle> _equipmentSlotRects = new();
+    private readonly List<Rectangle> _lootPanelSlotRects = new(CrateSlotCount);
+    private readonly List<Rectangle> _inventorySlotRects = new(InventorySlotCount);
+    private readonly Dictionary<string, int> _summaryUpgradeCounts = new();
+    private readonly Dictionary<string, int> _summaryCategoryCounts = new();
+    private readonly List<(string Category, int Count)> _summaryFamilies = new();
+    private readonly List<string> _summaryStrengthLines = new();
+    private string _summaryTitle = "FRESH START";
+    private string _summaryStrength = "Your first picks will shape this run.";
+    private string _summaryCaution = "No weakness yet";
+    private int _summaryTextWidth = -1;
+    private double _summaryTextScale;
+    private int _summaryDefense;
+    private double _summaryPlayerSpeed;
+    private int _summaryBulletDamage;
+    private double _summaryProjectileCount;
+    private double _summaryBulletRange;
     private IReadOnlyList<Rectangle> _vaultSlotRects = Array.Empty<Rectangle>();
     private bool _allowWorldDrop = true;
     private bool _tabDetailsOpen;
@@ -261,6 +288,111 @@ public sealed class InformationSheet
         return (title, strength, caution);
     }
 
+    private bool SummaryCacheMatches(RunState state, int textWidth)
+    {
+        if (_summaryTextWidth != textWidth
+            || _summaryTextScale != LocalTextScale()
+            || _summaryDefense != state.Defense
+            || _summaryPlayerSpeed != state.PlayerSpeed
+            || _summaryBulletDamage != state.BulletDamage
+            || _summaryProjectileCount != state.ProjectileCount
+            || _summaryBulletRange != state.BulletRange
+            || _summaryUpgradeCounts.Count != state.UpgradeTypeCounts.Count)
+        {
+            return false;
+        }
+        foreach (var (name, count) in state.UpgradeTypeCounts)
+        {
+            if (!_summaryUpgradeCounts.TryGetValue(name, out int cached)
+                || cached != count)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void RefreshSummaryCache(RunState state, int textWidth)
+    {
+        if (SummaryCacheMatches(state, textWidth))
+            return;
+
+        _summaryTextWidth = textWidth;
+        _summaryTextScale = LocalTextScale();
+        _summaryDefense = state.Defense;
+        _summaryPlayerSpeed = state.PlayerSpeed;
+        _summaryBulletDamage = state.BulletDamage;
+        _summaryProjectileCount = state.ProjectileCount;
+        _summaryBulletRange = state.BulletRange;
+        _summaryUpgradeCounts.Clear();
+        _summaryCategoryCounts.Clear();
+        foreach (var (name, count) in state.UpgradeTypeCounts)
+        {
+            _summaryUpgradeCounts[name] = count;
+            if (Upgrades.DefinitionsByName.TryGetValue(name, out var definition))
+            {
+                _summaryCategoryCounts[definition.Category] =
+                    _summaryCategoryCounts.GetValueOrDefault(definition.Category)
+                    + count;
+            }
+        }
+
+        _summaryFamilies.Clear();
+        foreach (var (category, count) in _summaryCategoryCounts)
+            _summaryFamilies.Add((category, count));
+        _summaryFamilies.Sort(static (left, right) =>
+        {
+            int countComparison = right.Count.CompareTo(left.Count);
+            return countComparison != 0
+                ? countComparison
+                : string.CompareOrdinal(left.Category, right.Category);
+        });
+
+        if (_summaryFamilies.Count == 0)
+        {
+            _summaryTitle = "FRESH START";
+            _summaryStrength = "Your first picks will shape this run.";
+            _summaryCaution = "No weakness yet";
+        }
+        else
+        {
+            string family = _summaryFamilies[0].Category;
+            (_summaryTitle, _summaryStrength) =
+                BuildNames.TryGetValue(family, out var names)
+                    ? names
+                    : (family.ToUpperInvariant(), "A flexible set of upgrades.");
+            if (state.Defense < 1 && state.PlayerSpeed < 2.5)
+                _summaryCaution = "Fragile if cornered";
+            else if (state.BulletDamage < 1.35
+                && state.ProjectileCount >= 2)
+                _summaryCaution = "Relies on shot volume";
+            else if (state.BulletRange < Simulation.TileSize * 5)
+                _summaryCaution = "Best at close range";
+            else
+                _summaryCaution = "No clear weakness";
+        }
+
+        _summaryStrengthLines.Clear();
+        var font = UiTheme.RawFont(Px(9) * LocalTextScale());
+        string[] words = _summaryStrength.Split(' ');
+        string line = "";
+        foreach (string word in words)
+        {
+            string candidate = (line + " " + word).Trim();
+            if (line.Length > 0
+                && font.MeasureString(candidate).X > textWidth)
+            {
+                _summaryStrengthLines.Add(line);
+                line = word;
+            }
+            else
+            {
+                line = candidate;
+            }
+        }
+        _summaryStrengthLines.Add(line);
+    }
+
     /// <summary>Ported from `_combat_values`. The Python original also computed an expected-DPS value that its only call site immediately discarded (`attacks, _ = self._combat_values()`) -- dropped here since it's dead within this file too.</summary>
     public static double AttacksPerSecond(RunState state) => Simulation.FrameRate / Math.Max(1, state.AttackCooldownStat);
 
@@ -299,11 +431,20 @@ public sealed class InformationSheet
             return ("RUN COMPLETE", UiTheme.Cream, 0);
         if (state.ActiveBoss is not null)
             return ("BOSS", UiTheme.Red, 1);
-        double threat = state.EnemyHolster.Where(enemy => !enemy.IsDead()).Sum(enemy => enemy.ThreatCost);
+        double threat = 0;
+        bool eliteNearby = false;
+        for (int index = 0; index < state.EnemyHolster.Count; index++)
+        {
+            Enemy enemy = state.EnemyHolster[index];
+            if (enemy.IsDead())
+                continue;
+            threat += enemy.ThreatCost;
+            eliteNearby |= enemy.CombatRole == "elite";
+        }
         double ratio = Math.Min(1, threat / Math.Max(1, state.EnemyThreatCap));
         if (state.EnemyHolster.Count == 0)
             return ("CALM", UiTheme.Green, ratio);
-        if (state.EnemyHolster.Any(enemy => enemy.CombatRole == "elite"))
+        if (eliteNearby)
             return ("ELITE NEARBY", UiTheme.Purple, ratio);
         if (ratio >= .72)
             return ("DANGEROUS", UiTheme.Red, ratio);
@@ -317,25 +458,47 @@ public sealed class InformationSheet
         double dx = bounty.World.X - playerWorldCenter.X;
         double dy = bounty.World.Y - playerWorldCenter.Y;
         double tiles = Math.Sqrt(dx * dx + dy * dy) / Math.Max(1, Simulation.TileSize);
-        int count = bounty.Target is RuntimeEncounter encounter
-            ? encounter.Members.Count(member => !member.IsDead())
-            : 1;
+        int count = 1;
+        if (bounty.Target is RuntimeEncounter encounter)
+        {
+            count = 0;
+            for (int index = 0; index < encounter.Members.Count; index++)
+            {
+                if (!encounter.Members[index].IsDead())
+                    count++;
+            }
+        }
         string distance = tiles < 8 ? "Target nearby" : $"About {tiles:F0} tiles away";
         return (ToTitleCase(bounty.Label), $"{count} hostile{(count != 1 ? "s" : "")}  •  {distance}");
     }
 
     public static (int Level, string Milestone) NextMilestone(RunState state)
     {
-        var gates = new List<(int Level, string Name)>();
-        foreach (var (level, key) in Progression.MinibossGates)
-            gates.Add((level, ToTitleCase(key.Replace("miniboss_", ""))));
-        gates.Add((Progression.MidBossLevel, "Beaudis"));
-        gates.Add((Progression.FinalBossLevel, "Dissonance"));
-        gates.Sort((a, b) => a.Level != b.Level ? a.Level.CompareTo(b.Level) : string.CompareOrdinal(a.Name, b.Name));
-        foreach (var gate in gates)
+        foreach (var gate in MilestoneGates)
             if (gate.Level > state.CurrentLevel)
                 return gate;
         return (Progression.FinalBossLevel, "Complete");
+    }
+
+    private static (int Level, string Name)[] BuildMilestoneGates()
+    {
+        var gates = new List<(int Level, string Name)>();
+        foreach (var (level, key) in Progression.MinibossGates)
+        {
+            gates.Add((
+                level,
+                ToTitleCase(key.Replace("miniboss_", ""))));
+        }
+        gates.Add((Progression.MidBossLevel, "Beaudis"));
+        gates.Add((Progression.FinalBossLevel, "Dissonance"));
+        gates.Sort(static (left, right) =>
+        {
+            int levelComparison = left.Level.CompareTo(right.Level);
+            return levelComparison != 0
+                ? levelComparison
+                : string.CompareOrdinal(left.Name, right.Name);
+        });
+        return gates.ToArray();
     }
 
     /// <summary>Matches Python's str.title(): first letter of each space-separated word capitalized, rest lowercase.</summary>
@@ -346,12 +509,12 @@ public sealed class InformationSheet
 
     private int DrawRunSummary(SpriteBatch spriteBatch, RunState state, PathRun? pathRun)
     {
-        var (title, strength, caution) = BuildIdentity(state);
         int textWidth = _totalLength - _padding * 2 - Px(22);
-        var strengthLines = WrapText(strength, Px(9), textWidth);
+        RefreshSummaryCache(state, textWidth);
         int lineHeight = Px(14);
         int pathOffset = pathRun is null ? 0 : Px(25);
-        int cautionY = Px(82) + pathOffset + strengthLines.Count * lineHeight + Px(2);
+        int cautionY = Px(82) + pathOffset
+            + _summaryStrengthLines.Count * lineHeight + Px(2);
         int familyY = cautionY + Px(17);
         int height = familyY + Px(19);
 
@@ -376,40 +539,39 @@ public sealed class InformationSheet
         DrawSheetText(spriteBatch, pressureLabel, Px(10), color,
             new Vector2(rect.Right - Px(11), rect.Y + Px(14) + pathOffset), "topright");
         string detailsHint = _tabDetailsOpen ? "Tab: close details" : "Tab: run details";
-        string challenge = string.Join("  //  ", new[]
-        {
-            pathRun is not null ? (pathRun.IsSecondAct ? "PATH II" : "PATH I") : null,
-            state.NewGamePlusLevel > 0 ? $"NG+{state.NewGamePlusLevel}" : null,
-            state.HardMode ? "HARD MODE" : null,
-            detailsHint,
-        }.Where(label => label is not null));
+        string challenge = detailsHint;
+        if (state.HardMode)
+            challenge = $"HARD MODE  //  {challenge}";
+        if (state.NewGamePlusLevel > 0)
+            challenge = $"NG+{state.NewGamePlusLevel}  //  {challenge}";
+        if (pathRun is not null)
+            challenge = $"{(pathRun.IsSecondAct ? "PATH II" : "PATH I")}  //  {challenge}";
         DrawSheetText(spriteBatch, challenge, Px(9),
             state.HardMode ? UiTheme.Red : state.NewGamePlusLevel > 0 ? UiTheme.Gold : UiTheme.Muted,
             new Vector2(rect.X + Px(11), rect.Y + Px(36) + pathOffset));
 
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(10), rect.Y + Px(52) + pathOffset),
             new Vector2(rect.Right - Px(10), rect.Y + Px(52) + pathOffset), UiTheme.Border, 1);
-        DrawSheetText(spriteBatch, title, Px(15), UiTheme.Purple,
+        DrawSheetText(spriteBatch, _summaryTitle, Px(15), UiTheme.Purple,
             new Vector2(rect.X + Px(11), rect.Y + Px(58) + pathOffset));
-        for (int index = 0; index < strengthLines.Count; index++)
-            DrawSheetText(spriteBatch, strengthLines[index], Px(9), UiTheme.Text,
+        for (int index = 0; index < _summaryStrengthLines.Count; index++)
+            DrawSheetText(spriteBatch, _summaryStrengthLines[index], Px(9), UiTheme.Text,
                 new Vector2(rect.X + Px(11), rect.Y + Px(82) + pathOffset + index * lineHeight));
-        DrawSheetText(spriteBatch, caution, Px(9), UiTheme.Muted,
+        DrawSheetText(spriteBatch, _summaryCaution, Px(9), UiTheme.Muted,
             new Vector2(rect.X + Px(11), rect.Y + cautionY));
 
-        var families = FamilyCounts(state);
-        if (families.Count == 0)
+        if (_summaryFamilies.Count == 0)
         {
             DrawSheetText(spriteBatch, "NO UPGRADES COLLECTED", Px(8), UiTheme.Muted,
                 new Vector2(rect.X + Px(11), rect.Y + familyY));
         }
         else
         {
-            int shown = Math.Min(families.Count, 2);
+            int shown = Math.Min(_summaryFamilies.Count, 2);
             float columnWidth = (rect.Width - Px(22)) / 2f;
             for (int index = 0; index < shown; index++)
             {
-                var (family, count) = families[index];
+                var (family, count) = _summaryFamilies[index];
                 DrawSheetText(spriteBatch, $"{ToTitleCase(family).ToUpperInvariant()}  x{count}", Px(8),
                     index == 0 ? UiTheme.Purple : UiTheme.Muted,
                     new Vector2(rect.X + Px(11) + columnWidth * index, rect.Y + familyY));
@@ -485,17 +647,8 @@ public sealed class InformationSheet
         float radiusY = hubHeight * .38f;
         int slotSize = Px(38);
 
-        var slots = new (string Label, string Key, float AngleDegrees)[]
-        {
-            ("WEAPON", "weapon", 90f),
-            ("RING", "ring", 18f),
-            ("ACC 2", "accessory_2", -54f),
-            ("ACC 1", "accessory_1", -126f),
-            ("ARMOR", "armor", 162f),
-        };
-
-        _equipmentSlotRects = new Dictionary<string, Rectangle>();
-        foreach (var (label, key, angleDegrees) in slots)
+        _equipmentSlotRects.Clear();
+        foreach (var (label, key, angleDegrees) in EquipmentSlots)
         {
             float angle = MathHelper.ToRadians(angleDegrees);
             var center = new Vector2(hubX + MathF.Cos(angle) * radiusX, hubY - MathF.Sin(angle) * radiusY);
@@ -541,7 +694,7 @@ public sealed class InformationSheet
         int totalWidth = columns * slotSize + (columns - 1) * gap;
         float startX = rect.Center.X - totalWidth / 2f;
         int startY = rect.Y + headerHeight;
-        _inventorySlotRects = new List<Rectangle>();
+        _inventorySlotRects.Clear();
         for (int index = 0; index < InventorySlotCount; index++)
         {
             int column = index % columns, row = index / columns;
@@ -580,7 +733,7 @@ public sealed class InformationSheet
         int totalWidth = CrateSlotCount * slotSize + (CrateSlotCount - 1) * gap;
         float startX = rect.Center.X - totalWidth / 2f;
         int slotY = rect.Y + headerHeight + Px(4);
-        _lootPanelSlotRects = new List<Rectangle>();
+        _lootPanelSlotRects.Clear();
         for (int index = 0; index < CrateSlotCount; index++)
         {
             var slotRect = new Rectangle((int)(startX + index * (slotSize + gap)), slotY, slotSize, slotSize);
@@ -849,24 +1002,26 @@ public sealed class InformationSheet
         Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(7), tableY), new Vector2(rect.Right - Px(7), tableY),
             UiTheme.Gold, Px(2));
 
-        var history = state.UpgradeHistory.Count > 5
-            ? state.UpgradeHistory.Skip(state.UpgradeHistory.Count - 5).ToList()
-            : state.UpgradeHistory;
-        if (history.Count == 0)
+        int historyCount = Math.Min(5, state.UpgradeHistory.Count);
+        int historyStart = state.UpgradeHistory.Count - historyCount;
+        if (historyCount == 0)
         {
             DrawSheetText(spriteBatch, "Your upgrade cards will collect here.", Px(8), UiTheme.Muted,
                 new Vector2(rect.Center.X, tableY + (rect.Bottom - tableY) / 2f), "center");
             return;
         }
         int gap = Px(5);
-        float maxCardWidth = (rect.Width - Px(24) - (history.Count - 1) * gap) / (float)history.Count;
+        float maxCardWidth =
+            (rect.Width - Px(24) - (historyCount - 1) * gap)
+            / (float)historyCount;
         float cardHeight = Math.Min(Math.Min(Px(58), rect.Bottom - tableY - Px(10)), maxCardWidth / .72f);
         int cardWidth = (int)(cardHeight * .72f);
-        float total = history.Count * cardWidth + (history.Count - 1) * gap;
+        float total =
+            historyCount * cardWidth + (historyCount - 1) * gap;
         float startX = rect.Center.X - total / 2f;
-        for (int index = 0; index < history.Count; index++)
+        for (int index = 0; index < historyCount; index++)
         {
-            var entry = history[index];
+            var entry = state.UpgradeHistory[historyStart + index];
             var cardRect = new Rectangle((int)(startX + index * (cardWidth + gap)), tableY + Px(5), cardWidth, (int)cardHeight);
             bool hovered = cardRect.Contains(mousePosition);
             StatCards.DrawUpgradeCard(spriteBatch, cardRect, entry.Name, entry.Rarity, entry.MathType, hovered);
@@ -1028,6 +1183,7 @@ public sealed class InformationSheet
     {
         _tooltip = null;
         _tooltipItem = null;
+        _lootPanelSlotRects.Clear();
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, _totalLength, _totalHeight), UiTheme.Void);
         Primitives2D.FillRect(spriteBatch, new Rectangle(_posX, 0, Px(6), _totalHeight), UiTheme.Ink);
 

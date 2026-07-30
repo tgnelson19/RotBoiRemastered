@@ -57,13 +57,14 @@ public sealed class Chronos : Ishe
     private readonly List<PendingDeclaration> _pendingDeclarations = new();
     private readonly List<PendingSafeRoute> _pendingSafeRoutes = new();
     private readonly List<HistoricalRoute> _historicalRoutes = new();
+    private readonly List<EnemyProjectile> _routeScratch = new(64);
     private float? _rememberedAim;
     private int _phaseDeclarations;
 
-    private sealed record PendingDeclaration(double Delay, float Direction, float Bend, float Damage,
+    private readonly record struct PendingDeclaration(double Delay, float Direction, float Bend, float Damage,
         string Suffix, float Telegraph, int Segments, float SegmentTiles);
-    private sealed record PendingSafeRoute(double Delay, Vector2 Origin, float Direction, float HalfWidth);
-    private sealed record HistoricalRoute(Vector2 Start, Vector2 End, double Remaining, double Duration);
+    private readonly record struct PendingSafeRoute(double Delay, Vector2 Origin, float Direction, float HalfWidth);
+    private readonly record struct HistoricalRoute(Vector2 Start, Vector2 End, double Remaining, double Duration);
 
     public int TemporalInsight { get; private set; }
     public double TemporalFractureRemaining { get; private set; }
@@ -248,23 +249,27 @@ public sealed class Chronos : Ishe
     {
         if (_pendingDeclarations.Count == 0)
             return;
-        var remaining = new List<PendingDeclaration>(_pendingDeclarations.Count);
-        foreach (var declaration in _pendingDeclarations)
+        int writeIndex = 0;
+        for (int readIndex = 0; readIndex < _pendingDeclarations.Count; readIndex++)
         {
+            var declaration = _pendingDeclarations[readIndex];
             double delay = declaration.Delay - dt;
             if (delay > 0)
             {
-                remaining.Add(declaration with { Delay = delay });
+                _pendingDeclarations[writeIndex++] =
+                    declaration with { Delay = delay };
                 continue;
             }
 
-            var route = new List<EnemyProjectile>(declaration.Segments);
-            Tentacle(route, declaration.Direction, declaration.Bend, declaration.Damage,
+            _routeScratch.Clear();
+            Tentacle(_routeScratch, declaration.Direction, declaration.Bend, declaration.Damage,
                 declaration.Suffix, declaration.Telegraph, declaration.Segments, declaration.SegmentTiles);
-            CommitDeclaredRoutes(sink, route);
+            CommitDeclaredRoutes(sink, _routeScratch);
         }
-        _pendingDeclarations.Clear();
-        _pendingDeclarations.AddRange(remaining);
+        if (writeIndex < _pendingDeclarations.Count)
+            _pendingDeclarations.RemoveRange(
+                writeIndex,
+                _pendingDeclarations.Count - writeIndex);
     }
 
     private void ScheduleSafeRoute(double delay, Vector2 origin, float direction, float halfWidth) =>
@@ -274,13 +279,15 @@ public sealed class Chronos : Ishe
     {
         if (_pendingSafeRoutes.Count == 0)
             return;
-        var remaining = new List<PendingSafeRoute>(_pendingSafeRoutes.Count);
-        foreach (var route in _pendingSafeRoutes)
+        int writeIndex = 0;
+        for (int readIndex = 0; readIndex < _pendingSafeRoutes.Count; readIndex++)
         {
+            var route = _pendingSafeRoutes[readIndex];
             double delay = route.Delay - dt;
             if (delay > 0)
             {
-                remaining.Add(route with { Delay = delay });
+                _pendingSafeRoutes[writeIndex++] =
+                    route with { Delay = delay };
                 continue;
             }
 
@@ -295,8 +302,10 @@ public sealed class Chronos : Ishe
                 }
             }
         }
-        _pendingSafeRoutes.Clear();
-        _pendingSafeRoutes.AddRange(remaining);
+        if (writeIndex < _pendingSafeRoutes.Count)
+            _pendingSafeRoutes.RemoveRange(
+                writeIndex,
+                _pendingSafeRoutes.Count - writeIndex);
     }
 
     private static float NormalizeAngle(float angle)
@@ -607,7 +616,6 @@ public sealed class Chronos : Ishe
         float auraScale = survival ? 1.42f : 1f;
         Color sky = new(103, 197, 231);
         Color ice = new(194, 235, 248);
-        BossVisuals.OscillatingAura(spriteBatch, center, Age, Size * .55f * auraScale, sky, survival ? 7 : 5, .48f);
         for (int index = 0; index < (FinaleActive ? FinaleMoteCount : AmbientMoteCount); index++)
         {
             float angle = index * 2.399963f + Age * (index % 2 == 0 ? .006f : -.0045f);

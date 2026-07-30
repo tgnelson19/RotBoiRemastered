@@ -80,6 +80,15 @@ public sealed class Bullet
         Vector2 center = camera.WorldToScreen(centerWorld, playerWorldPosition, screenShake);
         Vector2 movement = new(MathF.Cos(Direction), -MathF.Sin(Direction));
         Vector2 forward = camera.WorldVectorToScreen(movement);
-        ProjectileVisuals.Draw(spriteBatch, center, forward, Size, Color, EdgeColor, Design, IsCritical);
+        ProjectileVisuals.Draw(
+            spriteBatch,
+            center,
+            forward,
+            Size,
+            Color,
+            EdgeColor,
+            Design,
+            IsCritical,
+            camera.Zoom);
     }
 }

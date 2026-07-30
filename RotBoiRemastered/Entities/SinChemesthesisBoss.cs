@@ -315,12 +315,9 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             effectivePlayerX = ArenaCenter.X + MathF.Cos((float)PhaseElapsed * (.45f + jitter)) * ArenaRadius * .5f;
             effectivePlayerY = ArenaCenter.Y + MathF.Sin((float)PhaseElapsed * (.7f - jitter)) * ArenaRadius * .42f;
         }
-        var effectiveContext = mode == "chase" ? context : new EnemyUpdateContext
-        {
-            PlayerWorldX = effectivePlayerX, PlayerWorldY = effectivePlayerY, Battleground = context.Battleground,
-            ProjectileSink = context.ProjectileSink, AllEnemies = context.AllEnemies, ExperienceBubbles = context.ExperienceBubbles,
-            Camera = context.Camera, BossAfflictions = context.BossAfflictions, PlayerBuildSnapshot = context.PlayerBuildSnapshot,
-        };
+        var effectiveContext = mode == "chase"
+            ? context
+            : MovementContext(context, effectivePlayerX, effectivePlayerY);
         ChaseUpdate(effectiveContext);
         Speed = originalSpeed;
         AttackCooldown -= (float)Simulation.GetTimerStep();
@@ -339,84 +336,13 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
     {
         var center = camera.WorldToScreen(Center(), playerWorldPosition, screenShake);
         float tile = Simulation.TileSize;
-        float extent = tile * (Config.FinalBoss ? 7.2f : 4.8f);
         float pulse = .5f + .5f * MathF.Sin(Age * .025f);
-        var faint = new Color(PhaseAccent.R, PhaseAccent.G, PhaseAccent.B, (byte)Math.Clamp(24 + pulse * 18, 0, 255));
         var brightBase = UiTheme.Lighten(PhaseAccent, 35);
         var bright = new Color(brightBase.R, brightBase.G, brightBase.B, (byte)Math.Clamp(58 + pulse * 30, 0, 255));
 
-        for (int ring = 1; ring < 4; ring++)
-        {
-            float radius = tile * (1.15f + ring * 1.18f + .08f * pulse);
-            Primitives2D.CircleOutline(spriteBatch, center, radius, faint, Math.Max(1, ring % 3 + 1));
-        }
-
-        int motif = (Phase - 1) % 7;
-        switch (motif)
-        {
-            case 0: // Pride: a rigid crown and cardinal axes.
-                foreach (float angle in new[] { 0f, MathF.PI / 2f, MathF.PI, 3f * MathF.PI / 2f })
-                {
-                    var end = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * extent * .82f;
-                    Primitives2D.Line(spriteBatch, center, end, bright, 2);
-                }
-                var crown = new[]
-                {
-                    center + new Vector2(-tile * 1.5f, -tile * .6f), center + new Vector2(-tile * .75f, -tile * 1.45f),
-                    center + new Vector2(0, -tile * .72f), center + new Vector2(tile * .75f, -tile * 1.45f),
-                    center + new Vector2(tile * 1.5f, -tile * .6f),
-                };
-                Primitives2D.Polyline(spriteBatch, crown, false, bright, 3);
-                break;
-            case 1: // Greed: nested containment cells.
-                foreach (float radius in new[] { tile * 1.7f, tile * 2.7f, tile * 3.7f })
-                {
-                    var rect = new Rectangle((int)(center.X - radius), (int)(center.Y - radius), (int)(radius * 2), (int)(radius * 2));
-                    Primitives2D.RectOutline(spriteBatch, rect, bright, 2);
-                }
-                break;
-            case 2: // Lust: converging attraction spokes.
-                for (int index = 0; index < 8; index++)
-                {
-                    float angle = index * MathF.PI / 4f + Age * .002f;
-                    var outer = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * extent * .82f;
-                    var inner = center + new Vector2(MathF.Cos(angle + .22f), MathF.Sin(angle + .22f)) * tile * 1.1f;
-                    Primitives2D.Line(spriteBatch, outer, inner, faint, 3);
-                }
-                break;
-            case 3: // Envy: two offset copies of one diagram.
-                foreach (int side in new[] { -1, 1 })
-                {
-                    float size = tile * 2.5f;
-                    var copyCenter = center + new Vector2(side * tile * 1.35f, 0);
-                    var rect = new Rectangle((int)(copyCenter.X - size / 2f), (int)(copyCenter.Y - size / 2f), (int)size, (int)size);
-                    Primitives2D.RectOutline(spriteBatch, rect, side > 0 ? bright : faint, 3);
-                }
-                break;
-            case 4: // Gluttony: an open maw of broken rings.
-                foreach (float radius in new[] { tile * 1.5f, tile * 2.5f, tile * 3.5f })
-                {
-                    var rect = new Rectangle((int)(center.X - radius), (int)(center.Y - radius), (int)(radius * 2), (int)(radius * 2));
-                    Primitives2D.Arc(spriteBatch, rect, .35f, 2f * MathF.PI - .35f, bright, 3);
-                }
-                break;
-            case 5: // Wrath: an uncompromising cross-lane reticle.
-                Primitives2D.Line(spriteBatch, center - new Vector2(extent, 0), center + new Vector2(extent, 0), bright, 4);
-                Primitives2D.Line(spriteBatch, center - new Vector2(0, extent), center + new Vector2(0, extent), bright, 4);
-                break;
-            default: // Sloth: a sagging, incomplete containment spiral.
-                var points = new Vector2[48];
-                for (int index = 0; index < 48; index++)
-                {
-                    float angle = index * .34f;
-                    float radius = tile * (.35f + index * .075f);
-                    points[index] = center + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius * .72f);
-                }
-                Primitives2D.Polyline(spriteBatch, points, false, faint, 4);
-                break;
-        }
-
-        // Slow rising spores make the field feel alive without hiding projectile lanes.
+        // Sparse filled motes retain the chemical atmosphere without the
+        // boss-following rings, crosses, sigils, and line diagrams that
+        // competed with actual attack telegraphs.
         int sporeCount = Config.FinalBoss ? 9 : 5;
         for (int index = 0; index < sporeCount; index++)
         {
@@ -427,8 +353,6 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             Primitives2D.FillCircle(spriteBatch, point, 2 + index % 3, bright);
         }
 
-        double sigilProgress = 1 - SigilTransitionTimer / SigilTransitionDuration;
-        DrawSigil(spriteBatch, center, tile * (Config.FinalBoss ? 2.25f : 1.55f), Math.Max(0.0, sigilProgress), Age * .0008, 55, Phase);
         DrawPersistentTerrain(spriteBatch, camera, playerWorldPosition, screenShake);
     }
 
@@ -444,7 +368,6 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             return;
         }
 
-        float pulse = .5f + .5f * MathF.Sin(Age * .08f);
         float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI) : 0f;
         float cubeSize = Simulation.TileSize * (1f + attack * .16f);
         float jitterX = MathF.Sin(Age * .17f) * 3.5f + MathF.Sin(Age * .071f) * 2f;
@@ -452,11 +375,6 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         var jittered = center + new Vector2(jitterX, jitterY);
         Color purple = new(157, 69, 214);
         Color orange = new(232, 116, 34);
-        for (int ring = 3; ring >= 1; ring--)
-        {
-            float radius = cubeSize * (.72f + ring * .17f + pulse * .05f);
-            Primitives2D.CircleOutline(spriteBatch, jittered, radius, purple * (.12f + ring * .07f), 3 + ring, 32);
-        }
         int sparks = Config.FinalBoss ? 18 : 13;
         float spread = VisualSurvivalActive ? 1.65f : 1f;
         for (int index = 0; index < sparks; index++)

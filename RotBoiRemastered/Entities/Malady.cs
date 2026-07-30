@@ -78,7 +78,11 @@ public sealed class Malady : PhantasiaBoss
 
     public List<ProjectilePortal> ProjectilePortals { get; } = new();
     private int _portalFormationPhase;
-    private List<ChainEvent> _sequenceQueue = new();
+    private readonly List<ChainEvent> _sequenceQueue = new();
+    private readonly List<EnemyProjectile> _stagedThreatScratch = new(ActiveThreatSoftCap);
+    private readonly EnemyUpdateContext _stagedUpdateContext;
+    private readonly (Vector2 Center, float Angle, float Depth, float Extent)[] _floatingCubeScratch =
+        new (Vector2, float, float, float)[FinaleBodyCubeCount];
     private double _poolCooldown = 1.2;
     private readonly float[] _pillarMotion = { 0f, 0f };
     private float _pillarMotionStrength;
@@ -103,6 +107,12 @@ public sealed class Malady : PhantasiaBoss
     public Malady(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, MaladyConfig, MaladySigilConfig, rng)
     {
+        _stagedUpdateContext = new EnemyUpdateContext
+        {
+            PlayerWorldX = 0,
+            PlayerWorldY = 0,
+            Battleground = battleground,
+        };
         ActTitle = "ACT I // THE FIRST IDEA";
         ActTransitionTimer = ActTransitionDuration;
         PhaseProtectionTimer = ActTransitionDuration;
@@ -153,25 +163,36 @@ public sealed class Malady : PhantasiaBoss
         return base.TakeDamage(amount, partId, source);
     }
 
-    private static int ActiveMaladyThreats(List<EnemyProjectile> sink) =>
-        sink.Count(projectile => !projectile.RemFlag &&
-            projectile.Owner?.StartsWith("malady_phantasia") == true);
-
-    private static EnemyUpdateContext WithProjectileSink(
-        EnemyUpdateContext source, List<EnemyProjectile> sink) => new()
+    private static int ActiveMaladyThreats(List<EnemyProjectile> sink)
     {
-        PlayerWorldX = source.PlayerWorldX,
-        PlayerWorldY = source.PlayerWorldY,
-        Battleground = source.Battleground,
-        ProjectileSink = sink,
-        AllEnemies = source.AllEnemies,
-        ExperienceBubbles = source.ExperienceBubbles,
-        Camera = source.Camera,
-        BossAfflictions = source.BossAfflictions,
-        PlayerBuildSnapshot = source.PlayerBuildSnapshot,
-        PlayerBullets = source.PlayerBullets,
-        DreamState = source.DreamState,
-    };
+        int count = 0;
+        foreach (var projectile in sink)
+        {
+            if (!projectile.RemFlag &&
+                projectile.Owner?.StartsWith("malady_phantasia") == true)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private EnemyUpdateContext WithProjectileSink(
+        EnemyUpdateContext source, List<EnemyProjectile> sink)
+    {
+        _stagedUpdateContext.PlayerWorldX = source.PlayerWorldX;
+        _stagedUpdateContext.PlayerWorldY = source.PlayerWorldY;
+        _stagedUpdateContext.Battleground = source.Battleground;
+        _stagedUpdateContext.ProjectileSink = sink;
+        _stagedUpdateContext.AllEnemies = source.AllEnemies;
+        _stagedUpdateContext.ExperienceBubbles = source.ExperienceBubbles;
+        _stagedUpdateContext.Camera = source.Camera;
+        _stagedUpdateContext.BossAfflictions = source.BossAfflictions;
+        _stagedUpdateContext.PlayerBuildSnapshot = source.PlayerBuildSnapshot;
+        _stagedUpdateContext.PlayerBullets = source.PlayerBullets;
+        _stagedUpdateContext.DreamState = source.DreamState;
+        return _stagedUpdateContext;
+    }
 
     private bool CommitStagedThreats(List<EnemyProjectile> sink, List<EnemyProjectile> staged)
     {
@@ -256,9 +277,10 @@ public sealed class Malady : PhantasiaBoss
 
     private void UpdateSequences(List<EnemyProjectile> sink, double dt)
     {
-        var remaining = new List<ChainEvent>();
-        foreach (var chainEvent in _sequenceQueue)
+        int writeIndex = 0;
+        for (int readIndex = 0; readIndex < _sequenceQueue.Count; readIndex++)
         {
+            var chainEvent = _sequenceQueue[readIndex];
             double delay = chainEvent.Delay - dt;
             if (delay <= 0)
             {
@@ -267,10 +289,11 @@ public sealed class Malady : PhantasiaBoss
             }
             else
             {
-                remaining.Add(chainEvent with { Delay = delay });
+                _sequenceQueue[writeIndex++] = chainEvent with { Delay = delay };
             }
         }
-        _sequenceQueue = remaining;
+        if (writeIndex < _sequenceQueue.Count)
+            _sequenceQueue.RemoveRange(writeIndex, _sequenceQueue.Count - writeIndex);
     }
 
     private void FirePortalPhrase(List<EnemyProjectile> sink, Vector2 target, bool wide = false)
@@ -319,7 +342,8 @@ public sealed class Malady : PhantasiaBoss
             return;
         }
 
-        var stagedThreats = new List<EnemyProjectile>();
+        _stagedThreatScratch.Clear();
+        var stagedThreats = _stagedThreatScratch;
         var stagedContext = WithProjectileSink(context, stagedThreats);
         EnsureMaladyPortals();
         UpdateSequences(stagedThreats, dt);
@@ -980,6 +1004,7 @@ public sealed class Malady : PhantasiaBoss
         float progress = (float)FinaleProgress;
         float innerRadius = Size * (.7f + progress * .18f);
         float outerRadius = Size * (1.05f + progress * .55f);
+        Span<Vector2> petal = stackalloc Vector2[4];
         for (int index = 0; index < petals; index++)
         {
             float angle = index * MathF.Tau / petals + Age *
@@ -989,23 +1014,15 @@ public sealed class Malady : PhantasiaBoss
             var inner = core + direction * innerRadius;
             var outer = core + direction * outerRadius;
             float width = Size * (.08f + .035f * MathF.Sin(index * 1.7f + Age * .01f));
-            var petal = new[]
-            {
-                inner - tangent * width,
-                outer,
-                inner + tangent * width,
-                core + direction * innerRadius * .78f,
-            };
+            petal[0] = inner - tangent * width;
+            petal[1] = outer;
+            petal[2] = inner + tangent * width;
+            petal[3] = core + direction * innerRadius * .78f;
             Color color = index % 3 == 0 ? UiTheme.Cream : luminous;
-            Primitives2D.FillPolygon(spriteBatch, petal, color * (.08f + progress * .08f));
-            Primitives2D.PolygonOutline(spriteBatch, petal, color * (.42f + progress * .28f),
-                index % 4 == 0 ? 3 : 2);
-        }
-        for (int ring = 0; ring < 3; ring++)
-        {
-            float radius = Size * (.82f + ring * .28f + progress * (.12f + ring * .08f));
-            Primitives2D.CircleOutline(spriteBatch, core, radius,
-                (ring == 1 ? UiTheme.Cream : luminous) * (.22f + progress * .18f), 2 + ring);
+            Primitives2D.FillPolygonSpan(
+                spriteBatch,
+                petal,
+                color * (.08f + progress * .08f));
         }
     }
 
@@ -1037,33 +1054,42 @@ public sealed class Malady : PhantasiaBoss
         }
 
         DrawApotheosisMandala(spriteBatch, core, luminous);
-        BossVisuals.OscillatingAura(spriteBatch, core, Age, Size * .72f * spectacle, luminous,
-            FinaleActive ? 8 : 5, .78f);
-        for (int wave = 0; wave < (FinaleActive ? 7 : 4); wave++)
-        {
-            float width = Size * (.78f + wave * .24f) * spectacle;
-            float height = Size * (.28f + wave * .09f);
-            var phrase = new Rectangle((int)(core.X - width), (int)(core.Y - height), (int)(width * 2), (int)(height * 2));
-            float start = Age * (.004f + wave * .0006f) + wave * .72f;
-            Primitives2D.Arc(spriteBatch, phrase, start, start + MathF.PI * .78f,
-                (wave % 2 == 0 ? luminous : UiTheme.Cream) * (.22f + wave * .045f), 2 + wave % 2);
-        }
 
         int cubeCount = FinaleActive ? ApotheosisCrownPetalCount : SurvivalActive ? 14 : IdleBodyCubeCount;
-        var floating = new List<(Vector2 Center, float Angle, float Depth, float Extent)>();
         int constellationPhase = FinaleActive
             ? (PatternRotation % 3) switch { 0 => 2, 1 => 5, _ => 8 }
             : Phase;
         for (int index = 0; index < cubeCount; index++)
         {
             var composition = ConstellationPoint(constellationPhase, index, cubeCount, spectacle, attack);
-            floating.Add((core + composition.Offset, composition.Angle, composition.Depth,
-                Size * (.07f + index % 3 * .018f)));
+            _floatingCubeScratch[index] = (
+                core + composition.Offset,
+                composition.Angle,
+                composition.Depth,
+                Size * (.07f + index % 3 * .018f));
+        }
+        for (int index = 1; index < cubeCount; index++)
+        {
+            var candidate = _floatingCubeScratch[index];
+            int insertion = index - 1;
+            while (insertion >= 0 &&
+                _floatingCubeScratch[insertion].Depth > candidate.Depth)
+            {
+                _floatingCubeScratch[insertion + 1] =
+                    _floatingCubeScratch[insertion];
+                insertion--;
+            }
+            _floatingCubeScratch[insertion + 1] = candidate;
         }
 
-        foreach (var cube in floating.Where(cube => cube.Depth < 0).OrderBy(cube => cube.Depth))
+        int cubeIndex = 0;
+        for (; cubeIndex < cubeCount &&
+            _floatingCubeScratch[cubeIndex].Depth < 0; cubeIndex++)
+        {
+            var cube = _floatingCubeScratch[cubeIndex];
             BossVisuals.RotatingCube3D(spriteBatch, cube.Center, cube.Extent, indigo, violet, luminous,
                 cube.Angle, cube.Angle * .53f, Age * .006f);
+        }
 
         BossVisuals.Cuboid(spriteBatch, core, Size * .5f, Size * 1.02f, indigo, luminous,
             MathF.Sin(Age * .005f) * .65f);
@@ -1081,9 +1107,12 @@ public sealed class Malady : PhantasiaBoss
             Primitives2D.FillCircle(spriteBatch, new Vector2(core.X, y), Math.Max(2, (int)nodePulse), UiTheme.Cream);
         }
 
-        foreach (var cube in floating.Where(cube => cube.Depth >= 0).OrderBy(cube => cube.Depth))
+        for (; cubeIndex < cubeCount; cubeIndex++)
+        {
+            var cube = _floatingCubeScratch[cubeIndex];
             BossVisuals.RotatingCube3D(spriteBatch, cube.Center, cube.Extent, indigo, violet, luminous,
                 cube.Angle, cube.Angle * .53f, Age * .006f);
+        }
 
         DrawBossHealth(spriteBatch, new Rectangle((int)(core.X - Size * .46f), (int)(core.Y - Size * .75f),
             (int)(Size * .92f), 6));

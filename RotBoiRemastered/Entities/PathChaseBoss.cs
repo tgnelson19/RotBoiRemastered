@@ -104,6 +104,10 @@ public class PathChaseBoss : Enemy
     public double PhaseElapsed { get; set; }
     public double PhaseTimeLimit { get; }
     protected readonly float[] ArenaSeed;
+    private readonly Vector2[] _arenaWorldVertices;
+    private readonly Vector2[] _arenaScreenVertices;
+    private readonly EnemyUpdateContext _movementUpdateContext;
+    private float _arenaVerticesAge = float.NaN;
     public bool Dying { get; protected set; }
     public double DeathRemaining { get; protected set; }
     public double DeathDuration { get; }
@@ -142,6 +146,21 @@ public class PathChaseBoss : Enemy
         DeathDuration = config.FinalBoss ? 10.0 : 2.8;
         FinaleDuration = config.FinaleDuration;
         ArenaSeed = Enumerable.Range(0, 28).Select(_ => (float)(Rng.NextDouble() * .3 - .15)).ToArray();
+        int arenaVertexCount = config.ArenaShape switch
+        {
+            "square" => 4,
+            "triangle" => 3,
+            "jagged" => 28,
+            _ => 64,
+        };
+        _arenaWorldVertices = new Vector2[arenaVertexCount];
+        _arenaScreenVertices = new Vector2[arenaVertexCount];
+        _movementUpdateContext = new EnemyUpdateContext
+        {
+            PlayerWorldX = 0,
+            PlayerWorldY = 0,
+            Battleground = battleground,
+        };
     }
 
     private static string ToTitleCase(string text) => string.Join(" ", text.Split(' ').Select(
@@ -216,29 +235,37 @@ public class PathChaseBoss : Enemy
 
     public override bool IsDead() => Dying ? DeathRemaining <= 0 : Hp <= 0;
 
-    protected List<Vector2> ArenaVertices()
+    protected Vector2[] ArenaVertices()
     {
+        if (_arenaVerticesAge == Age)
+            return _arenaWorldVertices;
+
+        _arenaVerticesAge = Age;
         float radius = ArenaRadius;
         if (Config.ArenaShape == "square")
         {
-            return new List<Vector2>
-            {
-                new(ArenaCenter.X - radius, ArenaCenter.Y - radius), new(ArenaCenter.X + radius, ArenaCenter.Y - radius),
-                new(ArenaCenter.X + radius, ArenaCenter.Y + radius), new(ArenaCenter.X - radius, ArenaCenter.Y + radius),
-            };
+            _arenaWorldVertices[0] =
+                new Vector2(ArenaCenter.X - radius, ArenaCenter.Y - radius);
+            _arenaWorldVertices[1] =
+                new Vector2(ArenaCenter.X + radius, ArenaCenter.Y - radius);
+            _arenaWorldVertices[2] =
+                new Vector2(ArenaCenter.X + radius, ArenaCenter.Y + radius);
+            _arenaWorldVertices[3] =
+                new Vector2(ArenaCenter.X - radius, ArenaCenter.Y + radius);
+            return _arenaWorldVertices;
         }
         if (Config.ArenaShape == "triangle")
         {
-            var triangle = new List<Vector2>();
             for (int index = 0; index < 3; index++)
             {
                 float angle = -MathF.PI / 2f + index * 2f * MathF.PI / 3f;
-                triangle.Add(new Vector2(ArenaCenter.X + MathF.Cos(angle) * radius, ArenaCenter.Y + MathF.Sin(angle) * radius));
+                _arenaWorldVertices[index] = new Vector2(
+                    ArenaCenter.X + MathF.Cos(angle) * radius,
+                    ArenaCenter.Y + MathF.Sin(angle) * radius);
             }
-            return triangle;
+            return _arenaWorldVertices;
         }
-        int count = Config.ArenaShape == "jagged" ? 28 : 64;
-        var points = new List<Vector2>();
+        int count = _arenaWorldVertices.Length;
         for (int index = 0; index < count; index++)
         {
             float angle = index * 2f * MathF.PI / count;
@@ -249,9 +276,11 @@ public class PathChaseBoss : Enemy
                 localRadius = radius * (.88f + .1f * MathF.Sin(angle * 3 + Age * .008f) + .045f * MathF.Sin(angle * 7 - Age * .011f));
             else
                 localRadius = radius;
-            points.Add(new Vector2(ArenaCenter.X + MathF.Cos(angle) * localRadius, ArenaCenter.Y + MathF.Sin(angle) * localRadius));
+            _arenaWorldVertices[index] = new Vector2(
+                ArenaCenter.X + MathF.Cos(angle) * localRadius,
+                ArenaCenter.Y + MathF.Sin(angle) * localRadius);
         }
-        return points;
+        return _arenaWorldVertices;
     }
 
     /// <summary>
@@ -328,14 +357,14 @@ public class PathChaseBoss : Enemy
             return (playerX, playerY);
 
         var start = vertices[segmentIndex];
-        var end = vertices[(segmentIndex + 1) % vertices.Count];
+        var end = vertices[(segmentIndex + 1) % vertices.Length];
         float dx = end.X - start.X, dy = end.Y - start.Y;
         float length = Math.Max(1e-9f, MathF.Sqrt(dx * dx + dy * dy));
         float signedArea = 0f;
-        for (int index = 0; index < vertices.Count; index++)
+        for (int index = 0; index < vertices.Length; index++)
         {
             var a = vertices[index];
-            var b = vertices[(index + 1) % vertices.Count];
+            var b = vertices[(index + 1) % vertices.Length];
             signedArea += a.X * b.Y - b.X * a.Y;
         }
         // These world polygons currently wind with positive signed area. The left
@@ -432,6 +461,30 @@ public class PathChaseBoss : Enemy
     /// </summary>
     protected void ChaseUpdate(EnemyUpdateContext context) => base.Update(context);
 
+    /// <summary>
+    /// Reuses one context while scripted locomotion substitutes a waypoint for
+    /// the real player. Boss updates are sequential, so retaining this mutable
+    /// carrier avoids a small managed allocation on every non-chase frame.
+    /// </summary>
+    protected EnemyUpdateContext MovementContext(
+        EnemyUpdateContext source,
+        float targetX,
+        float targetY)
+    {
+        _movementUpdateContext.PlayerWorldX = targetX;
+        _movementUpdateContext.PlayerWorldY = targetY;
+        _movementUpdateContext.Battleground = source.Battleground;
+        _movementUpdateContext.ProjectileSink = source.ProjectileSink;
+        _movementUpdateContext.AllEnemies = source.AllEnemies;
+        _movementUpdateContext.ExperienceBubbles = source.ExperienceBubbles;
+        _movementUpdateContext.Camera = source.Camera;
+        _movementUpdateContext.BossAfflictions = source.BossAfflictions;
+        _movementUpdateContext.PlayerBuildSnapshot = source.PlayerBuildSnapshot;
+        _movementUpdateContext.PlayerBullets = source.PlayerBullets;
+        _movementUpdateContext.DreamState = source.DreamState;
+        return _movementUpdateContext;
+    }
+
     public override void Update(EnemyUpdateContext context)
     {
         if (UpdateDeathSpectacle())
@@ -457,11 +510,7 @@ public class PathChaseBoss : Enemy
         }
         var effectiveContext = mode == "chase"
             ? context
-            : new EnemyUpdateContext
-            {
-                PlayerWorldX = effectivePlayerX, PlayerWorldY = effectivePlayerY, Battleground = context.Battleground,
-                ProjectileSink = context.ProjectileSink, AllEnemies = context.AllEnemies, ExperienceBubbles = context.ExperienceBubbles,
-            };
+            : MovementContext(context, effectivePlayerX, effectivePlayerY);
         base.Update(effectiveContext);
         Speed = originalSpeed;
         AttackCooldown -= (float)Simulation.GetTimerStep();
@@ -480,39 +529,34 @@ public class PathChaseBoss : Enemy
     protected void DrawPathArena(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         var worldVertices = ArenaVertices();
-        var vertices = worldVertices.Select(v => camera.WorldToScreen(v, playerWorldPosition, screenShake)).ToArray();
+        for (int index = 0; index < worldVertices.Length; index++)
+        {
+            _arenaScreenVertices[index] = camera.WorldToScreen(
+                worldVertices[index],
+                playerWorldPosition,
+                screenShake);
+        }
+        Vector2[] vertices = _arenaScreenVertices;
         if (vertices.Length < 3)
             return;
-        var arenaCenterScreen = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
-        Primitives2D.DrawOutsideArena(spriteBatch, arenaCenterScreen, vertices);
-        Primitives2D.PolygonOutline(spriteBatch, vertices, UiTheme.Shadow, 14);
-        Primitives2D.PolygonOutline(spriteBatch, vertices, UiTheme.Ink, 8);
-        Primitives2D.PolygonOutline(spriteBatch, vertices, PhaseAccent, 3);
+        Rectangle logicalViewport = camera.LogicalViewport(
+            spriteBatch.GraphicsDevice.Viewport.Bounds);
+        Primitives2D.DrawOutsideArena(
+            spriteBatch,
+            vertices,
+            logicalViewport);
+        Primitives2D.PolygonOutlineSpan(
+            spriteBatch, vertices, UiTheme.Ink, 8);
+        Primitives2D.PolygonOutlineSpan(
+            spriteBatch, vertices, PhaseAccent, 3);
         double progress = 1 - (PhaseElapsed % PhaseTimeLimit) / PhaseTimeLimit;
         int lit = Math.Max(2, (int)(vertices.Length * progress));
-        Primitives2D.Polyline(spriteBatch, vertices.Take(lit).ToArray(), false, UiTheme.Cream, 2);
-        if (Config.ArenaShape == "atomic")
-        {
-            for (int index = 0; index < 3; index++)
-            {
-                // Rotating a full arena-sized alpha surface here would allocate a
-                // huge buffer every frame -- draw the projected atomic orbit as a
-                // compact polyline instead (matches the Python comment/fix as-is).
-                float rotation = index * MathF.PI / 3f + Age * .012f * MathF.PI / 180f;
-                float c = MathF.Cos(rotation), s = MathF.Sin(rotation);
-                var points = new Vector2[65];
-                for (int step = 0; step < 65; step++)
-                {
-                    float angle = step * 2f * MathF.PI / 64f;
-                    float localX = MathF.Cos(angle) * ArenaRadius * .9f;
-                    float localY = MathF.Sin(angle) * ArenaRadius * .31f;
-                    points[step] = new Vector2(arenaCenterScreen.X + localX * c - localY * s, arenaCenterScreen.Y + localX * s + localY * c);
-                }
-                var orbitColor = Color.Lerp(PhaseAccent, UiTheme.Void, .72f);
-                Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, 5);
-                Primitives2D.PolygonOutline(spriteBatch, points, orbitColor, 3);
-            }
-        }
+        Primitives2D.PolylineSpan(
+            spriteBatch,
+            vertices.AsSpan(0, lit),
+            false,
+            UiTheme.Cream,
+            2);
         int markerIndex = Math.Min(vertices.Length - 1, (int)((1 - progress) * (vertices.Length - 1)));
         Primitives2D.FillCircle(spriteBatch, vertices[markerIndex], 5, UiTheme.Cream);
     }

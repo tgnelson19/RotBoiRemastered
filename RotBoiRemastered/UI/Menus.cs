@@ -269,35 +269,82 @@ public sealed class Menus
         }
         else if (_settingsTab == "options")
         {
-            var shakeRect = new Rectangle((int)(settings.X + 14 * scale), (int)bodyTop, (int)(settings.Width - 28 * scale), (int)(42 * scale));
+            int rowHeight = (int)(48 * scale);
+            int rowGap = (int)(7 * scale);
+            int contentX = (int)(settings.X + 14 * scale);
+            int contentWidth = (int)(settings.Width - 28 * scale);
+            int columnGap = Math.Max(6, (int)(8 * scale));
+            int columnWidth = (contentWidth - columnGap) / 2;
+            int rightX = contentX + columnWidth + columnGap;
+
+            var shakeRect = new Rectangle(
+                contentX, (int)bodyTop, columnWidth, rowHeight);
             Button(spriteBatch, "screen_shake", shakeRect,
                 $"SCREEN SHAKE  //  {(int)(GameProfile.Profile.ScreenShake * 100)}%", mousePosition, mouseDown, UiTheme.Gold);
             UiTheme.DrawText(spriteBatch, "How strongly hits rattle the camera", 8 * scale, UiTheme.Muted,
                 new Vector2(shakeRect.X + 10 * scale, shakeRect.Bottom - 4 * scale), "bottomleft");
 
-            int rowHeight = (int)(48 * scale), rowGap = (int)(7 * scale);
-            int sliderX = (int)(settings.X + 14 * scale), sliderWidth = (int)(settings.Width - 28 * scale);
-            var textSizeRect = new Rectangle(sliderX, (int)(bodyTop + 51 * scale), sliderWidth, rowHeight);
+            var fullscreenRect = new Rectangle(
+                rightX, (int)bodyTop, columnWidth, rowHeight);
+            bool fullscreen = GameProfile.Profile.Fullscreen;
+            Button(spriteBatch, "fullscreen", fullscreenRect,
+                $"FULLSCREEN  //  {(fullscreen ? "ON" : "OFF")}",
+                mousePosition, mouseDown,
+                fullscreen ? UiTheme.Green : UiTheme.Border);
+            UiTheme.DrawText(spriteBatch, "Native resolution (F11)", 8 * scale,
+                UiTheme.Muted,
+                new Vector2(
+                    fullscreenRect.X + 10 * scale,
+                    fullscreenRect.Bottom - 4 * scale),
+                "bottomleft");
+
+            int secondRowY = shakeRect.Bottom + rowGap;
+            var textSizeRect = new Rectangle(
+                contentX, secondRowY, columnWidth, rowHeight);
             Slider(spriteBatch, "text_size", textSizeRect, "TEXT SIZE", $"{GameProfile.Profile.TextSize * 100:0}%",
                 GameProfile.Profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale, mousePosition, UiTheme.Gold);
             int guiLevel = ClosestIndex(UiTheme.GuiScaleLevels, GameProfile.Profile.GuiScale);
-            var guiRect = new Rectangle(sliderX, textSizeRect.Bottom + rowGap, sliderWidth, rowHeight);
+            var guiRect = new Rectangle(
+                rightX, secondRowY, columnWidth, rowHeight);
             Button(spriteBatch, "gui_scale", guiRect,
                 $"GUI SCALE  //  {UiTheme.GuiScaleLabels[guiLevel]}", mousePosition, mouseDown, UiTheme.Blue);
-            var damageRect = new Rectangle(sliderX, guiRect.Bottom + rowGap, sliderWidth, rowHeight);
+
+            int thirdRowY = textSizeRect.Bottom + rowGap;
+            var damageRect = new Rectangle(
+                contentX, thirdRowY, columnWidth, rowHeight);
             Slider(spriteBatch, "damage_text_size", damageRect, "DAMAGE TEXT SIZE", $"{GameProfile.Profile.DamageTextSize * 100:0}%",
                 GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, mousePosition, UiTheme.Red);
 
-            var cameraRect = new Rectangle(sliderX, damageRect.Bottom + rowGap, sliderWidth, rowHeight);
+            var cameraRect = new Rectangle(
+                rightX, thirdRowY, columnWidth, rowHeight);
             Slider(spriteBatch, "camera_zoom", cameraRect, "DEFAULT CAMERA ZOOM", $"{GameProfile.Profile.CameraZoom * 100:0}%",
                 GameProfile.Profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale, mousePosition, UiTheme.Purple);
 
-            var fullscreenRect = new Rectangle(sliderX, cameraRect.Bottom + rowGap, sliderWidth, (int)(42 * scale));
-            bool fullscreen = GameProfile.Profile.Fullscreen;
-            Button(spriteBatch, "fullscreen", fullscreenRect, $"FULLSCREEN  //  {(fullscreen ? "ON" : "OFF")}",
-                mousePosition, mouseDown, fullscreen ? UiTheme.Green : UiTheme.Border);
-            UiTheme.DrawText(spriteBatch, "Native-resolution fullscreen (F11 also toggles this)", 8 * scale, UiTheme.Muted,
-                new Vector2(fullscreenRect.X + 10 * scale, fullscreenRect.Bottom - 4 * scale), "bottomleft");
+            int fourthRowY = damageRect.Bottom + rowGap;
+            var frameRateRect = new Rectangle(
+                contentX, fourthRowY, columnWidth, rowHeight);
+            Slider(spriteBatch, "max_frame_rate", frameRateRect,
+                "MAX FRAME RATE",
+                $"{GameProfile.Profile.MaxFrameRate} FPS",
+                GameProfile.Profile.MaxFrameRate,
+                FramePacing.MinimumFrameRate,
+                FramePacing.MaximumFrameRate,
+                mousePosition,
+                UiTheme.Green);
+
+            var vsyncRect = new Rectangle(
+                rightX, fourthRowY, columnWidth, rowHeight);
+            bool verticalSync = GameProfile.Profile.VSync;
+            Button(spriteBatch, "vsync", vsyncRect,
+                $"VERTICAL SYNC  //  {(verticalSync ? "ON" : "OFF")}",
+                mousePosition, mouseDown,
+                verticalSync ? UiTheme.Green : UiTheme.Border);
+            UiTheme.DrawText(spriteBatch, "Match display refresh when supported",
+                8 * scale, UiTheme.Muted,
+                new Vector2(
+                    vsyncRect.X + 10 * scale,
+                    vsyncRect.Bottom - 4 * scale),
+                "bottomleft");
         }
         else if (_settingsTab == "quickview")
         {
@@ -460,6 +507,8 @@ public sealed class Menus
             }
             if (Activated("fullscreen", mousePosition, mousePressed))
                 GameProfile.Toggle("Fullscreen");
+            if (Activated("vsync", mousePosition, mousePressed))
+                GameProfile.Toggle("VSync");
             if (Activated("gui_scale", mousePosition, mousePressed))
             {
                 int idx = ClosestIndex(UiTheme.GuiScaleLevels, GameProfile.Profile.GuiScale);
@@ -476,6 +525,9 @@ public sealed class Menus
                     if (_activeSlider == "damage_text_size") GameProfile.Profile.DamageTextSize = Math.Round(value, 2);
                     if (_activeSlider == "text_size") GameProfile.Profile.TextSize = Math.Round(value, 2);
                     if (_activeSlider == "camera_zoom") GameProfile.Profile.CameraZoom = Math.Round(value, 2);
+                    if (_activeSlider == "max_frame_rate")
+                        GameProfile.Profile.MaxFrameRate =
+                            FramePacing.NormalizeFrameRate((int)Math.Round(value));
                     _sliderDirty = true;
                 }
             }

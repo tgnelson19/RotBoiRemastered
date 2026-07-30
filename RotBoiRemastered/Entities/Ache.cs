@@ -167,6 +167,9 @@ public sealed class Ache : Kage
 
     private readonly List<CrystalWall> _crystalWalls = new();
     private readonly List<CleansingVent> _cleansingVents = new();
+    private readonly List<Rectangle> _movementObstacleScratch = new(6);
+    private readonly List<(string Part, Rectangle Rect)> _screenHitboxScratch =
+        new(7);
     private double _compressionCooldown = 5.0;
     private double _consumedCrystalPulse;
     private int _lastPattern = -1;
@@ -464,30 +467,71 @@ public sealed class Ache : Kage
         }
     }
 
-    public override IReadOnlyList<Rectangle> MovementObstacles() =>
-        _crystalWalls.Where(wall => wall.Warning <= 0).Select(wall => wall.Rect).ToList();
+    public override IReadOnlyList<Rectangle> MovementObstacles()
+    {
+        _movementObstacleScratch.Clear();
+        for (int index = 0; index < _crystalWalls.Count; index++)
+        {
+            CrystalWall wall = _crystalWalls[index];
+            if (wall.Warning <= 0)
+                _movementObstacleScratch.Add(wall.Rect);
+        }
+        return _movementObstacleScratch;
+    }
 
     public override IReadOnlyList<(string Part, Rectangle Rect)> GetScreenHitboxes(Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        var hitboxes = base.GetScreenHitboxes(camera, playerWorldPosition, screenShake).ToList();
+        _screenHitboxScratch.Clear();
+        IReadOnlyList<(string Part, Rectangle Rect)> baseHitboxes =
+            base.GetScreenHitboxes(
+                camera,
+                playerWorldPosition,
+                screenShake);
+        for (int index = 0; index < baseHitboxes.Count; index++)
+            _screenHitboxScratch.Add(baseHitboxes[index]);
         for (int index = 0; index < _crystalWalls.Count; index++)
         {
             var wall = _crystalWalls[index];
             if (wall.Kind != "brittle" || wall.Warning > 0)
                 continue;
             var rect = wall.Rect;
-            var corners = new[]
-            {
-                camera.WorldToScreen(new Vector2(rect.Left, rect.Top), playerWorldPosition, screenShake),
-                camera.WorldToScreen(new Vector2(rect.Right, rect.Top), playerWorldPosition, screenShake),
-                camera.WorldToScreen(new Vector2(rect.Right, rect.Bottom), playerWorldPosition, screenShake),
-                camera.WorldToScreen(new Vector2(rect.Left, rect.Bottom), playerWorldPosition, screenShake),
-            };
-            float left = corners.Min(c => c.X), top = corners.Min(c => c.Y);
-            float right = corners.Max(c => c.X), bottom = corners.Max(c => c.Y);
-            hitboxes.Add(($"crystal:{index}", new Rectangle((int)left, (int)top, Math.Max(1, (int)(right - left)), Math.Max(1, (int)(bottom - top)))));
+            Vector2 topLeft = camera.WorldToScreen(
+                new Vector2(rect.Left, rect.Top),
+                playerWorldPosition,
+                screenShake);
+            Vector2 topRight = camera.WorldToScreen(
+                new Vector2(rect.Right, rect.Top),
+                playerWorldPosition,
+                screenShake);
+            Vector2 bottomRight = camera.WorldToScreen(
+                new Vector2(rect.Right, rect.Bottom),
+                playerWorldPosition,
+                screenShake);
+            Vector2 bottomLeft = camera.WorldToScreen(
+                new Vector2(rect.Left, rect.Bottom),
+                playerWorldPosition,
+                screenShake);
+            float left = Math.Min(
+                Math.Min(topLeft.X, topRight.X),
+                Math.Min(bottomRight.X, bottomLeft.X));
+            float top = Math.Min(
+                Math.Min(topLeft.Y, topRight.Y),
+                Math.Min(bottomRight.Y, bottomLeft.Y));
+            float right = Math.Max(
+                Math.Max(topLeft.X, topRight.X),
+                Math.Max(bottomRight.X, bottomLeft.X));
+            float bottom = Math.Max(
+                Math.Max(topLeft.Y, topRight.Y),
+                Math.Max(bottomRight.Y, bottomLeft.Y));
+            _screenHitboxScratch.Add((
+                $"crystal:{index}",
+                new Rectangle(
+                    (int)left,
+                    (int)top,
+                    Math.Max(1, (int)(right - left)),
+                    Math.Max(1, (int)(bottom - top)))));
         }
-        return hitboxes;
+        return _screenHitboxScratch;
     }
 
     protected override HitResult DamageCrystal(string partId, double amount)
@@ -543,7 +587,8 @@ public sealed class Ache : Kage
             MathF.Sin(Age * .031f) * 4.2f + MathF.Sin(Age * .007f) * 3.4f,
             MathF.Sin(Age * .023f + 1.1f) * 3.8f);
 
-        var arms = new List<(Vector2 Center, float Angle, float Depth)>();
+        Span<(Vector2 Center, float Angle, float Depth)> arms =
+            stackalloc (Vector2, float, float)[OrbitingArmCount];
         for (int index = 0; index < OrbitingArmCount; index++)
         {
             float direction = index == 1 ? -1f : 1f;
@@ -554,25 +599,63 @@ public sealed class Ache : Kage
             float droop = Size * (.06f + index * .035f) * (.5f + .5f * MathF.Sin(Age * .006f + index));
             var armCenter = jittered + new Vector2(MathF.Cos(angle) * radius,
                 MathF.Sin(angle) * radius * .54f + droop);
-            arms.Add((armCenter, angle, MathF.Sin(angle)));
+            arms[index] = (armCenter, angle, MathF.Sin(angle));
             Primitives2D.Line(spriteBatch, jittered, armCenter, UiTheme.Ink, Math.Max(4, (int)(Size * .07f)));
             Primitives2D.Line(spriteBatch, jittered, armCenter, blue * .72f, Math.Max(1, (int)(Size * .025f)));
         }
 
-        foreach (var arm in arms.Where(arm => arm.Depth < 0).OrderBy(arm => arm.Depth))
-            BossVisuals.RotatingCube3D(spriteBatch, arm.Center, Size * .12f, blue, new Color(75, 183, 235), orange,
-                -arm.Angle * 1.3f, arm.Angle * .73f, Age * .013f);
+        for (int index = 1; index < arms.Length; index++)
+        {
+            var current = arms[index];
+            int insertion = index - 1;
+            while (insertion >= 0
+                && arms[insertion].Depth > current.Depth)
+            {
+                arms[insertion + 1] = arms[insertion];
+                insertion--;
+            }
+            arms[insertion + 1] = current;
+        }
+
+        for (int index = 0;
+             index < arms.Length && arms[index].Depth < 0;
+             index++)
+        {
+            var arm = arms[index];
+            BossVisuals.RotatingCube3D(
+                spriteBatch,
+                arm.Center,
+                Size * .12f,
+                blue,
+                new Color(75, 183, 235),
+                orange,
+                -arm.Angle * 1.3f,
+                arm.Angle * .73f,
+                Age * .013f);
+        }
 
         BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
             Age * .041f, .58f + MathF.Sin(Age * .021f) * .32f, MathF.Sin(Age * .017f) * .18f);
         float energyRadius = Size * (.075f + .012f * MathF.Sin(Age * .11f));
         Primitives2D.FillCircle(spriteBatch, jittered, (int)energyRadius + 5, UiTheme.Ink);
         Primitives2D.FillCircle(spriteBatch, jittered, Math.Max(2, (int)energyRadius), blue);
-        Primitives2D.CircleOutline(spriteBatch, jittered, energyRadius * 1.45f, UiTheme.Cream, 2);
 
-        foreach (var arm in arms.Where(arm => arm.Depth >= 0).OrderBy(arm => arm.Depth))
-            BossVisuals.RotatingCube3D(spriteBatch, arm.Center, Size * .12f, blue, new Color(75, 183, 235), orange,
-                -arm.Angle * 1.3f, arm.Angle * .73f, Age * .013f);
+        for (int index = 0; index < arms.Length; index++)
+        {
+            var arm = arms[index];
+            if (arm.Depth < 0)
+                continue;
+            BossVisuals.RotatingCube3D(
+                spriteBatch,
+                arm.Center,
+                Size * .12f,
+                blue,
+                new Color(75, 183, 235),
+                orange,
+                -arm.Angle * 1.3f,
+                arm.Angle * .73f,
+                Age * .013f);
+        }
 
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .78f), (int)(Size * .92f), 6));
     }
@@ -882,17 +965,18 @@ public sealed class Ache : Kage
                 _reactiveCounters.Clear();
             return;
         }
-        var remaining = new List<ReactiveCounter>();
-        foreach (var counter in _reactiveCounters)
+        int writeIndex = 0;
+        for (int readIndex = 0; readIndex < _reactiveCounters.Count; readIndex++)
         {
+            var counter = _reactiveCounters[readIndex];
             double delay = counter.Delay - dt;
             if (delay <= 0)
                 TelegraphLash(sink, Center(), counter.Direction, counter.Damage, counter.Suffix);
             else
-                remaining.Add(counter with { Delay = delay });
+                _reactiveCounters[writeIndex++] = counter with { Delay = delay };
         }
-        _reactiveCounters.Clear();
-        _reactiveCounters.AddRange(remaining);
+        if (writeIndex < _reactiveCounters.Count)
+            _reactiveCounters.RemoveRange(writeIndex, _reactiveCounters.Count - writeIndex);
     }
 
     protected override void FireSinPattern(float playerX, float playerY, EnemyUpdateContext context)

@@ -37,6 +37,8 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.PlayerEdgeColor, profile.PlayerEdgeColor);
         Assert.Equal(defaults.ProjectileColor, profile.ProjectileColor);
         Assert.Equal(defaults.ProjectileDesign, profile.ProjectileDesign);
+        Assert.Equal(defaults.MaxFrameRate, profile.MaxFrameRate);
+        Assert.Equal(defaults.VSync, profile.VSync);
         Assert.Empty(profile.Keybinds);
         Assert.Empty(profile.NewGamePlusUnlocked);
         Assert.Empty(profile.SelectedNewGamePlus);
@@ -102,6 +104,8 @@ public class GameProfileTests : IDisposable
                 TextSize = 1.4,
                 GuiScale = 1.15,
                 DamageTextSize = .65,
+                MaxFrameRate = 144,
+                VSync = false,
                 TabShowWeaponStats = false,
                 TabShowActiveQuests = true,
                 TabShowCosmetics = true,
@@ -141,6 +145,8 @@ public class GameProfileTests : IDisposable
             Assert.Equal(1.4, reloaded.TextSize);
             Assert.Equal(1.15, reloaded.GuiScale);
             Assert.Equal(.65, reloaded.DamageTextSize);
+            Assert.Equal(145, reloaded.MaxFrameRate);
+            Assert.False(reloaded.VSync);
             Assert.False(reloaded.TabShowWeaponStats);
             Assert.True(reloaded.TabShowActiveQuests);
             Assert.True(reloaded.TabShowCosmetics);
@@ -162,6 +168,24 @@ public class GameProfileTests : IDisposable
             GameProfile.Profile = original;
             GameProfile.SavePath = originalSavePath;
         }
+    }
+
+    [Theory]
+    [InlineData(1, 30)]
+    [InlineData(143, 145)]
+    [InlineData(999, 360)]
+    public void FrameRate_LoadNormalizesToSupportedRangeAndStep(
+        int savedFrameRate,
+        int expectedFrameRate)
+    {
+        string path = Path.Combine(_tempDir, $"fps-{savedFrameRate}.json");
+        File.WriteAllText(
+            path,
+            $$"""{"MaxFrameRate":{{savedFrameRate}}}""");
+
+        GameProfileData profile = GameProfile.LoadProfile(path);
+
+        Assert.Equal(expectedFrameRate, profile.MaxFrameRate);
     }
 
     [Fact]

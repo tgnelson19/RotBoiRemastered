@@ -333,9 +333,9 @@ public class Ishe : PathChaseBoss
     private void FireFlashHorizon(float playerX, float playerY, List<EnemyProjectile> sink)
     {
         var vertices = ArenaVertices();
-        int edgeIndex = _ishePatternRotation % vertices.Count;
+        int edgeIndex = _ishePatternRotation % vertices.Length;
         Vector2 start = vertices[edgeIndex];
-        Vector2 end = vertices[(edgeIndex + 1) % vertices.Count];
+        Vector2 end = vertices[(edgeIndex + 1) % vertices.Length];
         Vector2 edge = end - start;
         float edgeLengthSq = Math.Max(1f, edge.LengthSquared());
         float playerProjection = Math.Clamp(

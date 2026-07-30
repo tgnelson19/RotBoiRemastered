@@ -182,3 +182,33 @@ The five previously ranked items are now implemented:
    prompt. Generated boss rooms are validated across senses and seeds for
    analog-friendly cardinal lanes, connected movement, and multiple separated
    safe pockets suitable for a future second local player.
+
+## Arena boss performance and visual-readability follow-up
+
+### Review
+
+- Path bosses shaded the space outside their arena by extruding every boundary
+  edge thousands of pixels off-screen and scan-converting every resulting
+  polygon each frame.
+- Portal-heavy bosses repeatedly allocated update contexts, attack staging
+  lists, orbit geometry, rune geometry, cube faces, and depth-sort collections.
+- Ambient boss-following rings, sigils, crosses, inscriptions, and ripple bands
+  competed visually with attack warnings while adding substantial draw work.
+- Several correctly balanced projectile hitboxes rendered below a reliably
+  visible size, especially in the Phantasia Guardian encounter.
+
+### Implemented
+
+- Arena masks now scan only the clipped logical viewport with retained polygon
+  vertices and no steady-state allocation.
+- Boss movement contexts, staged threats, delayed sequences, hitboxes, portal
+  trails, cube geometry, and constellation sorting reuse bounded scratch
+  storage. Boss-room projectiles use a dedicated overlay pass rather than
+  joining the general actor depth sort.
+- Removed decorative boss-following linework from Ache and the other path
+  bosses, including ambient rings, crosses, field sigils, inscriptions, aura
+  bands, and ripple diagrams. Arena boundaries, health/timer arcs, attack
+  lanes, hazard shapes, and state telegraphs remain.
+- All ordinary player and hostile projectiles render at a minimum of twelve
+  physical screen pixels at every zoom. Collision rectangles, damage, cadence,
+  travel, and authored large-area hazards are unchanged.

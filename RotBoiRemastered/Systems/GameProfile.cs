@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -45,6 +46,10 @@ public sealed class GameProfileData
     public string ProjectileDesign { get; set; } = "bulb";
     /// <summary>Native-resolution fullscreen, toggled via F11 or the pause menu's OPTIONS tab (RotBoiGame.ApplyFullscreen). Defaults off -- windowed is friendlier for a desktop app that hasn't asked first.</summary>
     public bool Fullscreen { get; set; }
+    /// <summary>Fixed update/draw ceiling. VSync may impose a lower effective presentation rate.</summary>
+    public int MaxFrameRate { get; set; } = FramePacing.DefaultFrameRate;
+    /// <summary>Synchronize buffer presentation to the active display when supported by the graphics driver.</summary>
+    public bool VSync { get; set; } = true;
     /// <summary>Selected only from the Soul's challenge altar and captured into each new RunState.</summary>
     public bool HardModeEnabled { get; set; }
 
@@ -192,6 +197,7 @@ public static class GameProfile
         profile.GuiScale = SnapToNearest(UiTheme.GuiScaleLevels, profile.GuiScale);
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         profile.CameraZoom = Math.Clamp(profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
+        profile.MaxFrameRate = FramePacing.NormalizeFrameRate(profile.MaxFrameRate);
         profile.Keybinds ??= new();
         profile.SkillLevels ??= new();
         profile.QuestProgress ??= new();

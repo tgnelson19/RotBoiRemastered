@@ -548,14 +548,6 @@ public sealed class Rot : PathChaseBoss
             (int)(Size * 1.76f), (int)(Size * .58f));
         Primitives2D.FillEllipse(spriteBatch, new Rectangle(poolBack.X + 8, poolBack.Y + 9, poolBack.Width, poolBack.Height), UiTheme.Shadow);
         Primitives2D.FillEllipse(spriteBatch, poolBack, new Color(68, 64, 35));
-        for (int ring = 0; ring < 3; ring++)
-        {
-            float breathe = 1f + MathF.Sin(Age * .008f + ring * 1.4f) * .08f;
-            var ripple = new Rectangle((int)(center.X - Size * (.48f + ring * .16f) * breathe),
-                (int)(center.Y + Size * (.22f - ring * .025f)), (int)(Size * (.96f + ring * .32f) * breathe),
-                (int)(Size * (.18f + ring * .055f)));
-            Primitives2D.EllipseOutline(spriteBatch, ripple, new Color(104, 121, 55) * (.34f + ring * .08f), 2);
-        }
         if (ReliefPulseRemaining > 0)
         {
             float relief = (float)(1.0 - ReliefPulseRemaining / 1.2);

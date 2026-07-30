@@ -182,6 +182,37 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void PathFog_DisablesInsideArenaRoomsAndResumesDuringTraversal()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(10));
+        Assert.True(session.IsPathFogActive);
+
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.MovePlayer(
+            moveLeft: false,
+            moveRight: false,
+            moveUp: false,
+            moveDown: false,
+            dashPressed: false);
+
+        Assert.False(session.IsPathFogActive);
+
+        PathRoom startRoom = session.PathRun!.Layout.StartRoom;
+        session.Player.SetPosition(
+            startRoom.WorldCenter.X - (float)session.State.PlayerSize / 2f,
+            startRoom.WorldCenter.Y - (float)session.State.PlayerSize / 2f);
+        session.MovePlayer(
+            moveLeft: false,
+            moveRight: false,
+            moveUp: false,
+            moveDown: false,
+            dashPressed: false);
+
+        Assert.True(session.IsPathFogActive);
+    }
+
+    [Fact]
     public void PathCombatRoom_SpawnsContainedSenseWaveWithoutLockingThresholds()
     {
         var session = MakeSession();

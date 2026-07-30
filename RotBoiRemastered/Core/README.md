@@ -31,6 +31,9 @@ Entry point, state machine, and the live input state other systems read from.
   `get_timer_step`, `set_delta_time`). **Done.** Every Entities/ Update
   method reads this for frame-rate-independent movement, same as the
   Python original.
+- `FramePacing.cs` normalizes the persisted 30-360 FPS setting to five-FPS
+  steps. `RotBoiGame` applies it as the fixed update/draw cadence and explicitly
+  reconciles MonoGame's vertical-retrace synchronization when VSync changes.
 - `Primitives2D.cs` -- grew well past the original rect/line-only scope
   while porting Entities/: added `FillCircle`/`CircleOutline`,
   `FillEllipse`/`EllipseOutline`, `Arc`, `FillPolygon`/`PolygonOutline`, and
@@ -38,4 +41,6 @@ Entry point, state machine, and the live input state other systems read from.
   rendering leans on (circles, ellipses, arcs, filled polygons, multi-point
   lines). `FillPolygon`/`FillEllipse`/`FillCircle` all rasterize via
   horizontal scanline `FillRect` strips -- no vertex/mesh renderer, just
-  more of the same stretched-pixel technique.
+  more of the same stretched-pixel technique. Span-based polygon/outline/
+  polyline entry points and stack-backed scan intersections keep live dungeon
+  and UI geometry allocation-free.

@@ -72,7 +72,9 @@ the Python source:
   either adjoining wall is visible, avoiding corridor wedges and corner-tile
   flicker without revealing the sealed space behind them. Immutable topology,
   flat visibility buffers, and reusable corner support storage keep moving LOS
-  refreshes allocation-free.
+  refreshes allocation-free. `GameSession` suspends world fog and visibility
+  culling inside Grand Arenas and boss rooms while retaining persistent
+  discovery for the minimap, then resumes fog during traversal.
 - `PathThemeVisuals.cs` supplies the generated floors' semantic scenery
   contract. Touch uses sewer channels, grates, pumps, and sludge; Sight uses
   water, caustics, lens buoys, and drowned ruins; Sound uses cloud banks, wind

@@ -45,6 +45,8 @@ public class RotBoiGame : Game
     private GamePadState _previousGamePadState;
     private int _windowedWidth = 1280;
     private int _windowedHeight = 720;
+    private int _appliedMaxFrameRate;
+    private bool _appliedVSync;
 
     public GameState State { get; set; } = GameState.TitleScreen;
 
@@ -61,6 +63,7 @@ public class RotBoiGame : Game
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
         Window.Title = "RotBoi Remastered";
+        ApplyFramePacing(applyGraphicsChanges: false);
     }
 
     protected override void Initialize()
@@ -201,6 +204,40 @@ public class RotBoiGame : Game
     }
 
     private void ToggleFullscreen() => ApplyFullscreen(!_graphics.IsFullScreen, persist: true);
+
+    private void ApplyFramePacing(bool applyGraphicsChanges)
+    {
+        int maxFrameRate = FramePacing.NormalizeFrameRate(
+            GameProfile.Profile.MaxFrameRate);
+        bool verticalSync = GameProfile.Profile.VSync;
+        bool verticalSyncChanged = verticalSync != _appliedVSync;
+
+        GameProfile.Profile.MaxFrameRate = maxFrameRate;
+        IsFixedTimeStep = true;
+        TargetElapsedTime = FramePacing.TargetElapsedTime(maxFrameRate);
+        _graphics.SynchronizeWithVerticalRetrace = verticalSync;
+        _appliedMaxFrameRate = maxFrameRate;
+        _appliedVSync = verticalSync;
+
+        if (applyGraphicsChanges && verticalSyncChanged)
+        {
+            _graphics.ApplyChanges();
+            _session?.Resize(
+                GraphicsDevice.Viewport.Width,
+                GraphicsDevice.Viewport.Height);
+        }
+    }
+
+    private void ReconcileFramePacing()
+    {
+        int maxFrameRate = FramePacing.NormalizeFrameRate(
+            GameProfile.Profile.MaxFrameRate);
+        if (maxFrameRate != _appliedMaxFrameRate
+            || GameProfile.Profile.VSync != _appliedVSync)
+        {
+            ApplyFramePacing(applyGraphicsChanges: true);
+        }
+    }
 
     /// <summary>
     /// Applies (and, once GraphicsDevice exists, persists) fullscreen state
@@ -443,6 +480,7 @@ public class RotBoiGame : Game
         // window state against it here, same path F11's ToggleFullscreen uses.
         if (GameProfile.Profile.Fullscreen != _graphics.IsFullScreen)
             ApplyFullscreen(GameProfile.Profile.Fullscreen, persist: false);
+        ReconcileFramePacing();
         switch (action)
         {
             case MenuAction.Resume:

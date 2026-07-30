@@ -57,6 +57,7 @@ public sealed class GameSession
     public PathRun? PathRun { get; private set; }
     public PathFogOfWar? PathFog { get; private set; }
     public bool IsPathMode => PathRun is not null;
+    public bool IsPathFogActive => _pathFogActive && PathFog is not null;
     public int ScreenWidth { get; private set; }
     public int ScreenHeight { get; private set; }
     public Vector2 ScreenShake { get; set; } = Vector2.Zero;
@@ -88,6 +89,7 @@ public sealed class GameSession
     private readonly Comparison<Enemy> _enemyDistanceComparison;
     private readonly HashSet<int> _bountyEncounterIdScratch = new();
     private PlayerBuildSnapshot? _playerBuildSnapshot;
+    private bool _pathFogActive;
     private Vector2 _enemySortCenter;
     private string? _activeBossKey;
     private BossEncounterTelemetryTracker? _bossTelemetry;
@@ -143,6 +145,7 @@ public sealed class GameSession
         _playerBuildSnapshot = null;
         PathRun = null;
         PathFog = null;
+        _pathFogActive = false;
         State.Reset();
         Battleground = battleground;
         Player = new Player(battleground.SpawnPosition.X, battleground.SpawnPosition.Y);
@@ -176,7 +179,7 @@ public sealed class GameSession
         Battleground = pathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
         PathFog = new PathFogOfWar(Battleground);
-        PathFog.Update(PlayerWorldCenter);
+        RefreshPathFog();
         Camera.SetAngle(0);
         ScreenShake = Vector2.Zero;
         LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
@@ -211,7 +214,7 @@ public sealed class GameSession
         Battleground = PathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
         PathFog = new PathFogOfWar(Battleground);
-        PathFog.Update(PlayerWorldCenter);
+        RefreshPathFog();
         ScreenShake = Vector2.Zero;
         _activeBossKey = null;
         _bossTelemetry = null;
@@ -334,8 +337,36 @@ public sealed class GameSession
         double traveled = Vector2.Distance(before, new Vector2(Player.WorldX, Player.WorldY));
         if (traveled >= 1)
             GameProfile.IncrementQuest("distance_traveled", (long)Math.Round(traveled));
-        PathFog?.Update(PlayerWorldCenter);
+        RefreshPathFog();
     }
+
+    /// <summary>
+    /// Fog remains a traversal mechanic, but large arena rooms and active
+    /// boss fights need the complete playfield readable at once. Suppression
+    /// applies to every fog consumer, not only the final mask, so enemies,
+    /// projectiles, bounties, and boss UI cannot disappear behind disabled
+    /// presentation fog.
+    /// </summary>
+    private void RefreshPathFog()
+    {
+        if (PathFog is null || PathRun is null)
+        {
+            _pathFogActive = false;
+            return;
+        }
+
+        PathRoom? room = PathRun.Layout.RoomAt(PlayerWorldCenter);
+        bool arenaRoom = room is
+        {
+            Shape: PathRoomShape.GrandArena
+        } || room?.Type == PathRoomType.Boss;
+        _pathFogActive = State.ActiveBoss is null && !arenaRoom;
+        if (_pathFogActive)
+            PathFog.Update(PlayerWorldCenter);
+    }
+
+    private PathFogOfWar? ActiveVisibilityFog =>
+        IsPathFogActive ? PathFog : null;
 
     public void DrawPlayer(SpriteBatch spriteBatch, float sizeScale = 1f) => Player.Draw(spriteBatch, State, Camera, sizeScale);
 
@@ -926,11 +957,12 @@ public sealed class GameSession
 
     public void DrawEnemies(SpriteBatch spriteBatch)
     {
+        PathFogOfWar? fog = ActiveVisibilityFog;
         _drawnEncounterIdScratch.Clear();
         foreach (var enemy in State.EnemyHolster)
         {
-            if (PathFog is not null
-                && !PathFog.IsWorldAreaVisible(enemy.WorldRect()))
+            if (fog is not null
+                && !fog.IsWorldAreaVisible(enemy.WorldRect()))
             {
                 continue;
             }
@@ -984,11 +1016,12 @@ public sealed class GameSession
     public void DrawGroundEnemyProjectiles(SpriteBatch spriteBatch)
     {
         bool highContrast = GameProfile.Profile.HighContrast;
+        PathFogOfWar? fog = ActiveVisibilityFog;
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             if (projectile.Path != "pool"
-                || (PathFog is not null
-                    && !PathFog.IsWorldAreaVisible(projectile.WorldRect())))
+                || (fog is not null
+                    && !fog.IsWorldAreaVisible(projectile.WorldRect())))
             {
                 continue;
             }
@@ -1000,11 +1033,12 @@ public sealed class GameSession
     public void DrawEnemyProjectiles(SpriteBatch spriteBatch)
     {
         bool highContrast = GameProfile.Profile.HighContrast;
+        PathFogOfWar? fog = ActiveVisibilityFog;
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             if (projectile.Path == "pool"
-                || (PathFog is not null
-                    && !PathFog.IsWorldAreaVisible(projectile.WorldRect())))
+                || (fog is not null
+                    && !fog.IsWorldAreaVisible(projectile.WorldRect())))
             {
                 continue;
             }
@@ -1024,6 +1058,8 @@ public sealed class GameSession
     /// </summary>
     public void DrawDepthSortedCombatWorld(SpriteBatch spriteBatch)
     {
+        PathFogOfWar? fog = ActiveVisibilityFog;
+        bool bossProjectileOverlay = State.ActiveBoss is not null;
         _worldDepthItemScratch.Clear();
         _worldDepthItemScratch.EnsureCapacity(
             State.BulletHolster.Count + State.EnemyHolster.Count
@@ -1040,8 +1076,8 @@ public sealed class GameSession
         _drawnEncounterIdScratch.Clear();
         foreach (var enemy in State.EnemyHolster)
         {
-            if (PathFog is not null
-                && !PathFog.IsWorldAreaVisible(enemy.WorldRect()))
+            if (fog is not null
+                && !fog.IsWorldAreaVisible(enemy.WorldRect()))
             {
                 continue;
             }
@@ -1064,11 +1100,13 @@ public sealed class GameSession
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             if (projectile.Path == "pool"
-                || (PathFog is not null
-                    && !PathFog.IsWorldAreaVisible(projectile.WorldRect())))
+                || (fog is not null
+                    && !fog.IsWorldAreaVisible(projectile.WorldRect())))
             {
                 continue;
             }
+            if (bossProjectileOverlay)
+                continue;
             Vector2 anchor = new(projectile.WorldX + projectile.Size / 2f, projectile.WorldY + projectile.Size / 2f);
             _worldDepthItemScratch.Add(new WorldDepthDrawItem(
                 anchor, 40, stableOrder++,
@@ -1083,6 +1121,31 @@ public sealed class GameSession
             new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight),
             _worldDepthItemScratch,
             _drawWorldDepthItem);
+
+        // Boss rooms are deliberately clear of fog and traversal occlusion.
+        // Drawing their potentially 150 airborne shots as one overlay avoids
+        // inserting and sorting every projectile with the static depth scene,
+        // while keeping telegraphs above actors and arena architecture.
+        if (bossProjectileOverlay)
+        {
+            bool highContrast = GameProfile.Profile.HighContrast;
+            for (int index = 0;
+                 index < State.EnemyProjectileHolster.Count;
+                 index++)
+            {
+                EnemyProjectile projectile =
+                    State.EnemyProjectileHolster[index];
+                if (projectile.Path != "pool")
+                {
+                    projectile.Draw(
+                        spriteBatch,
+                        Camera,
+                        PlayerWorldCenter,
+                        ScreenShake,
+                        highContrast);
+                }
+            }
+        }
     }
 
     private void DrawWorldDepthItem(SpriteBatch spriteBatch, WorldDepthDrawItem item)
@@ -1473,7 +1536,7 @@ public sealed class GameSession
     private void HandlePathEnemyCreation(Random rng, bool interactPressed)
     {
         var run = PathRun!;
-        PathFog?.Update(PlayerWorldCenter);
+        RefreshPathFog();
         IReadOnlyList<PathRoom> completedRooms =
             run.CompleteReadyCombatRooms(State.EnemyHolster);
         for (int index = 0; index < completedRooms.Count; index++)
@@ -2017,8 +2080,9 @@ public sealed class GameSession
     /// </summary>
     public BountyInfo? SelectBountyTarget()
     {
+        PathFogOfWar? fog = ActiveVisibilityFog;
         if (State.ActiveBoss is Enemy boss && !boss.IsDead()
-            && (PathFog is null || PathFog.IsWorldAreaVisible(boss.WorldRect())))
+            && (fog is null || fog.IsWorldAreaVisible(boss.WorldRect())))
         {
             return new BountyInfo(
                 new Vector2(boss.WorldX + boss.Size / 2f, boss.WorldY + boss.Size / 2f),
@@ -2033,7 +2097,7 @@ public sealed class GameSession
         foreach (var enemy in State.EnemyHolster)
         {
             if (enemy.IsDead()
-                || (PathFog is not null && !PathFog.IsWorldAreaVisible(enemy.WorldRect())))
+                || (fog is not null && !fog.IsWorldAreaVisible(enemy.WorldRect())))
                 continue;
             var encounter = enemy.Encounter;
             if (encounter is not null)
@@ -2049,8 +2113,8 @@ public sealed class GameSession
                 {
                     Enemy member = encounter.Members[index];
                     if (member.IsDead()
-                        || (PathFog is not null
-                            && !PathFog.IsWorldAreaVisible(member.WorldRect())))
+                        || (fog is not null
+                            && !fog.IsWorldAreaVisible(member.WorldRect())))
                     {
                         continue;
                     }
@@ -2385,7 +2449,7 @@ public sealed class GameSession
     /// </summary>
     public void DrawPathFogOfWar(SpriteBatch spriteBatch)
     {
-        if (PathFog is null)
+        if (!IsPathFogActive || PathFog is not { } fog)
             return;
 
         var displayViewport = new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight);
@@ -2421,21 +2485,21 @@ public sealed class GameSession
             int x = left;
             while (x <= right)
             {
-                if (PathFog.IsVisible(x, y))
+                if (fog.IsVisible(x, y))
                 {
                     x++;
                     continue;
                 }
 
-                bool explored = PathFog.IsExplored(x, y);
+                bool explored = fog.IsExplored(x, y);
                 int runStart = x++;
                 while (x <= right
-                    && !PathFog.IsVisible(x, y)
-                    && PathFog.IsExplored(x, y) == explored)
+                    && !fog.IsVisible(x, y)
+                    && fog.IsExplored(x, y) == explored)
                 {
                     x++;
                 }
-                Color fog = explored
+                Color fogColor = explored
                     ? new Color(4, 7, 13, 178)
                     : new Color(2, 3, 7, 250);
                 Vector2 topLeft = Camera.WorldToScreen(
@@ -2445,21 +2509,21 @@ public sealed class GameSession
                     (x - runStart) * Battleground.TileSize + 1f,
                     Battleground.TileSize + 1f);
                 Primitives2D.FillRotatedRect(
-                    spriteBatch, topLeft, runSize, rotation, fog);
+                    spriteBatch, topLeft, runSize, rotation, fogColor);
             }
 
             for (x = left; x <= right; x++)
             {
-                if (PathFog.IsVisible(x, y))
+                if (fog.IsVisible(x, y))
                     continue;
                 if (!Battleground.IsRaisedAt(x, y))
                     continue;
-                Color fog = PathFog.IsExplored(x, y)
+                Color fogColor = fog.IsExplored(x, y)
                     ? new Color(4, 7, 13, 178)
                     : new Color(2, 3, 7, 250);
                 ArenaRenderer.DrawWallOcclusionMask(
                     spriteBatch, Camera, PlayerWorldCenter, ScreenShake,
-                    x, y, Battleground.WallHeight, fog);
+                    x, y, Battleground.WallHeight, fogColor);
             }
         }
     }
@@ -2530,7 +2594,8 @@ public sealed class GameSession
     private void DrawBossHealthBar(SpriteBatch spriteBatch)
     {
         if (State.ActiveBoss is not Enemy boss || boss.Hp <= 0 || DeathSpectacleActive(boss)
-            || (PathFog is not null && !PathFog.IsWorldAreaVisible(boss.WorldRect())))
+            || (ActiveVisibilityFog is { } fog
+                && !fog.IsWorldAreaVisible(boss.WorldRect())))
             return;
         var phase = State.ActiveBoss switch
         {

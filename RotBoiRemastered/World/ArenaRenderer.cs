@@ -1141,33 +1141,39 @@ public sealed class ArenaRenderer
             // Ember ward brazier.
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)(cx - 8), (int)(floorY - 16), 16, 18), UiTheme.Ink);
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)(cx - 6), (int)(floorY - 15), 12, 15), palette.WallFace);
-            Primitives2D.FillPolygon(spriteBatch, new[]
-            {
-                new Vector2(cx - 7, floorY - 16), new Vector2(cx, floorY - 21),
-                new Vector2(cx + 7, floorY - 16), new Vector2(cx, floorY - 12),
-            }, palette.WallTop);
+            Primitives2D.FillQuad(
+                spriteBatch,
+                new Vector2(cx - 7, floorY - 16),
+                new Vector2(cx, floorY - 21),
+                new Vector2(cx + 7, floorY - 16),
+                new Vector2(cx, floorY - 12),
+                palette.WallTop);
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)(cx - 3), (int)(floorY - 26), 6, 9), palette.Accent);
         }
         else
         {
             // Archive plinth / drowned circuit relay.
             float height = biome == 0 ? 24 : 20;
-            Primitives2D.FillPolygon(spriteBatch, new[]
+            Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
             {
                 new Vector2(cx - 9, floorY - height), new Vector2(cx + 4, floorY - height - 5),
                 new Vector2(cx + 10, floorY - height + 1), new Vector2(cx + 10, floorY),
                 new Vector2(cx - 9, floorY),
             }, UiTheme.Ink);
-            Primitives2D.FillPolygon(spriteBatch, new[]
-            {
-                new Vector2(cx - 6, floorY - height + 1), new Vector2(cx + 6, floorY - height + 1),
-                new Vector2(cx + 6, floorY - 3), new Vector2(cx - 6, floorY - 1),
-            }, palette.WallFace);
-            Primitives2D.FillPolygon(spriteBatch, new[]
-            {
-                new Vector2(cx - 7, floorY - height), new Vector2(cx, floorY - height - 5),
-                new Vector2(cx + 7, floorY - height), new Vector2(cx, floorY - height + 4),
-            }, palette.WallTop);
+            Primitives2D.FillQuad(
+                spriteBatch,
+                new Vector2(cx - 6, floorY - height + 1),
+                new Vector2(cx + 6, floorY - height + 1),
+                new Vector2(cx + 6, floorY - 3),
+                new Vector2(cx - 6, floorY - 1),
+                palette.WallFace);
+            Primitives2D.FillQuad(
+                spriteBatch,
+                new Vector2(cx - 7, floorY - height),
+                new Vector2(cx, floorY - height - 5),
+                new Vector2(cx + 7, floorY - height),
+                new Vector2(cx, floorY - height + 4),
+                palette.WallTop);
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)(cx - 2), (int)(floorY - height + 7), 4, 7), palette.Accent);
         }
     }
@@ -1213,7 +1219,9 @@ public sealed class ArenaRenderer
             case PathDecorationKind.Pump:
                 Primitives2D.FillRect(spriteBatch, Rect(-11, -20, 22, 21), UiTheme.Ink);
                 Primitives2D.FillRect(spriteBatch, Rect(-8, -18, 16, 17), palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-10, -20), P(0, -27), P(10, -20), P(0, -14) }, palette.WallTop);
+                Primitives2D.FillQuad(
+                    spriteBatch, P(-10, -20), P(0, -27),
+                    P(10, -20), P(0, -14), palette.WallTop);
                 Primitives2D.FillCircle(spriteBatch, P(0, -8), S(4), palette.Accent);
                 Primitives2D.Line(spriteBatch, P(8, -18), P(17, -18), palette.Detail, S(4));
                 break;
@@ -1232,22 +1240,39 @@ public sealed class ArenaRenderer
 
             case PathDecorationKind.LensBuoy:
                 Primitives2D.FillRect(spriteBatch, Rect(-3, -22, 6, 23), palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -35), P(13, -24), P(0, -14), P(-13, -24) }, UiTheme.Ink);
+                Primitives2D.FillQuad(
+                    spriteBatch, P(0, -35), P(13, -24),
+                    P(0, -14), P(-13, -24), UiTheme.Ink);
                 Primitives2D.FillEllipse(spriteBatch, Rect(-10, -30, 20, 13), palette.WallTop);
                 Primitives2D.FillCircle(spriteBatch, P(0, -24), S(5), palette.Accent);
                 Primitives2D.FillRect(spriteBatch, Rect(-2, -27, 3, 3), palette.Detail);
                 break;
 
             case PathDecorationKind.SteppingStone:
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-13, -6), P(-5, -12), P(11, -10), P(15, -4), P(8, 0), P(-10, 0) }, palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-13, -7), P(-5, -13), P(11, -11), P(15, -5), P(2, -2) }, palette.WallTop);
-                Primitives2D.PolygonOutline(spriteBatch, new[] { P(-13, -7), P(-5, -13), P(11, -11), P(15, -5), P(2, -2) }, palette.Detail, S(2));
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-13, -6), P(-5, -12), P(11, -10),
+                    P(15, -4), P(8, 0), P(-10, 0),
+                }, palette.WallFace);
+                Span<Vector2> steppingStoneTop = stackalloc Vector2[]
+                {
+                    P(-13, -7), P(-5, -13), P(11, -11),
+                    P(15, -5), P(2, -2),
+                };
+                Primitives2D.FillPolygonSpan(
+                    spriteBatch, steppingStoneTop, palette.WallTop);
+                Primitives2D.PolygonOutlineSpan(
+                    spriteBatch, steppingStoneTop, palette.Detail, S(2));
                 break;
 
             case PathDecorationKind.BrokenColumn:
                 Primitives2D.FillRect(spriteBatch, Rect(-9, -25, 18, 26), UiTheme.Ink);
                 Primitives2D.FillRect(spriteBatch, Rect(-6, -23, 12, 22), palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-8, -25), P(-3, -30), P(2, -25), P(7, -29), P(9, -24) }, palette.WallTop);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-8, -25), P(-3, -30), P(2, -25),
+                    P(7, -29), P(9, -24),
+                }, palette.WallTop);
                 Primitives2D.Line(spriteBatch, P(-4, -19), P(4, -12), palette.Accent, S(2));
                 break;
 
@@ -1258,7 +1283,7 @@ public sealed class ArenaRenderer
                     MathF.PI, MathF.Tau, UiTheme.Ink, S(7), 28);
                 Primitives2D.Arc(spriteBatch, Rect(-12, -43, 24, 25),
                     MathF.PI, MathF.Tau, palette.Detail, S(3), 28);
-                Primitives2D.FillPolygon(spriteBatch, new[]
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
                     P(0, -39), P(10, -28), P(7, -4), P(-7, -4), P(-10, -28),
                 }, palette.WallFace);
@@ -1267,8 +1292,16 @@ public sealed class ArenaRenderer
                 break;
 
             case PathDecorationKind.EchoPylon:
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -39), P(10, -27), P(7, -1), P(-7, -1), P(-10, -27) }, UiTheme.Ink);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -35), P(7, -25), P(4, -3), P(-4, -3), P(-7, -25) }, palette.WallFace);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(0, -39), P(10, -27), P(7, -1),
+                    P(-7, -1), P(-10, -27),
+                }, UiTheme.Ink);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(0, -35), P(7, -25), P(4, -3),
+                    P(-4, -3), P(-7, -25),
+                }, palette.WallFace);
                 for (int ring = 0; ring < 3; ring++)
                     Primitives2D.Arc(spriteBatch, Rect(-15 - ring * 3, -34 - ring * 2, 30 + ring * 6, 20 + ring * 4), MathF.PI, MathF.Tau, palette.Accent * (.9f - ring * .18f), S(2), 18);
                 break;
@@ -1286,7 +1319,11 @@ public sealed class ArenaRenderer
 
             case PathDecorationKind.LightningRod:
                 Primitives2D.FillRect(spriteBatch, Rect(-3, -34, 6, 35), palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -46), P(7, -34), P(1, -35), P(6, -24), P(-7, -37), P(-1, -36) }, palette.Detail);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(0, -46), P(7, -34), P(1, -35),
+                    P(6, -24), P(-7, -37), P(-1, -36),
+                }, palette.Detail);
                 Primitives2D.Line(spriteBatch, P(-11, -3), P(0, -10), palette.WallTop, S(3));
                 Primitives2D.Line(spriteBatch, P(11, -3), P(0, -10), palette.WallTop, S(3));
                 break;
@@ -1309,17 +1346,31 @@ public sealed class ArenaRenderer
                 break;
 
             case PathDecorationKind.Asteroid:
-                var asteroid = new[] { P(-14, -15), P(-5, -27), P(10, -24), P(16, -13), P(8, -2), P(-9, -3) };
-                Primitives2D.FillPolygon(spriteBatch, asteroid, palette.WallFace);
-                Primitives2D.PolygonOutline(spriteBatch, asteroid, UiTheme.Ink, S(2));
+                Span<Vector2> asteroid = stackalloc Vector2[]
+                {
+                    P(-14, -15), P(-5, -27), P(10, -24),
+                    P(16, -13), P(8, -2), P(-9, -3),
+                };
+                Primitives2D.FillPolygonSpan(
+                    spriteBatch, asteroid, palette.WallFace);
+                Primitives2D.PolygonOutlineSpan(
+                    spriteBatch, asteroid, UiTheme.Ink, S(2));
                 Primitives2D.FillCircle(spriteBatch, P(4, -16), S(4), palette.Accent * .72f);
                 Primitives2D.FillRect(spriteBatch, Rect(-8, -11, 4, 4), palette.Detail);
                 break;
 
             case PathDecorationKind.PrismObelisk:
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -43), P(12, -25), P(8, -1), P(-8, -1), P(-12, -25) }, UiTheme.Ink);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -39), P(8, -24), P(5, -4), P(0, -8) }, palette.Accent);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(0, -39), P(0, -8), P(-5, -4), P(-8, -24) }, palette.WallTop);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(0, -43), P(12, -25), P(8, -1),
+                    P(-8, -1), P(-12, -25),
+                }, UiTheme.Ink);
+                Primitives2D.FillQuad(
+                    spriteBatch, P(0, -39), P(8, -24),
+                    P(5, -4), P(0, -8), palette.Accent);
+                Primitives2D.FillQuad(
+                    spriteBatch, P(0, -39), P(0, -8),
+                    P(-5, -4), P(-8, -24), palette.WallTop);
                 Primitives2D.Line(spriteBatch, P(0, -35), P(0, -10), palette.Detail, S(2));
                 break;
 
@@ -1331,18 +1382,17 @@ public sealed class ArenaRenderer
                 break;
 
             case PathDecorationKind.LanternSpire:
-                Primitives2D.FillPolygon(spriteBatch, new[]
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
                     P(0, -51), P(8, -39), P(6, -2), P(-6, -2), P(-8, -39),
                 }, UiTheme.Ink);
-                Primitives2D.FillPolygon(spriteBatch, new[]
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
                     P(0, -46), P(5, -37), P(4, -5), P(-4, -5), P(-5, -37),
                 }, palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[]
-                {
-                    P(0, -38), P(7, -29), P(0, -20), P(-7, -29),
-                }, palette.Accent);
+                Primitives2D.FillQuad(
+                    spriteBatch, P(0, -38), P(7, -29),
+                    P(0, -20), P(-7, -29), palette.Accent);
                 Primitives2D.CircleOutline(spriteBatch, P(0, -29), S(12),
                     palette.Detail * .8f, S(2), 24);
                 Primitives2D.FillCircle(spriteBatch, P(0, -29), S(4), palette.Detail);
@@ -1353,12 +1403,23 @@ public sealed class ArenaRenderer
                 Primitives2D.FillRect(spriteBatch, Rect(-14, -15, 28, 4), palette.Accent);
                 Primitives2D.Line(spriteBatch, P(-11, 0), P(-5, -24), palette.Detail, S(4));
                 Primitives2D.Line(spriteBatch, P(11, 0), P(5, -24), palette.Detail, S(4));
+                Span<Vector2> barricadeSpike = stackalloc Vector2[3];
                 for (int spike = -1; spike <= 1; spike++)
-                    Primitives2D.FillPolygon(spriteBatch, new[] { P(spike * 10 - 3, -16), P(spike * 10, -28), P(spike * 10 + 3, -16) }, palette.WallTop);
+                {
+                    barricadeSpike[0] = P(spike * 10 - 3, -16);
+                    barricadeSpike[1] = P(spike * 10, -28);
+                    barricadeSpike[2] = P(spike * 10 + 3, -16);
+                    Primitives2D.FillPolygonSpan(
+                        spriteBatch, barricadeSpike, palette.WallTop);
+                }
                 break;
 
             case PathDecorationKind.DeadTree:
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-6, 0), P(-4, -27), P(2, -39), P(6, -28), P(5, 0) }, palette.WallFace);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-6, 0), P(-4, -27), P(2, -39),
+                    P(6, -28), P(5, 0),
+                }, palette.WallFace);
                 Primitives2D.Line(spriteBatch, P(0, -27), P(-16, -38), palette.WallFace, S(5));
                 Primitives2D.Line(spriteBatch, P(-13, -36), P(-18, -46), palette.Detail, S(3));
                 Primitives2D.Line(spriteBatch, P(3, -31), P(17, -42), palette.WallFace, S(5));
@@ -1366,19 +1427,30 @@ public sealed class ArenaRenderer
                 break;
 
             case PathDecorationKind.RuinSlab:
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-13, 0), P(-10, -32), P(-3, -39), P(11, -33), P(13, 0) }, UiTheme.Ink);
-                Primitives2D.FillPolygon(spriteBatch, new[] { P(-9, -2), P(-7, -30), P(-2, -35), P(8, -30), P(9, -2) }, palette.WallFace);
-                Primitives2D.Polyline(spriteBatch, new[] { P(-2, -29), P(4, -21), P(-1, -13), P(5, -6) }, false, palette.Accent, S(2));
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-13, 0), P(-10, -32), P(-3, -39),
+                    P(11, -33), P(13, 0),
+                }, UiTheme.Ink);
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-9, -2), P(-7, -30), P(-2, -35),
+                    P(8, -30), P(9, -2),
+                }, palette.WallFace);
+                Primitives2D.PolylineSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    P(-2, -29), P(4, -21), P(-1, -13), P(5, -6),
+                }, false, palette.Accent, S(2));
                 break;
 
             case PathDecorationKind.FurnaceIdol:
-                Primitives2D.FillPolygon(spriteBatch, new[]
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
                     P(-13, 0), P(-15, -31), P(-8, -42), P(8, -42),
                     P(15, -31), P(13, 0),
                 }, UiTheme.Ink);
                 Primitives2D.FillRect(spriteBatch, Rect(-10, -35, 20, 33), palette.WallFace);
-                Primitives2D.FillPolygon(spriteBatch, new[]
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
                     P(-7, -27), P(0, -34), P(7, -27), P(5, -19), P(-5, -19),
                 }, palette.WallTop);

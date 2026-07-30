@@ -71,6 +71,10 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   stateful module ported so far: `menus.py`'s `_buttons`/`_settings_tab`/
   `_rebinding_action` are fields on `Menus`; `levelingHandler.py`'s mutable
   attributes are fields on `LevelingHandler`.
+- The Options grid includes a persisted 30-360 FPS slider (five-FPS steps) and
+  Vertical Sync toggle alongside the existing display, scale, text, and camera
+  controls. Frame-cap changes apply immediately; VSync changes reconcile the
+  graphics device once.
 - **Mouse position/state are explicit method parameters** on every
   `Menus`/`LevelingHandler` draw/input method (matching `UiTheme.DrawButton`'s
   existing shape) rather than reads of `vH.mouseX`/`mouseY`/`mouseDown`.

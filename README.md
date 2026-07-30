@@ -126,7 +126,13 @@ position. Sight has no arbitrary distance cutoff, so an unobstructed hallway
 remains readable to its far end. Visible floor also keeps its bordering wall
 faces lit, and convex wall corners inherit visibility from a visible adjoining
 wall to avoid harsh single-tile flicker. The compact floor map follows the same
-discovery rules.
+discovery rules. World fog is suspended inside Grand Arenas and boss rooms so
+their combat remains smooth and fully readable; map discovery remains intact.
+
+The Options screen exposes a persisted 30-360 FPS cap in five-FPS increments
+and a Vertical Sync toggle. The cap controls the fixed game cadence, while
+VSync synchronizes presentation to the display when supported by the graphics
+driver.
 
 Ordinary enemies use a substantially lower equipment-drop table in this mode;
 forge Fragments and experience still work normally. Treasure encounters do not

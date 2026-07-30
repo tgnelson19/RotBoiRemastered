@@ -70,6 +70,15 @@ public sealed class Dissonance : Enemy
     public const int MinimumDamagePhaseDeclarations = 2;
     public const int ActiveThreatSoftCap = 132;
     public const int MaximumJeraChordRings = 9;
+    private static readonly int[][] CubeFaceIndices =
+    [
+        [0, 1, 2, 3],
+        [4, 7, 6, 5],
+        [0, 4, 5, 1],
+        [3, 2, 6, 7],
+        [0, 3, 7, 4],
+        [1, 5, 6, 2],
+    ];
 
     public static readonly IReadOnlyDictionary<int, (string Name, Vector2[][] Strokes)> PhaseRunes =
         new Dictionary<int, (string, Vector2[][])>
@@ -173,6 +182,23 @@ public sealed class Dissonance : Enemy
     }
 
     private readonly Random _rng;
+    private readonly Vector2[] _arenaMaskVertices = new Vector2[64];
+    private readonly Vector3[] _drawCubeVertices = new Vector3[8];
+    private readonly int[] _drawCubeFaceOrder = new int[6];
+    private readonly Vector2[][] _drawProjectedFaces =
+    [
+        new Vector2[4],
+        new Vector2[4],
+        new Vector2[4],
+        new Vector2[4],
+        new Vector2[4],
+        new Vector2[4],
+    ];
+    private readonly Vector2[] _drawShadowFace = new Vector2[4];
+    private readonly List<EnemyProjectile> _stagedThreatScratch = new(ActiveThreatSoftCap);
+    private readonly List<(string Part, Rectangle Rect)> _screenHitboxScratch = new(16);
+    private readonly List<(string Part, Rectangle Rect)> _worldHitboxScratch = new(16);
+    private static readonly float[] BossBurstSpeeds = [1.45f, 1.12f, .82f, .56f, .38f];
     public Vector2 ArenaCenter { get; }
     public float ArenaRadius { get; } = Simulation.TileSize * (32.0f / 3.0f);
     public float ArenaFormationScale { get; } = 4.0f / 3.0f;
@@ -1011,12 +1037,11 @@ public sealed class Dissonance : Enemy
     {
         var center = Center();
         float direction = MathF.Atan2(targetY - center.Y, targetX - center.X);
-        float[] speeds = { 1.45f, 1.12f, .82f, .56f, .38f };
-        int actualCount = count ?? _rng.Next(3, 6);
+        int actualCount = Math.Min(BossBurstSpeeds.Length, count ?? _rng.Next(3, 6));
         for (int index = 0; index < actualCount; index++)
         {
             sink.Add(new EnemyProjectile(center.X - Simulation.TileSize * (.34f + index * .035f) / 2f, center.Y - Simulation.TileSize * (.34f + index * .035f) / 2f,
-                direction, speeds[index], .9f, Simulation.TileSize * (.34f + index * .035f),
+                direction, BossBurstSpeeds[index], .9f, Simulation.TileSize * (.34f + index * .035f),
                 travelRange: float.PositiveInfinity, color: PhaseAccent, shape: "diamond", owner: "dissonance_speed_burst", ignoreWalls: true));
         }
         // Two delayed echoes turn the speed stack into a true three-shot boss burst
@@ -1027,28 +1052,28 @@ public sealed class Dissonance : Enemy
 
     private void UpdateBossBursts(List<EnemyProjectile> sink, double dt)
     {
-        var remaining = new List<BossBurst>();
-        float[] speeds = { 1.45f, 1.12f, .82f, .56f, .38f };
-        foreach (var burst in _bossBurstQueue)
+        int writeIndex = 0;
+        for (int readIndex = 0; readIndex < _bossBurstQueue.Count; readIndex++)
         {
+            var burst = _bossBurstQueue[readIndex];
             burst.Timer -= dt;
             if (burst.Timer > 0)
             {
-                remaining.Add(burst);
+                _bossBurstQueue[writeIndex++] = burst;
                 continue;
             }
             var center = Center();
             float direction = MathF.Atan2(burst.TargetY - center.Y, burst.TargetX - center.X);
             for (int index = 0; index < burst.Count; index++)
             {
-                float speed = speeds[index] * burst.SpeedScale;
+                float speed = BossBurstSpeeds[index] * burst.SpeedScale;
                 float size = Simulation.TileSize * (.28f + index * .045f);
                 sink.Add(new EnemyProjectile(center.X - size / 2f, center.Y - size / 2f, direction, speed, .9f, size,
                     travelRange: float.PositiveInfinity, color: PhaseAccent, shape: "diamond", owner: "dissonance_speed_burst_echo", ignoreWalls: true));
             }
         }
-        _bossBurstQueue.Clear();
-        _bossBurstQueue.AddRange(remaining);
+        if (writeIndex < _bossBurstQueue.Count)
+            _bossBurstQueue.RemoveRange(writeIndex, _bossBurstQueue.Count - writeIndex);
     }
 
     private void LobBomb(List<EnemyProjectile> sink, float targetX, float targetY, Color? color = null)
@@ -1488,14 +1513,36 @@ public sealed class Dissonance : Enemy
             return;
         }
         RuneCannonCooldown -= dt;
-        var active = ProjectilePortals.Select((portal, index) => (Index: index, Portal: portal)).Where(p => p.Portal.BlocksShots).ToList();
-        if (RuneCannonCooldown <= 0 && active.Count >= 2)
+        if (RuneCannonCooldown > 0)
+            return;
+
+        int activeCount = 0;
+        for (int index = 0; index < ProjectilePortals.Count; index++)
         {
-            RuneCannonReceiver = active[CarouselIndex % active.Count].Index;
+            if (ProjectilePortals[index].BlocksShots)
+                activeCount++;
+        }
+        if (activeCount >= 2)
+        {
+            int selectedOrdinal = CarouselIndex % activeCount;
+            int selectedIndex = -1;
+            for (int index = 0, ordinal = 0; index < ProjectilePortals.Count; index++)
+            {
+                if (!ProjectilePortals[index].BlocksShots)
+                    continue;
+                if (ordinal++ == selectedOrdinal)
+                {
+                    selectedIndex = index;
+                    break;
+                }
+            }
+            RuneCannonReceiver = selectedIndex;
             var receiver = ProjectilePortals[RuneCannonReceiver.Value];
             var target = new Vector2(receiver.WorldX + receiver.Size / 2f, receiver.WorldY + receiver.Size / 2f);
-            foreach (var (_, portal) in active)
+            foreach (var portal in ProjectilePortals)
             {
+                if (!portal.BlocksShots)
+                    continue;
                 portal.TelegraphTimer = 1.4f;
                 portal.TelegraphKind = "line";
                 portal.TelegraphTarget = target;
@@ -1606,7 +1653,8 @@ public sealed class Dissonance : Enemy
         foreach (var portal in ProjectilePortals)
             portal.ShowTether = true;
         PhaseElapsed += dt;
-        var stagedThreats = new List<EnemyProjectile>();
+        _stagedThreatScratch.Clear();
+        var stagedThreats = _stagedThreatScratch;
         UpdateBossBursts(stagedThreats, dt);
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         if (!DebugPhaseLocked && !SurvivalActive)
@@ -1690,33 +1738,35 @@ public sealed class Dissonance : Enemy
 
     public override IReadOnlyList<(string Part, Rectangle Rect)> GetScreenHitboxes(Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        var hitboxes = base.GetScreenHitboxes(camera, playerWorldPosition, screenShake).ToList();
+        _screenHitboxScratch.Clear();
+        _screenHitboxScratch.AddRange(base.GetScreenHitboxes(camera, playerWorldPosition, screenShake));
         if (SurvivalActive)
-            return hitboxes;
+            return _screenHitboxScratch;
         for (int index = 0; index < ProjectilePortals.Count; index++)
         {
             var portal = ProjectilePortals[index];
             if (portal.BlocksShots)
             {
                 var screenPosition = camera.WorldToScreen(new Vector2(portal.WorldX, portal.WorldY), playerWorldPosition, screenShake);
-                hitboxes.Add(($"portal:{index}", new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)portal.Size, (int)portal.Size)));
+                _screenHitboxScratch.Add(($"portal:{index}", new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)portal.Size, (int)portal.Size)));
             }
         }
-        return hitboxes;
+        return _screenHitboxScratch;
     }
 
     public override IReadOnlyList<(string Part, Rectangle Rect)> GetWorldHitboxes()
     {
-        var hitboxes = base.GetWorldHitboxes().ToList();
+        _worldHitboxScratch.Clear();
+        _worldHitboxScratch.AddRange(base.GetWorldHitboxes());
         if (SurvivalActive)
-            return hitboxes;
+            return _worldHitboxScratch;
         for (int index = 0; index < ProjectilePortals.Count; index++)
         {
             var portal = ProjectilePortals[index];
             if (portal.BlocksShots)
-                hitboxes.Add(($"portal:{index}", new Rectangle((int)portal.WorldX, (int)portal.WorldY, (int)portal.Size, (int)portal.Size)));
+                _worldHitboxScratch.Add(($"portal:{index}", new Rectangle((int)portal.WorldX, (int)portal.WorldY, (int)portal.Size, (int)portal.Size)));
         }
-        return hitboxes;
+        return _worldHitboxScratch;
     }
 
     /// <summary>Stable hooks for future achievements, drops, and hard-mode unlocks.</summary>
@@ -1737,19 +1787,38 @@ public sealed class Dissonance : Enemy
     /// </summary>
     public (Vector3[] Vertices, int[][] Faces) CubeGeometry(Vector2 center, float extent, float age, int phase)
     {
+        var vertices = new Vector3[8];
+        var faceOrder = new int[6];
+        PopulateCubeGeometry(
+            center,
+            extent,
+            age,
+            phase,
+            vertices,
+            faceOrder);
+        var sortedFaces = new int[faceOrder.Length][];
+        for (int index = 0; index < faceOrder.Length; index++)
+            sortedFaces[index] = CubeFaceIndices[faceOrder[index]];
+        return (vertices, sortedFaces);
+    }
+
+    private void PopulateCubeGeometry(
+        Vector2 center,
+        float extent,
+        float age,
+        int phase,
+        Vector3[] vertices,
+        int[] faceOrder)
+    {
         double transition = phase > 1 ? Math.Max(0.0, 1.0 - PhaseElapsed) : 0.0;
         double staggerWobble = IsStaggered ? Math.Sin(age * .09) * .12 : 0.0;
         double yaw = age * (.0075 + phase * .00055) + transition * transition * Math.PI + staggerWobble;
         double pitch = .42 + Math.Sin(age * (.0055 + phase * .0002)) * .16 + transition * .22;
-        float[,] corners =
-        {
-            { -1, -1, -1 }, { 1, -1, -1 }, { 1, 1, -1 }, { -1, 1, -1 },
-            { -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 },
-        };
-        var vertices = new Vector3[8];
         for (int index = 0; index < 8; index++)
         {
-            float x = corners[index, 0], y = corners[index, 1], z = corners[index, 2];
+            float x = index is 1 or 2 or 5 or 6 ? 1 : -1;
+            float y = index is 2 or 3 or 6 or 7 ? 1 : -1;
+            float z = index >= 4 ? 1 : -1;
             double rotatedX = x * Math.Cos(yaw) + z * Math.Sin(yaw);
             double rotatedZ = -x * Math.Sin(yaw) + z * Math.Cos(yaw);
             double rotatedY = y * Math.Cos(pitch) - rotatedZ * Math.Sin(pitch);
@@ -1760,31 +1829,41 @@ public sealed class Dissonance : Enemy
                 (float)(center.Y + rotatedY * extent * perspective),
                 (float)rotatedZ);
         }
-        int[][] faces =
+
+        for (int index = 0; index < faceOrder.Length; index++)
+            faceOrder[index] = index;
+        for (int index = 1; index < faceOrder.Length; index++)
         {
-            new[] { 0, 1, 2, 3 }, new[] { 4, 7, 6, 5 }, new[] { 0, 4, 5, 1 },
-            new[] { 3, 2, 6, 7 }, new[] { 0, 3, 7, 4 }, new[] { 1, 5, 6, 2 },
-        };
-        var sortedFaces = faces.OrderBy(face => face.Average(i => vertices[i].Z)).ToArray();
-        return (vertices, sortedFaces);
+            int current = faceOrder[index];
+            float currentDepth = FaceDepth(current, vertices);
+            int insertion = index - 1;
+            while (insertion >= 0
+                && FaceDepth(faceOrder[insertion], vertices) > currentDepth)
+            {
+                faceOrder[insertion + 1] = faceOrder[insertion];
+                insertion--;
+            }
+            faceOrder[insertion + 1] = current;
+        }
+    }
+
+    private static float FaceDepth(int faceIndex, Vector3[] vertices)
+    {
+        int[] face = CubeFaceIndices[faceIndex];
+        return (vertices[face[0]].Z
+            + vertices[face[1]].Z
+            + vertices[face[2]].Z
+            + vertices[face[3]].Z) * .25f;
     }
 
     private void DrawCubeAura(SpriteBatch spriteBatch, Vector2 center, Color color)
     {
         double transition = Phase > 1 ? Math.Max(0.0, 1.0 - PhaseElapsed) : 0.0;
-        float beat = (float)((1 + Math.Sin(Age * .035) * .055) * (1 + transition * .22));
-        for (int index = 0; index < 3; index++)
-        {
-            float width = Size * (1.18f + index * .18f) * beat;
-            float height = Size * (.56f + index * .1f) * beat;
-            var arcRect = new Rectangle((int)(center.X - width / 2f), (int)(center.Y - height / 2f), (int)width, (int)height);
-            float start = Age * (.012f + index * .004f) * (index % 2 == 1 ? -1f : 1f);
-            Primitives2D.Arc(spriteBatch, arcRect, start, start + MathF.PI * 1.18f, UiTheme.Ink, Math.Max(4, (int)(Size * .065f)));
-            Primitives2D.Arc(spriteBatch, arcRect, start, start + MathF.PI * 1.18f, color, Math.Max(1, (int)(Size * .022f)));
-        }
 
         int shardCount = 3;
         float orbit = Age * .006f;
+        Span<Vector2> shard = stackalloc Vector2[4];
+        Span<Vector2> shardInner = stackalloc Vector2[4];
         for (int index = 0; index < shardCount; index++)
         {
             float angle = orbit + index * 2f * MathF.PI / shardCount;
@@ -1792,14 +1871,24 @@ public sealed class Dissonance : Enemy
             float shardX = center.X + MathF.Cos(angle) * distance;
             float shardY = center.Y + MathF.Sin(angle) * distance * .48f;
             float shardSize = Size * (.055f + .012f * MathF.Sin(Age * .04f + index));
-            var points = new[]
+            shard[0] = new Vector2(shardX, shardY - shardSize * 1.5f);
+            shard[1] = new Vector2(shardX + shardSize, shardY);
+            shard[2] = new Vector2(shardX, shardY + shardSize * 1.5f);
+            shard[3] = new Vector2(shardX - shardSize, shardY);
+            for (int point = 0; point < shard.Length; point++)
             {
-                new Vector2(shardX, shardY - shardSize * 1.5f), new Vector2(shardX + shardSize, shardY),
-                new Vector2(shardX, shardY + shardSize * 1.5f), new Vector2(shardX - shardSize, shardY),
-            };
-            Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Ink);
-            var inner = points.Select(p => new Vector2(center.X + (p.X - center.X) * .82f, center.Y + (p.Y - center.Y) * .82f)).ToArray();
-            Primitives2D.FillPolygon(spriteBatch, inner, color);
+                shardInner[point] = new Vector2(
+                    center.X + (shard[point].X - center.X) * .82f,
+                    center.Y + (shard[point].Y - center.Y) * .82f);
+            }
+            Primitives2D.FillPolygonSpan(
+                spriteBatch,
+                shard,
+                UiTheme.Ink);
+            Primitives2D.FillPolygonSpan(
+                spriteBatch,
+                shardInner,
+                color);
         }
 
         if (transition > 0)
@@ -1810,13 +1899,22 @@ public sealed class Dissonance : Enemy
 
         if (IsStaggered)
         {
+            Span<Vector2> staggerLine = stackalloc Vector2[3];
             for (int index = 0; index < 4; index++)
             {
                 float angle = Age * .04f + index * MathF.PI / 2f;
                 var start = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Size * .48f;
                 var middle = center + new Vector2(MathF.Cos(angle + .18f), MathF.Sin(angle + .18f)) * Size * .64f;
                 var end = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Size * .78f;
-                Primitives2D.Polyline(spriteBatch, new[] { start, middle, end }, false, UiTheme.Cream, 2);
+                staggerLine[0] = start;
+                staggerLine[1] = middle;
+                staggerLine[2] = end;
+                Primitives2D.PolylineSpan(
+                    spriteBatch,
+                    staggerLine,
+                    false,
+                    UiTheme.Cream,
+                    2);
             }
         }
 
@@ -1830,103 +1928,26 @@ public sealed class Dissonance : Enemy
     /// <summary>Layer translucent interpolated echoes behind Dissonance's live cube.</summary>
     private void DrawMotionTrail(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        foreach (var ghost in MotionTrail)
+        for (int index = 0; index < MotionTrail.Count; index++)
         {
+            MotionTrailGhost ghost = MotionTrail[index];
             float alpha = (float)Math.Pow(ghost.Life / .52, 2) * 72f;
             if (alpha <= 2)
                 continue;
             var screenPos = camera.WorldToScreen(new Vector2(ghost.X, ghost.Y), playerWorldPosition, screenShake);
-            float radius = Size * (.19f + .035f * MotionTrail.IndexOf(ghost) / Math.Max(1, MotionTrail.Count));
+            float radius = Size
+                * (.19f + .035f * index / Math.Max(1, MotionTrail.Count));
             var center = new Vector2(screenPos.X + Size / 2f, screenPos.Y + Size / 2f);
-            Primitives2D.CircleOutline(spriteBatch, center, radius, ghost.Accent * (alpha / 255f), Math.Max(2, (int)(radius * .18f)));
-            Primitives2D.CircleOutline(spriteBatch, center, Math.Max(2, radius * .38f), UiTheme.Cream * (alpha / 255f / 2f), 2);
-        }
-    }
-
-    private void DrawArenaInscription(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
-    {
-        int runePhase = Dying || (Phase == 9 && SurvivalActive) ? 9 : Phase;
-        var strokes = PhaseRunes[runePhase].Strokes;
-        var center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
-        float radius = Simulation.TileSize * ArenaFormationScale * (3.2f + .25f * MathF.Sin(Age * .01f));
-        for (int strokeIndex = 0; strokeIndex < strokes.Length; strokeIndex++)
-        {
-            var stroke = strokes[strokeIndex];
-            var points = stroke.Select(p => center + p * radius).ToArray();
-            if (points.Length <= 1)
-                continue;
-            int pulse = Math.Max(1, (int)(2 + 2 * (1 + Math.Sin(Age * .025 + strokeIndex))));
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Shadow, 14);
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink, 8);
-            Primitives2D.Polyline(spriteBatch, points, false, PhaseAccent, pulse);
-            int segment = (int)(Age * .018 + strokeIndex) % (points.Length - 1);
-            float travel = (Age * .018f + strokeIndex) % 1f;
-            var sparkPos = points[segment] + (points[segment + 1] - points[segment]) * travel;
-            Primitives2D.FillRect(spriteBatch, new Rectangle((int)sparkPos.X - 4, (int)sparkPos.Y - 4, 8, 8), UiTheme.Cream);
-        }
-    }
-
-    private void DrawMiniRune(SpriteBatch spriteBatch, Vector2 center, float radius, int runePhase, Color color)
-    {
-        foreach (var stroke in PhaseRunes[runePhase].Strokes)
-        {
-            var points = stroke.Select(point => center + point * radius).ToArray();
-            if (points.Length <= 1)
-                continue;
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink * .8f, 6);
-            Primitives2D.Polyline(spriteBatch, points, false, color, 2);
-        }
-    }
-
-    /// <summary>
-    /// Jera resolves the preceding eight runes into a visible grand staff:
-    /// five steady lines hold the arena while remembered rune-chords illuminate
-    /// around its edge and measured wavefronts expand through the final phrase.
-    /// The construction is cosmetic and consumes no hostile-projectile budget.
-    /// </summary>
-    private void DrawJeraGrandStaff(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
-    {
-        int chordCount = JeraChordRingCount;
-        if (chordCount == 0)
-            return;
-
-        var center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
-        float rotation = MathF.Sin(Age * .0035f) * .08f;
-        var along = new Vector2(MathF.Cos(rotation), MathF.Sin(rotation));
-        var normal = new Vector2(-along.Y, along.X);
-        for (int line = -2; line <= 2; line++)
-        {
-            float offset = line * Simulation.TileSize * .72f;
-            float halfLength = MathF.Sqrt(MathF.Max(0, ArenaRadius * ArenaRadius - offset * offset)) * .94f;
-            var midpoint = center + normal * offset;
-            Primitives2D.Line(spriteBatch, midpoint - along * halfLength, midpoint + along * halfLength,
-                UiTheme.Ink * .72f, 7);
-            Primitives2D.Line(spriteBatch, midpoint - along * halfLength, midpoint + along * halfLength,
-                (line == 0 ? UiTheme.Cream : PhaseAccent) * .42f, line == 0 ? 2 : 1);
-        }
-
-        double progress = Math.Clamp(1.0 - SurvivalRemaining / SurvivalDuration, 0.0, 1.0);
-        for (int ring = 0; ring < chordCount; ring++)
-        {
-            double cycle = (progress * .8 + ring / (double)MaximumJeraChordRings) % 1.0;
-            float radius = ArenaRadius * (.18f + .72f * (float)cycle);
-            float alpha = .16f + .28f * (1f - (float)cycle);
-            Primitives2D.CircleOutline(spriteBatch, center, radius,
-                (ring % 2 == 0 ? UiTheme.Red : UiTheme.Cream) * alpha, ring % 3 == 0 ? 3 : 2);
-        }
-
-        float runeOrbit = ArenaRadius * .78f;
-        for (int index = 0; index < chordCount; index++)
-        {
-            float angle = -MathF.PI / 2f + index * MathF.Tau / MaximumJeraChordRings + Age * .0015f;
-            var runeCenter = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * runeOrbit;
-            var nextAngle = -MathF.PI / 2f + ((index + 1) % MaximumJeraChordRings) *
-                MathF.Tau / MaximumJeraChordRings + Age * .0015f;
-            var next = center + new Vector2(MathF.Cos(nextAngle), MathF.Sin(nextAngle)) * runeOrbit;
-            Primitives2D.Line(spriteBatch, runeCenter, next, PhaseAccent * .28f, 2);
-            Primitives2D.CircleOutline(spriteBatch, runeCenter, Simulation.TileSize * .43f, UiTheme.Ink, 6);
-            DrawMiniRune(spriteBatch, runeCenter, Simulation.TileSize * .62f, index + 1,
-                index == chordCount - 1 ? UiTheme.Cream : PhaseAccent * .8f);
+            int extent = Math.Max(4, (int)(radius * .68f));
+            var ghostRect = new Rectangle(
+                (int)center.X - extent / 2,
+                (int)center.Y - extent / 2,
+                extent,
+                extent);
+            Primitives2D.FillRect(
+                spriteBatch,
+                ghostRect,
+                ghost.Accent * (alpha / 255f));
         }
     }
 
@@ -1962,18 +1983,10 @@ public sealed class Dissonance : Enemy
                 Primitives2D.FillCircle(spriteBatch, tip, 5, UiTheme.Cream);
             }
         }
-        Primitives2D.CircleOutline(spriteBatch, center, radius + 14, UiTheme.Shadow, 26);
-        Primitives2D.CircleOutline(spriteBatch, center, radius + 5, UiTheme.Ink, 14);
-        Primitives2D.CircleOutline(spriteBatch, center, radius + 2, PhaseAccent, 6);
-        Primitives2D.CircleOutline(spriteBatch, center, radius - 5, UiTheme.Cream, 2);
-        for (int index = 0; index < 24; index++)
-        {
-            float angle = index * 2f * MathF.PI / 24f + Age * .0015f;
-            float inner = radius - (index % 3 != 0 ? 8 : 15);
-            var start = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * inner;
-            var end = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
-            Primitives2D.Line(spriteBatch, start, end, index % 3 != 0 ? PhaseAccent : UiTheme.Cream, 2);
-        }
+        Primitives2D.CircleOutline(
+            spriteBatch, center, radius + 5, UiTheme.Ink, 14);
+        Primitives2D.CircleOutline(
+            spriteBatch, center, radius + 2, PhaseAccent, 5);
         for (int index = 0; index < 8; index++)
         {
             float angle = Age * .012f + index * MathF.PI / 4f;
@@ -1983,39 +1996,24 @@ public sealed class Dissonance : Enemy
             Primitives2D.FillRect(spriteBatch, inflated, UiTheme.Ink);
             Primitives2D.FillRect(spriteBatch, packet, PhaseAccent);
         }
-        float waveRadius = radius - Age * .8f % 34f;
-        Primitives2D.CircleOutline(spriteBatch, center, waveRadius, PhaseAccent, 1);
-        for (int ringIndex = 0; ringIndex < 3; ringIndex++)
-        {
-            var points = new Vector2[64];
-            for (int step = 0; step < 64; step++)
-            {
-                float angle = step * 2f * MathF.PI / 64f + Age * (.004f + ringIndex * .0015f);
-                float ripple = MathF.Sin(angle * (3 + ringIndex) + Age * .025f) * (5 + ringIndex * 3);
-                float ringRadius = radius + ripple - ringIndex * 7;
-                points[step] = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ringRadius;
-            }
-            Primitives2D.PolygonOutline(spriteBatch, points, ringIndex != 1 ? PhaseAccent : UiTheme.Cream, 2);
-        }
-        for (int index = 0; index < 18; index++)
-        {
-            float angle = Age * .018f + index * 2f * MathF.PI / 18f;
-            float drift = MathF.Sin(Age * .03f + index * 1.7f) * 10;
-            var point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (radius + drift);
-            Primitives2D.FillCircle(spriteBatch, point, 2 + index % 3, PhaseAccent);
-        }
     }
 
     private void DrawArenaMask(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         var center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
-        var vertices = new Vector2[64];
         for (int index = 0; index < 64; index++)
         {
             float angle = index * 2f * MathF.PI / 64f;
-            vertices[index] = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * (ArenaRadius + 8);
+            _arenaMaskVertices[index] = center
+                + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                * (ArenaRadius + 8);
         }
-        Primitives2D.DrawOutsideArena(spriteBatch, center, vertices);
+        Rectangle logicalViewport = camera.LogicalViewport(
+            spriteBatch.GraphicsDevice.Viewport.Bounds);
+        Primitives2D.DrawOutsideArena(
+            spriteBatch,
+            _arenaMaskVertices,
+            logicalViewport);
     }
 
     private void DrawDeathSpectacle(SpriteBatch spriteBatch, Vector2 center)
@@ -2062,25 +2060,55 @@ public sealed class Dissonance : Enemy
         float cosAngle = MathF.Cos(angle), sinAngle = MathF.Sin(angle);
         int glowWidth = Math.Max(6, (int)(radius * .16f));
         int lineWidth = Math.Max(3, (int)(radius * .075f));
+        Span<Vector2> points = stackalloc Vector2[8];
+        Span<Vector2> ghostPoints = stackalloc Vector2[8];
         foreach (var stroke in strokes)
         {
-            var points = stroke.Select(p =>
-            {
-                float x = p.X * radius * pulse, y = p.Y * radius * pulse;
-                return center + new Vector2(x * cosAngle - y * sinAngle, x * sinAngle + y * cosAngle);
-            }).ToArray();
-            if (points.Length <= 1)
+            if (stroke.Length > points.Length)
                 continue;
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink, glowWidth);
+            for (int index = 0; index < stroke.Length; index++)
+            {
+                Vector2 p = stroke[index];
+                float x = p.X * radius * pulse, y = p.Y * radius * pulse;
+                points[index] = center
+                    + new Vector2(
+                        x * cosAngle - y * sinAngle,
+                        x * sinAngle + y * cosAngle);
+            }
+            if (stroke.Length <= 1)
+                continue;
+            ReadOnlySpan<Vector2> visiblePoints = points[..stroke.Length];
+            Primitives2D.PolylineSpan(
+                spriteBatch,
+                visiblePoints,
+                false,
+                UiTheme.Ink,
+                glowWidth);
             if (transition > 0)
             {
                 float ghostOffset = radius * (float)transition * .12f;
                 var ghostOffsetVec = new Vector2(MathF.Cos(Age * .05f), MathF.Sin(Age * .05f)) * ghostOffset;
-                var ghost = points.Select(p => p + ghostOffsetVec).ToArray();
-                Primitives2D.Polyline(spriteBatch, ghost, false, PhaseAccent, Math.Max(2, lineWidth / 2));
+                for (int index = 0; index < stroke.Length; index++)
+                    ghostPoints[index] = points[index] + ghostOffsetVec;
+                Primitives2D.PolylineSpan(
+                    spriteBatch,
+                    ghostPoints[..stroke.Length],
+                    false,
+                    PhaseAccent,
+                    Math.Max(2, lineWidth / 2));
             }
-            Primitives2D.Polyline(spriteBatch, points, false, PhaseAccent, lineWidth);
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Cream, Math.Max(1, lineWidth / 3));
+            Primitives2D.PolylineSpan(
+                spriteBatch,
+                visiblePoints,
+                false,
+                PhaseAccent,
+                lineWidth);
+            Primitives2D.PolylineSpan(
+                spriteBatch,
+                visiblePoints,
+                false,
+                UiTheme.Cream,
+                Math.Max(1, lineWidth / 3));
         }
         return runeName;
     }
@@ -2089,8 +2117,6 @@ public sealed class Dissonance : Enemy
     {
         DrawArenaMask(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawArenaBoundary(spriteBatch, camera, playerWorldPosition, screenShake);
-        DrawJeraGrandStaff(spriteBatch, camera, playerWorldPosition, screenShake);
-        DrawArenaInscription(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawMotionTrail(spriteBatch, camera, playerWorldPosition, screenShake);
         foreach (var particle in VisualParticles)
         {
@@ -2160,36 +2186,70 @@ public sealed class Dissonance : Enemy
         float orbitSpread = SurvivalActive ? 1.35f : 1f;
         BossVisuals.OrbitingCubes(spriteBatch, rectCenter, Age, OrbitingCubeCount, Size * .78f, Size * .16f,
             new Color(105, 75, 196), new Color(64, 142, 214), orbitSpread, .28f, frontLayer: false);
-        var (vertices, faces) = CubeGeometry(rectCenter, Size * .43f, Age, Phase);
+        PopulateCubeGeometry(
+            rectCenter,
+            Size * .43f,
+            Age,
+            Phase,
+            _drawCubeVertices,
+            _drawCubeFaceOrder);
         double entranceSpread = Math.Max(0.0, EntranceRemaining / EntranceDuration) * 2.8;
         double deathProgress = Dying ? Math.Max(0.0, 1 - DeathRemaining / DeathBurstDuration) : 0.0;
         double deathSpread = deathProgress * 3.4;
         double faceSpread = Math.Max(entranceSpread, deathSpread);
-        var projectedFaces = new List<Vector2[]>();
-        foreach (var face in faces)
+        for (int faceIndex = 0;
+             faceIndex < _drawCubeFaceOrder.Length;
+             faceIndex++)
         {
-            var points = face.Select(index => new Vector2(vertices[index].X, vertices[index].Y)).ToArray();
+            int[] face = CubeFaceIndices[_drawCubeFaceOrder[faceIndex]];
+            Vector2[] points = _drawProjectedFaces[faceIndex];
+            for (int corner = 0; corner < face.Length; corner++)
+            {
+                Vector3 vertex = _drawCubeVertices[face[corner]];
+                points[corner] = new Vector2(vertex.X, vertex.Y);
+            }
             if (faceSpread > 0)
             {
-                float faceCenterX = points.Average(p => p.X), faceCenterY = points.Average(p => p.Y);
+                float faceCenterX =
+                    (points[0].X + points[1].X + points[2].X + points[3].X)
+                    * .25f;
+                float faceCenterY =
+                    (points[0].Y + points[1].Y + points[2].Y + points[3].Y)
+                    * .25f;
                 float offsetX = (faceCenterX - rectCenter.X) * (float)faceSpread;
                 float offsetY = (faceCenterY - rectCenter.Y) * (float)faceSpread;
-                points = points.Select(p => new Vector2(p.X + offsetX, p.Y + offsetY)).ToArray();
+                for (int corner = 0; corner < points.Length; corner++)
+                    points[corner] += new Vector2(offsetX, offsetY);
             }
-            projectedFaces.Add(points);
         }
-        foreach (var points in projectedFaces)
-            Primitives2D.FillPolygon(spriteBatch, points.Select(p => new Vector2(p.X + 7, p.Y + 9)).ToArray(), UiTheme.Shadow);
-        for (int faceIndex = 0; faceIndex < projectedFaces.Count; faceIndex++)
+        for (int faceIndex = 0;
+             faceIndex < _drawProjectedFaces.Length;
+             faceIndex++)
         {
-            var points = projectedFaces[faceIndex];
+            Vector2[] points = _drawProjectedFaces[faceIndex];
+            for (int corner = 0; corner < points.Length; corner++)
+                _drawShadowFace[corner] = points[corner] + new Vector2(7, 9);
+            Primitives2D.FillPolygonSpan(
+                spriteBatch,
+                _drawShadowFace,
+                UiTheme.Shadow);
+        }
+        for (int faceIndex = 0;
+             faceIndex < _drawProjectedFaces.Length;
+             faceIndex++)
+        {
+            Vector2[] points = _drawProjectedFaces[faceIndex];
             int shimmer = (int)(8 * (1 + Math.Sin(Age * .025 + faceIndex * 1.7)));
             Color ancestralFace = faceIndex % 2 == 0 ? new Color(91, 62, 181) : new Color(51, 120, 198);
             var faceColor = HitFlash > 0 || IsStaggered
                 ? UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer)
                 : UiTheme.Lighten(Color.Lerp(ancestralFace, PhaseAccent, .12f), 5 + faceIndex * 5 + shimmer);
-            Primitives2D.FillPolygon(spriteBatch, points, faceColor);
-            Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, Math.Max(3, (int)(Size * .045f)));
+            Primitives2D.FillPolygonSpan(spriteBatch, points, faceColor);
+            Primitives2D.PolygonOutlineSpan(
+                spriteBatch,
+                points,
+                UiTheme.Ink,
+                Math.Max(3, (int)(Size * .045f)));
             Primitives2D.Line(spriteBatch, points[0], points[1], UiTheme.Lighten(PhaseAccent, 35), Math.Max(1, (int)(Size * .012f)));
         }
 

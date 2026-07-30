@@ -10,10 +10,12 @@ namespace RotBoiRemastered.UI;
 public static class ItemCards
 {
     /// <summary>Sprite folder per slot type -- see Content/Sprites/README.md. Filename is the item's VisualKind, so e.g. slot "weapon" + kind "dagger" looks up Content/Sprites/Weapons/dagger.png.</summary>
-    private static readonly Dictionary<string, string> SpriteFolderBySlot = new()
+    private static readonly Dictionary<string, string> SpriteFolderBySlot = new(StringComparer.OrdinalIgnoreCase)
     {
         ["weapon"] = "Weapons", ["armor"] = "Armor", ["ring"] = "Rings", ["accessory"] = "Accessories",
     };
+    private static readonly Dictionary<string, string> SlugCache = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, string> NormalizedSlotNames = new(StringComparer.Ordinal);
 
     private static void DrawLine(SpriteBatch spriteBatch, Color color, Vector2 start, Vector2 end, float width)
         => Primitives2D.Line(spriteBatch, start, end, color, Math.Max(1, (int)width));
@@ -30,7 +32,7 @@ public static class ItemCards
     /// </summary>
     private static bool TryDrawItemSprite(SpriteBatch spriteBatch, string slotType, string? itemName, string visualKind, Rectangle rect)
     {
-        if (!SpriteFolderBySlot.TryGetValue(slotType.ToLowerInvariant(), out var folder))
+        if (!SpriteFolderBySlot.TryGetValue(slotType, out var folder))
             return false;
         var sprite = (itemName is not null ? Sprites.TryGet($"{folder}/{Slug(itemName)}") : null)
             ?? Sprites.TryGet($"{folder}/{visualKind}");
@@ -43,8 +45,23 @@ public static class ItemCards
     /// <summary>"Bow of Dread" -> "bow_of_dread", matching how a sprite file for a specific item should be named.</summary>
     private static string Slug(string name)
     {
+        if (SlugCache.TryGetValue(name, out string? slug))
+            return slug;
+
         var cleaned = new string(name.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray());
-        return string.Join('_', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        slug = string.Join('_', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        SlugCache[name] = slug;
+        return slug;
+    }
+
+    private static string NormalizeSlotName(string slotType)
+    {
+        if (NormalizedSlotNames.TryGetValue(slotType, out string? normalized))
+            return normalized;
+
+        normalized = slotType.ToLowerInvariant();
+        NormalizedSlotNames[slotType] = normalized;
+        return normalized;
     }
 
     public static void DrawItemSymbol(SpriteBatch spriteBatch, string slotType, Rectangle rect, Color? color = null,
@@ -57,7 +74,7 @@ public static class ItemCards
         float cx = rect.Center.X, cy = rect.Center.Y;
         float unit = Math.Max(1f, Math.Min(rect.Width, rect.Height) / 20f);
         float stroke = Math.Max(1f, MathF.Round(unit * 1.7f));
-        string name = slotType.ToLowerInvariant();
+        string name = NormalizeSlotName(slotType);
 
         switch (name)
         {
@@ -77,7 +94,7 @@ public static class ItemCards
                 {
                     DrawLine(spriteBatch, drawColor, new Vector2(cx - 6 * unit, cy + 8 * unit), new Vector2(cx + 3 * unit, cy - 4 * unit), stroke);
                     Primitives2D.CircleOutline(spriteBatch, new Vector2(cx + 5 * unit, cy - 7 * unit), MathF.Round(3 * unit), drawColor, (int)stroke);
-                    foreach (float angle in new[] { 0f, 90f, 180f, 270f })
+                    for (float angle = 0f; angle < 360f; angle += 90f)
                     {
                         float radians = MathHelper.ToRadians(angle);
                         var direction = new Vector2(MathF.Cos(radians), MathF.Sin(radians));
@@ -88,7 +105,7 @@ public static class ItemCards
                 else if (visualKind == "spear")
                 {
                     DrawLine(spriteBatch, drawColor, new Vector2(cx - 7 * unit, cy + 9 * unit), new Vector2(cx + 5 * unit, cy - 6 * unit), stroke);
-                    Primitives2D.FillPolygon(spriteBatch, new[]
+                    Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                     {
                         new Vector2(cx + 5 * unit, cy - 9 * unit), new Vector2(cx + 9 * unit, cy - 9 * unit),
                         new Vector2(cx + 7 * unit, cy - 4 * unit),
@@ -135,12 +152,12 @@ public static class ItemCards
                 Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy + 2 * unit), MathF.Round(7 * unit), drawColor, (int)stroke);
                 if (visualKind != "band")
                 {
-                    var gem = new[]
+                    Span<Vector2> gem = stackalloc Vector2[]
                     {
                         new Vector2(cx, cy - 9 * unit), new Vector2(cx + 3 * unit, cy - 5 * unit),
                         new Vector2(cx, cy - 2 * unit), new Vector2(cx - 3 * unit, cy - 5 * unit),
                     };
-                    Primitives2D.PolygonOutline(spriteBatch, gem, drawColor, (int)stroke);
+                    Primitives2D.PolygonOutlineSpan(spriteBatch, gem, drawColor, (int)stroke);
                 }
                 break;
             }
@@ -156,7 +173,7 @@ public static class ItemCards
                 }
                 else if (visualKind == "bell")
                 {
-                    Primitives2D.PolygonOutline(spriteBatch, new[]
+                    Primitives2D.PolygonOutlineSpan(spriteBatch, stackalloc Vector2[]
                     {
                         new Vector2(cx, cy - 8 * unit), new Vector2(cx + 7 * unit, cy + 6 * unit),
                         new Vector2(cx - 7 * unit, cy + 6 * unit),
@@ -165,7 +182,7 @@ public static class ItemCards
                 }
                 else if (visualKind == "badge")
                 {
-                    Primitives2D.PolygonOutline(spriteBatch, new[]
+                    Primitives2D.PolygonOutlineSpan(spriteBatch, stackalloc Vector2[]
                     {
                         new Vector2(cx, cy - 9 * unit), new Vector2(cx + 7 * unit, cy - 3 * unit),
                         new Vector2(cx + 4 * unit, cy + 8 * unit), new Vector2(cx, cy + 5 * unit),
@@ -175,12 +192,12 @@ public static class ItemCards
                 else
                 {
                     Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy - 7 * unit), MathF.Round(2.5f * unit), drawColor, (int)stroke);
-                    var gem = new[]
+                    Span<Vector2> gem = stackalloc Vector2[]
                     {
                         new Vector2(cx, cy - 2 * unit), new Vector2(cx + 5 * unit, cy + 4 * unit),
                         new Vector2(cx, cy + 9 * unit), new Vector2(cx - 5 * unit, cy + 4 * unit),
                     };
-                    Primitives2D.PolygonOutline(spriteBatch, gem, drawColor, (int)stroke);
+                    Primitives2D.PolygonOutlineSpan(spriteBatch, gem, drawColor, (int)stroke);
                 }
                 break;
             }

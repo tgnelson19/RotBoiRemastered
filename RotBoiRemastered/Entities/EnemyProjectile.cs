@@ -78,7 +78,7 @@ public sealed class EnemyProjectile
     public float Age { get; private set; }
     public float Travelled { get; private set; }
     public bool RemFlag { get; set; }
-    public List<Vector2> Trail { get; } = new();
+    public List<Vector2> Trail { get; } = new(5);
 
     public EnemyProjectile(
         float worldX, float worldY, float direction, float speed, float damage, float size,
@@ -301,15 +301,31 @@ public sealed class EnemyProjectile
             return;
         }
 
-        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        float visibleSize = ProjectileVisuals.NormalizeDrawSize(
+            Size,
+            camera.Zoom);
+        Vector2 centerWorld = new(
+            WorldX + Size / 2f,
+            WorldY + Size / 2f);
+        Vector2 centerScreen = camera.WorldToScreen(
+            centerWorld,
+            playerWorldPosition,
+            screenShake);
+        var rect = new Rectangle(
+            (int)(centerScreen.X - visibleSize / 2f),
+            (int)(centerScreen.Y - visibleSize / 2f),
+            (int)MathF.Ceiling(visibleSize),
+            (int)MathF.Ceiling(visibleSize));
 
         if (Trail.Count > 1)
         {
             for (int index = 0; index < Trail.Count - 1; index++)
             {
                 Vector2 trailScreen = camera.WorldToScreen(Trail[index], playerWorldPosition, screenShake);
-                int trailSize = Math.Max(2, (int)(Size * (index + 1) / (float)Trail.Count * .22f));
+                int trailSize = Math.Max(
+                    2,
+                    (int)(visibleSize * (index + 1)
+                        / Trail.Count * .22f));
                 Primitives2D.FillRect(spriteBatch,
                     new Rectangle((int)(trailScreen.X - trailSize / 2f), (int)(trailScreen.Y - trailSize / 2f), trailSize, trailSize),
                     UiTheme.Ink);
@@ -324,29 +340,58 @@ public sealed class EnemyProjectile
         }
 
         if (Shape is "diamond" or "mine" or "bomb")
-            DrawDiamondShape(spriteBatch, rect);
+            DrawDiamondShape(spriteBatch, rect, visibleSize);
         else
-            DrawSquareShape(spriteBatch, rect);
+            DrawSquareShape(spriteBatch, rect, visibleSize);
 
         if (highContrast)
-            Primitives2D.RectOutline(spriteBatch, InflateF(rect, 4, 4), UiTheme.Cream, Math.Max(2, (int)(Size * .08f)));
+            Primitives2D.RectOutline(
+                spriteBatch,
+                InflateF(rect, 4, 4),
+                UiTheme.Cream,
+                Math.Max(2, (int)(visibleSize * .08f)));
 
         var center = new Vector2(rect.Center.X, rect.Center.Y);
         if (TruthMarked)
-            Primitives2D.FillCircle(spriteBatch, center, Math.Max(2, (int)(Size * .1f)), UiTheme.Cream);
+            Primitives2D.FillCircle(
+                spriteBatch,
+                center,
+                Math.Max(2, (int)(visibleSize * .1f)),
+                UiTheme.Cream);
         else if (Illusory)
-            Primitives2D.CircleOutline(spriteBatch, center, Math.Max(3, (int)(Size * .22f)), UiTheme.Muted, 2);
+            Primitives2D.CircleOutline(
+                spriteBatch,
+                center,
+                Math.Max(3, (int)(visibleSize * .22f)),
+                UiTheme.Muted,
+                2);
     }
 
-    private void DrawSquareShape(SpriteBatch spriteBatch, Rectangle rect)
+    private void DrawSquareShape(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float visibleSize)
     {
         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 3, rect.Y + 3, rect.Width, rect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, rect, Color);
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, (int)(Size * .1f)));
-        Primitives2D.FillRect(spriteBatch, InflateF(rect, -(int)(Size * .5f), -(int)(Size * .5f)), UiTheme.Lighten(Color, 45));
+        Primitives2D.RectOutline(
+            spriteBatch,
+            rect,
+            UiTheme.Ink,
+            Math.Max(2, (int)(visibleSize * .1f)));
+        Primitives2D.FillRect(
+            spriteBatch,
+            InflateF(
+                rect,
+                -(int)(visibleSize * .5f),
+                -(int)(visibleSize * .5f)),
+            UiTheme.Lighten(Color, 45));
     }
 
-    private void DrawDiamondShape(SpriteBatch spriteBatch, Rectangle rect)
+    private void DrawDiamondShape(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float visibleSize)
     {
         Vector2 top = new(rect.X + rect.Width / 2f, rect.Y);
         Vector2 right = new(rect.Right, rect.Y + rect.Height / 2f);
@@ -359,26 +404,37 @@ public sealed class EnemyProjectile
         Primitives2D.FillQuad(spriteBatch, top, right, bottom, left, Color);
         Primitives2D.QuadOutline(
             spriteBatch, top, right, bottom, left,
-            UiTheme.Ink, Math.Max(2, (int)(Size * .1f)));
+            UiTheme.Ink, Math.Max(2, (int)(visibleSize * .1f)));
 
         var center = new Vector2(rect.Center.X, rect.Center.Y);
         if (Shape == "mine")
         {
-            int pulse = Math.Max(3, (int)(Size * (.12f + .05f * (1 + MathF.Sin(Age * 5f)))));
+            int pulse = Math.Max(
+                3,
+                (int)(visibleSize
+                    * (.12f + .05f * (1 + MathF.Sin(Age * 5f)))));
             Primitives2D.FillRect(spriteBatch,
                 new Rectangle((int)(center.X - pulse / 2f), (int)(center.Y - pulse / 2f), pulse, pulse), UiTheme.Text);
             if (Age < TelegraphDuration)
             {
                 float warningProgress = Age / Math.Max(.01f, TelegraphDuration);
-                float warningRadius = Size * (.72f + (1f - warningProgress) * .42f);
+                float warningRadius = visibleSize
+                    * (.72f + (1f - warningProgress) * .42f);
                 Primitives2D.CircleOutline(spriteBatch, center, warningRadius, UiTheme.Cream,
-                    Math.Max(2, (int)(Size * .07f)));
+                    Math.Max(2, (int)(visibleSize * .07f)));
             }
         }
         else if (Shape == "bomb")
         {
             float fuse = Math.Max(0, FuseDuration - Age);
-            Primitives2D.FillCircle(spriteBatch, center, Math.Max(3, (int)(Size * (.1f + .04f * MathF.Sin(Age * 14f)))), UiTheme.Cream);
+            Primitives2D.FillCircle(
+                spriteBatch,
+                center,
+                Math.Max(
+                    3,
+                    (int)(visibleSize
+                        * (.1f + .04f * MathF.Sin(Age * 14f)))),
+                UiTheme.Cream);
             if (Age >= 1.0f)
             {
                 var warning = new Rectangle(0, 0, (int)(BlastRadius * 2), (int)(BlastRadius * 2));
@@ -391,7 +447,11 @@ public sealed class EnemyProjectile
             {
                 var blast = new Rectangle(0, 0, (int)(BlastRadius * 2), (int)(BlastRadius * 2));
                 CenterOn(ref blast, rect.Center);
-                Primitives2D.EllipseOutline(spriteBatch, blast, UiTheme.Gold, Math.Max(5, (int)(Size * .2f)));
+                Primitives2D.EllipseOutline(
+                    spriteBatch,
+                    blast,
+                    UiTheme.Gold,
+                    Math.Max(5, (int)(visibleSize * .2f)));
             }
         }
     }

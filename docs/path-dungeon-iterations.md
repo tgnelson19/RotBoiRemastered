@@ -258,6 +258,18 @@ records what each review found, what was promoted into the next pass, and why.
   67.6 KB allocated per update to about 0.40 ms with zero steady-state
   allocation in the local release probe.
 
+### Hitch follow-up
+
+- Removed recurring live allocations from raised dungeon landmarks, polygon
+  rasterization, item/stat symbols, sprite-name normalization, and the
+  always-visible information sheet. Reusable buffers and cached build summaries
+  keep those draw paths from periodically forcing a managed collection.
+- Suspended world fog, visibility culling, and fog masks inside `GrandArena`
+  and boss rooms. Persistent exploration still feeds the minimap, and traversal
+  fog resumes immediately after leaving an arena.
+- Added persisted 30-360 FPS limiting and Vertical Sync options, with an
+  explicit fixed update/draw cadence and runtime graphics synchronization.
+
 ## Future priority backlog
 
 1. **P1 — Rare floor modifiers:** flooded conduits, stormfronts, astral

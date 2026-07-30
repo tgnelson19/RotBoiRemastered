@@ -121,6 +121,20 @@ public static class Primitives2D
             Line(spriteBatch, points[^1], points[0], color, width);
     }
 
+    /// <summary>Allocation-free span variant for transient draw geometry.</summary>
+    public static void PolylineSpan(
+        SpriteBatch spriteBatch,
+        ReadOnlySpan<Vector2> points,
+        bool closed,
+        Color color,
+        int width)
+    {
+        for (int index = 0; index + 1 < points.Length; index++)
+            Line(spriteBatch, points[index], points[index + 1], color, width);
+        if (closed && points.Length > 2)
+            Line(spriteBatch, points[^1], points[0], color, width);
+    }
+
     /// <summary>Filled circle via horizontal scanline strips -- no mesh/vertex renderer available through SpriteBatch alone.</summary>
     public static void FillCircle(SpriteBatch spriteBatch, Vector2 center, float radius, Color color)
     {
@@ -193,27 +207,90 @@ public static class Primitives2D
     {
         if (points.Count < 3)
             return;
-        float minY = points.Min(p => p.Y), maxY = points.Max(p => p.Y);
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+        for (int index = 0; index < points.Count; index++)
+        {
+            minY = Math.Min(minY, points[index].Y);
+            maxY = Math.Max(maxY, points[index].Y);
+        }
         int yStart = (int)MathF.Floor(minY), yEnd = (int)MathF.Ceiling(maxY);
-        var xs = new List<float>();
+        Span<float> intersections = points.Count <= 64
+            ? stackalloc float[points.Count]
+            : new float[points.Count];
         for (int y = yStart; y <= yEnd; y++)
         {
-            xs.Clear();
+            int count = 0;
             for (int i = 0; i < points.Count; i++)
             {
                 Vector2 a = points[i], b = points[(i + 1) % points.Count];
                 if (a.Y == b.Y)
                     continue;
                 if ((y >= a.Y && y < b.Y) || (y >= b.Y && y < a.Y))
-                    xs.Add(a.X + (y - a.Y) / (b.Y - a.Y) * (b.X - a.X));
+                    intersections[count++] =
+                        a.X + (y - a.Y) / (b.Y - a.Y) * (b.X - a.X);
             }
-            xs.Sort();
-            for (int i = 0; i + 1 < xs.Count; i += 2)
+            intersections[..count].Sort();
+            for (int i = 0; i + 1 < count; i += 2)
             {
-                int xStart = (int)MathF.Round(xs[i]);
-                int xEnd = (int)MathF.Round(xs[i + 1]);
+                int xStart = (int)MathF.Round(intersections[i]);
+                int xEnd = (int)MathF.Round(intersections[i + 1]);
                 if (xEnd > xStart)
                     FillRect(spriteBatch, new Rectangle(xStart, y, xEnd - xStart, 1), color);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Allocation-free polygon fill for short-lived stack geometry used by
+    /// live world rendering.
+    /// </summary>
+    public static void FillPolygonSpan(
+        SpriteBatch spriteBatch,
+        ReadOnlySpan<Vector2> points,
+        Color color)
+    {
+        if (points.Length < 3)
+            return;
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+        foreach (Vector2 point in points)
+        {
+            minY = Math.Min(minY, point.Y);
+            maxY = Math.Max(maxY, point.Y);
+        }
+        int yStart = (int)MathF.Floor(minY);
+        int yEnd = (int)MathF.Ceiling(maxY);
+        Span<float> intersections = points.Length <= 64
+            ? stackalloc float[points.Length]
+            : new float[points.Length];
+        for (int y = yStart; y <= yEnd; y++)
+        {
+            int count = 0;
+            for (int index = 0; index < points.Length; index++)
+            {
+                Vector2 a = points[index];
+                Vector2 b = points[(index + 1) % points.Length];
+                if (a.Y == b.Y)
+                    continue;
+                if ((y >= a.Y && y < b.Y) || (y >= b.Y && y < a.Y))
+                {
+                    intersections[count++] =
+                        a.X + (y - a.Y) / (b.Y - a.Y) * (b.X - a.X);
+                }
+            }
+            intersections[..count].Sort();
+            for (int index = 0; index + 1 < count; index += 2)
+            {
+                int xStart = (int)MathF.Round(intersections[index]);
+                int xEnd = (int)MathF.Round(intersections[index + 1]);
+                if (xEnd > xStart)
+                {
+                    FillRect(
+                        spriteBatch,
+                        new Rectangle(xStart, y, xEnd - xStart, 1),
+                        color);
+                }
             }
         }
     }
@@ -282,6 +359,13 @@ public static class Primitives2D
     public static void PolygonOutline(SpriteBatch spriteBatch, IReadOnlyList<Vector2> points, Color color, int width)
         => Polyline(spriteBatch, points, closed: true, color, width);
 
+    public static void PolygonOutlineSpan(
+        SpriteBatch spriteBatch,
+        ReadOnlySpan<Vector2> points,
+        Color color,
+        int width) =>
+        PolylineSpan(spriteBatch, points, closed: true, color, width);
+
     /// <summary>
     /// Black out a star-shaped/polygonal arena exterior without a full-screen
     /// alpha mask. Ported from bossTypes.py's module-level `_draw_outside_arena`
@@ -289,24 +373,80 @@ public static class Primitives2D
     /// arena boundary polygon, then black out everything past it), so it lives
     /// here instead of being duplicated per boss class.
     /// </summary>
-    public static void DrawOutsideArena(SpriteBatch spriteBatch, Vector2 center, IReadOnlyList<Vector2> vertices)
+    /// <summary>
+    /// Masks the portion of <paramref name="clipBounds"/> outside a simple
+    /// arena polygon. The former implementation extruded sampled vertices
+    /// several thousand pixels off screen and scan-filled every wedge. That
+    /// submitted tens of thousands of invisible strips per boss frame.
+    /// Clipped horizontal complements preserve the same mask with at most a
+    /// few visible rectangles per viewport row and no steady-state allocation.
+    /// </summary>
+    public static void DrawOutsideArena(
+        SpriteBatch spriteBatch,
+        IReadOnlyList<Vector2> vertices,
+        Rectangle clipBounds)
     {
         if (vertices.Count < 3)
             return;
-        int stride = Math.Max(1, (vertices.Count + 15) / 16);
-        var sampled = vertices.Where((_, index) => index % stride == 0).ToList();
-        float outerRadius = MathF.Sqrt(1920 * 1920 + 1080 * 1080) * 2.2f;
-        var outer = new List<Vector2>();
-        foreach (var point in sampled)
+
+        Span<float> intersections = vertices.Count <= 128
+            ? stackalloc float[vertices.Count]
+            : new float[vertices.Count];
+        for (int y = clipBounds.Top; y < clipBounds.Bottom; y++)
         {
-            var delta = point - center;
-            float distance = Math.Max(1.0f, delta.Length());
-            outer.Add(center + delta / distance * outerRadius);
-        }
-        for (int index = 0; index < sampled.Count; index++)
-        {
-            int nextIndex = (index + 1) % sampled.Count;
-            FillPolygon(spriteBatch, new[] { sampled[index], sampled[nextIndex], outer[nextIndex], outer[index] }, Color.Black);
+            float sampleY = y + .5f;
+            int count = 0;
+            for (int index = 0; index < vertices.Count; index++)
+            {
+                Vector2 a = vertices[index];
+                Vector2 b = vertices[(index + 1) % vertices.Count];
+                if (a.Y == b.Y)
+                    continue;
+                if ((sampleY >= a.Y && sampleY < b.Y)
+                    || (sampleY >= b.Y && sampleY < a.Y))
+                {
+                    intersections[count++] = a.X
+                        + (sampleY - a.Y) / (b.Y - a.Y) * (b.X - a.X);
+                }
+            }
+
+            intersections[..count].Sort();
+            int outsideStart = clipBounds.Left;
+            for (int index = 0; index + 1 < count; index += 2)
+            {
+                int insideStart = Math.Clamp(
+                    (int)MathF.Floor(intersections[index]),
+                    clipBounds.Left,
+                    clipBounds.Right);
+                int insideEnd = Math.Clamp(
+                    (int)MathF.Ceiling(intersections[index + 1]),
+                    clipBounds.Left,
+                    clipBounds.Right);
+                if (insideStart > outsideStart)
+                {
+                    FillRect(
+                        spriteBatch,
+                        new Rectangle(
+                            outsideStart,
+                            y,
+                            insideStart - outsideStart,
+                            1),
+                        Color.Black);
+                }
+                outsideStart = Math.Max(outsideStart, insideEnd);
+            }
+
+            if (outsideStart < clipBounds.Right)
+            {
+                FillRect(
+                    spriteBatch,
+                    new Rectangle(
+                        outsideStart,
+                        y,
+                        clipBounds.Right - outsideStart,
+                        1),
+                    Color.Black);
+            }
         }
     }
 }

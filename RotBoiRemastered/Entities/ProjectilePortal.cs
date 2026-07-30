@@ -60,7 +60,8 @@ public class ProjectilePortal
     public float WorldY { get; private set; }
     public bool RemFlag { get; set; }
 
-    private readonly List<PendingBurst> _burstQueue = new();
+    private readonly List<PendingBurst> _burstQueue = new(16);
+    private Vector2[] _runePointScratch = new Vector2[8];
 
     public ProjectilePortal(Vector2 center, float radius, float angle, float angularSpeed = .35f,
         float fireInterval = 1.7f, int pelletCount = 5, float spread = .72f, string owner = "dissonance_portal",
@@ -107,11 +108,15 @@ public class ProjectilePortal
                 float phase = Wrap2Pi(Angle) / (2f * MathF.PI) % 1f * 4f;
                 int side = (int)phase;
                 float progress = phase % 1f;
-                var corners = new (float X, float Y)[] { (-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1) };
-                var start = corners[side];
-                var end = corners[side + 1];
-                offsetX = (start.X + (end.X - start.X) * progress) * Radius;
-                offsetY = (start.Y + (end.Y - start.Y) * progress) * Radius;
+                (float startX, float startY, float endX, float endY) = side switch
+                {
+                    0 => (-1f, -1f, 1f, -1f),
+                    1 => (1f, -1f, 1f, 1f),
+                    2 => (1f, 1f, -1f, 1f),
+                    _ => (-1f, 1f, -1f, -1f),
+                };
+                offsetX = (startX + (endX - startX) * progress) * Radius;
+                offsetY = (startY + (endY - startY) * progress) * Radius;
                 break;
             case "tornado":
                 float breathingRadius = Radius * (.72f + .28f * MathF.Sin(Angle * 1.7f));
@@ -146,6 +151,11 @@ public class ProjectilePortal
         DisabledRemaining = 0f;
         Hp = MaxHp;
         RuneStrokes = runeStrokes ?? Array.Empty<Vector2[]>();
+        int requiredPoints = 0;
+        foreach (var stroke in RuneStrokes)
+            requiredPoints = Math.Max(requiredPoints, stroke.Length);
+        if (_runePointScratch.Length < requiredPoints)
+            Array.Resize(ref _runePointScratch, requiredPoints);
         _burstQueue.Clear();
     }
 
@@ -212,9 +222,10 @@ public class ProjectilePortal
     {
         if (!Active)
             return;
-        var remaining = new List<PendingBurst>();
-        foreach (var burst in _burstQueue)
+        int writeIndex = 0;
+        for (int readIndex = 0; readIndex < _burstQueue.Count; readIndex++)
         {
+            var burst = _burstQueue[readIndex];
             float timer = burst.Timer - dt;
             if (timer <= 0)
             {
@@ -223,11 +234,11 @@ public class ProjectilePortal
             }
             else
             {
-                remaining.Add(burst with { Timer = timer });
+                _burstQueue[writeIndex++] = burst with { Timer = timer };
             }
         }
-        _burstQueue.Clear();
-        _burstQueue.AddRange(remaining);
+        if (writeIndex < _burstQueue.Count)
+            _burstQueue.RemoveRange(writeIndex, _burstQueue.Count - writeIndex);
     }
 
     private void FireWave(List<EnemyProjectile> sink, Vector2 target, int pelletCount, float spread, float speed,
@@ -333,9 +344,17 @@ public class ProjectilePortal
 
         if (Trail.Count > 1)
         {
-            var trailScreen = Trail.Select(p => camera.WorldToScreen(p, playerWorldPosition, screenShake)).ToArray();
-            Primitives2D.Polyline(spriteBatch, trailScreen, closed: false, UiTheme.Ink, 5);
-            Primitives2D.Polyline(spriteBatch, trailScreen, closed: false, Color, 2);
+            Span<Vector2> trailScreen = stackalloc Vector2[7];
+            for (int index = 0; index < Trail.Count; index++)
+            {
+                trailScreen[index] = camera.WorldToScreen(
+                    Trail[index],
+                    playerWorldPosition,
+                    screenShake);
+            }
+            var visibleTrail = trailScreen[..Trail.Count];
+            Primitives2D.PolylineSpan(spriteBatch, visibleTrail, closed: false, UiTheme.Ink, 5);
+            Primitives2D.PolylineSpan(spriteBatch, visibleTrail, closed: false, Color, 2);
         }
 
         if (!Active)
@@ -373,9 +392,11 @@ public class ProjectilePortal
             {
                 if (stroke.Length <= 1)
                     continue;
-                var points = stroke.Select(p => innerCenter + p * runeScale).ToArray();
-                Primitives2D.Polyline(spriteBatch, points, closed: false, UiTheme.Ink, 4);
-                Primitives2D.Polyline(spriteBatch, points, closed: false, UiTheme.Cream, 2);
+                Span<Vector2> points = _runePointScratch.AsSpan(0, stroke.Length);
+                for (int index = 0; index < stroke.Length; index++)
+                    points[index] = innerCenter + stroke[index] * runeScale;
+                Primitives2D.PolylineSpan(spriteBatch, points, closed: false, UiTheme.Ink, 4);
+                Primitives2D.PolylineSpan(spriteBatch, points, closed: false, UiTheme.Cream, 2);
             }
         }
 

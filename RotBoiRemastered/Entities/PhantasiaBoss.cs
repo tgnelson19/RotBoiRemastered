@@ -396,13 +396,9 @@ public abstract class PhantasiaBoss : PathChaseBoss
             effectivePlayerX = ArenaCenter.X + MathF.Sin((float)PhaseElapsed * .62f) * ArenaRadius * .58f;
             effectivePlayerY = ArenaCenter.Y + MathF.Sin((float)PhaseElapsed * 1.24f) * ArenaRadius * .32f;
         }
-        var effectiveContext = mode == "chase" ? context : new EnemyUpdateContext
-        {
-            PlayerWorldX = effectivePlayerX, PlayerWorldY = effectivePlayerY, Battleground = context.Battleground,
-            ProjectileSink = context.ProjectileSink, AllEnemies = context.AllEnemies, ExperienceBubbles = context.ExperienceBubbles,
-            Camera = context.Camera, BossAfflictions = context.BossAfflictions, PlayerBuildSnapshot = context.PlayerBuildSnapshot,
-            PlayerBullets = context.PlayerBullets, DreamState = context.DreamState,
-        };
+        var effectiveContext = mode == "chase"
+            ? context
+            : MovementContext(context, effectivePlayerX, effectivePlayerY);
         ChaseUpdate(effectiveContext);
         Speed = originalSpeed;
         AttackCooldown -= (float)Simulation.GetTimerStep();
@@ -468,21 +464,6 @@ public abstract class PhantasiaBoss : PathChaseBoss
     {
         var center = camera.WorldToScreen(Center(), playerWorldPosition, screenShake);
         float tile = Simulation.TileSize;
-        float chaos = Config.FinalBoss ? (float)(1.0 + CurrentBelief * .055) : 1.0f;
-        int ringCount = Config.FinalBoss ? 5 : 3;
-        for (int ring = 0; ring < ringCount; ring++)
-        {
-            float radius = tile * (2.1f + ring * 1.22f + MathF.Sin(Age * .018f + ring) * .18f) * chaos;
-            var rect = new Rectangle((int)(center.X - radius), (int)(center.Y - radius), (int)(radius * 2), (int)(radius * 2));
-            float start = Age * (.0018f + ring * .0007f) * (ring % 2 == 1 ? -1f : 1f);
-            Color ringColor = Color.Lerp(PhaseAccent, UiTheme.Void, .82f - ring * .025f);
-            int segments = 8 + ring * 2;
-            for (int segment = 0; segment < segments; segment++)
-            {
-                float angle = start + segment * 2f * MathF.PI / segments;
-                Primitives2D.Arc(spriteBatch, rect, angle, angle + MathF.PI / (9 + ring), ringColor, 2 + ring % 2);
-            }
-        }
         Color moteColor = Color.Lerp(PhaseAccent, UiTheme.Void, .67f);
         int moteCount = (Config.FinalBoss ? 8 : 4) + (int)(CurrentBelief * .5);
         for (int index = 0; index < moteCount; index++)
@@ -491,14 +472,14 @@ public abstract class PhantasiaBoss : PathChaseBoss
             float radius = tile * (1.7f + index % 5);
             var point = center + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
             float size = 5 + index % 4;
-            Primitives2D.FillPolygon(spriteBatch, new[]
-            {
-                new Vector2(point.X, point.Y - size), new Vector2(point.X + size, point.Y),
-                new Vector2(point.X, point.Y + size), new Vector2(point.X - size, point.Y),
-            }, moteColor);
+            Primitives2D.FillQuad(
+                spriteBatch,
+                new Vector2(point.X, point.Y - size),
+                new Vector2(point.X + size, point.Y),
+                new Vector2(point.X, point.Y + size),
+                new Vector2(point.X - size, point.Y),
+                moteColor);
         }
-        double progress = 1 - SigilTransitionTimer / SigilTransitionDuration;
-        DrawCommandmentSigil(spriteBatch, center, tile * (Config.FinalBoss ? 2.0f : 1.45f), progress, Phase, 62, Age * .0007);
     }
 
     protected virtual void DrawMaskAndHalos(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)

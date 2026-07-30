@@ -12,6 +12,16 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 internal static class BossVisuals
 {
+    private static readonly int[][] CubeFaces =
+    [
+        [0, 1, 2, 3],
+        [4, 7, 6, 5],
+        [0, 4, 5, 1],
+        [3, 2, 6, 7],
+        [0, 3, 7, 4],
+        [1, 5, 6, 2],
+    ];
+
     public static void Cube(SpriteBatch batch, Vector2 center, float size, Color front, Color accent, float turn = 0f)
     {
         size = Math.Max(3f, size);
@@ -25,11 +35,13 @@ internal static class BossVisuals
         var aa = a + lift;
         var bb = b + lift;
 
-        Primitives2D.FillPolygon(batch, new[] { a + new Vector2(4, 6), b + new Vector2(4, 6), c + new Vector2(4, 6), d + new Vector2(4, 6) }, UiTheme.Shadow);
-        Primitives2D.FillPolygon(batch, new[] { a, b, c, d }, front);
-        Primitives2D.FillPolygon(batch, new[] { aa, bb, b, a }, UiTheme.Lighten(front, 38));
-        Primitives2D.FillPolygon(batch, new[] { bb, b, c, c + lift }, Color.Lerp(front, UiTheme.Ink, .28f));
-        Primitives2D.PolygonOutline(batch, new[] { a, b, c, d }, UiTheme.Ink, Math.Max(2, (int)(size * .055f)));
+        var shadowOffset = new Vector2(4, 6);
+        Primitives2D.FillQuad(batch, a + shadowOffset, b + shadowOffset, c + shadowOffset, d + shadowOffset, UiTheme.Shadow);
+        Primitives2D.FillQuad(batch, a, b, c, d, front);
+        Primitives2D.FillQuad(batch, aa, bb, b, a, UiTheme.Lighten(front, 38));
+        Primitives2D.FillQuad(batch, bb, b, c, c + lift, Color.Lerp(front, UiTheme.Ink, .28f));
+        Span<Vector2> frontOutline = stackalloc Vector2[4] { a, b, c, d };
+        Primitives2D.PolygonOutlineSpan(batch, frontOutline, UiTheme.Ink, Math.Max(2, (int)(size * .055f)));
         Primitives2D.Line(batch, aa, bb, accent, Math.Max(1, (int)(size * .035f)));
         Primitives2D.Line(batch, aa, a, UiTheme.Ink, 2);
         Primitives2D.Line(batch, bb, b, UiTheme.Ink, 2);
@@ -55,47 +67,74 @@ internal static class BossVisuals
     public static void RotatingCube3D(SpriteBatch batch, Vector2 center, float extent, Color primary,
         Color secondary, Color accent, float yaw, float pitch, float roll = 0f)
     {
-        float[,] corners =
-        {
-            { -1, -1, -1 }, { 1, -1, -1 }, { 1, 1, -1 }, { -1, 1, -1 },
-            { -1, -1, 1 }, { 1, -1, 1 }, { 1, 1, 1 }, { -1, 1, 1 },
-        };
-        var vertices = new Vector3[8];
+        Span<Vector3> vertices = stackalloc Vector3[8];
+        float cosYaw = MathF.Cos(yaw);
+        float sinYaw = MathF.Sin(yaw);
+        float cosPitch = MathF.Cos(pitch);
+        float sinPitch = MathF.Sin(pitch);
+        float cosRoll = MathF.Cos(roll);
+        float sinRoll = MathF.Sin(roll);
         for (int index = 0; index < vertices.Length; index++)
         {
-            float x = corners[index, 0], y = corners[index, 1], z = corners[index, 2];
-            float yawX = x * MathF.Cos(yaw) + z * MathF.Sin(yaw);
-            float yawZ = -x * MathF.Sin(yaw) + z * MathF.Cos(yaw);
-            float pitchY = y * MathF.Cos(pitch) - yawZ * MathF.Sin(pitch);
-            float pitchZ = y * MathF.Sin(pitch) + yawZ * MathF.Cos(pitch);
-            float rollX = yawX * MathF.Cos(roll) - pitchY * MathF.Sin(roll);
-            float rollY = yawX * MathF.Sin(roll) + pitchY * MathF.Cos(roll);
+            float x = index is 1 or 2 or 5 or 6 ? 1f : -1f;
+            float y = index is 2 or 3 or 6 or 7 ? 1f : -1f;
+            float z = index >= 4 ? 1f : -1f;
+            float yawX = x * cosYaw + z * sinYaw;
+            float yawZ = -x * sinYaw + z * cosYaw;
+            float pitchY = y * cosPitch - yawZ * sinPitch;
+            float pitchZ = y * sinPitch + yawZ * cosPitch;
+            float rollX = yawX * cosRoll - pitchY * sinRoll;
+            float rollY = yawX * sinRoll + pitchY * cosRoll;
             float perspective = 4.2f / Math.Max(1.7f, 4.2f - pitchZ);
             vertices[index] = new Vector3(center.X + rollX * extent * perspective,
                 center.Y + rollY * extent * perspective, pitchZ);
         }
 
-        int[][] faces =
+        Span<int> faceOrder = stackalloc int[6] { 0, 1, 2, 3, 4, 5 };
+        static float FaceDepth(ReadOnlySpan<Vector3> cubeVertices, int faceIndex)
         {
-            new[] { 0, 1, 2, 3 }, new[] { 4, 7, 6, 5 }, new[] { 0, 4, 5, 1 },
-            new[] { 3, 2, 6, 7 }, new[] { 0, 3, 7, 4 }, new[] { 1, 5, 6, 2 },
-        };
-        var ordered = faces.OrderBy(face => face.Average(vertex => vertices[vertex].Z)).ToArray();
-        var projected = ordered
-            .Select(face => face.Select(vertex => new Vector2(vertices[vertex].X, vertices[vertex].Y)).ToArray())
-            .ToArray();
-        foreach (var points in projected)
-        {
-            var shadow = points.Select(point => point + new Vector2(5, 7)).ToArray();
-            Primitives2D.FillPolygon(batch, shadow, UiTheme.Shadow);
+            var face = CubeFaces[faceIndex];
+            return (cubeVertices[face[0]].Z + cubeVertices[face[1]].Z +
+                cubeVertices[face[2]].Z + cubeVertices[face[3]].Z) * .25f;
         }
-        for (int faceIndex = 0; faceIndex < projected.Length; faceIndex++)
+        for (int index = 1; index < faceOrder.Length; index++)
         {
-            var points = projected[faceIndex];
-            Color face = faceIndex % 2 == 0 ? primary : secondary;
-            face = Color.Lerp(face, accent, .05f + faceIndex * .045f);
-            Primitives2D.FillPolygon(batch, points, face);
-            Primitives2D.PolygonOutline(batch, points, UiTheme.Ink, Math.Max(2, (int)(extent * .095f)));
+            int candidate = faceOrder[index];
+            float candidateDepth = FaceDepth(vertices, candidate);
+            int insertion = index - 1;
+            while (insertion >= 0 &&
+                FaceDepth(vertices, faceOrder[insertion]) > candidateDepth)
+            {
+                faceOrder[insertion + 1] = faceOrder[insertion];
+                insertion--;
+            }
+            faceOrder[insertion + 1] = candidate;
+        }
+
+        Span<Vector2> projected = stackalloc Vector2[24];
+        for (int orderedIndex = 0; orderedIndex < faceOrder.Length; orderedIndex++)
+        {
+            var face = CubeFaces[faceOrder[orderedIndex]];
+            int offset = orderedIndex * 4;
+            for (int vertex = 0; vertex < 4; vertex++)
+                projected[offset + vertex] = new Vector2(vertices[face[vertex]].X, vertices[face[vertex]].Y);
+        }
+        var shadowOffset = new Vector2(5, 7);
+        Span<Vector2> shadow = stackalloc Vector2[4];
+        for (int orderedIndex = 0; orderedIndex < faceOrder.Length; orderedIndex++)
+        {
+            var points = projected.Slice(orderedIndex * 4, 4);
+            for (int vertex = 0; vertex < points.Length; vertex++)
+                shadow[vertex] = points[vertex] + shadowOffset;
+            Primitives2D.FillPolygonSpan(batch, shadow, UiTheme.Shadow);
+        }
+        for (int orderedIndex = 0; orderedIndex < faceOrder.Length; orderedIndex++)
+        {
+            var points = projected.Slice(orderedIndex * 4, 4);
+            Color face = orderedIndex % 2 == 0 ? primary : secondary;
+            face = Color.Lerp(face, accent, .05f + orderedIndex * .045f);
+            Primitives2D.FillPolygonSpan(batch, points, face);
+            Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink, Math.Max(2, (int)(extent * .095f)));
             Primitives2D.Line(batch, points[0], points[1], UiTheme.Lighten(accent, 34), Math.Max(1, (int)(extent * .035f)));
         }
     }
@@ -108,22 +147,19 @@ internal static class BossVisuals
         height = Math.Max(4f, height);
         float depth = Math.Max(4f, Math.Min(width, height) * (.16f + .035f * MathF.Sin(turn)));
         float skew = MathF.Cos(turn) * depth * .45f;
-        var frontFace = new[]
-        {
-            new Vector2(center.X - width / 2f, center.Y - height / 2f),
-            new Vector2(center.X + width / 2f, center.Y - height / 2f),
-            new Vector2(center.X + width / 2f, center.Y + height / 2f),
-            new Vector2(center.X - width / 2f, center.Y + height / 2f),
-        };
+        var first = new Vector2(center.X - width / 2f, center.Y - height / 2f);
+        var second = new Vector2(center.X + width / 2f, center.Y - height / 2f);
+        var third = new Vector2(center.X + width / 2f, center.Y + height / 2f);
+        var fourth = new Vector2(center.X - width / 2f, center.Y + height / 2f);
         var lift = new Vector2(skew, -depth);
-        var top = new[] { frontFace[0] + lift, frontFace[1] + lift, frontFace[1], frontFace[0] };
-        var side = new[] { frontFace[1] + lift, frontFace[2] + lift, frontFace[2], frontFace[1] };
-        Primitives2D.FillPolygon(batch, frontFace.Select(point => point + new Vector2(6, 8)).ToArray(), UiTheme.Shadow);
-        Primitives2D.FillPolygon(batch, frontFace, front);
-        Primitives2D.FillPolygon(batch, top, UiTheme.Lighten(front, 36));
-        Primitives2D.FillPolygon(batch, side, Color.Lerp(front, UiTheme.Void, .34f));
-        Primitives2D.PolygonOutline(batch, frontFace, UiTheme.Ink, Math.Max(2, (int)(Math.Min(width, height) * .055f)));
-        Primitives2D.Line(batch, top[0], top[1], accent, Math.Max(1, (int)(Math.Min(width, height) * .03f)));
+        var shadowOffset = new Vector2(6, 8);
+        Primitives2D.FillQuad(batch, first + shadowOffset, second + shadowOffset, third + shadowOffset, fourth + shadowOffset, UiTheme.Shadow);
+        Primitives2D.FillQuad(batch, first, second, third, fourth, front);
+        Primitives2D.FillQuad(batch, first + lift, second + lift, second, first, UiTheme.Lighten(front, 36));
+        Primitives2D.FillQuad(batch, second + lift, third + lift, third, second, Color.Lerp(front, UiTheme.Void, .34f));
+        Span<Vector2> frontOutline = stackalloc Vector2[4] { first, second, third, fourth };
+        Primitives2D.PolygonOutlineSpan(batch, frontOutline, UiTheme.Ink, Math.Max(2, (int)(Math.Min(width, height) * .055f)));
+        Primitives2D.Line(batch, first + lift, second + lift, accent, Math.Max(1, (int)(Math.Min(width, height) * .03f)));
     }
 
     /// <summary>Draw a raised square floor slab with hard corners and visible front/right depth faces.</summary>
@@ -137,23 +173,20 @@ internal static class BossVisuals
         axisX.Normalize();
         axisY.Normalize();
         float half = Math.Max(4f, sideLength * .5f);
-        var top = new[]
-        {
-            center - axisX * half - axisY * half,
-            center + axisX * half - axisY * half,
-            center + axisX * half + axisY * half,
-            center - axisX * half + axisY * half,
-        };
+        var first = center - axisX * half - axisY * half;
+        var second = center + axisX * half - axisY * half;
+        var third = center + axisX * half + axisY * half;
+        var fourth = center - axisX * half + axisY * half;
         var drop = new Vector2(0, Math.Max(3f, thickness));
-        var front = new[] { top[3], top[2], top[2] + drop, top[3] + drop };
-        var right = new[] { top[1], top[2], top[2] + drop, top[1] + drop };
-        Primitives2D.FillPolygon(batch, top.Select(point => point + drop + new Vector2(6, 7)).ToArray(), UiTheme.Shadow);
-        Primitives2D.FillPolygon(batch, front, Color.Lerp(topColor, UiTheme.Void, .42f));
-        Primitives2D.FillPolygon(batch, right, Color.Lerp(topColor, UiTheme.Void, .58f));
-        Primitives2D.FillPolygon(batch, top, topColor);
-        Primitives2D.PolygonOutline(batch, top, UiTheme.Ink, Math.Max(3, (int)(thickness * .32f)));
-        Primitives2D.Line(batch, top[0], top[1], edgeColor, Math.Max(2, (int)(thickness * .18f)));
-        Primitives2D.Line(batch, top[0], top[3], Color.Lerp(edgeColor, topColor, .45f), 2);
+        var shadowOffset = drop + new Vector2(6, 7);
+        Primitives2D.FillQuad(batch, first + shadowOffset, second + shadowOffset, third + shadowOffset, fourth + shadowOffset, UiTheme.Shadow);
+        Primitives2D.FillQuad(batch, fourth, third, third + drop, fourth + drop, Color.Lerp(topColor, UiTheme.Void, .42f));
+        Primitives2D.FillQuad(batch, second, third, third + drop, second + drop, Color.Lerp(topColor, UiTheme.Void, .58f));
+        Primitives2D.FillQuad(batch, first, second, third, fourth, topColor);
+        Span<Vector2> topOutline = stackalloc Vector2[4] { first, second, third, fourth };
+        Primitives2D.PolygonOutlineSpan(batch, topOutline, UiTheme.Ink, Math.Max(3, (int)(thickness * .32f)));
+        Primitives2D.Line(batch, first, second, edgeColor, Math.Max(2, (int)(thickness * .18f)));
+        Primitives2D.Line(batch, first, fourth, Color.Lerp(edgeColor, topColor, .45f), 2);
     }
 
     /// <summary>Concentric breathing ellipses make power feel stored rather than emitted as noise.</summary>

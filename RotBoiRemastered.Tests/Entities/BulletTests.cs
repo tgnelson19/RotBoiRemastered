@@ -50,4 +50,20 @@ public class BulletTests
         Assert.True(tail.X < 50);
         Assert.Equal(50, front.Y, precision: 3);
     }
+
+    [Theory]
+    [InlineData(4f, 1f, 12f)]
+    [InlineData(4f, .5f, 24f)]
+    [InlineData(4f, 2f, 6f)]
+    [InlineData(18f, 1f, 18f)]
+    public void ProjectileDrawSize_EnforcesTwelvePhysicalPixels(
+        float authoredSize,
+        float zoom,
+        float expectedLogicalSize)
+    {
+        Assert.Equal(
+            expectedLogicalSize,
+            ProjectileVisuals.NormalizeDrawSize(authoredSize, zoom),
+            precision: 3);
+    }
 }

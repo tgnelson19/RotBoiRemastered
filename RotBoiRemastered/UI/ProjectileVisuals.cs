@@ -7,6 +7,17 @@ namespace RotBoiRemastered.UI;
 /// <summary>Scalable, rotation-safe player projectile silhouettes built from primitive geometry.</summary>
 public static class ProjectileVisuals
 {
+    public const float MinimumDrawSize = 12f;
+    private static readonly Dictionary<string, string> SpritePathCache =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Visual-only floor shared by friendly and hostile projectiles. Collision
+    /// geometry remains authored so readability does not alter balance.
+    /// </summary>
+    public static float NormalizeDrawSize(float size, float zoom = 1f) =>
+        Math.Max(size, MinimumDrawSize / Math.Max(.01f, zoom));
+
     public static (Vector2 Tail, Vector2 Front) AxisEndpoints(Vector2 center, Vector2 forward, float size)
     {
         forward = SafeForward(forward);
@@ -14,14 +25,29 @@ public static class ProjectileVisuals
     }
 
     public static void Draw(SpriteBatch spriteBatch, Vector2 center, Vector2 forward, float size,
-        Color core, Color edge, string design, bool critical = false)
+        Color core, Color edge, string design, bool critical = false, float zoom = 1f)
     {
+        size = NormalizeDrawSize(size, zoom);
         forward = SafeForward(forward);
         Vector2 side = new(-forward.Y, forward.X);
         Vector2 P(float x, float y) => center + forward * (x * size) + side * (y * size);
-        Vector2[] Shape(params (float X, float Y)[] points) => points.Select(point => P(point.X, point.Y)).ToArray();
+        void FillShape(Color color, ReadOnlySpan<Vector2> normalizedPoints)
+        {
+            Span<Vector2> points = stackalloc Vector2[normalizedPoints.Length];
+            for (int index = 0; index < normalizedPoints.Length; index++)
+            {
+                Vector2 point = normalizedPoints[index];
+                points[index] = P(point.X, point.Y);
+            }
+            Primitives2D.FillPolygonSpan(spriteBatch, points, color);
+        }
 
-        var sprite = Sprites.TryGet($"Bullets/{design}");
+        if (!SpritePathCache.TryGetValue(design, out string? spritePath))
+        {
+            spritePath = $"Bullets/{design}";
+            SpritePathCache[design] = spritePath;
+        }
+        var sprite = Sprites.TryGet(spritePath);
         if (sprite is not null)
         {
             // Authored pointing +X (forward, pre-rotation) -- see
@@ -35,35 +61,79 @@ public static class ProjectileVisuals
         }
         else if (design == "shard")
         {
-            FillLayer(spriteBatch, Shape((-.62f, -.27f), (.12f, -.40f), (.70f, 0), (.12f, .40f), (-.62f, .27f)), edge);
-            FillLayer(spriteBatch, Shape((-.43f, -.14f), (.10f, -.24f), (.48f, 0), (.10f, .24f), (-.43f, .14f)), core);
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.62f, -.27f), new(.12f, -.40f), new(.70f, 0),
+                new(.12f, .40f), new(-.62f, .27f),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.43f, -.14f), new(.10f, -.24f), new(.48f, 0),
+                new(.10f, .24f), new(-.43f, .14f),
+            });
         }
         else if (design == "lance")
         {
-            FillLayer(spriteBatch, Shape((-.72f, -.15f), (.20f, -.25f), (.72f, 0), (.20f, .25f), (-.72f, .15f)), edge);
-            FillLayer(spriteBatch, Shape((-.53f, -.07f), (.18f, -.12f), (.52f, 0), (.18f, .12f), (-.53f, .07f)), core);
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.72f, -.15f), new(.20f, -.25f), new(.72f, 0),
+                new(.20f, .25f), new(-.72f, .15f),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.53f, -.07f), new(.18f, -.12f), new(.52f, 0),
+                new(.18f, .12f), new(-.53f, .07f),
+            });
         }
         else if (design == "comet")
         {
-            FillLayer(spriteBatch, Shape((-.70f, 0), (-.06f, -.31f), (.28f, -.31f), (.28f, .31f), (-.06f, .31f)), edge);
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.70f, 0), new(-.06f, -.31f), new(.28f, -.31f),
+                new(.28f, .31f), new(-.06f, .31f),
+            });
             Primitives2D.FillCircle(spriteBatch, P(.28f, 0), size * .40f, edge);
-            FillLayer(spriteBatch, Shape((-.46f, 0), (.00f, -.17f), (.27f, -.17f), (.27f, .17f), (.00f, .17f)), core);
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.46f, 0), new(0, -.17f), new(.27f, -.17f),
+                new(.27f, .17f), new(0, .17f),
+            });
             Primitives2D.FillCircle(spriteBatch, P(.28f, 0), size * .24f, core);
         }
         else if (design == "fork")
         {
-            FillLayer(spriteBatch, Shape((-.70f, -.38f), (-.24f, -.18f), (.12f, -.38f), (.66f, 0), (.12f, .38f), (-.24f, .18f), (-.70f, .38f), (-.48f, 0)), edge);
-            FillLayer(spriteBatch, Shape((-.43f, -.21f), (-.17f, -.10f), (.10f, -.22f), (.45f, 0), (.10f, .22f), (-.17f, .10f), (-.43f, .21f), (-.28f, 0)), core);
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.70f, -.38f), new(-.24f, -.18f),
+                new(.12f, -.38f), new(.66f, 0), new(.12f, .38f),
+                new(-.24f, .18f), new(-.70f, .38f), new(-.48f, 0),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.43f, -.21f), new(-.17f, -.10f),
+                new(.10f, -.22f), new(.45f, 0), new(.10f, .22f),
+                new(-.17f, .10f), new(-.43f, .21f), new(-.28f, 0),
+            });
         }
         else
         {
             // Reference design: the narrow stem trails and the bulb is always
             // placed on +forward, so the broad end visibly leads the shot.
-            FillLayer(spriteBatch, Shape((-.70f, -.18f), (-.10f, -.18f), (-.10f, -.40f), (.28f, -.40f),
-                (.28f, .40f), (-.10f, .40f), (-.10f, .18f), (-.70f, .18f)), edge);
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.70f, -.18f), new(-.10f, -.18f),
+                new(-.10f, -.40f), new(.28f, -.40f),
+                new(.28f, .40f), new(-.10f, .40f),
+                new(-.10f, .18f), new(-.70f, .18f),
+            });
             Primitives2D.FillCircle(spriteBatch, P(.30f, 0), size * .40f, edge);
-            FillLayer(spriteBatch, Shape((-.49f, -.09f), (-.03f, -.09f), (-.03f, -.23f), (.27f, -.23f),
-                (.27f, .23f), (-.03f, .23f), (-.03f, .09f), (-.49f, .09f)), core);
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.49f, -.09f), new(-.03f, -.09f),
+                new(-.03f, -.23f), new(.27f, -.23f),
+                new(.27f, .23f), new(-.03f, .23f),
+                new(-.03f, .09f), new(-.49f, .09f),
+            });
             Primitives2D.FillCircle(spriteBatch, P(.30f, 0), size * .23f, core);
         }
 
@@ -73,9 +143,6 @@ public static class ProjectileVisuals
             Primitives2D.CircleOutline(spriteBatch, P(.30f, 0), Math.Max(3, size * .31f), UiTheme.Purple, Math.Max(1, (int)(size * .06f)));
         }
     }
-
-    private static void FillLayer(SpriteBatch spriteBatch, IReadOnlyList<Vector2> points, Color color) =>
-        Primitives2D.FillPolygon(spriteBatch, points, color);
 
     private static Vector2 SafeForward(Vector2 forward) => forward.LengthSquared() < .0001f
         ? Vector2.UnitX
