@@ -55,6 +55,32 @@ public class GameSessionTests
             room.WorldCenter.Y - (float)session.State.PlayerSize / 2f);
     }
 
+    private static void AdvancePathToFloor(GameSession session, int floor)
+    {
+        while (session.PathRun!.FloorNumber < floor)
+        {
+            session.PathRun.NotifyBossDefeated();
+            Vector2 portal = session.PathRun.ExitPortalWorld;
+            session.Player.SetPosition(portal.X, portal.Y);
+            session.HandleEnemyCreation(
+                new Random(8000 + session.PathRun.FloorNumber),
+                interactPressed: true);
+        }
+    }
+
+    private static void FinishPendingPathWaves(
+        GameSession session,
+        int seed = 9000)
+    {
+        for (int frame = 0;
+            frame < 20 && session.HasPendingPathWaves;
+            frame++)
+        {
+            session.HandleEnemyCreation(new Random(seed + frame));
+        }
+        Assert.False(session.HasPendingPathWaves);
+    }
+
     [Fact]
     public void Constructor_PositionsPlayerAtBattlegroundSpawn()
     {
@@ -150,6 +176,24 @@ public class GameSessionTests
         session.HandleEnemyCreation(new Random(1));
         int countAfterSecond = session.State.EnemyHolster.Count(e => e is ArsenalMiniBoss);
         Assert.Equal(countAfterFirst, countAfterSecond);
+    }
+
+    [Fact]
+    public void HandleEnemyCreation_IdleSpawnTimer_DoesNotAllocatePerFrame()
+    {
+        var session = MakeSession(level: 1);
+        session.State.EnemySpawnTimer = Simulation.FrameRate * 30;
+        var rng = new Random(91);
+        for (int index = 0; index < 8; index++)
+            session.HandleEnemyCreation(rng);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 200; index++)
+            session.HandleEnemyCreation(rng);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(allocated <= 1024,
+            $"Idle spawning allocated {allocated:N0} bytes across 200 frames.");
     }
 
     [Fact]
@@ -264,6 +308,7 @@ public class GameSessionTests
         MoveToPathRoom(session!, PathRoomType.Treasure);
 
         session!.HandleEnemyCreation(new Random(15));
+        FinishPendingPathWaves(session);
 
         var room = session.PathRun!.Layout.TreasureRooms[0];
         Assert.Empty(session.State.LootCrateList);
@@ -307,6 +352,7 @@ public class GameSessionTests
         MoveToPathRoom(session!, PathRoomType.Challenge);
 
         session!.HandleEnemyCreation(new Random(70));
+        FinishPendingPathWaves(session);
         Assert.Contains(session.PathRun!.ActiveCombatRooms,
             room => room.Type == PathRoomType.Challenge);
         Assert.NotEmpty(session.State.EnemyHolster);
@@ -318,6 +364,26 @@ public class GameSessionTests
         Assert.True(chest.Items.Count >= TreasureChest.MinimumItems + 1);
         Assert.DoesNotContain(session.PathRun.ActiveCombatRooms,
             room => room.Type == PathRoomType.Challenge);
+    }
+
+    [Fact]
+    public void PathRoomWave_ConstructionIsBoundedAcrossFrames()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(212));
+        MoveToPathRoom(session, PathRoomType.Assault);
+
+        session.HandleEnemyCreation(new Random(213));
+
+        Assert.InRange(
+            session.State.EnemyHolster.Count,
+            1,
+            3);
+        Assert.True(session.HasPendingPathWaves);
+
+        FinishPendingPathWaves(session);
+
+        Assert.True(session.State.EnemyHolster.Count > 3);
     }
 
     [Fact]
@@ -351,6 +417,59 @@ public class GameSessionTests
         var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
         Assert.Equal(session.PathRun!.CurrentSenseKey, guardian.SenseKey);
         Assert.Same(guardian, Assert.Single(session.State.EnemyHolster));
+    }
+
+    [Fact]
+    public void PathBossRoom_OrdinaryFloor_DoesNotTeleportPlayer()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(16));
+        MoveToPathRoom(session, PathRoomType.Boss);
+        Vector2 enteredPosition = new(
+            session.Player.WorldX, session.Player.WorldY);
+
+        session.HandleEnemyCreation(new Random(17));
+
+        Assert.NotNull(session.State.ActiveBoss);
+        Assert.Equal(enteredPosition.X, session.Player.WorldX);
+        Assert.Equal(enteredPosition.Y, session.Player.WorldY);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(10)]
+    public void PathBossRoom_MilestoneFloor_RepositionsPlayerBelowBoss(int floor)
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(16));
+        AdvancePathToFloor(session, floor);
+        PathRoom room = session.PathRun!.Layout.BossRoom;
+        MoveToPathRoom(session, PathRoomType.Boss);
+
+        session.HandleEnemyCreation(new Random(1700 + floor));
+
+        Assert.NotNull(session.State.ActiveBoss);
+        Assert.True(session.PlayerWorldCenter.Y > room.WorldCenter.Y);
+        Assert.True(Vector2.Distance(
+            session.PlayerWorldCenter, room.WorldCenter) > Simulation.TileSize);
+    }
+
+    [Fact]
+    public void CombatViewportCull_IsConservativeForLongCrossingHazards()
+    {
+        var camera = new Camera { Lock = new Vector2(640, 360) };
+        var viewport = new Rectangle(0, 0, 1280, 720);
+        var player = new Vector2(5000, 5000);
+
+        Assert.True(GameSession.IsWorldAreaNearViewport(
+            camera, player, Vector2.Zero, viewport,
+            new Rectangle(4900, 4900, 200, 200)));
+        Assert.False(GameSession.IsWorldAreaNearViewport(
+            camera, player, Vector2.Zero, viewport,
+            new Rectangle(9000, 9000, 50, 50)));
+        Assert.True(GameSession.IsWorldAreaNearViewport(
+            camera, player, Vector2.Zero, viewport,
+            new Rectangle(3900, 4950, 2200, 20)));
     }
 
     [Theory]
@@ -996,6 +1115,23 @@ public class GameSessionTests
         // int-valued Rectangle, unlike Python's direct float assignment for this case.
         Assert.True(Math.Abs(boss.ArenaCenter.X - boss.Size / 2f - boss.WorldX) < 1f);
         Assert.True(Math.Abs(boss.ArenaCenter.Y - boss.Size / 2f - boss.WorldY) < 1f);
+    }
+
+    [Fact]
+    public void HandleEnemyCreation_NaturalDissonanceTrigger_StepsPlayerBackFromArenaCenter()
+    {
+        var session = MakeSession(level: 20);
+        session.State.BeaudisEncounterStarted = true;
+        session.State.BeaudisDefeated = true;
+        MoveToArenaCenter(session);
+        Vector2 center = new(
+            session.Battleground.Width * Simulation.TileSize / 2f,
+            session.Battleground.Height * Simulation.TileSize / 2f);
+
+        session.HandleEnemyCreation(new Random(1), interactPressed: true);
+
+        Assert.True(Vector2.Distance(session.PlayerWorldCenter, center)
+            > Simulation.TileSize * 5);
     }
 
     [Fact]

@@ -28,32 +28,32 @@ public static class EnemyVisualRenderer
         float halfY = pose.Rect.Height * .48f;
         Vector2 axisX = Safe(pose.WorldRight, Vector2.UnitX);
         Vector2 axisY = Safe(pose.WorldDown, Vector2.UnitY);
-        Vector2 P(float x, float y) =>
-            pose.Center + axisX * (x * halfX) + axisY * (y * halfY);
+        var geometry = new BodyGeometry(
+            pose.Center, axisX, axisY, halfX, halfY);
 
         Vector2 shadow = axisX * Math.Max(2f, authoredSize * .055f)
             + axisY * Math.Max(3f, authoredSize * .075f);
-        DrawChassis(spriteBatch, profile.BodyKind, P, pose.Center + shadow,
+        DrawChassis(spriteBatch, profile.BodyKind, geometry, pose.Center + shadow,
             axisX, axisY, halfX, halfY, UiTheme.Shadow);
-        DrawChassis(spriteBatch, profile.BodyKind, P, pose.Center,
+        DrawChassis(spriteBatch, profile.BodyKind, geometry, pose.Center,
             axisX, axisY, halfX, halfY, bodyColor);
-        DrawOutline(spriteBatch, profile.BodyKind, P,
+        DrawOutline(spriteBatch, profile.BodyKind, geometry,
             UiTheme.Ink, Math.Max(2, (int)(authoredSize * .065f)));
 
-        DrawSoulCore(spriteBatch, profile, pose, P, bodyColor, authoredSize);
-        DrawConstructionTier(spriteBatch, profile, pose, P, authoredSize);
-        DrawRoleTopology(spriteBatch, profile, pose, P, authoredSize);
-        DrawArchetypeMark(spriteBatch, archetype, pose, P, bodyColor, authoredSize);
+        DrawSoulCore(spriteBatch, profile, pose, geometry, bodyColor, authoredSize);
+        DrawConstructionTier(spriteBatch, profile, pose, geometry, authoredSize);
+        DrawRoleTopology(spriteBatch, profile, pose, geometry, authoredSize);
+        DrawArchetypeMark(spriteBatch, archetype, pose, geometry, bodyColor, authoredSize);
         if (modifier is not null)
-            DrawModifierInlay(spriteBatch, modifier, modifierColor, pose, P, authoredSize);
+            DrawModifierInlay(spriteBatch, modifier, modifierColor, pose, geometry, authoredSize);
         DrawProgressionScars(
-            spriteBatch, newGamePlusLevel, pose, P, authoredSize);
+            spriteBatch, newGamePlusLevel, pose, geometry, authoredSize);
     }
 
     private static void DrawChassis(
         SpriteBatch spriteBatch,
         SoulBodyKind kind,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         Vector2 center,
         Vector2 axisX,
         Vector2 axisY,
@@ -66,33 +66,33 @@ public static class EnemyVisualRenderer
             case SoulBodyKind.Resonator:
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(-.76f, -1f), p(.65f, -1f), p(1f, -.45f),
-                    p(1f, .45f), p(.65f, 1f), p(-.76f, 1f),
-                    p(-1f, .48f), p(-1f, -.48f),
+                    geometry.Point(-.76f, -1f), geometry.Point(.65f, -1f), geometry.Point(1f, -.45f),
+                    geometry.Point(1f, .45f), geometry.Point(.65f, 1f), geometry.Point(-.76f, 1f),
+                    geometry.Point(-1f, .48f), geometry.Point(-1f, -.48f),
                 }, color);
                 break;
             case SoulBodyKind.PressureBlock:
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(-.82f, -1f), p(.82f, -1f), p(1f, -.76f),
-                    p(1f, .76f), p(.82f, 1f), p(-.82f, 1f),
-                    p(-1f, .76f), p(-1f, -.76f),
+                    geometry.Point(-.82f, -1f), geometry.Point(.82f, -1f), geometry.Point(1f, -.76f),
+                    geometry.Point(1f, .76f), geometry.Point(.82f, 1f), geometry.Point(-.82f, 1f),
+                    geometry.Point(-1f, .76f), geometry.Point(-1f, -.76f),
                 }, color);
                 break;
             case SoulBodyKind.Lens:
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(-1f, 0), p(-.48f, -.78f), p(0, -1f),
-                    p(.48f, -.78f), p(1f, 0), p(.48f, .78f),
-                    p(0, 1f), p(-.48f, .78f),
+                    geometry.Point(-1f, 0), geometry.Point(-.48f, -.78f), geometry.Point(0, -1f),
+                    geometry.Point(.48f, -.78f), geometry.Point(1f, 0), geometry.Point(.48f, .78f),
+                    geometry.Point(0, 1f), geometry.Point(-.48f, .78f),
                 }, color);
                 break;
             case SoulBodyKind.CinderCore:
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(-.78f, -.92f), p(.28f, -1f), p(.92f, -.62f),
-                    p(1f, .25f), p(.58f, .94f), p(-.34f, 1f),
-                    p(-1f, .48f), p(-.94f, -.4f),
+                    geometry.Point(-.78f, -.92f), geometry.Point(.28f, -1f), geometry.Point(.92f, -.62f),
+                    geometry.Point(1f, .25f), geometry.Point(.58f, .94f), geometry.Point(-.34f, 1f),
+                    geometry.Point(-1f, .48f), geometry.Point(-.94f, -.4f),
                 }, color);
                 break;
             default:
@@ -101,7 +101,7 @@ public static class EnemyVisualRenderer
                 {
                     float angle = -MathF.PI / 2f + index * MathF.Tau / star.Length;
                     float radius = index % 2 == 0 ? 1f : .63f;
-                    star[index] = p(MathF.Cos(angle) * radius,
+                    star[index] = geometry.Point(MathF.Cos(angle) * radius,
                         MathF.Sin(angle) * radius);
                 }
                 Primitives2D.FillPolygonSpan(spriteBatch, star, color);
@@ -112,7 +112,7 @@ public static class EnemyVisualRenderer
     private static void DrawOutline(
         SpriteBatch spriteBatch,
         SoulBodyKind kind,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         Color color,
         int width)
     {
@@ -121,10 +121,10 @@ public static class EnemyVisualRenderer
         if (kind == SoulBodyKind.Lens)
         {
             count = 8;
-            outline[0] = p(-1f, 0); outline[1] = p(-.48f, -.78f);
-            outline[2] = p(0, -1f); outline[3] = p(.48f, -.78f);
-            outline[4] = p(1f, 0); outline[5] = p(.48f, .78f);
-            outline[6] = p(0, 1f); outline[7] = p(-.48f, .78f);
+            outline[0] = geometry.Point(-1f, 0); outline[1] = geometry.Point(-.48f, -.78f);
+            outline[2] = geometry.Point(0, -1f); outline[3] = geometry.Point(.48f, -.78f);
+            outline[4] = geometry.Point(1f, 0); outline[5] = geometry.Point(.48f, .78f);
+            outline[6] = geometry.Point(0, 1f); outline[7] = geometry.Point(-.48f, .78f);
         }
         else if (kind == SoulBodyKind.DreamPrism)
         {
@@ -133,17 +133,17 @@ public static class EnemyVisualRenderer
             {
                 float angle = -MathF.PI / 2f + index * MathF.Tau / count;
                 float radius = index % 2 == 0 ? 1f : .63f;
-                outline[index] = p(MathF.Cos(angle) * radius,
+                outline[index] = geometry.Point(MathF.Cos(angle) * radius,
                     MathF.Sin(angle) * radius);
             }
         }
         else
         {
             count = 8;
-            outline[0] = p(-.78f, -1f); outline[1] = p(.72f, -1f);
-            outline[2] = p(1f, -.58f); outline[3] = p(1f, .58f);
-            outline[4] = p(.72f, 1f); outline[5] = p(-.78f, 1f);
-            outline[6] = p(-1f, .58f); outline[7] = p(-1f, -.58f);
+            outline[0] = geometry.Point(-.78f, -1f); outline[1] = geometry.Point(.72f, -1f);
+            outline[2] = geometry.Point(1f, -.58f); outline[3] = geometry.Point(1f, .58f);
+            outline[4] = geometry.Point(.72f, 1f); outline[5] = geometry.Point(-.78f, 1f);
+            outline[6] = geometry.Point(-1f, .58f); outline[7] = geometry.Point(-1f, -.58f);
         }
         Primitives2D.PolygonOutlineSpan(spriteBatch, outline[..count], color, width);
     }
@@ -152,7 +152,7 @@ public static class EnemyVisualRenderer
         SpriteBatch spriteBatch,
         EnemyVisualProfile profile,
         EnemyRenderPose pose,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         Color bodyColor,
         float size)
     {
@@ -163,41 +163,41 @@ public static class EnemyVisualRenderer
         {
             case SoulBodyKind.Resonator:
                 for (int index = -1; index <= 1; index++)
-                    Primitives2D.Line(spriteBatch, p(-.5f, index * .3f),
-                        p(.5f * pulse, index * .3f), core, Math.Max(2, (int)(size * .045f)));
+                    Primitives2D.Line(spriteBatch, geometry.Point(-.5f, index * .3f),
+                        geometry.Point(.5f * pulse, index * .3f), core, Math.Max(2, (int)(size * .045f)));
                 break;
             case SoulBodyKind.PressureBlock:
                 Primitives2D.FillRect(spriteBatch,
-                    CenteredRect(p(0, 0), size * .32f * pulse, size * .32f / pulse),
+                    CenteredRect(geometry.Point(0, 0), size * .32f * pulse, size * .32f / pulse),
                     path.Deep);
                 Primitives2D.RectOutline(spriteBatch,
-                    CenteredRect(p(0, 0), size * .38f * pulse, size * .38f / pulse),
+                    CenteredRect(geometry.Point(0, 0), size * .38f * pulse, size * .38f / pulse),
                     core, Math.Max(2, (int)(size * .045f)));
                 break;
             case SoulBodyKind.Lens:
                 Primitives2D.FillEllipse(spriteBatch,
-                    CenteredRect(p(0, 0), size * .62f * pulse, size * .3f / pulse),
+                    CenteredRect(geometry.Point(0, 0), size * .62f * pulse, size * .3f / pulse),
                     path.Deep);
-                Primitives2D.FillCircle(spriteBatch, p(.18f * pose.AttackPulse, 0),
+                Primitives2D.FillCircle(spriteBatch, geometry.Point(.18f * pose.AttackPulse, 0),
                     Math.Max(2f, size * .11f), core);
                 break;
             case SoulBodyKind.CinderCore:
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(0, -.48f), p(.38f, -.08f), p(.2f, .48f),
-                    p(-.28f, .3f), p(-.43f, -.18f),
+                    geometry.Point(0, -.48f), geometry.Point(.38f, -.08f), geometry.Point(.2f, .48f),
+                    geometry.Point(-.28f, .3f), geometry.Point(-.43f, -.18f),
                 }, path.Deep);
-                Primitives2D.Line(spriteBatch, p(-.28f, -.2f), p(.25f, .28f),
+                Primitives2D.Line(spriteBatch, geometry.Point(-.28f, -.2f), geometry.Point(.25f, .28f),
                     core, Math.Max(2, (int)(size * .05f)));
                 break;
             default:
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(0, -.48f * pulse), p(.4f, 0),
-                    p(0, .48f * pulse), p(-.4f, 0),
+                    geometry.Point(0, -.48f * pulse), geometry.Point(.4f, 0),
+                    geometry.Point(0, .48f * pulse), geometry.Point(-.4f, 0),
                 }, path.Deep);
                 Primitives2D.FillRect(spriteBatch,
-                    CenteredRect(p(0, 0), size * .12f, size * .12f), core);
+                    CenteredRect(geometry.Point(0, 0), size * .12f, size * .12f), core);
                 break;
         }
     }
@@ -206,7 +206,7 @@ public static class EnemyVisualRenderer
         SpriteBatch spriteBatch,
         EnemyVisualProfile profile,
         EnemyRenderPose pose,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         float size)
     {
         PathVisualProfile path = SoulVisualLanguage.Path(profile.PathKey);
@@ -215,12 +215,12 @@ public static class EnemyVisualRenderer
             float y = module == 1 ? -.72f : .72f;
             float flicker = .65f + .25f * MathF.Sin(
                 pose.WalkPhase * 2f + module * 2.4f);
-            Primitives2D.Line(spriteBatch, p(-.72f, y), p(.72f, y),
+            Primitives2D.Line(spriteBatch, geometry.Point(-.72f, y), geometry.Point(.72f, y),
                 path.Secondary * flicker, Math.Max(1, (int)(size * .035f)));
             if (profile.Tier == "hard")
             {
-                Primitives2D.Line(spriteBatch, p(-.12f, y),
-                    p(.14f, y - MathF.Sign(y) * .22f),
+                Primitives2D.Line(spriteBatch, geometry.Point(-.12f, y),
+                    geometry.Point(.14f, y - MathF.Sign(y) * .22f),
                     UiTheme.Cream * .65f, Math.Max(1, (int)(size * .025f)));
             }
         }
@@ -230,11 +230,11 @@ public static class EnemyVisualRenderer
         SpriteBatch spriteBatch,
         EnemyVisualProfile profile,
         EnemyRenderPose pose,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         float size)
     {
         PathVisualProfile path = SoulVisualLanguage.Path(profile.PathKey);
-        Vector2 primary = p(profile.Anchors.Primary.X, profile.Anchors.Primary.Y);
+        Vector2 primary = geometry.Point(profile.Anchors.Primary.X, profile.Anchors.Primary.Y);
         Color roleColor = Color.Lerp(path.Accent, UiTheme.Cream,
             .22f + pose.AttackPulse * .48f);
         int width = Math.Max(2, (int)(size * .05f));
@@ -247,15 +247,15 @@ public static class EnemyVisualRenderer
                     size * (.17f + pose.AttackPulse * .08f), roleColor, width);
                 break;
             case "vents":
-                Primitives2D.Line(spriteBatch, p(.18f, -.52f),
-                    p(.8f + pose.AttackPulse * .2f, -.72f), roleColor, width);
-                Primitives2D.Line(spriteBatch, p(.18f, .52f),
-                    p(.8f + pose.AttackPulse * .2f, .72f), roleColor, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(.18f, -.52f),
+                    geometry.Point(.8f + pose.AttackPulse * .2f, -.72f), roleColor, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(.18f, .52f),
+                    geometry.Point(.8f + pose.AttackPulse * .2f, .72f), roleColor, width);
                 break;
             case "chambers":
                 for (int chamber = -1; chamber <= 1; chamber++)
                     Primitives2D.FillRect(spriteBatch,
-                        CenteredRect(p(.34f, chamber * .35f), size * .12f, size * .12f),
+                        CenteredRect(geometry.Point(.34f, chamber * .35f), size * .12f, size * .12f),
                         chamber <= MathF.Round(pose.AttackPulse * 2f - 1f)
                             ? roleColor : path.Deep);
                 break;
@@ -269,44 +269,44 @@ public static class EnemyVisualRenderer
                 }
                 break;
             case "fuse":
-                Primitives2D.Line(spriteBatch, p(-.05f, -.82f), p(.34f, -1.18f),
+                Primitives2D.Line(spriteBatch, geometry.Point(-.05f, -.82f), geometry.Point(.34f, -1.18f),
                     roleColor, width);
                 Primitives2D.FillRect(spriteBatch,
-                    CenteredRect(p(.4f, -1.22f), size * .09f, size * .09f),
+                    CenteredRect(geometry.Point(.4f, -1.22f), size * .09f, size * .09f),
                     UiTheme.Cream);
                 break;
             case "shield":
-                Primitives2D.Line(spriteBatch, p(.92f, -.78f), p(.92f, .78f),
+                Primitives2D.Line(spriteBatch, geometry.Point(.92f, -.78f), geometry.Point(.92f, .78f),
                     roleColor, Math.Max(3, width * 2));
                 break;
             case "compression":
                 float squeeze = pose.AttackPulse * .18f;
-                Primitives2D.Line(spriteBatch, p(-.72f + squeeze, -.62f),
-                    p(-.72f + squeeze, .62f), roleColor, width);
-                Primitives2D.Line(spriteBatch, p(.72f - squeeze, -.62f),
-                    p(.72f - squeeze, .62f), roleColor, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.72f + squeeze, -.62f),
+                    geometry.Point(-.72f + squeeze, .62f), roleColor, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(.72f - squeeze, -.62f),
+                    geometry.Point(.72f - squeeze, .62f), roleColor, width);
                 break;
             case "command":
-                Primitives2D.Line(spriteBatch, p(-.7f, -.68f), p(.62f, -1.1f),
+                Primitives2D.Line(spriteBatch, geometry.Point(-.7f, -.68f), geometry.Point(.62f, -1.1f),
                     roleColor, width);
-                Primitives2D.Line(spriteBatch, p(.62f, -1.1f), p(.35f, -.58f),
+                Primitives2D.Line(spriteBatch, geometry.Point(.62f, -1.1f), geometry.Point(.35f, -.58f),
                     roleColor, width);
                 break;
             case "cage":
                 Primitives2D.RectOutline(spriteBatch,
-                    Bounds(p(-.4f, -.4f), p(.4f, .4f)), roleColor, width);
+                    Bounds(geometry.Point(-.4f, -.4f), geometry.Point(.4f, .4f)), roleColor, width);
                 break;
             case "tether":
-                Primitives2D.Line(spriteBatch, p(-.88f, 0), p(-1.18f, 0),
+                Primitives2D.Line(spriteBatch, geometry.Point(-.88f, 0), geometry.Point(-1.18f, 0),
                     roleColor * (.6f + .3f * MathF.Sin(pose.WalkPhase * 4f)), width);
                 break;
             case "foundation":
-                Primitives2D.Line(spriteBatch, p(-.8f, .86f), p(.8f, .86f),
+                Primitives2D.Line(spriteBatch, geometry.Point(-.8f, .86f), geometry.Point(.8f, .86f),
                     roleColor, Math.Max(3, width * 2));
                 break;
             case "segments":
                 for (int index = -1; index <= 1; index++)
-                    Primitives2D.FillCircle(spriteBatch, p(index * .34f, .08f),
+                    Primitives2D.FillCircle(spriteBatch, geometry.Point(index * .34f, .08f),
                         size * .08f, roleColor);
                 break;
         }
@@ -316,7 +316,7 @@ public static class EnemyVisualRenderer
         SpriteBatch spriteBatch,
         string archetype,
         EnemyRenderPose pose,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         Color bodyColor,
         float size)
     {
@@ -327,17 +327,17 @@ public static class EnemyVisualRenderer
             case "runner":
                 Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(-.28f, 0), p(0, -.28f), p(.36f, 0), p(0, .28f),
+                    geometry.Point(-.28f, 0), geometry.Point(0, -.28f), geometry.Point(.36f, 0), geometry.Point(0, .28f),
                 }, mark);
                 break;
             case "skirmisher":
-                Primitives2D.Line(spriteBatch, p(-.28f, 0), p(.28f, 0), mark, width);
-                Primitives2D.Line(spriteBatch, p(0, -.28f), p(0, .28f), mark, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.28f, 0), geometry.Point(.28f, 0), mark, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(0, -.28f), geometry.Point(0, .28f), mark, width);
                 break;
             case "bulwark":
                 Primitives2D.PolygonOutlineSpan(spriteBatch, stackalloc Vector2[]
                 {
-                    p(0, -.32f), p(.3f, 0), p(0, .32f), p(-.3f, 0),
+                    geometry.Point(0, -.32f), geometry.Point(.3f, 0), geometry.Point(0, .32f), geometry.Point(-.3f, 0),
                 }, mark, width);
                 break;
         }
@@ -348,7 +348,7 @@ public static class EnemyVisualRenderer
         string modifier,
         Color? modifierColor,
         EnemyRenderPose pose,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         float size)
     {
         Color color = modifierColor ?? UiTheme.Cream;
@@ -356,31 +356,31 @@ public static class EnemyVisualRenderer
         switch (modifier)
         {
             case "hasty":
-                Primitives2D.Line(spriteBatch, p(-.82f, -.28f), p(-.58f, 0), color, width);
-                Primitives2D.Line(spriteBatch, p(-.82f, .28f), p(-.58f, 0), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.82f, -.28f), geometry.Point(-.58f, 0), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.82f, .28f), geometry.Point(-.58f, 0), color, width);
                 break;
             case "armored":
-                Primitives2D.Line(spriteBatch, p(-.58f, -.75f), p(.58f, .75f), color, width);
-                Primitives2D.Line(spriteBatch, p(.58f, -.75f), p(-.58f, .75f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.58f, -.75f), geometry.Point(.58f, .75f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(.58f, -.75f), geometry.Point(-.58f, .75f), color, width);
                 break;
             case "volatile":
-                Primitives2D.Line(spriteBatch, p(-.22f, -.72f), p(.12f, -.15f), color, width);
-                Primitives2D.Line(spriteBatch, p(.12f, -.15f), p(-.08f, .22f), color, width);
-                Primitives2D.Line(spriteBatch, p(-.08f, .22f), p(.3f, .72f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.22f, -.72f), geometry.Point(.12f, -.15f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(.12f, -.15f), geometry.Point(-.08f, .22f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.08f, .22f), geometry.Point(.3f, .72f), color, width);
                 break;
             case "regenerating":
-                Primitives2D.Line(spriteBatch, p(-.42f, 0), p(.42f, 0), color, width);
-                Primitives2D.Line(spriteBatch, p(0, -.42f), p(0, .42f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.42f, 0), geometry.Point(.42f, 0), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(0, -.42f), geometry.Point(0, .42f), color, width);
                 break;
             case "champion":
-                Primitives2D.Line(spriteBatch, p(-.45f, -.72f), p(-.2f, -.96f), color, width);
-                Primitives2D.Line(spriteBatch, p(-.2f, -.96f), p(0, -.72f), color, width);
-                Primitives2D.Line(spriteBatch, p(0, -.72f), p(.22f, -.96f), color, width);
-                Primitives2D.Line(spriteBatch, p(.22f, -.96f), p(.45f, -.72f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.45f, -.72f), geometry.Point(-.2f, -.96f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(-.2f, -.96f), geometry.Point(0, -.72f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(0, -.72f), geometry.Point(.22f, -.96f), color, width);
+                Primitives2D.Line(spriteBatch, geometry.Point(.22f, -.96f), geometry.Point(.45f, -.72f), color, width);
                 break;
             default:
                 Primitives2D.FillRect(spriteBatch,
-                    CenteredRect(p(.68f, -.68f), size * .12f, size * .12f), color);
+                    CenteredRect(geometry.Point(.68f, -.68f), size * .12f, size * .12f), color);
                 break;
         }
     }
@@ -389,7 +389,7 @@ public static class EnemyVisualRenderer
         SpriteBatch spriteBatch,
         int newGamePlusLevel,
         EnemyRenderPose pose,
-        Func<float, float, Vector2> p,
+        in BodyGeometry geometry,
         float size)
     {
         int seams = Math.Min(3, Math.Max(0, newGamePlusLevel));
@@ -397,17 +397,28 @@ public static class EnemyVisualRenderer
         {
             float x = -.48f + index * .42f;
             Primitives2D.Line(spriteBatch,
-                p(x, -.82f),
-                p(x + .18f, -.18f),
+                geometry.Point(x, -.82f),
+                geometry.Point(x + .18f, -.18f),
                 UiTheme.Red * (.62f + .12f * MathF.Sin(
                     pose.WalkPhase * 3f + index)),
                 Math.Max(1, (int)(size * .03f)));
             Primitives2D.FillRect(spriteBatch,
-                CenteredRect(p(x + .18f, -.1f),
+                CenteredRect(geometry.Point(x + .18f, -.1f),
                     Math.Max(2, size * .055f),
                     Math.Max(2, size * .055f)),
                 UiTheme.Cream * .7f);
         }
+    }
+
+    private readonly record struct BodyGeometry(
+        Vector2 Center,
+        Vector2 AxisX,
+        Vector2 AxisY,
+        float HalfX,
+        float HalfY)
+    {
+        public Vector2 Point(float x, float y) =>
+            Center + AxisX * (x * HalfX) + AxisY * (y * HalfY);
     }
 
     private static Vector2 Safe(Vector2 value, Vector2 fallback) =>

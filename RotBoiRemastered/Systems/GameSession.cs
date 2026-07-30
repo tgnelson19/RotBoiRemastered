@@ -73,9 +73,11 @@ public sealed class GameSession
     private readonly List<RuntimeEncounter> _encounterScratch = new();
     private readonly HashSet<int> _encounterIdScratch = new();
     private readonly List<Enemy> _ungroupedEnemyScratch = new();
-    private readonly List<(Enemy Owner, List<Enemy> Group, bool Atomic)> _spawnedGroupScratch = new();
+    private readonly List<SpawnedEnemyGroup> _spawnedGroupScratch = new();
+    private readonly List<Enemy> _spawnedEnemyScratch = new();
     private readonly HashSet<Enemy> _rejectedOwnerScratch = new(ReferenceEqualityComparer.Instance);
     private readonly List<EnemyProjectile> _spawnedProjectileScratch = new();
+    private readonly HashSet<int> _worldEncounterIdScratch = new();
     private readonly SpatialHash<Enemy> _enemyCollisionGrid =
         new(Math.Max(64, (int)(Simulation.TileSize * 2)));
     private readonly Dictionary<Enemy, IReadOnlyList<(string Part, Rectangle Rect)>>
@@ -92,6 +94,11 @@ public sealed class GameSession
     private readonly HashSet<int> _bountyEncounterIdScratch = new();
     private readonly Dictionary<int, double> _roomClearedAt = new();
     private readonly Dictionary<int, float> _roomVisualEnergy = new();
+    private readonly List<PendingPathWave> _pendingPathWaves = new();
+    private readonly HashSet<string> _pendingPathEncounterKeys =
+        new(StringComparer.Ordinal);
+    private const int PathWaveSpawnBudgetPerFrame = 3;
+    private int _pathWaveSpawnBudgetRemaining;
     private VisualDensity _visualDensity = new(1, 1, 1, 1, 1);
     private PlayerBuildSnapshot? _playerBuildSnapshot;
     private bool _pathFogActive;
@@ -103,6 +110,43 @@ public sealed class GameSession
     private bool _debugVisualGallery;
     private string _debugVisualGalleryPath = "sound";
     private string _debugVisualGalleryTier = "easy";
+
+    private readonly record struct SpawnedEnemyGroup(
+        Enemy Owner,
+        int Start,
+        int Count,
+        bool Atomic);
+
+    private sealed class PendingPathWave
+    {
+        public required PathRoom Room { get; init; }
+        public required Random Rng { get; init; }
+        public required IReadOnlyList<EnemyDefinition> Definitions { get; init; }
+        public required int EncounterLevel { get; init; }
+        public required int Count { get; init; }
+        public required bool GuardianStrength { get; init; }
+        public Dictionary<string, int> FamilyCounts { get; } =
+            new(StringComparer.Ordinal);
+        public List<Enemy> Spawned { get; } = new();
+        public int NextIndex { get; set; }
+    }
+
+    internal bool HasPendingPathWaves => _pendingPathWaves.Count > 0;
+
+    private static readonly string[] LongHallRoles =
+        ["artillery", "control", "artillery", "pressure"];
+    private static readonly string[] GrandArenaRoles =
+        ["pressure", "artillery", "tank", "support"];
+    private static readonly string[] MazeRoles =
+        ["pressure", "tank", "control", "pressure"];
+    private static readonly string[] CrossroadsRoles =
+        ["control", "pressure", "artillery", "pressure"];
+    private static readonly string[] RingRoles =
+        ["artillery", "control", "pressure", "support"];
+    private static readonly string[] RuinRoles =
+        ["pressure", "control", "tank"];
+    private static readonly string[] DefaultRoomRoles =
+        ["pressure", "artillery", "control", "tank"];
 
     public bool BossTelemetryActive => _bossTelemetry is not null;
     public bool PreferControllerPrompts => _controllerPromptRemaining > 0;
@@ -188,6 +232,8 @@ public sealed class GameSession
         PathRun = pathRun;
         _roomClearedAt.Clear();
         _roomVisualEnergy.Clear();
+        _pendingPathWaves.Clear();
+        _pendingPathEncounterKeys.Clear();
         State.Reset();
         // Per-sense NG+ selectors belong to the authored arena paths. The
         // composite mode owns its explicit second-act difficulty curve.
@@ -227,10 +273,13 @@ public sealed class GameSession
             return;
         _enemyCollisionGrid.Reset();
         _playerBuildSnapshot = null;
+        _pendingPathWaves.Clear();
+        _pendingPathEncounterKeys.Clear();
         GamePaths.SetActive(PathRun.CurrentSenseKey);
         Battleground = PathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
-        PathFog = new PathFogOfWar(Battleground);
+        PathFog = PathRun.TakeInstalledPreparedFog()
+            ?? new PathFogOfWar(Battleground);
         RefreshPathFog();
         ScreenShake = Vector2.Zero;
         _activeBossKey = null;
@@ -569,16 +618,13 @@ public sealed class GameSession
     }
 
     /// <summary>
-    /// Moves the player straight down from the arena center by `distance`,
-    /// snapped to the nearest open tile -- entering the portal used to leave
-    /// the player exactly where they walked in (i.e. on top of the boss);
-    /// this keeps them a step away instead. Shared by every boss spawn
-    /// (Dissonance passes its own much larger distance to match its bigger
-    /// ArenaRadius; every other boss uses a small generic step-back).
+    /// Moves the player straight down from a boss arena center by `distance`,
+    /// snapped to the nearest open tile. Standalone level-10/20 encounters
+    /// and Path floor-5/10 milestones use this arena staging; ordinary Path
+    /// guardians leave the player exactly where they entered the room.
     /// </summary>
-    private void StepPlayerBackFromArenaCenter(float distance)
+    private void StepPlayerBackFrom(Vector2 center, float distance)
     {
-        var center = ArenaCenterWorld;
         var playerSpawn = Battleground.FindNearestOpenRect(new Rectangle(
             (int)(center.X - State.PlayerSize / 2f), (int)(center.Y + distance - State.PlayerSize / 2f),
             (int)State.PlayerSize, (int)State.PlayerSize));
@@ -645,12 +691,12 @@ public sealed class GameSession
                 float size = Simulation.TileSize * 1.9f;
                 forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
                 SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, forcedRect, bossKey);
-                StepPlayerBackFromArenaCenter(Simulation.TileSize * 9.6f);
+                StepPlayerBackFrom(ArenaCenterWorld, Simulation.TileSize * 9.6f);
             }
             else
             {
                 SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, bossKey: bossKey);
-                StepPlayerBackFromArenaCenter(Simulation.TileSize * 2.5f);
+                StepPlayerBackFrom(ArenaCenterWorld, Simulation.TileSize * 2.5f);
             }
             State.BossDebugRequested = false;
             return;
@@ -669,8 +715,11 @@ public sealed class GameSession
 
         // Mini-bosses enter the ordinary world once per run.
         int outsideAwarenessTiles = (int)Math.Ceiling(ScreenHeight * .625 / Simulation.TileSize) + 2;
-        foreach (var (unlockLevel, key) in Progression.MinibossGates)
+        for (int gateIndex = 0;
+             gateIndex < Progression.MinibossGates.Count;
+             gateIndex++)
         {
+            var (unlockLevel, key) = Progression.MinibossGates[gateIndex];
             if (State.CurrentLevel >= unlockLevel && !State.GuaranteedMiniBossesSpawned.Contains(key) && State.EnemyHolster.Count < State.EnemyCap)
             {
                 var miniboss = EnemyCatalog.Shared.Spawn(State.CurrentLevel, Battleground, PlayerWorldCenter, AwarenessRange,
@@ -687,10 +736,19 @@ public sealed class GameSession
 
         State.EnemySpawnTimer -= Simulation.GetTimerStep();
         State.EncounterSpawnCooldown = Math.Max(0, State.EncounterSpawnCooldown - Simulation.GetTimerStep());
-        double currentThreat = State.EnemyHolster.Sum(e => e.ThreatCost);
+        if (State.EnemySpawnTimer > 0)
+            return;
+
+        double currentThreat = 0;
+        _worldEncounterIdScratch.Clear();
+        foreach (Enemy enemy in State.EnemyHolster)
+        {
+            currentThreat += enemy.ThreatCost;
+            if (enemy.Encounter is not null)
+                _worldEncounterIdScratch.Add(enemy.Encounter.Id);
+        }
         var pacing = Progression.EncounterPacing(State.CurrentLevel);
-        var worldEncounters = State.EnemyHolster.Where(e => e.Encounter is not null).Select(e => e.Encounter!.Id).ToHashSet();
-        if (worldEncounters.Count < pacing.MaxWorldEncounters && State.CurrEnemyCount < State.EnemyCap
+        if (_worldEncounterIdScratch.Count < pacing.MaxWorldEncounters && State.CurrEnemyCount < State.EnemyCap
             && currentThreat < State.EnemyPopulationThreatCap && State.EnemySpawnTimer <= 0)
         {
             State.EnemySpawnTimer = Simulation.FrameRate * pacing.SpawnIntervalSeconds * rng.Next(85, 116) / 100.0;
@@ -717,7 +775,9 @@ public sealed class GameSession
                 var (key, group) = encounterResult.Value;
                 foreach (var enemy in group)
                     ApplyRunDifficulty(enemy);
-                double groupThreat = group.Sum(e => e.ThreatCost);
+                double groupThreat = 0;
+                for (int index = 0; index < group.Count; index++)
+                    groupThreat += group[index].ThreatCost;
                 if (State.EnemyHolster.Count + group.Count <= State.EnemyCap && currentThreat + groupThreat <= State.EnemyPopulationThreatCap)
                 {
                     State.EnemyHolster.AddRange(group);
@@ -902,6 +962,7 @@ public sealed class GameSession
         }
 
         _spawnedGroupScratch.Clear();
+        _spawnedEnemyScratch.Clear();
         _enemyUpdateContext.PlayerWorldX = playerCenter.X;
         _enemyUpdateContext.PlayerWorldY = playerCenter.Y;
         _enemyUpdateContext.Battleground = Battleground;
@@ -950,7 +1011,12 @@ public sealed class GameSession
                 enemy.TransitionCleanupRequested = false;
             }
             if (enemy.SpawnedEnemies.Count > 0)
-                _spawnedGroupScratch.Add((enemy, new List<Enemy>(enemy.SpawnedEnemies), enemy.AtomicSpawnGroup));
+            {
+                int start = _spawnedEnemyScratch.Count;
+                _spawnedEnemyScratch.AddRange(enemy.SpawnedEnemies);
+                _spawnedGroupScratch.Add(new SpawnedEnemyGroup(
+                    enemy, start, enemy.SpawnedEnemies.Count, enemy.AtomicSpawnGroup));
+            }
             enemy.SpawnedEnemies.Clear();
         }
 
@@ -958,30 +1024,32 @@ public sealed class GameSession
         double currentPopulationThreat = 0;
         for (int index = 0; index < State.EnemyHolster.Count; index++)
             currentPopulationThreat += State.EnemyHolster[index].ThreatCost;
-        foreach (var (owner, group, atomic) in _spawnedGroupScratch)
+        foreach (SpawnedEnemyGroup group in _spawnedGroupScratch)
         {
             double groupThreat = 0;
-            for (int index = 0; index < group.Count; index++)
-                groupThreat += group[index].ThreatCost;
-            if (atomic && (State.EnemyHolster.Count + group.Count > State.EnemyCap
+            int end = group.Start + group.Count;
+            for (int index = group.Start; index < end; index++)
+                groupThreat += _spawnedEnemyScratch[index].ThreatCost;
+            if (group.Atomic && (State.EnemyHolster.Count + group.Count > State.EnemyCap
                 || currentPopulationThreat + groupThreat > State.EnemyPopulationThreatCap))
             {
-                _rejectedOwnerScratch.Add(owner);
+                _rejectedOwnerScratch.Add(group.Owner);
                 continue;
             }
-            foreach (var enemy in group)
+            for (int index = group.Start; index < end; index++)
             {
+                Enemy enemy = _spawnedEnemyScratch[index];
                 ApplyRunDifficulty(enemy);
                 if (State.EnemyHolster.Count >= State.EnemyCap)
                     break;
                 if (currentPopulationThreat + enemy.ThreatCost > State.EnemyPopulationThreatCap)
                     break;
-                if (owner.Encounter is not null && enemy.Encounter is null)
+                if (group.Owner.Encounter is not null && enemy.Encounter is null)
                 {
-                    enemy.Encounter = owner.Encounter;
-                    enemy.EncounterSlot = owner.Encounter.Members.Count;
+                    enemy.Encounter = group.Owner.Encounter;
+                    enemy.EncounterSlot = group.Owner.Encounter.Members.Count;
                     enemy.CombatSide = enemy.EncounterSlot % 2 != 0 ? -1 : 1;
-                    owner.Encounter.Members.Add(enemy);
+                    group.Owner.Encounter.Members.Add(enemy);
                 }
                 State.EnemyHolster.Add(enemy);
                 currentPopulationThreat += enemy.ThreatCost;
@@ -1110,11 +1178,15 @@ public sealed class GameSession
     {
         bool highContrast = GameProfile.Profile.HighContrast;
         PathFogOfWar? fog = ActiveVisibilityFog;
+        Rectangle viewport = CombatLogicalViewport();
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             if (projectile.Path != "pool"
                 || (fog is not null
-                    && !fog.IsWorldAreaVisible(projectile.WorldRect())))
+                    && !fog.IsWorldAreaVisible(projectile.WorldRect()))
+                || !IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, projectile.WorldRect()))
             {
                 continue;
             }
@@ -1127,11 +1199,15 @@ public sealed class GameSession
     {
         bool highContrast = GameProfile.Profile.HighContrast;
         PathFogOfWar? fog = ActiveVisibilityFog;
+        Rectangle viewport = CombatLogicalViewport();
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             if (projectile.Path == "pool"
                 || (fog is not null
-                    && !fog.IsWorldAreaVisible(projectile.WorldRect())))
+                    && !fog.IsWorldAreaVisible(projectile.WorldRect()))
+                || !IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, projectile.WorldRect()))
             {
                 continue;
             }
@@ -1153,14 +1229,22 @@ public sealed class GameSession
     {
         PathFogOfWar? fog = ActiveVisibilityFog;
         bool bossProjectileOverlay = State.ActiveBoss is not null;
+        Rectangle viewport = CombatLogicalViewport();
         _worldDepthItemScratch.Clear();
         _worldDepthItemScratch.EnsureCapacity(
             State.BulletHolster.Count + State.EnemyHolster.Count
-            + State.EnemyProjectileHolster.Count + 8);
+            + (bossProjectileOverlay ? 0 : State.EnemyProjectileHolster.Count)
+            + State.LootCrateList.Count + 8);
         int stableOrder = 0;
 
         foreach (var bullet in State.BulletHolster)
         {
+            if (!IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, bullet.WorldRect()))
+            {
+                continue;
+            }
             Vector2 anchor = new(bullet.WorldX + bullet.Size / 2f, bullet.WorldY + bullet.Size / 2f);
             _worldDepthItemScratch.Add(new WorldDepthDrawItem(
                 anchor, 10, stableOrder++, WorldDepthDrawKind.Bullet, bullet));
@@ -1171,6 +1255,12 @@ public sealed class GameSession
         {
             if (fog is not null
                 && !fog.IsWorldAreaVisible(enemy.WorldRect()))
+            {
+                continue;
+            }
+            if (!IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, enemy.WorldRect()))
             {
                 continue;
             }
@@ -1189,7 +1279,10 @@ public sealed class GameSession
 
         foreach (LootCrate crate in State.LootCrateList)
         {
-            if (fog is not null && !fog.IsWorldAreaVisible(crate.WorldRect()))
+            if ((fog is not null && !fog.IsWorldAreaVisible(crate.WorldRect()))
+                || !IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, crate.WorldRect()))
                 continue;
             Vector2 anchor = new(
                 crate.WorldX + crate.Size / 2f,
@@ -1216,7 +1309,10 @@ public sealed class GameSession
         {
             if (projectile.Path == "pool"
                 || (fog is not null
-                    && !fog.IsWorldAreaVisible(projectile.WorldRect())))
+                    && !fog.IsWorldAreaVisible(projectile.WorldRect()))
+                || !IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, projectile.WorldRect()))
             {
                 continue;
             }
@@ -1253,7 +1349,10 @@ public sealed class GameSession
             {
                 EnemyProjectile projectile =
                     State.EnemyProjectileHolster[index];
-                if (projectile.Path != "pool")
+                if (projectile.Path != "pool"
+                    && IsWorldAreaNearViewport(
+                        Camera, PlayerWorldCenter, ScreenShake,
+                        viewport, projectile.WorldRect()))
                 {
                     projectile.Draw(
                         spriteBatch,
@@ -1264,6 +1363,33 @@ public sealed class GameSession
                 }
             }
         }
+    }
+
+    private Rectangle CombatLogicalViewport() =>
+        Camera.LogicalViewport(
+            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight));
+
+    internal static bool IsWorldAreaNearViewport(
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle logicalViewport,
+        Rectangle worldArea,
+        float padding = Simulation.TileSize * 3f)
+    {
+        Vector2 worldCenter = new(
+            worldArea.X + worldArea.Width * .5f,
+            worldArea.Y + worldArea.Height * .5f);
+        Vector2 screenCenter = camera.WorldToScreen(
+            worldCenter, playerWorldPosition, screenShake);
+        float halfWidth = worldArea.Width * .5f;
+        float halfHeight = worldArea.Height * .5f;
+        float radius = MathF.Sqrt(
+            halfWidth * halfWidth + halfHeight * halfHeight) + padding;
+        return screenCenter.X + radius >= logicalViewport.Left
+            && screenCenter.X - radius <= logicalViewport.Right
+            && screenCenter.Y + radius >= logicalViewport.Top
+            && screenCenter.Y - radius <= logicalViewport.Bottom;
     }
 
     private void DrawWorldDepthItem(SpriteBatch spriteBatch, WorldDepthDrawItem item)
@@ -1711,9 +1837,15 @@ public sealed class GameSession
     private void HandlePathEnemyCreation(Random rng, bool interactPressed)
     {
         var run = PathRun!;
+        if (!run.TitleBannerVisible(State.RunTimeSeconds))
+            _ = run.PrepareNextFloorAsync((float)State.PlayerSize);
+        _pathWaveSpawnBudgetRemaining = PathWaveSpawnBudgetPerFrame;
+        ProcessPendingPathWaves();
         RefreshPathFog();
         IReadOnlyList<PathRoom> completedRooms =
-            run.CompleteReadyCombatRooms(State.EnemyHolster);
+            run.CompleteReadyCombatRooms(
+                State.EnemyHolster,
+                _pendingPathEncounterKeys);
         for (int index = 0; index < completedRooms.Count; index++)
         {
             PathRoom completedRoom = completedRooms[index];
@@ -1789,58 +1921,130 @@ public sealed class GameSession
             count += 2;
         count = Math.Min(room.Type == PathRoomType.Treasure ? 18 : 15, count);
 
-        var spawned = new List<Enemy>();
-        for (int index = 0; index < count; index++)
+        IReadOnlyList<EnemyDefinition> availableDefinitions =
+            EnemyCatalog.Shared.Available(encounterLevel, run.CurrentSenseKey);
+        _pendingPathWaves.Add(new PendingPathWave
         {
-            var definition = ChoosePathRoomEnemy(
-                room, encounterLevel, index, spawned, run.CurrentSenseKey, rng);
+            Room = room,
+            Rng = rng,
+            Definitions = availableDefinitions,
+            EncounterLevel = encounterLevel,
+            Count = count,
+            GuardianStrength = guardianStrength,
+        });
+        _pendingPathEncounterKeys.Add(room.EncounterKey);
+        ProcessPendingPathWaves();
+    }
+
+    private void ProcessPendingPathWaves()
+    {
+        while (_pathWaveSpawnBudgetRemaining > 0
+            && _pendingPathWaves.Count > 0)
+        {
+            PendingPathWave wave = _pendingPathWaves[0];
+            EnemyDefinition? definition = ChoosePathRoomEnemy(
+                wave.Room,
+                wave.NextIndex,
+                wave.Definitions,
+                wave.FamilyCounts,
+                wave.Rng);
             if (definition is null)
-                break;
-            int nominalSize = (int)(Simulation.TileSize * definition.Size);
-            var spawn = run.Layout.FindEncounterSpawnRect(room, nominalSize, index, count, rng);
-            var enemy = EnemyCatalog.Shared.Create(definition.Key, spawn.X, spawn.Y,
-                encounterLevel, AwarenessRange, rng, Battleground);
-            EnemyCatalog.Shared.ApplyModifier(enemy, encounterLevel, rng);
-            enemy.EncounterKey = room.EncounterKey;
-            enemy.AwarenessRange = Math.Max(ScreenHeight * 2.25f,
-                Math.Max(room.WorldBounds.Width, room.WorldBounds.Height));
-            enemy.DisengageRange = enemy.AwarenessRange * 1.5f;
-            if ((room.Type == PathRoomType.Elite && index == 0)
-                || (room.Type == PathRoomType.Challenge && index < 2)
-                || (room.Type == PathRoomType.Treasure && index < 3))
             {
-                double healthBoost = room.Type switch
-                {
-                    PathRoomType.Challenge => 1.45,
-                    PathRoomType.Treasure => 1.35,
-                    _ => 1.7,
-                };
-                enemy.MaxHp = (int)Math.Round(enemy.MaxHp * healthBoost);
-                enemy.Hp = enemy.MaxHp;
-                enemy.Damage = (int)Math.Round(enemy.Damage * 1.2);
-                enemy.ExpValue *= 1.8;
-                enemy.BehaviorModifier ??= "champion";
-                enemy.ModifierColor ??= UiTheme.Gold;
+                CompletePendingPathWave(wave);
+                continue;
             }
-            ApplyRunDifficulty(enemy);
-            spawned.Add(enemy);
+
+            int nominalSize =
+                (int)(Simulation.TileSize * definition.Size);
+            Rectangle spawn = PathRun!.Layout.FindEncounterSpawnRect(
+                wave.Room,
+                nominalSize,
+                wave.NextIndex,
+                wave.Count,
+                wave.Rng);
+            Enemy enemy = EnemyCatalog.Shared.Create(
+                definition.Key,
+                spawn.X,
+                spawn.Y,
+                wave.EncounterLevel,
+                AwarenessRange,
+                wave.Rng,
+                Battleground);
+            EnemyCatalog.Shared.ApplyModifier(
+                enemy,
+                wave.EncounterLevel,
+                wave.Rng);
+            ConfigurePathRoomEnemy(wave, enemy);
+            wave.Spawned.Add(enemy);
+            wave.FamilyCounts[enemy.Family] =
+                wave.FamilyCounts.GetValueOrDefault(enemy.Family) + 1;
+            wave.NextIndex++;
+            _pathWaveSpawnBudgetRemaining--;
+
+            if (!wave.GuardianStrength)
+                State.EnemyHolster.Add(enemy);
+            if (wave.NextIndex >= wave.Count)
+                CompletePendingPathWave(wave);
         }
-        if (guardianStrength && spawned.Count > 0)
+        State.CurrEnemyCount = State.EnemyHolster.Count;
+    }
+
+    private void ConfigurePathRoomEnemy(PendingPathWave wave, Enemy enemy)
+    {
+        PathRoom room = wave.Room;
+        int index = wave.NextIndex;
+        enemy.EncounterKey = room.EncounterKey;
+        enemy.AwarenessRange = Math.Max(ScreenHeight * 2.25f,
+            Math.Max(room.WorldBounds.Width, room.WorldBounds.Height));
+        enemy.DisengageRange = enemy.AwarenessRange * 1.5f;
+        if ((room.Type == PathRoomType.Elite && index == 0)
+            || (room.Type == PathRoomType.Challenge && index < 2)
+            || (room.Type == PathRoomType.Treasure && index < 3))
         {
+            double healthBoost = room.Type switch
+            {
+                PathRoomType.Challenge => 1.45,
+                PathRoomType.Treasure => 1.35,
+                _ => 1.7,
+            };
+            enemy.MaxHp = (int)Math.Round(enemy.MaxHp * healthBoost);
+            enemy.Hp = enemy.MaxHp;
+            enemy.Damage = (int)Math.Round(enemy.Damage * 1.2);
+            enemy.ExpValue *= 1.8;
+            enemy.BehaviorModifier ??= "champion";
+            enemy.ModifierColor ??= UiTheme.Gold;
+        }
+        ApplyRunDifficulty(enemy);
+    }
+
+    private void CompletePendingPathWave(PendingPathWave wave)
+    {
+        if (wave.GuardianStrength && wave.Spawned.Count > 0)
+        {
+            var run = PathRun!;
             double guardianHealth = (5_800 + run.FloorNumber * 1_550)
                 * run.HealthMultiplier * .92;
-            double currentHealth = spawned.Sum(enemy => (double)enemy.MaxHp);
-            double healthScale = Math.Clamp(guardianHealth / Math.Max(1, currentHealth), .85, 3.5);
-            foreach (var enemy in spawned)
+            double currentHealth =
+                wave.Spawned.Sum(enemy => (double)enemy.MaxHp);
+            double healthScale = Math.Clamp(
+                guardianHealth / Math.Max(1, currentHealth),
+                .85,
+                3.5);
+            foreach (Enemy enemy in wave.Spawned)
             {
-                enemy.MaxHp = Math.Max(1, (int)Math.Round(enemy.MaxHp * healthScale));
+                enemy.MaxHp = Math.Max(
+                    1,
+                    (int)Math.Round(enemy.MaxHp * healthScale));
                 enemy.Hp = enemy.MaxHp;
-                enemy.Damage = Math.Max(1, (int)Math.Round(enemy.Damage * 1.12));
+                enemy.Damage = Math.Max(
+                    1,
+                    (int)Math.Round(enemy.Damage * 1.12));
                 enemy.ExpValue *= 1.35;
             }
+            State.EnemyHolster.AddRange(wave.Spawned);
         }
-        State.EnemyHolster.AddRange(spawned);
-        State.CurrEnemyCount = State.EnemyHolster.Count;
+        _pendingPathEncounterKeys.Remove(wave.Room.EncounterKey);
+        _pendingPathWaves.RemoveAt(0);
     }
 
     private void SpawnPathTreasureEncounter(PathRoom room, Random rng)
@@ -1887,45 +2091,78 @@ public sealed class GameSession
 
     private static EnemyDefinition? ChoosePathRoomEnemy(
         PathRoom room,
-        int encounterLevel,
         int index,
-        IReadOnlyList<Enemy> existing,
-        string senseKey,
+        IReadOnlyList<EnemyDefinition> definitions,
+        IReadOnlyDictionary<string, int> familyCounts,
         Random rng)
     {
         string[] roles = room.Shape switch
         {
-            PathRoomShape.LongHall => ["artillery", "control", "artillery", "pressure"],
-            PathRoomShape.GrandArena => ["pressure", "artillery", "tank", "support"],
-            PathRoomShape.Maze => ["pressure", "tank", "control", "pressure"],
-            PathRoomShape.Crossroads => ["control", "pressure", "artillery", "pressure"],
-            PathRoomShape.Ring => ["artillery", "control", "pressure", "support"],
-            PathRoomShape.Ruin => ["pressure", "control", "tank"],
-            _ => ["pressure", "artillery", "control", "tank"],
+            PathRoomShape.LongHall => LongHallRoles,
+            PathRoomShape.GrandArena => GrandArenaRoles,
+            PathRoomShape.Maze => MazeRoles,
+            PathRoomShape.Crossroads => CrossroadsRoles,
+            PathRoomShape.Ring => RingRoles,
+            PathRoomShape.Ruin => RuinRoles,
+            _ => DefaultRoomRoles,
         };
         string desiredRole = roles[index % roles.Length];
-        var available = EnemyCatalog.Shared.Available(encounterLevel, senseKey)
-            .Where(definition => !definition.GuaranteedOnly && definition.Family != "banner")
-            .Where(definition =>
-                EnemyCatalogData.FamilyIdentities.TryGetValue(definition.Family, out var identity)
-                && identity.CombatRole == desiredRole)
-            .Where(definition => existing.Count(enemy => enemy.Family == definition.Family) < definition.MaxActive)
-            .ToList();
-        if (available.Count == 0)
-        {
-            return EnemyCatalog.Shared.Choose(
-                encounterLevel, rng, existing: existing, contentPath: senseKey);
-        }
 
-        double totalWeight = available.Sum(definition => definition.Weight);
-        double roll = rng.NextDouble() * totalWeight;
-        foreach (var definition in available)
+        double totalWeight = PathDefinitionWeight(
+            definitions, familyCounts, desiredRole);
+        string? role = desiredRole;
+        if (totalWeight <= 0)
         {
+            role = null;
+            totalWeight = PathDefinitionWeight(
+                definitions, familyCounts, requiredRole: null);
+        }
+        if (totalWeight <= 0)
+            return null;
+
+        double roll = rng.NextDouble() * totalWeight;
+        EnemyDefinition? fallback = null;
+        foreach (EnemyDefinition definition in definitions)
+        {
+            if (!PathDefinitionEligible(definition, familyCounts, role))
+                continue;
+            fallback = definition;
             roll -= definition.Weight;
             if (roll <= 0)
                 return definition;
         }
-        return available[^1];
+        return fallback;
+    }
+
+    private static double PathDefinitionWeight(
+        IReadOnlyList<EnemyDefinition> definitions,
+        IReadOnlyDictionary<string, int> familyCounts,
+        string? requiredRole)
+    {
+        double total = 0;
+        for (int index = 0; index < definitions.Count; index++)
+        {
+            EnemyDefinition definition = definitions[index];
+            if (PathDefinitionEligible(definition, familyCounts, requiredRole))
+                total += definition.Weight;
+        }
+        return total;
+    }
+
+    private static bool PathDefinitionEligible(
+        EnemyDefinition definition,
+        IReadOnlyDictionary<string, int> familyCounts,
+        string? requiredRole)
+    {
+        if (definition.GuaranteedOnly || definition.Family == "banner"
+            || familyCounts.GetValueOrDefault(definition.Family) >= definition.MaxActive)
+        {
+            return false;
+        }
+        return requiredRole is null
+            || (EnemyCatalogData.FamilyIdentities.TryGetValue(
+                    definition.Family, out FamilyIdentity identity)
+                && identity.CombatRole == requiredRole);
     }
 
     private void SpawnPathTreasure(PathRoom room, Random rng, int bonusItems = 0)
@@ -1970,10 +2207,15 @@ public sealed class GameSession
             SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r),
                 rng, forcedRect, bossKey, clearFloorLoot: false, clearCombatants: false);
         }
-        StepPlayerBackFromArenaCenter(
-            run.CurrentSenseKey == "sound" && run.BossTier == PathFloorBossTier.Finale
-                ? Simulation.TileSize * 9.6f
-                : Simulation.TileSize * 2.5f);
+        if (run.FloorNumber is 5 or 10)
+        {
+            StepPlayerBackFrom(
+                room.WorldCenter,
+                run.CurrentSenseKey == "sound"
+                    && run.BossTier == PathFloorBossTier.Finale
+                    ? Simulation.TileSize * 9.6f
+                    : Simulation.TileSize * 2.5f);
+        }
     }
 
     public static bool RollFragmentDrop(Random? rng = null)

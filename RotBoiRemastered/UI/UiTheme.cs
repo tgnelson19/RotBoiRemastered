@@ -87,6 +87,8 @@ public static class UiTheme
     public static readonly IReadOnlyList<string> GuiScaleLabels = new[] { "SMALL", "NORMAL", "LARGE", "MAX" };
 
     private static FontSystem? _fontSystem;
+    private const string DungeonGlyphWarmupText =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 /-";
 
     /// <summary>Call once from LoadContent, after the GraphicsDevice exists.</summary>
     public static void Initialize(GraphicsDevice graphicsDevice)
@@ -94,6 +96,27 @@ public static class UiTheme
         Primitives2D.Initialize(graphicsDevice);
         _fontSystem = new FontSystem();
         _fontSystem.AddFont(File.ReadAllBytes(FontPath));
+    }
+
+    /// <summary>
+    /// FontStash rasterizes a glyph the first time it is drawn at a given
+    /// pixel size. Dungeon title and room banners appear on transition
+    /// frames, so prime their exact configured sizes during LoadContent.
+    /// </summary>
+    public static void PrewarmDungeonText(SpriteBatch spriteBatch)
+    {
+        float scale = DisplayScale(spriteBatch);
+        double[] sizes = [24 * scale, 15 * scale, 10 * scale];
+        spriteBatch.Begin();
+        foreach (double size in sizes)
+        {
+            Font(size).DrawText(
+                spriteBatch,
+                DungeonGlyphWarmupText,
+                new Vector2(-10_000, -10_000),
+                Color.White);
+        }
+        spriteBatch.End();
     }
 
     /// <summary>Height-aware UI scale that remains stable across aspect ratios.</summary>

@@ -19,6 +19,9 @@ namespace RotBoiRemastered.Entities;
 public sealed class EnemyCatalog
 {
     private readonly Dictionary<string, EnemyDefinition> _definitions = new();
+    private static readonly FamilyIdentity DefaultFamilyIdentity =
+        new("pressure", new HashSet<string>());
+    private static readonly string[] DefaultRolePair = ["pressure"];
 
     private static readonly IReadOnlyDictionary<string, string[]> RolePairs = new Dictionary<string, string[]>
     {
@@ -73,14 +76,13 @@ public sealed class EnemyCatalog
 
     private static List<Enemy> ExpandAtomicMembers(Enemy enemy, string key)
     {
-        var group = new List<Enemy> { enemy };
+        var group = new List<Enemy>(1 + enemy.SpawnedEnemies.Count) { enemy };
         if (enemy.AtomicSpawnGroup)
         {
-            var minions = new List<Enemy>(enemy.SpawnedEnemies);
-            enemy.SpawnedEnemies.Clear();
-            foreach (var minion in minions)
+            foreach (var minion in enemy.SpawnedEnemies)
                 minion.EncounterKey = key;
-            group.AddRange(minions);
+            group.AddRange(enemy.SpawnedEnemies);
+            enemy.SpawnedEnemies.Clear();
         }
         return group;
     }
@@ -89,14 +91,43 @@ public sealed class EnemyCatalog
     {
         rng ??= Random.Shared;
         string role = enemy.CombatRole;
-        var eligible = EnemyCatalogData.ModifierRules
-            .Where(pair => level >= pair.Value.MinLevel && pair.Value.Roles.Contains(role))
-            .Select(pair => pair.Key)
-            .ToList();
-        if (eligible.Count == 0 || (forced is null && rng.NextDouble() > Math.Min(.28, .06 + level * .011)))
-            return enemy;
-        string modifier = forced ?? eligible[rng.Next(eligible.Count)];
-        if (!eligible.Contains(modifier))
+        string? modifier = forced;
+        if (modifier is not null)
+        {
+            if (!EnemyCatalogData.ModifierRules.TryGetValue(
+                    modifier, out ModifierRule forcedRule)
+                || level < forcedRule.MinLevel
+                || !forcedRule.Roles.Contains(role))
+            {
+                return enemy;
+            }
+        }
+        else
+        {
+            int eligibleCount = 0;
+            foreach (var pair in EnemyCatalogData.ModifierRules)
+            {
+                if (level >= pair.Value.MinLevel && pair.Value.Roles.Contains(role))
+                    eligibleCount++;
+            }
+            if (eligibleCount == 0)
+                return enemy;
+            if (rng.NextDouble() > Math.Min(.28, .06 + level * .011))
+                return enemy;
+
+            int selected = rng.Next(eligibleCount);
+            foreach (var pair in EnemyCatalogData.ModifierRules)
+            {
+                if (level < pair.Value.MinLevel || !pair.Value.Roles.Contains(role))
+                    continue;
+                if (selected-- == 0)
+                {
+                    modifier = pair.Key;
+                    break;
+                }
+            }
+        }
+        if (modifier is null)
             return enemy;
         enemy.BehaviorModifier = modifier;
         enemy.ModifierColor = EnemyCatalogData.ModifierRules[modifier].Color;
@@ -161,7 +192,7 @@ public sealed class EnemyCatalog
         enemy.Family = definition.Family;
         enemy.SpawnDefinitionKey = definition.Key;
         var identity = EnemyCatalogData.FamilyIdentities.GetValueOrDefault(
-            definition.Family, new FamilyIdentity("pressure", new HashSet<string>()));
+            definition.Family, DefaultFamilyIdentity);
         enemy.CombatRole = identity.CombatRole;
         enemy.InteractionTags = identity.Tags;
         return enemy;
@@ -241,14 +272,14 @@ public sealed class EnemyCatalog
             return null;
 
         string primaryRole = EnemyCatalogData.FamilyIdentities.GetValueOrDefault(
-            primary.Family, new FamilyIdentity("pressure", new HashSet<string>())).CombatRole;
-        var preferred = RolePairs.GetValueOrDefault(primaryRole, new[] { "pressure" });
+            primary.Family, DefaultFamilyIdentity).CombatRole;
+        var preferred = RolePairs.GetValueOrDefault(primaryRole, DefaultRolePair);
         var definitions = new List<EnemyDefinition> { primary };
         for (int i = 0; i < targetSize - 1; i++)
         {
             var candidates = available.Where(d =>
                 preferred.Contains(EnemyCatalogData.FamilyIdentities.GetValueOrDefault(
-                    d.Family, new FamilyIdentity("pressure", new HashSet<string>())).CombatRole)).ToList();
+                    d.Family, DefaultFamilyIdentity).CombatRole)).ToList();
             if (candidates.Count == 0)
                 candidates = available;
             definitions.Add(WeightedChoice(candidates, candidates.Select(d => d.Weight).ToList(), rng));
@@ -350,6 +381,15 @@ public sealed class EnemyCatalog
 
     /// <summary>Shared default-roster instance, equivalent to Python's module-level ENEMY_CATALOG singleton.</summary>
     public static readonly EnemyCatalog Shared = CreateDefault();
+
+    /// <summary>
+    /// Forces registry construction during a run's loading transition rather
+    /// than on the frame where the first dungeon room activates.
+    /// </summary>
+    public static void Warmup()
+    {
+        _ = Shared._definitions.Count;
+    }
 
     private static IEnumerable<EnemyDefinition> BuildDefaultDefinitions()
     {

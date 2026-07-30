@@ -37,4 +37,24 @@ public sealed class BossAudioTests
         Assert.All(frequencies, frequency =>
             Assert.InRange(frequency, 120, 520));
     }
+
+    [Fact]
+    public void LoadWarmup_CoversEveryCueForEveryGuardianSense()
+    {
+        string[] senses =
+        [
+            "sound",
+            "touch",
+            "sight",
+            "chemesthesis",
+            "phantasia",
+        ];
+        var expected = (
+            from sense in senses
+            from kind in Enum.GetValues<BossAudioCueKind>()
+            select (kind, sense)).ToHashSet();
+
+        Assert.Equal(expected.Count, BossAudio.WarmupPlan.Count);
+        Assert.Equal(expected, BossAudio.WarmupPlan.ToHashSet());
+    }
 }

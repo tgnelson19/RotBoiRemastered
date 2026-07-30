@@ -68,6 +68,30 @@ public class ArenaRendererTests
         Assert.Contains(layout.Decorations, decoration => decoration.Layer == PathDecorationLayer.Raised);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(45)]
+    public void VisibleTileBounds_CoversCameraViewWithoutScanningWholeDungeon(
+        float cameraAngle)
+    {
+        var layout = PathFloorGenerator.Generate("sight", 6, new Random(17));
+        Battleground battleground = layout.Battleground;
+        var camera = new Camera { Lock = new Vector2(640, 360) };
+        camera.SetAngle(cameraAngle);
+        Vector2 player = battleground.SpawnPosition;
+        var viewport = new Rectangle(0, 0, 1280, 720);
+
+        Rectangle bounds = ArenaRenderer.VisibleTileBounds(
+            camera, player, Vector2.Zero, viewport, battleground);
+        Point playerTile = new(
+            (int)(player.X / Battleground.TileSize),
+            (int)(player.Y / Battleground.TileSize));
+
+        Assert.True(bounds.Contains(playerTile));
+        Assert.True(bounds.Width * bounds.Height
+            < battleground.Width * battleground.Height);
+    }
+
     private static Battleground LoneWallBattleground(out TileType[,] tiles)
     {
         tiles = new TileType[5, 5];

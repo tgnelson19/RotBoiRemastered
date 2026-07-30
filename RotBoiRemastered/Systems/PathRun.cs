@@ -24,9 +24,16 @@ public sealed class PathRun
     public const double TitleBannerSeconds = 3.6;
     public const double RoomBannerSeconds = 2.25;
 
-    private readonly Random _rng;
     private readonly List<string> _senseOrder;
+    private readonly int[] _floorSeeds;
     private readonly List<PathRoom> _activeCombatRooms = new();
+    private Task<PreparedPathFloor>? _nextFloorPreparation;
+    private PathFogOfWar? _installedPreparedFog;
+
+    private sealed record PreparedPathFloor(
+        int FloorNumber,
+        PathFloorLayout Layout,
+        PathFogOfWar Fog);
 
     public int FloorNumber { get; private set; } = 1;
     public string CurrentSenseKey => _senseOrder[FloorNumber - 1];
@@ -67,9 +74,59 @@ public sealed class PathRun
 
     public PathRun(Random? rng = null)
     {
-        _rng = rng ?? Random.Shared;
-        _senseOrder = BuildSenseOrder(_rng);
-        Layout = PathFloorGenerator.Generate(CurrentSenseKey, FloorNumber, _rng);
+        rng ??= Random.Shared;
+        _senseOrder = BuildSenseOrder(rng);
+        _floorSeeds = new int[TotalFloors];
+        for (int index = 0; index < _floorSeeds.Length; index++)
+            _floorSeeds[index] = rng.Next();
+        Layout = GenerateFloor(FloorNumber);
+    }
+
+    private PathFloorLayout GenerateFloor(int floorNumber) =>
+        PathFloorGenerator.Generate(
+            _senseOrder[floorNumber - 1],
+            floorNumber,
+            new Random(_floorSeeds[floorNumber - 1]));
+
+    /// <summary>
+    /// Builds the next immutable floor and its initial visibility solution on
+    /// a worker while the player is still exploring the current floor.
+    /// AdvanceFloor normally consumes an already-complete result instead of
+    /// blocking the render thread at the portal.
+    /// </summary>
+    internal Task PrepareNextFloorAsync(float playerSize)
+    {
+        if (FloorNumber >= TotalFloors)
+            return Task.CompletedTask;
+        if (_nextFloorPreparation is not null)
+            return _nextFloorPreparation;
+
+        int nextFloor = FloorNumber + 1;
+        string senseKey = _senseOrder[nextFloor - 1];
+        int seed = _floorSeeds[nextFloor - 1];
+        _nextFloorPreparation = Task.Run(() =>
+        {
+            PathFloorLayout layout = PathFloorGenerator.Generate(
+                senseKey,
+                nextFloor,
+                new Random(seed));
+            var fog = new PathFogOfWar(layout.Battleground);
+            Vector2 observer = layout.Battleground.SpawnPosition
+                + new Vector2(playerSize / 2f);
+            fog.Update(observer);
+            return new PreparedPathFloor(nextFloor, layout, fog);
+        });
+        return _nextFloorPreparation;
+    }
+
+    internal bool NextFloorPreparationCompleted =>
+        _nextFloorPreparation?.IsCompletedSuccessfully == true;
+
+    internal PathFogOfWar? TakeInstalledPreparedFog()
+    {
+        PathFogOfWar? fog = _installedPreparedFog;
+        _installedPreparedFog = null;
+        return fog;
     }
 
     private static List<string> BuildSenseOrder(Random rng)
@@ -108,12 +165,16 @@ public sealed class PathRun
     /// gone. More than one room may be active at once: rushing forward never
     /// closes a threshold behind the player.
     /// </summary>
-    public IReadOnlyList<PathRoom> CompleteReadyCombatRooms(IReadOnlyList<Enemy> enemies)
+    public IReadOnlyList<PathRoom> CompleteReadyCombatRooms(
+        IReadOnlyList<Enemy> enemies,
+        IReadOnlySet<string>? pendingEncounterKeys = null)
     {
         List<PathRoom>? completedRooms = null;
         for (int roomIndex = _activeCombatRooms.Count - 1; roomIndex >= 0; roomIndex--)
         {
             PathRoom room = _activeCombatRooms[roomIndex];
+            if (pendingEncounterKeys?.Contains(room.EncounterKey) == true)
+                continue;
             bool hasLivingEnemy = false;
             for (int enemyIndex = 0; enemyIndex < enemies.Count; enemyIndex++)
             {
@@ -189,8 +250,21 @@ public sealed class PathRun
     {
         if (!ExitPortalOpen || FloorNumber >= TotalFloors)
             return false;
-        FloorNumber += 1;
-        Layout = PathFloorGenerator.Generate(CurrentSenseKey, FloorNumber, _rng);
+        int nextFloor = FloorNumber + 1;
+        PreparedPathFloor? prepared =
+            _nextFloorPreparation?.GetAwaiter().GetResult();
+        FloorNumber = nextFloor;
+        if (prepared?.FloorNumber == nextFloor)
+        {
+            Layout = prepared.Layout;
+            _installedPreparedFog = prepared.Fog;
+        }
+        else
+        {
+            Layout = GenerateFloor(FloorNumber);
+            _installedPreparedFog = null;
+        }
+        _nextFloorPreparation = null;
         _activeCombatRooms.Clear();
         ExitPortalOpen = false;
         FloorStartedAtRunSeconds = runTimeSeconds;

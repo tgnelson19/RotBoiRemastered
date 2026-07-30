@@ -74,6 +74,23 @@ public sealed class PathRunTests
     }
 
     [Fact]
+    public async Task NextFloorPreparation_IncludesInitialFogBeforeAdvance()
+    {
+        var run = new PathRun(new Random(81));
+
+        await run.PrepareNextFloorAsync(playerSize: 48);
+
+        Assert.True(run.NextFloorPreparationCompleted);
+        run.NotifyBossDefeated();
+        Assert.True(run.AdvanceFloor(12.5));
+        PathFogOfWar fog = Assert.IsType<PathFogOfWar>(
+            run.TakeInstalledPreparedFog());
+        Vector2 observer = run.Layout.Battleground.SpawnPosition
+            + new Vector2(24);
+        Assert.True(fog.IsWorldVisible(observer));
+    }
+
+    [Fact]
     public void Difficulty_JumpsSharplyAtSecondAct()
     {
         var run = new PathRun(new Random(9));

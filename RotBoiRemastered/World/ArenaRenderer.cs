@@ -72,7 +72,6 @@ public sealed class ArenaRenderer
 
     private Battleground? _bakedFor;
     private RenderTarget2D? _bakedGround;
-    private List<(int X, int Y, TileType Tile, int Biome)> _walls = new();
     private List<(int X, int Y, int Biome)> _decorations = new();
     private List<PathDecoration> _pathRaisedDecorations = new();
     private readonly List<(float ScreenY, int Kind, int X, int Y, TileType Tile, int Biome, PathDecoration? PathDecoration)>
@@ -85,7 +84,7 @@ public sealed class ArenaRenderer
         if (ReferenceEquals(_bakedFor, battleground))
             return;
 
-        (_walls, _decorations) = ComputeRaisedScenery(battleground);
+        _decorations = ComputeGenericRaisedDecorations(battleground);
         _pathRaisedDecorations = battleground.PathDecorations
             .Where(decoration => decoration.Layer == PathDecorationLayer.Raised)
             .ToList();
@@ -849,6 +848,36 @@ public sealed class ArenaRenderer
         return (walls, decorations);
     }
 
+    private static List<(int X, int Y, int Biome)> ComputeGenericRaisedDecorations(
+        Battleground battleground)
+    {
+        var decorations = new List<(int X, int Y, int Biome)>();
+        if (battleground.VisualThemeKey is not null)
+            return decorations;
+
+        int centerX = battleground.Width / 2;
+        int centerY = battleground.Height / 2;
+        const int minimumDistanceSquared = 11 * 11;
+        for (int y = 0; y < battleground.Height; y++)
+        {
+            for (int x = 0; x < battleground.Width; x++)
+            {
+                if (battleground.TileAt(x, y) != TileType.Default)
+                    continue;
+                int marker = (x * 43 + y * 89 + x * y) % 211;
+                int deltaX = x - centerX;
+                int deltaY = y - centerY;
+                if ((marker is 7 or 8)
+                    && deltaX * deltaX + deltaY * deltaY
+                        > minimumDistanceSquared)
+                {
+                    decorations.Add((x, y, battleground.BiomeForTile(x, y)));
+                }
+            }
+        }
+        return decorations;
+    }
+
     /// <summary>Draws the baked ground plane rotated, then camera-facing walls/decorations sorted by screen Y, clipped to viewport.</summary>
     public void Draw(
         SpriteBatch spriteBatch,
@@ -879,13 +908,28 @@ public sealed class ArenaRenderer
         var visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
         float halfTile = Battleground.TileSize / 2f;
+        Rectangle tileBounds = VisibleTileBounds(
+            camera, playerWorldPosition, screenShake, visibility, _bakedFor);
 
         _visibleItemScratch.Clear();
-        foreach (var (x, y, tile, biome) in _walls)
+        for (int y = tileBounds.Top; y < tileBounds.Bottom; y++)
         {
-            var center = camera.WorldToScreen(new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile), playerWorldPosition, screenShake);
-            if (visibility.Contains(center.ToPoint()))
-                _visibleItemScratch.Add((center.Y, 0, x, y, tile, biome, null));
+            for (int x = tileBounds.Left; x < tileBounds.Right; x++)
+            {
+                TileType tile = _bakedFor.TileAt(x, y);
+                if (!tile.IsRaised())
+                    continue;
+                var center = camera.WorldToScreen(
+                    new Vector2(x * Battleground.TileSize + halfTile,
+                        y * Battleground.TileSize + halfTile),
+                    playerWorldPosition, screenShake);
+                if (visibility.Contains(center.ToPoint()))
+                {
+                    _visibleItemScratch.Add((
+                        center.Y, 0, x, y, tile,
+                        _bakedFor.BiomeForTile(x, y), null));
+                }
+            }
         }
         foreach (var (x, y, biome) in _decorations)
         {
@@ -931,6 +975,62 @@ public sealed class ArenaRenderer
         camera.WorldVectorToScreen(worldAnchor).Y;
 
     /// <summary>
+    /// Conservative world-tile bounds for a rotated camera viewport. Iterating
+    /// this rectangle avoids transforming every wall on a large dungeon floor
+    /// just to reject nearly all of them in screen space.
+    /// </summary>
+    internal static Rectangle VisibleTileBounds(
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle logicalViewport,
+        Battleground battleground)
+    {
+        Vector2 topLeft = camera.ScreenToWorld(
+            new Vector2(logicalViewport.Left, logicalViewport.Top),
+            playerWorldPosition, screenShake);
+        Vector2 topRight = camera.ScreenToWorld(
+            new Vector2(logicalViewport.Right, logicalViewport.Top),
+            playerWorldPosition, screenShake);
+        Vector2 bottomLeft = camera.ScreenToWorld(
+            new Vector2(logicalViewport.Left, logicalViewport.Bottom),
+            playerWorldPosition, screenShake);
+        Vector2 bottomRight = camera.ScreenToWorld(
+            new Vector2(logicalViewport.Right, logicalViewport.Bottom),
+            playerWorldPosition, screenShake);
+
+        float minimumX = Math.Min(
+            Math.Min(topLeft.X, topRight.X),
+            Math.Min(bottomLeft.X, bottomRight.X));
+        float maximumX = Math.Max(
+            Math.Max(topLeft.X, topRight.X),
+            Math.Max(bottomLeft.X, bottomRight.X));
+        float minimumY = Math.Min(
+            Math.Min(topLeft.Y, topRight.Y),
+            Math.Min(bottomLeft.Y, bottomRight.Y));
+        float maximumY = Math.Max(
+            Math.Max(topLeft.Y, topRight.Y),
+            Math.Max(bottomLeft.Y, bottomRight.Y));
+
+        int left = Math.Clamp(
+            (int)MathF.Floor(minimumX / Battleground.TileSize),
+            0, battleground.Width - 1);
+        int right = Math.Clamp(
+            (int)MathF.Ceiling(maximumX / Battleground.TileSize),
+            left, battleground.Width - 1);
+        int top = Math.Clamp(
+            (int)MathF.Floor(minimumY / Battleground.TileSize),
+            0, battleground.Height - 1);
+        int bottom = Math.Clamp(
+            (int)MathF.Ceiling(maximumY / Battleground.TileSize),
+            top, battleground.Height - 1);
+        return new Rectangle(
+            left, top,
+            right - left + 1,
+            bottom - top + 1);
+    }
+
+    /// <summary>
     /// Draws raised scenery and grounded combat objects in one camera-depth
     /// order. The regular gameplay background pass stops after the baked
     /// ground plane so this is the one authoritative raised-scenery pass:
@@ -955,10 +1055,9 @@ public sealed class ArenaRenderer
         IReadOnlyDictionary<int, float>? roomVisualEnergy = null)
     {
         _depthSceneScratch.Clear();
-        _depthSceneScratch.EnsureCapacity(
-            dynamicItems.Count + _walls.Count + _decorations.Count + _pathRaisedDecorations.Count);
         if (_bakedFor is null)
         {
+            _depthSceneScratch.EnsureCapacity(dynamicItems.Count);
             for (int index = 0; index < dynamicItems.Count; index++)
             {
                 WorldDepthDrawItem item = dynamicItems[index];
@@ -983,6 +1082,11 @@ public sealed class ArenaRenderer
         var visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
         float halfTile = Battleground.TileSize / 2f;
+        Rectangle tileBounds = VisibleTileBounds(
+            camera, playerWorldPosition, screenShake, visibility, _bakedFor);
+        _depthSceneScratch.EnsureCapacity(
+            dynamicItems.Count + tileBounds.Width * tileBounds.Height
+            + _decorations.Count + _pathRaisedDecorations.Count);
         for (int index = 0; index < dynamicItems.Count; index++)
         {
             var item = dynamicItems[index];
@@ -1000,23 +1104,32 @@ public sealed class ArenaRenderer
         }
 
         int sceneryOrder = dynamicItems.Count;
-        foreach (var (x, y, tile, biome) in _walls)
+        for (int y = tileBounds.Top; y < tileBounds.Bottom; y++)
         {
-            var anchor = new Vector2(x * Battleground.TileSize + halfTile, y * Battleground.TileSize + halfTile);
-            var center = camera.WorldToScreen(anchor, playerWorldPosition, screenShake);
-            if (!visibility.Contains(center.ToPoint()))
-                continue;
-            _depthSceneScratch.Add(new DepthSceneItem(
-                GroundDepth(camera, anchor),
-                SceneryPaintPriority,
-                sceneryOrder++,
-                DynamicIndex: -1,
-                Kind: 0,
-                X: x,
-                Y: y,
-                Tile: tile,
-                Biome: biome,
-                PathDecoration: null));
+            for (int x = tileBounds.Left; x < tileBounds.Right; x++)
+            {
+                TileType tile = _bakedFor.TileAt(x, y);
+                if (!tile.IsRaised())
+                    continue;
+                var anchor = new Vector2(
+                    x * Battleground.TileSize + halfTile,
+                    y * Battleground.TileSize + halfTile);
+                var center = camera.WorldToScreen(
+                    anchor, playerWorldPosition, screenShake);
+                if (!visibility.Contains(center.ToPoint()))
+                    continue;
+                _depthSceneScratch.Add(new DepthSceneItem(
+                    GroundDepth(camera, anchor),
+                    SceneryPaintPriority,
+                    sceneryOrder++,
+                    DynamicIndex: -1,
+                    Kind: 0,
+                    X: x,
+                    Y: y,
+                    Tile: tile,
+                    Biome: _bakedFor.BiomeForTile(x, y),
+                    PathDecoration: null));
+            }
         }
         foreach (var (x, y, biome) in _decorations)
         {

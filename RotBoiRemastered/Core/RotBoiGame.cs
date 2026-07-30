@@ -87,6 +87,8 @@ public class RotBoiGame : Game
         Primitives2D.Initialize(GraphicsDevice);
         Sprites.Initialize(GraphicsDevice);
         BossAudio.Initialize();
+        EnemyCatalog.Warmup();
+        UiTheme.PrewarmDungeonText(_spriteBatch);
     }
 
     protected override void UnloadContent()

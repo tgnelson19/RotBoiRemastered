@@ -31,6 +31,14 @@ public sealed record BossAudioCueProfile(
 public static class BossAudio
 {
     private const int SampleRate = 22050;
+    private static readonly string[] SenseKeys =
+    [
+        "sound",
+        "touch",
+        "sight",
+        "chemesthesis",
+        "phantasia",
+    ];
     private static readonly Dictionary<(BossAudioCueKind Kind, string Sense), SoundEffect> Sounds = new();
     private static bool _runtimeEnabled;
 
@@ -49,7 +57,27 @@ public static class BossAudio
                 new(BossAudioCueKind.Death, .72, .48f, .46f, 5),
         };
 
-    public static void Initialize() => _runtimeEnabled = true;
+    internal static IReadOnlyList<(BossAudioCueKind Kind, string Sense)> WarmupPlan { get; } =
+        BuildWarmupPlan();
+
+    public static void Initialize()
+    {
+        _runtimeEnabled = true;
+        try
+        {
+            // SoundEffect construction can initialize native audio buffers and
+            // briefly block the game thread. Do it during LoadContent instead
+            // of making a guardian's first attack pay that one-time cost.
+            foreach ((BossAudioCueKind kind, string sense) in WarmupPlan)
+                GetOrCreateSound(kind, sense);
+        }
+        catch (Exception)
+        {
+            // Audio feedback is supplemental. Missing native audio, a device
+            // loss, or a headless runtime must never interrupt startup.
+            Shutdown();
+        }
+    }
 
     public static void Shutdown()
     {
@@ -69,15 +97,7 @@ public static class BossAudio
 
         try
         {
-            var key = (kind, senseKey);
-            if (!Sounds.TryGetValue(key, out SoundEffect? sound))
-            {
-                sound = new SoundEffect(
-                    BuildPcm(kind, senseKey),
-                    SampleRate,
-                    AudioChannels.Mono);
-                Sounds[key] = sound;
-            }
+            SoundEffect sound = GetOrCreateSound(kind, senseKey);
             BossAudioCueProfile profile = Profiles[kind];
             sound.Play(
                 Math.Clamp(profile.Volume * intensity, 0f, 1f),
@@ -106,6 +126,36 @@ public static class BossAudio
         senseKey is "sound" or "touch" or "sight" or "chemesthesis" or "phantasia"
             ? senseKey
             : "sound";
+
+    private static SoundEffect GetOrCreateSound(
+        BossAudioCueKind kind,
+        string senseKey)
+    {
+        var key = (kind, senseKey);
+        if (Sounds.TryGetValue(key, out SoundEffect? sound))
+            return sound;
+
+        sound = new SoundEffect(
+            BuildPcm(kind, senseKey),
+            SampleRate,
+            AudioChannels.Mono);
+        Sounds[key] = sound;
+        return sound;
+    }
+
+    private static IReadOnlyList<(BossAudioCueKind Kind, string Sense)>
+        BuildWarmupPlan()
+    {
+        BossAudioCueKind[] cueKinds = Enum.GetValues<BossAudioCueKind>();
+        var plan = new List<(BossAudioCueKind Kind, string Sense)>(
+            cueKinds.Length * SenseKeys.Length);
+        foreach (string sense in SenseKeys)
+        {
+            foreach (BossAudioCueKind kind in cueKinds)
+                plan.Add((kind, sense));
+        }
+        return plan;
+    }
 
     private static byte[] BuildPcm(BossAudioCueKind kind, string senseKey)
     {
