@@ -5,6 +5,18 @@ namespace RotBoiRemastered.Tests.World;
 
 public sealed class PathFloorGeneratorTests
 {
+    private static void RevealAllTreasures(PathFloorLayout layout)
+    {
+        foreach (PathConnection connection in layout.Connections.Where(value => value.Hidden))
+        {
+            Point clue = Assert.IsType<Point>(connection.ClueTile);
+            var world = new Vector2(
+                (clue.X + .5f) * Battleground.TileSize,
+                (clue.Y + .5f) * Battleground.TileSize);
+            Assert.True(layout.TryRevealTreasure(world, 1f));
+        }
+    }
+
     private sealed class ChainedRollRandom(params double[] rolls) : Random
     {
         private int _index;
@@ -68,6 +80,7 @@ public sealed class PathFloorGeneratorTests
     public void Generate_AllSpecialRoomsAreReachableFromStart()
     {
         var layout = PathFloorGenerator.Generate("phantasia", 8, new Random(77));
+        RevealAllTreasures(layout);
         var battleground = layout.Battleground;
         var start = layout.StartRoom.TileBounds.Center;
         var visited = new HashSet<Point> { start };
@@ -181,6 +194,7 @@ public sealed class PathFloorGeneratorTests
         for (int seed = 0; seed < 35; seed++)
         {
             var layout = PathFloorGenerator.Generate(senseKey, 7, new Random(seed));
+            RevealAllTreasures(layout);
             var battleground = layout.Battleground;
             var start = layout.StartRoom.TileBounds.Center;
             var visited = new HashSet<Point> { start };

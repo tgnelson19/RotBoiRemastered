@@ -18,10 +18,11 @@ public class Ishe : PathChaseBoss
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("GLIMPSE", "The first line is visible before the eye can follow.", new Color(107, 190, 221)),
-            [2] = ("BLINK", "The body has moved. Its former position has not finished speaking.", new Color(235, 142, 59)),
-            [3] = ("FLASH", "The triangle closes everywhere except the declared horizon.", UiTheme.Cream),
-            [4] = ("AFTERGLOW", "Two former positions answer in sequence.", new Color(238, 188, 83)),
+            [1] = ("EXPOSURE", "One frozen frame declares the moving curtain.", new Color(107, 190, 221)),
+            [2] = ("DOUBLE EXPOSURE", "Two captured positions resolve on separate beats.", new Color(235, 142, 59)),
+            [3] = ("SHUTTER", "Motion stops while the next horizon is exposed.", UiTheme.Cream),
+            [4] = ("NEGATIVE", "Your former position develops at the arena edge.", new Color(238, 188, 83)),
+            [5] = ("AFTERIMAGE", "Every captured frame moves at once.", new Color(244, 205, 118)),
         };
 
     public static readonly PathChaseBossConfig IsheConfig = PathChaseBossConfig.Default with
@@ -31,9 +32,9 @@ public class Ishe : PathChaseBoss
         Pattern = "rush", OwnerPrefix = "ishe_sight",
         BodyColor = new Color(107, 190, 221), AccentColor = new Color(235, 142, 59),
         MovementSpeed = .43, BodyScale = 1.42, CooldownSeconds = 1.4,
-        ShotSpeed = 1.45, ShotDamage = 215, ShotScale = .18, ShotRangeTiles = 24,
+        ShotSpeed = 1.45, ShotDamage = 215, ShotScale = .30, ShotRangeTiles = 24,
         ArenaShape = "triangle", ArenaScale = 11.2,
-        MovementModes = new[] { "chase", "path", "static", "path" },
+        MovementModes = new[] { "chase", "path", "static", "path", "path" },
         MidHealth = 75000, MidContactDamage = 300, MidRewardExperience = 360,
     };
 
@@ -149,7 +150,9 @@ public class Ishe : PathChaseBoss
         }
         else
         {
-            desired = 4;
+            desired = ratio > .25 ? 4 : 5;
+            if (desired != Phase && _phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
+                return;
         }
         if (desired != Phase)
             ApplyIshePhase(desired);
@@ -162,7 +165,7 @@ public class Ishe : PathChaseBoss
             base.DebugSetPhase(phase);
             return;
         }
-        phase = Math.Clamp(phase, 1, 4);
+        phase = Math.Clamp(phase, 1, 5);
         DebugPhaseLocked = true;
         FlashSurvivalActive = false;
         if (phase >= 4)
@@ -207,7 +210,23 @@ public class Ishe : PathChaseBoss
             return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
         }
 
-        if (Phase == 4 && _phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
+        if (FlashSurvivalCleared && Phase == 4)
+        {
+            int floor = Math.Max(1, (int)Math.Round(MaxHp * .25));
+            double permitted = Math.Max(0, Hp - floor);
+            if (permitted <= 0)
+            {
+                if (_phaseDeclarations >= MinimumIsheDamagePhaseDeclarations)
+                    ApplyIshePhase(5);
+                return new HitResult(false, false, 0, true);
+            }
+            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+            if (Hp <= floor && _phaseDeclarations >= MinimumIsheDamagePhaseDeclarations)
+                ApplyIshePhase(5);
+            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+        }
+
+        if (Phase == 5 && _phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
         {
             double permitted = Math.Max(0, Hp - 1);
             if (permitted <= 0)
@@ -314,6 +333,15 @@ public class Ishe : PathChaseBoss
                     "blink_past", prismatic: true);
                 DeclareVolley(sink, center, target, 1, 0f, 1.02, 1.58f, 225,
                     "blink_focus", prismatic: true);
+                break;
+            }
+            case 4:
+            {
+                Vector2 echo = _lastDeclarationOrigin ?? center;
+                DeclareVolley(sink, echo, target, 5, .82f, .72, 1.42f, 225,
+                    "negative_edge", prismatic: true);
+                DeclareVolley(sink, center, target, 3, .40f, 1.02, 1.34f, 215,
+                    "negative_develop", oscillating: true);
                 break;
             }
             default:

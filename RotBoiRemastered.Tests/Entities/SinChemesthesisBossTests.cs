@@ -23,8 +23,8 @@ public class SinChemesthesisBossTests
     public void Constructor_SetsFirstPhaseFlavorAndAccent()
     {
         var kage = new Kage(1000, 1000, MakeBattleground(), new Random(1));
-        Assert.Equal("FEAST", kage.PhaseLabel);
-        Assert.Equal("Take all that you can carry.", kage.PhaseFlavor);
+        Assert.Equal("SPARK / FUEL", kage.PhaseLabel);
+        Assert.Equal("Spark finds fuel only where the declarations cross.", kage.PhaseFlavor);
         Assert.Equal(new Microsoft.Xna.Framework.Color(214, 154, 52), kage.PhaseAccent);
     }
 
@@ -115,7 +115,7 @@ public class SinChemesthesisBossTests
         var kage = new Kage(1000, 1000, MakeBattleground(), new Random(1));
         kage.DebugSetPhase(3);
         Assert.Equal(3, kage.Phase);
-        Assert.Equal("STAGNANT MIRROR", kage.PhaseLabel);
+        Assert.Equal("SOLVENT / CRYSTAL", kage.PhaseLabel);
 
         kage.Hp = kage.MaxHp;
         kage.Update(MakeContext(1000, 1000));

@@ -18,19 +18,19 @@ public sealed class Bair : PlagueTouchBoss
     public static readonly PathChaseBossConfig BairConfig = BaseConfig with
     {
         BossName = "BAIR", Subtitle = "THE FIRST LOCK", OwnerPrefix = "bair_touch",
-        PhaseLabels = new[] { "RIVER", "SWARM", "BLIGHT", "RUIN", "SILENCE" },
+        PhaseLabels = new[] { "INTAKE", "QUARTERING", "MOVING CELL", "RELEASE", "SOLITARY" },
         MovementModes = new[] { "chase", "path", "static", "static", "path" },
         MovementSpeed = .10, BodyScale = 2.15, CooldownSeconds = 2.05,
-        ShotSpeed = .46, ShotDamage = 300, ShotScale = .28, ShotRangeTiles = 22,
+        ShotSpeed = .46, ShotDamage = 300, ShotScale = .38, ShotRangeTiles = 22,
         MidHealth = 110000, MidContactDamage = 380, MidRewardExperience = 420,
     };
 
     public static readonly PlagueSigilConfig BairSigilConfig = new(
         PhaseFlavors: new[]
         {
-            "The current carries judgment.", "The small become countless.",
-            "The body and field fail together.", "Stone descends; hunger follows.",
-            "What remains cannot answer.",
+            "Four walls inhale around the court.", "The prison chooses its quarters.",
+            "The only room left alive begins to move.", "Break the lock before it closes again.",
+            "No cell remains empty for long.",
         },
         PhaseColors: new[]
         {

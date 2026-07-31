@@ -49,11 +49,11 @@ public sealed class Beaudis : Enemy
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("AWAKEN", "You hear it too.", UiTheme.Purple),
-            [2] = ("ANSWER", "Stay a while.", UiTheme.Blue),
-            [3] = ("ENDURE", "Run, while you still can.", UiTheme.Cream),
-            [4] = ("PRESS", "The pattern remembers.", UiTheme.Gold),
-            [5] = ("PERSIST", "This is not the end.", UiTheme.Red),
+            [1] = ("APPROACH", "Retreat, and the sound arrives faster.", UiTheme.Purple),
+            [2] = ("FLYBY", "The wake remains after the body passes.", UiTheme.Blue),
+            [3] = ("INTERFERENCE", "Every crossing returns from the opposite edge.", UiTheme.Cream),
+            [4] = ("REDLINE", "The distant wall begins to answer.", UiTheme.Gold),
+            [5] = ("SONIC BOOM", "Motion and echo collapse into one pursuit.", UiTheme.Red),
         };
 
     private readonly List<ProjectilePortal> _projectilePortals = new();
@@ -65,6 +65,8 @@ public sealed class Beaudis : Enemy
     private double _phaseElapsed;
     private double _phaseProtectionTimer;
     private double _staggerRemaining;
+    private float _previousPlayerDistance;
+    private float _radialTrend;
 
     public int Phase { get; private set; } = 1;
     public string PhaseLabel { get; private set; }
@@ -100,7 +102,7 @@ public sealed class Beaudis : Enemy
     public bool MidpointSurvived => Dying || Hp <= 0;
 
     public Beaudis(float worldX, float worldY, float awarenessRange, Random? rng = null)
-        : base(worldX, worldY, .38f, Simulation.TileSize * 1.55f, UiTheme.Purple, 220, 50000, 240, 3.2, awarenessRange, "beaudis")
+        : base(worldX, worldY, .68f, Simulation.TileSize * 1.55f, UiTheme.Purple, 220, 50000, 240, 3.2, awarenessRange, "beaudis")
     {
         (PhaseLabel, PhaseFlavor, PhaseAccent) = PhaseMetadata[1];
     }
@@ -216,11 +218,17 @@ public sealed class Beaudis : Enemy
     {
         var center = origin ?? Center();
         float size = Simulation.TileSize * .34f;
+        float doppler = Phase is 1 or 5
+            ? _radialTrend > .5f ? 1.28f : _radialTrend < -.5f ? .84f : 1f
+            : 1f;
         sink.Add(new EnemyProjectile(
-            center.X - size / 2f, center.Y - size / 2f, direction, speed, damage, size,
+            center.X - size / 2f, center.Y - size / 2f, direction, speed * doppler, damage, size,
             travelRange: Simulation.TileSize * 30f, color: color ?? PhaseAccent, shape: "diamond",
             path: path, amplitude: path == "sine" ? Simulation.TileSize * .22f : 0,
-            frequency: .04f, owner: owner, ignoreWalls: true));
+            frequency: .04f, owner: owner, ignoreWalls: true)
+        {
+            TelegraphDuration = Phase >= 4 ? .48f : .62f,
+        });
     }
 
     private void FireFan(float playerX, float playerY, List<EnemyProjectile> sink, int count, float spread, float speed = .68f)
@@ -287,6 +295,11 @@ public sealed class Beaudis : Enemy
 
     private void UpdateDamagePhase(float playerX, float playerY, List<EnemyProjectile> sink, double dt, Battleground battleground)
     {
+        float playerDistance = Vector2.Distance(new Vector2(playerX, playerY), Center());
+        _radialTrend = _previousPlayerDistance <= 0
+            ? 0
+            : playerDistance - _previousPlayerDistance;
+        _previousPlayerDistance = playerDistance;
         Move(playerX, playerY, battleground);
         _attackCooldown -= dt;
         if (_attackCooldown > 0)

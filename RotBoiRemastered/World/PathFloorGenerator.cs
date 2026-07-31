@@ -14,6 +14,15 @@ public enum PathRoomType
     Boss,
 }
 
+public enum PathSecretClueKind
+{
+    EchoRune,
+    PressurePlate,
+    LensAlignment,
+    CleansingMark,
+    TruthGlyph,
+}
+
 /// <summary>
 /// Sense-authored collision silhouettes for the centered boss arena. Each
 /// sense owns two layouts so repeated floors change cover without changing
@@ -65,6 +74,8 @@ public sealed class PathRoom
     public List<Rectangle> DoorWorldRects { get; } = new();
     public bool IsActivated { get; set; }
     public bool IsCleared { get; set; }
+    public bool IsSecret => Type == PathRoomType.Treasure;
+    public bool IsRevealed { get; private set; }
 
     public string EncounterKey => $"path-room-{Id}";
     public bool IsCombatRoom => Type is PathRoomType.Skirmish
@@ -110,7 +121,10 @@ public sealed class PathRoom
         Depth = depth;
         IsActivated = type == PathRoomType.Start;
         IsCleared = type == PathRoomType.Start;
+        IsRevealed = type != PathRoomType.Treasure;
     }
+
+    public void Reveal() => IsRevealed = true;
 
     public bool ContainsWorld(Vector2 worldPosition)
     {
@@ -172,7 +186,15 @@ public sealed record PathConnection(
     int ToRoomId,
     PathCorridorStyle Style = PathCorridorStyle.SewerConduit,
     int Width = 3,
-    IReadOnlyList<Point>? Route = null);
+    IReadOnlyList<Point>? Route = null,
+    bool Hidden = false,
+    PathSecretClueKind? ClueKind = null,
+    Point? ClueTile = null,
+    IReadOnlyList<Point>? SealTiles = null)
+{
+    public bool IsRevealed { get; private set; } = !Hidden;
+    public void Reveal() => IsRevealed = true;
+}
 
 /// <summary>
 /// A generated dungeon floor plus the semantic room graph used by Path mode
@@ -225,10 +247,39 @@ public sealed class PathFloorLayout
         for (int index = 0; index < Rooms.Count; index++)
         {
             PathRoom room = Rooms[index];
-            if (room.ContainsWorld(worldPosition))
+            if (room.IsRevealed && room.ContainsWorld(worldPosition))
                 return room;
         }
         return null;
+    }
+
+    public bool TryRevealTreasure(Vector2 playerWorldCenter, float radius)
+    {
+        float radiusSquared = radius * radius;
+        for (int index = 0; index < Connections.Count; index++)
+        {
+            PathConnection connection = Connections[index];
+            if (!connection.Hidden || connection.IsRevealed
+                || connection.ClueTile is not Point clue)
+            {
+                continue;
+            }
+            Vector2 clueWorld = new(
+                (clue.X + .5f) * Battleground.TileSize,
+                (clue.Y + .5f) * Battleground.TileSize);
+            if (Vector2.DistanceSquared(playerWorldCenter, clueWorld) > radiusSquared)
+                continue;
+
+            connection.Reveal();
+            Rooms.First(room => room.Id == connection.ToRoomId).Reveal();
+            if (connection.SealTiles is not null)
+            {
+                foreach (Point tile in connection.SealTiles)
+                    Battleground.SetTile(tile.X, tile.Y, TileType.Road);
+            }
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Finds a random open footprint inside a specific room, never elsewhere on the floor.</summary>
@@ -349,7 +400,11 @@ public static class PathFloorGenerator
         return count;
     }
 
-    public static PathFloorLayout Generate(string senseKey, int floorNumber, Random? rng = null)
+    public static PathFloorLayout Generate(
+        string senseKey,
+        int floorNumber,
+        Random? rng = null,
+        bool? containsTreasureArena = null)
     {
         if (!GamePaths.PathsByKey.ContainsKey(senseKey))
             throw new KeyNotFoundException($"Unknown Path sense: {senseKey}");
@@ -363,7 +418,13 @@ public static class PathFloorGenerator
                 tiles[y, x] = TileType.OuterVoid;
 
         PathLayoutStyle style = ChooseLayoutStyle(senseKey, floorNumber, rng);
-        var rooms = PathFloorBlueprints.Create(style, floorNumber, rng)
+        var rooms = PathFloorBlueprints.Create(
+                style,
+                floorNumber,
+                rng,
+                containsTreasureArena.HasValue
+                    ? containsTreasureArena.Value ? 1 : 0
+                    : null)
             .Select(blueprint => new PathRoom(
                 blueprint.Id,
                 blueprint.Type,
@@ -1081,7 +1142,53 @@ public static class PathFloorGenerator
             .OrderBy(candidate => CorridorRouteScore(candidate, unrelated, tiles) + rng.NextDouble() * .25)
             .First();
         CarveCorridorRoute(tiles, route, width, style);
-        connections.Add(new PathConnection(from.Id, to.Id, style, width, route));
+        bool hidden = to.Type == PathRoomType.Treasure;
+        Point? clueTile = null;
+        List<Point>? sealTiles = null;
+        if (hidden)
+        {
+            int sealIndex = route.FindIndex(point => !from.TileBounds.Contains(point));
+            sealIndex = Math.Clamp(sealIndex, 1, route.Count - 2);
+            clueTile = route[Math.Max(0, sealIndex - 2)];
+            Point before = route[sealIndex - 1];
+            Point after = route[sealIndex + 1];
+            Point direction = new(
+                Math.Sign(after.X - before.X),
+                Math.Sign(after.Y - before.Y));
+            Point perpendicular = new(-direction.Y, direction.X);
+            sealTiles = new List<Point>();
+            for (int offset = -width / 2; offset <= width / 2; offset++)
+            {
+                Point tile = route[sealIndex] + perpendicular * offset;
+                if (tile.X <= 0 || tile.X >= Width - 1
+                    || tile.Y <= 0 || tile.Y >= Height - 1)
+                {
+                    continue;
+                }
+                tiles[tile.Y, tile.X] = TileType.BuildingWall;
+                sealTiles.Add(tile);
+            }
+        }
+        PathSecretClueKind? clueKind = hidden
+            ? senseKey switch
+            {
+                "touch" => PathSecretClueKind.PressurePlate,
+                "sight" => PathSecretClueKind.LensAlignment,
+                "chemesthesis" => PathSecretClueKind.CleansingMark,
+                "phantasia" => PathSecretClueKind.TruthGlyph,
+                _ => PathSecretClueKind.EchoRune,
+            }
+            : null;
+        connections.Add(new PathConnection(
+            from.Id,
+            to.Id,
+            style,
+            width,
+            route,
+            hidden,
+            clueKind,
+            clueTile,
+            sealTiles));
 
         Point fromDirection = route.FirstOrDefault(point => point != start, end);
         Point toDirection = route.AsEnumerable().Reverse().FirstOrDefault(point => point != end, start);

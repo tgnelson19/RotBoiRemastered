@@ -26,8 +26,8 @@ public class PathChaseBossTests
         var ishe = new Ishe(1000, 1000, battleground, new Random(1));
         Assert.Equal(75000, ishe.Hp);
         Assert.Equal(1, ishe.Phase);
-        Assert.Equal("GLIMPSE", ishe.PhaseLabel);
-        Assert.Equal(4, Ishe.IsheConfig.PhaseLabels.Count);
+        Assert.Equal("EXPOSURE", ishe.PhaseLabel);
+        Assert.Equal(5, Ishe.IsheConfig.PhaseLabels.Count);
         Assert.Equal(300, ishe.Damage);
     }
 
@@ -78,7 +78,7 @@ public class PathChaseBossTests
         var ishe = new Ishe(1000, 1000, MakeBattleground(), new Random(1));
         ishe.DebugSetPhase(3);
         Assert.Equal(3, ishe.Phase);
-        Assert.Equal("FLASH", ishe.PhaseLabel);
+        Assert.Equal("SHUTTER", ishe.PhaseLabel);
         Assert.True(ishe.FlashSurvivalActive);
 
         // Locked: even a lethal-ratio HP change shouldn't move it off the debug phase.
@@ -112,7 +112,7 @@ public class PathChaseBossTests
         Assert.False(ishe.FlashSurvivalActive);
         Assert.True(ishe.FlashSurvivalCleared);
         Assert.Equal(4, ishe.Phase);
-        Assert.Equal("AFTERGLOW", ishe.PhaseLabel);
+        Assert.Equal("NEGATIVE", ishe.PhaseLabel);
     }
 
     [Fact]
@@ -262,7 +262,7 @@ public class PathChaseBossTests
             battleground.Height * Simulation.TileSize / 2f - bodySize / 2f,
             battleground, new Random(21));
         ishe.EntranceRemaining = 0;
-        ishe.DebugSetPhase(4);
+        ishe.DebugSetPhase(5);
         var player = ishe.ArenaCenter + new Microsoft.Xna.Framework.Vector2(
             ishe.ArenaRadius * xRatio, ishe.ArenaRadius * yRatio);
         int playerSize = (int)(Simulation.TileSize * .75f);
@@ -292,7 +292,7 @@ public class PathChaseBossTests
         }
 
         Assert.NotEmpty(threats);
-        Assert.InRange(peak, 30, 34);
+        Assert.InRange(peak, 20, 34);
     }
 
     [Fact]
@@ -344,7 +344,7 @@ public class PathChaseBossTests
         var battleground = MakeBattleground();
         var boss = new Ishe(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
         var context = MakeContext(boss.WorldX + 500, boss.WorldY, battleground);
-        boss.DebugSetPhase(4);
+        boss.DebugSetPhase(5);
         boss.EntranceRemaining = 0;
         for (int tick = 0; tick < Simulation.FrameRate * 5 &&
              boss.IshePhaseDeclarations < Ishe.MinimumIsheDamagePhaseDeclarations; tick++)

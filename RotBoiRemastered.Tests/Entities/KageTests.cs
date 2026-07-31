@@ -112,9 +112,9 @@ public class KageTests
 
         Assert.Equal(93000, kage.MaxHp);
         Assert.Equal(340, kage.Damage);
-        Assert.Equal("FEAST", kage.PhaseLabel);
+        Assert.Equal("SPARK / FUEL", kage.PhaseLabel);
         Assert.Equal(
-            new[] { "FEAST", "PROVOCATION", "STAGNANT MIRROR", "LURE" },
+            new[] { "SPARK / FUEL", "PRESSURE / HEAT", "SOLVENT / CRYSTAL", "CHAIN REACTION", "CRITICAL MIXTURE" },
             Kage.KageConfig.PhaseLabels);
         Assert.Equal(14.0, Kage.StagnantMirrorDuration);
     }
@@ -170,7 +170,7 @@ public class KageTests
         Assert.False(kage.StagnantMirrorActive);
         Assert.True(kage.StagnantMirrorCleared);
         Assert.Equal(4, kage.Phase);
-        Assert.Equal("LURE", kage.PhaseLabel);
+        Assert.Equal("CHAIN REACTION", kage.PhaseLabel);
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class KageTests
         var battleground = MakeBattleground();
         var kage = MakeCenteredKage(battleground, 5);
         var context = MakeContext(kage, battleground);
-        kage.DebugSetPhase(4);
+        kage.DebugSetPhase(5);
         kage.DebugPhaseLocked = false;
         kage.EntranceRemaining = 0;
 

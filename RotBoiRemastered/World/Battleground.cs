@@ -93,6 +93,14 @@ public sealed class Battleground
 
     public TileType TileAt(int x, int y) => Tiles[y, x];
 
+    public void SetTile(int x, int y, TileType tile)
+    {
+        if (x < 0 || x >= Width || y < 0 || y >= Height)
+            throw new ArgumentOutOfRangeException(nameof(x));
+        Tiles[y, x] = tile;
+        _openTiles = null;
+    }
+
     public Rectangle TileRect(int x, int y) => new(x * TileSize, y * TileSize, TileSize, TileSize);
 
     public bool IsRaisedAt(int x, int y) =>

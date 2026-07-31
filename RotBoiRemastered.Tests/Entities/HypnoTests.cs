@@ -98,7 +98,7 @@ public class HypnoTests
         Assert.Equal(107000, boss.MaxHp);
         Assert.Equal(360, boss.Damage);
         Assert.Equal(1, boss.Phase);
-        Assert.Equal("IDOL", boss.PhaseLabel);
+        Assert.Equal("LAW OF MOTION", boss.PhaseLabel);
         Assert.Equal(14.0, Hypno.ChosenSurvivalDuration);
         Assert.Equal(2, Hypno.MinimumDamagePhaseDeclarations);
     }
@@ -146,7 +146,7 @@ public class HypnoTests
 
         Assert.True(boss.ChosenSurvivalActive);
         Assert.Equal(4, boss.Phase);
-        Assert.Equal("CHOSEN", boss.PhaseLabel);
+        Assert.Equal("HERESY", boss.PhaseLabel);
         Assert.Equal(14.0, boss.ChosenSurvivalRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
@@ -156,7 +156,7 @@ public class HypnoTests
         Assert.False(boss.ChosenSurvivalActive);
         Assert.True(boss.ChosenSurvivalCleared);
         Assert.Equal(5, boss.Phase);
-        Assert.Equal("OFFERING", boss.PhaseLabel);
+        Assert.Equal("CONTRADICTION", boss.PhaseLabel);
         Assert.Equal(4, boss.OfferingPositions.Count);
     }
 

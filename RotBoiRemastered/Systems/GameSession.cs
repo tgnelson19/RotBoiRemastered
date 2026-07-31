@@ -110,6 +110,7 @@ public sealed class GameSession
     private bool _debugVisualGallery;
     private string _debugVisualGalleryPath = "sound";
     private string _debugVisualGalleryTier = "easy";
+    private DungeonBossInstanceState? _dungeonBossInstance;
 
     private readonly record struct SpawnedEnemyGroup(
         Enemy Owner,
@@ -149,6 +150,7 @@ public sealed class GameSession
         ["pressure", "artillery", "control", "tank"];
 
     public bool BossTelemetryActive => _bossTelemetry is not null;
+    public bool DungeonBossInstanceActive => _dungeonBossInstance is not null;
     public bool PreferControllerPrompts => _controllerPromptRemaining > 0;
     public VisualDensity CurrentVisualDensity => _visualDensity;
 
@@ -217,6 +219,7 @@ public sealed class GameSession
         _bossTelemetryDeathCueEmitted = false;
         _controllerPromptRemaining = 0;
         _debugVisualGallery = false;
+        _dungeonBossInstance = null;
         LoadCarriedItems();
     }
 
@@ -254,6 +257,7 @@ public sealed class GameSession
         _bossTelemetryDeathCueEmitted = false;
         _controllerPromptRemaining = 0;
         _debugVisualGallery = false;
+        _dungeonBossInstance = null;
         State.CurrentStage = 1;
         LoadCarriedItems();
     }
@@ -276,6 +280,7 @@ public sealed class GameSession
         _pendingPathWaves.Clear();
         _pendingPathEncounterKeys.Clear();
         GamePaths.SetActive(PathRun.CurrentSenseKey);
+        _dungeonBossInstance = null;
         Battleground = PathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
         PathFog = PathRun.TakeInstalledPreparedFog()
@@ -383,7 +388,14 @@ public sealed class GameSession
             ? chemicalBoss.MovementObstacles()
             : null;
         Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed, obstacles, controllerMove);
-        if (State.ActiveBoss is PathChaseBoss pathBoss)
+        if (State.ActiveBoss is IBossArenaController arenaController)
+        {
+            Vector2 constrained = arenaController.ConstrainPlayer(
+                new Vector2(Player.WorldX, Player.WorldY),
+                (float)State.PlayerSize);
+            Player.SetPosition(constrained.X, constrained.Y);
+        }
+        else if (State.ActiveBoss is PathChaseBoss pathBoss)
         {
             var constrained = pathBoss.ConstrainPlayerPosition(Player.WorldX, Player.WorldY, (float)State.PlayerSize);
             Player.SetPosition(constrained.X, constrained.Y);
@@ -427,6 +439,11 @@ public sealed class GameSession
     /// </summary>
     private void RefreshPathFog()
     {
+        if (_dungeonBossInstance is not null)
+        {
+            _pathFogActive = false;
+            return;
+        }
         if (PathFog is null || PathRun is null)
         {
             _pathFogActive = false;
@@ -602,6 +619,17 @@ public sealed class GameSession
     /// </summary>
     private bool BossPortalOpen => NaturalMidBossRequested || NaturalFinalBossRequested;
 
+    private bool PathMajorBossGatewayOpen => PathRun is { FloorNumber: 5 or 10 } run
+        && run.Layout.BossRoom.IsActivated
+        && !run.Layout.BossRoom.IsCleared
+        && State.ActiveBoss is null
+        && _dungeonBossInstance is null;
+
+    private Vector2 CurrentPathPortalWorld =>
+        _dungeonBossInstance?.ArenaCenter
+        ?? PathRun?.ExitPortalWorld
+        ?? ArenaCenterWorld;
+
     /// <summary>
     /// Where a natural boss fight always happens -- Dissonance's forced
     /// spawn rect and SpawnBoss's own default (non-forced) search both
@@ -614,6 +642,17 @@ public sealed class GameSession
     {
         int radius = BossPortalInteractRadius;
         var portalRect = new Rectangle((int)(ArenaCenterWorld.X - radius), (int)(ArenaCenterWorld.Y - radius), radius * 2, radius * 2);
+        return Player.WorldRect(State).Intersects(portalRect);
+    }
+
+    private bool PlayerAtPathPortal(Vector2 world)
+    {
+        int radius = BossPortalInteractRadius;
+        var portalRect = new Rectangle(
+            (int)world.X - radius,
+            (int)world.Y - radius,
+            radius * 2,
+            radius * 2);
         return Player.WorldRect(State).Intersects(portalRect);
     }
 
@@ -914,6 +953,33 @@ public sealed class GameSession
             enemy.Damage = Math.Max(1, (int)Math.Round(enemy.Damage * PathRun.DamageMultiplier));
             enemy.Speed *= (float)PathRun.SpeedMultiplier;
             enemy.ExpValue *= PathRun.IsSecondAct ? 1.45 : 1.0;
+            if (UsesAuthoredBossBalance(enemy))
+            {
+                if (enemy.AttackCooldown.HasValue)
+                    enemy.AttackCooldown *= (float)PathRun.TimingMultiplier;
+                if (enemy.AttackCooldownMax.HasValue)
+                    enemy.AttackCooldownMax *= (float)PathRun.TimingMultiplier;
+            }
+        }
+        if (UsesAuthoredBossBalance(enemy) && State.HardMode)
+        {
+            enemy.MaxHp = Math.Max(1, (int)Math.Round(enemy.MaxHp * 1.12));
+            enemy.Hp = enemy.MaxHp;
+            enemy.Damage = Math.Max(1, (int)Math.Round(enemy.Damage * 1.15));
+            if (enemy.AttackCooldown.HasValue)
+                enemy.AttackCooldown *= .90f;
+            if (enemy.AttackCooldownMax.HasValue)
+                enemy.AttackCooldownMax *= .90f;
+        }
+        else if (UsesAuthoredBossBalance(enemy) && GameProfile.Profile.CasualMode)
+        {
+            enemy.MaxHp = Math.Max(1, (int)Math.Round(enemy.MaxHp * .82));
+            enemy.Hp = enemy.MaxHp;
+            enemy.Damage = Math.Max(1, (int)Math.Round(enemy.Damage * .80));
+            if (enemy.AttackCooldown.HasValue)
+                enemy.AttackCooldown *= 1.15f;
+            if (enemy.AttackCooldownMax.HasValue)
+                enemy.AttackCooldownMax *= 1.15f;
         }
     }
 
@@ -996,7 +1062,15 @@ public sealed class GameSession
             {
                 string pathKey = enemy.ContentPath ?? GamePaths.Active().Key;
                 for (int index = projectileStart; index < State.EnemyProjectileHolster.Count; index++)
-                    State.EnemyProjectileHolster[index].ContentPath ??= pathKey;
+                {
+                    EnemyProjectile projectile = State.EnemyProjectileHolster[index];
+                    projectile.ContentPath ??= pathKey;
+                    if (PathRun is not null)
+                        projectile.Damage = MathF.Round(
+                            projectile.Damage * (float)PathRun.DamageMultiplier);
+                    if (State.HardMode)
+                        projectile.Damage = MathF.Round(projectile.Damage * 1.15f);
+                }
             }
             else
             {
@@ -1162,7 +1236,7 @@ public sealed class GameSession
             }
             if (bossDying)
                 projectile.RemFlag = true;
-            projectile.Update(Battleground, casualMode);
+            projectile.Update(Battleground, casualMode, State.HardMode);
             _spawnedProjectileScratch.AddRange(projectile.SpawnedProjectiles);
             projectile.SpawnedProjectiles.Clear();
         }
@@ -1292,10 +1366,13 @@ public sealed class GameSession
         }
 
         bool pathExit = PathRun?.ExitPortalOpen == true;
-        if (BossPortalOpen || pathExit)
+        bool pathGateway = PathMajorBossGatewayOpen;
+        if (BossPortalOpen || pathExit || pathGateway)
         {
-            Vector2 portalWorld = pathExit
-                ? PathRun!.ExitPortalWorld
+            Vector2 portalWorld = pathGateway
+                ? PathRun!.Layout.BossRoom.WorldCenter
+                : pathExit
+                ? CurrentPathPortalWorld
                 : ArenaCenterWorld;
             _worldDepthItemScratch.Add(new WorldDepthDrawItem(
                 portalWorld, 26, stableOrder++,
@@ -1842,6 +1919,12 @@ public sealed class GameSession
         _pathWaveSpawnBudgetRemaining = PathWaveSpawnBudgetPerFrame;
         ProcessPendingPathWaves();
         RefreshPathFog();
+        if (interactPressed)
+        {
+            run.Layout.TryRevealTreasure(
+                PlayerWorldCenter,
+                Simulation.TileSize * 2.1f);
+        }
         IReadOnlyList<PathRoom> completedRooms =
             run.CompleteReadyCombatRooms(
                 State.EnemyHolster,
@@ -1865,9 +1948,17 @@ public sealed class GameSession
         if (run.ActiveCombatRooms.Count == 0 && State.ActiveBoss is null)
             State.BossAfflictions.Reset();
 
+        if (PathMajorBossGatewayOpen)
+        {
+            Vector2 gateway = run.Layout.BossRoom.WorldCenter;
+            if (interactPressed && PlayerAtPathPortal(gateway))
+                EnterPathMajorBossInstance(rng);
+            return;
+        }
+
         if (run.ExitPortalOpen)
         {
-            if (interactPressed && run.PlayerAtExitPortal(Player.WorldRect(State), BossPortalInteractRadius)
+            if (interactPressed && PlayerAtPathPortal(CurrentPathPortalWorld)
                 && run.AdvanceFloor(State.RunTimeSeconds))
             {
                 InstallNextPathFloor();
@@ -1890,7 +1981,8 @@ public sealed class GameSession
                 SpawnPathTreasureEncounter(room, rng);
                 break;
             case PathRoomType.Boss:
-                SpawnPathFloorBoss(room, rng);
+                if (run.FloorNumber is not (5 or 10))
+                    SpawnPathFloorBoss(room, rng);
                 break;
         }
     }
@@ -2073,9 +2165,9 @@ public sealed class GameSession
         };
         guardian.DisengageRange = guardian.AwarenessRange * 1.5f;
         ApplyRunDifficulty(guardian);
-        guardian.MaxHp = Math.Max(1, (int)Math.Round(guardian.MaxHp * .9));
+        guardian.MaxHp = Math.Max(1, (int)Math.Round(guardian.MaxHp * .65));
         guardian.Hp = guardian.MaxHp;
-        guardian.Damage = Math.Max(1, (int)Math.Round(guardian.Damage * .92));
+        guardian.Damage = Math.Max(1, (int)Math.Round(guardian.Damage * .90));
         guardian.ExpValue *= 1.15;
         State.EnemyHolster.Add(guardian);
         State.CurrEnemyCount = State.EnemyHolster.Count;
@@ -2168,10 +2260,12 @@ public sealed class GameSession
     private void SpawnPathTreasure(PathRoom room, Random rng, int bonusItems = 0)
     {
         var run = PathRun!;
-        int bonusMaximum = run.IsSecondAct ? 3 : 2;
-        int count = TreasureChest.MinimumItems + bonusItems + rng.Next(bonusMaximum);
-        int rewardTier = run.FloorNumber >= 8 ? 3 : run.FloorNumber >= 5 ? 2 : run.FloorNumber >= 3 ? 1 : 0;
+        int count = 3 + bonusItems + rng.Next(2);
+        int rewardTier = Math.Max(1,
+            run.FloorNumber >= 8 ? 3 : run.FloorNumber >= 5 ? 2 : run.FloorNumber >= 3 ? 1 : 0);
         var drops = Items.GenerateDrops(count, rng, State.HardMode, run.CurrentSenseKey, rewardTier);
+        if (drops.Count > 0 && drops[0].Rarity is "Common" or "Rare")
+            drops[0] = drops[0] with { Rarity = "Epic" };
         float size = Simulation.TileSize * 1.15f;
         var chest = new TreasureChest(
             room.WorldCenter.X - size / 2f,
@@ -2179,6 +2273,72 @@ public sealed class GameSession
             drops,
             run.CurrentSenseKey);
         State.LootCrateList.Add(chest);
+    }
+
+    private void EnterPathMajorBossInstance(Random rng)
+    {
+        var run = PathRun
+            ?? throw new InvalidOperationException("A Path run is required for a dungeon boss instance.");
+        if (run.FloorNumber is not (5 or 10) || _dungeonBossInstance is not null)
+            return;
+
+        bool midpoint = run.BossTier == PathFloorBossTier.Midpoint;
+        string bossKey = midpoint ? run.CurrentSense.MidBoss : run.CurrentSense.FinalBoss;
+        if (!BossCatalog.Shared.TryGet(bossKey, out BossDefinition? definition)
+            || definition is null)
+        {
+            throw new InvalidOperationException($"Boss '{bossKey}' is not registered.");
+        }
+
+        Battleground suspended = Battleground;
+        PathFogOfWar? suspendedFog = PathFog;
+        Battleground arena = BossArenaFactory.Create(bossKey, run.FloorNumber);
+        Vector2 center = new(
+            arena.Width * Simulation.TileSize / 2f,
+            arena.Height * Simulation.TileSize / 2f);
+        _dungeonBossInstance = new DungeonBossInstanceState(
+            suspended,
+            suspendedFog,
+            arena,
+            bossKey,
+            run.FloorNumber,
+            center);
+
+        _pendingPathWaves.Clear();
+        _pendingPathEncounterKeys.Clear();
+        State.EnemyHolster.Clear();
+        State.EnemyProjectileHolster.Clear();
+        State.BulletHolster.Clear();
+        State.DamageTextList.Clear();
+        State.ExperienceList.Clear();
+        State.FragmentList.Clear();
+        State.LootCrateList.Clear();
+        State.NearbyCrate = null;
+        State.BossAfflictions.Reset();
+        State.DreamState.Reset();
+        State.CurrEnemyCount = 0;
+
+        Battleground = arena;
+        PathFog = null;
+        _pathFogActive = false;
+        _enemyCollisionGrid.Reset();
+        Player.SetPosition(arena.SpawnPosition.X, arena.SpawnPosition.Y);
+        ScreenShake = Vector2.Zero;
+
+        float size = Simulation.TileSize * 1.9f;
+        var forcedRect = new Rectangle(
+            (int)(center.X - size / 2f),
+            (int)(center.Y - size / 2f),
+            (int)size,
+            (int)size);
+        SpawnBoss(
+            (x, y, r) => definition.Factory(x, y, arena, AwarenessRange, r),
+            rng,
+            forcedRect,
+            bossKey,
+            clearFloorLoot: false,
+            clearCombatants: false);
+        State.GracePeriod = Simulation.FrameRate * 2.0;
     }
 
     private void SpawnPathFloorBoss(PathRoom room, Random rng)
@@ -2406,11 +2566,14 @@ public sealed class GameSession
     public void DrawBossPortal(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
     {
         bool pathExit = PathRun?.ExitPortalOpen == true;
-        if (!BossPortalOpen && !pathExit)
+        bool pathGateway = PathMajorBossGatewayOpen;
+        if (!BossPortalOpen && !pathExit && !pathGateway)
             return;
 
-        Vector2 portalWorld = pathExit ? PathRun!.ExitPortalWorld : ArenaCenterWorld;
-        Color portalColor = pathExit ? PathRun!.CurrentSense.Accent : UiTheme.Purple;
+        Vector2 portalWorld = pathGateway
+            ? PathRun!.Layout.BossRoom.WorldCenter
+            : pathExit ? CurrentPathPortalWorld : ArenaCenterWorld;
+        Color portalColor = pathExit || pathGateway ? PathRun!.CurrentSense.Accent : UiTheme.Purple;
         var screen = Camera.ApplyZoom(Camera.WorldToScreen(portalWorld, PlayerWorldCenter, ScreenShake));
         float radius = Simulation.TileSize * 1.1f * Camera.Zoom;
         var bounds = new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight);
@@ -2433,15 +2596,15 @@ public sealed class GameSession
             var arcRect = new Rectangle((int)(screen.X - ringRadius), (int)(screen.Y - ringRadius), (int)(ringRadius * 2), (int)(ringRadius * 2));
             Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .62f, portalColor, 2);
         }
-        bool playerAtPortal = pathExit
-            ? PathRun!.PlayerAtExitPortal(Player.WorldRect(State), BossPortalInteractRadius)
+        bool playerAtPortal = pathExit || pathGateway
+            ? PlayerAtPathPortal(portalWorld)
             : PlayerAtBossPortal();
         if (playerAtPortal)
         {
             string keyLabel = PreferControllerPrompts
                 ? "B"
                 : Keybinds.LabelForKey(Keybinds.KeyFor("interact"));
-            string action = pathExit ? "NEXT FLOOR" : "ENTER";
+            string action = pathExit ? "NEXT FLOOR" : pathGateway ? "COMMIT // FLOOR CONTENT WILL BE LOST" : "ENTER";
             UiTheme.DrawText(spriteBatch, $"{keyLabel}  //  {action}", 9, portalColor,
                 new Vector2(screen.X, screen.Y + radius + 12), "midtop");
         }
@@ -2453,17 +2616,20 @@ public sealed class GameSession
     private void DrawBossPortalInWorldPass(SpriteBatch spriteBatch)
     {
         bool pathExit = PathRun?.ExitPortalOpen == true;
-        if (!BossPortalOpen && !pathExit)
+        bool pathGateway = PathMajorBossGatewayOpen;
+        if (!BossPortalOpen && !pathExit && !pathGateway)
             return;
-        Vector2 portalWorld = pathExit
-            ? PathRun!.ExitPortalWorld
+        Vector2 portalWorld = pathGateway
+            ? PathRun!.Layout.BossRoom.WorldCenter
+            : pathExit
+            ? CurrentPathPortalWorld
             : ArenaCenterWorld;
         Vector2 center = Camera.WorldToScreen(
             portalWorld, PlayerWorldCenter, ScreenShake);
         float radius = Simulation.TileSize * 1.1f;
         float time = (float)State.RunTimeSeconds;
         PathVisualProfile profile = SoulVisualLanguage.Path(
-            pathExit ? PathRun!.CurrentSenseKey : GamePaths.Active().Key);
+            pathExit || pathGateway ? PathRun!.CurrentSenseKey : GamePaths.Active().Key);
         Color interactable = SoulVisualLanguage.CueColor(
             VisualSemanticCue.Interactable, profile);
         float pulse = 1f + .06f * MathF.Sin(time * 2.2f);
@@ -2803,17 +2969,19 @@ public sealed class GameSession
     public void DrawBossPortalIndicator(SpriteBatch spriteBatch)
     {
         bool pathExit = PathRun?.ExitPortalOpen == true;
-        if (!BossPortalOpen && !pathExit)
+        bool pathGateway = PathMajorBossGatewayOpen;
+        if (!BossPortalOpen && !pathExit && !pathGateway)
             return;
-        Vector2 portalWorld = pathExit ? PathRun!.ExitPortalWorld : ArenaCenterWorld;
-        Color portalColor = pathExit ? PathRun!.CurrentSense.Accent : UiTheme.Purple;
+        Vector2 portalWorld = pathGateway
+            ? PathRun!.Layout.BossRoom.WorldCenter
+            : pathExit ? CurrentPathPortalWorld : ArenaCenterWorld;
+        Color portalColor = pathExit || pathGateway ? PathRun!.CurrentSense.Accent : UiTheme.Purple;
         var targetScreen = Camera.ApplyZoom(Camera.WorldToScreen(portalWorld, PlayerWorldCenter, ScreenShake));
         int arenaWidth = InformationSheet.ArenaWidth;
         if (new Rectangle(0, 0, arenaWidth, ScreenHeight).Contains(targetScreen.ToPoint()))
         {
-            bool nearby = pathExit
-                ? PathRun!.PlayerAtExitPortal(
-                    Player.WorldRect(State), BossPortalInteractRadius)
+            bool nearby = pathExit || pathGateway
+                ? PlayerAtPathPortal(portalWorld)
                 : PlayerAtBossPortal();
             if (nearby)
             {
@@ -2821,7 +2989,7 @@ public sealed class GameSession
                     ? "B"
                     : Keybinds.LabelForKey(Keybinds.KeyFor("interact"));
                 UiTheme.DrawText(spriteBatch,
-                    $"{keyLabel}  //  {(pathExit ? "NEXT FLOOR" : "ENTER")}",
+                    $"{keyLabel}  //  {(pathExit ? "NEXT FLOOR" : pathGateway ? "COMMIT" : "ENTER")}",
                     9, portalColor,
                     targetScreen + new Vector2(
                         0, Simulation.TileSize * 1.35f * Camera.Zoom),
@@ -2842,7 +3010,9 @@ public sealed class GameSession
         Primitives2D.FillPolygon(spriteBatch, points, portalColor);
         Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, 4);
         var labelPosition = tip - direction * 52f;
-        UiTheme.DrawText(spriteBatch, pathExit ? "NEXT FLOOR" : "PORTAL", 9, portalColor, labelPosition, "center");
+        UiTheme.DrawText(spriteBatch,
+            pathExit ? "NEXT FLOOR" : pathGateway ? "BOSS GATE" : "PORTAL",
+            9, portalColor, labelPosition, "center");
     }
 
     /// <summary>
@@ -2910,7 +3080,7 @@ public sealed class GameSession
     /// </summary>
     private void DrawPathMinimap(SpriteBatch spriteBatch)
     {
-        if (PathRun is null)
+        if (PathRun is null || _dungeonBossInstance is not null)
             return;
         float scale = UiTheme.DisplayScale(spriteBatch);
         var panel = new Rectangle(
@@ -2937,6 +3107,8 @@ public sealed class GameSession
 
         foreach (var connection in PathRun.Layout.Connections)
         {
+            if (connection.Hidden && !connection.IsRevealed)
+                continue;
             if (connection.Route is not { Count: > 1 } route)
                 continue;
             Color routeColor = PathRun.CurrentSense.Accent * .38f;
@@ -2965,6 +3137,8 @@ public sealed class GameSession
 
         foreach (var room in PathRun.Layout.Rooms)
         {
+            if (!room.IsRevealed)
+                continue;
             if (PathFog is not null && !PathFog.AnyExplored(room.TileBounds))
                 continue;
             Rectangle roomRect = PathMinimapRoomRect(room, Battleground, mapArea);
@@ -3205,7 +3379,7 @@ public sealed class GameSession
 
     private void DrawRoomRoleGlyphs(SpriteBatch spriteBatch, float time)
     {
-        if (PathRun is null)
+        if (PathRun is null || _dungeonBossInstance is not null)
             return;
         PathVisualProfile profile =
             SoulVisualLanguage.Path(PathRun.CurrentSenseKey);
@@ -3216,8 +3390,57 @@ public sealed class GameSession
         VisualRenderContext context = CurrentVisualContext();
         int scarTier = SoulVisualLanguage.ProgressionScarTier(
             context.Mastery, context.NewGamePlus, context.HardMode);
+        foreach (PathConnection connection in PathRun.Layout.Connections)
+        {
+            if (!connection.Hidden || connection.IsRevealed
+                || connection.ClueTile is not Point clue)
+            {
+                continue;
+            }
+            Vector2 world = new(
+                (clue.X + .5f) * Simulation.TileSize,
+                (clue.Y + .5f) * Simulation.TileSize);
+            if (PathFog is not null && !PathFog.IsWorldAreaVisible(new Rectangle(
+                    (int)world.X - Simulation.TileSize,
+                    (int)world.Y - Simulation.TileSize,
+                    Simulation.TileSize * 2,
+                    Simulation.TileSize * 2)))
+            {
+                continue;
+            }
+            Vector2 screen = Camera.WorldToScreen(world, PlayerWorldCenter, ScreenShake);
+            float pulse = .75f + .25f * MathF.Sin(time * 3.2f);
+            float radius = Simulation.TileSize * (.30f + pulse * .08f);
+            Color accent = PathRun.CurrentSense.Accent;
+            Primitives2D.FillCircle(spriteBatch, screen, radius, UiTheme.Ink * .85f);
+            Primitives2D.CircleOutline(spriteBatch, screen, radius, accent * (.7f + pulse * .3f), 3);
+            Primitives2D.Line(spriteBatch,
+                screen + new Vector2(-radius * .65f, 0),
+                screen + new Vector2(radius * .65f, 0),
+                accent,
+                2);
+            if (Vector2.DistanceSquared(PlayerWorldCenter, world)
+                <= MathF.Pow(Simulation.TileSize * 2.1f, 2))
+            {
+                string label = connection.ClueKind switch
+                {
+                    PathSecretClueKind.PressurePlate => "RELEASE PRESSURE",
+                    PathSecretClueKind.LensAlignment => "ALIGN LENS",
+                    PathSecretClueKind.CleansingMark => "CLEANSE MARK",
+                    PathSecretClueKind.TruthGlyph => "SPEAK TRUTH",
+                    _ => "ANSWER ECHO",
+                };
+                string key = PreferControllerPrompts
+                    ? "B"
+                    : Keybinds.LabelForKey(Keybinds.KeyFor("interact"));
+                UiTheme.DrawText(spriteBatch, $"{key} // {label}", 9, accent,
+                    screen + new Vector2(0, radius + 8), "midtop");
+            }
+        }
         foreach (PathRoom room in PathRun.Layout.Rooms)
         {
+            if (!room.IsRevealed)
+                continue;
             Vector2 center = Camera.WorldToScreen(
                 room.WorldCenter, PlayerWorldCenter, ScreenShake);
             if (!viewport.Contains(center.ToPoint()))

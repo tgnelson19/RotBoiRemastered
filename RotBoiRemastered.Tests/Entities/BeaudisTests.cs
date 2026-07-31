@@ -104,7 +104,7 @@ public class BeaudisTests
         Assert.Equal(50000, boss.MaxHp);
         Assert.Equal(220, boss.Damage);
         Assert.Equal(1, boss.Phase);
-        Assert.Equal("AWAKEN", boss.PhaseLabel);
+        Assert.Equal("APPROACH", boss.PhaseLabel);
         Assert.Equal(14.0, boss.SurvivalDuration);
         Assert.Equal(2, Beaudis.MinimumDamagePhaseDeclarations);
     }
@@ -164,7 +164,7 @@ public class BeaudisTests
         boss.TakeDamage(1);
 
         Assert.Equal(3, boss.Phase);
-        Assert.Equal("ENDURE", boss.PhaseLabel);
+        Assert.Equal("INTERFERENCE", boss.PhaseLabel);
         Assert.True(boss.SurvivalActive);
         Assert.Equal(4, boss.ProjectilePortals.Count);
         Assert.Equal(14.0, boss.SurvivalRemaining);
@@ -175,7 +175,7 @@ public class BeaudisTests
 
         Assert.False(boss.SurvivalActive);
         Assert.Equal(4, boss.Phase);
-        Assert.Equal("PRESS", boss.PhaseLabel);
+        Assert.Equal("REDLINE", boss.PhaseLabel);
     }
 
     [Fact]

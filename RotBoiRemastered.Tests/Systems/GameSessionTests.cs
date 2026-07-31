@@ -49,6 +49,18 @@ public class GameSessionTests
 
     private static void MoveToPathRoom(GameSession session, PathRoomType type)
     {
+        if (type == PathRoomType.Treasure)
+        {
+            foreach (PathConnection connection in session.PathRun!.Layout.Connections
+                .Where(value => value.Hidden && !value.IsRevealed))
+            {
+                Point clue = Assert.IsType<Point>(connection.ClueTile);
+                Vector2 clueWorld = new(
+                    (clue.X + .5f) * Battleground.TileSize,
+                    (clue.Y + .5f) * Battleground.TileSize);
+                Assert.True(session.PathRun.Layout.TryRevealTreasure(clueWorld, 1f));
+            }
+        }
         var room = session.PathRun!.Layout.Rooms.First(value => value.Type == type);
         session.Player.SetPosition(
             room.WorldCenter.X - (float)session.State.PlayerSize / 2f,
@@ -60,7 +72,11 @@ public class GameSessionTests
         while (session.PathRun!.FloorNumber < floor)
         {
             session.PathRun.NotifyBossDefeated();
-            Vector2 portal = session.PathRun.ExitPortalWorld;
+            Vector2 portal = session.DungeonBossInstanceActive
+                ? new Vector2(
+                    session.Battleground.Width * Simulation.TileSize / 2f,
+                    session.Battleground.Height * Simulation.TileSize / 2f)
+                : session.PathRun.ExitPortalWorld;
             session.Player.SetPosition(portal.X, portal.Y);
             session.HandleEnemyCreation(
                 new Random(8000 + session.PathRun.FloorNumber),
@@ -267,7 +283,8 @@ public class GameSessionTests
         session.StartPathRun(new Random(111));
         AdvancePathToFloor(session, floor);
         MoveToPathRoom(session, PathRoomType.Boss);
-        session.HandleEnemyCreation(new Random(1110 + floor));
+        session.HandleEnemyCreation(new Random(1100 + floor));
+        session.HandleEnemyCreation(new Random(1110 + floor), interactPressed: true);
         Assert.NotNull(session.State.ActiveBoss);
 
         session.MovePlayer(
@@ -287,12 +304,8 @@ public class GameSessionTests
         session.StartPathRun(new Random(112));
         AdvancePathToFloor(session, 5);
         MoveToPathRoom(session, PathRoomType.Boss);
-        session.MovePlayer(
-            moveLeft: false,
-            moveRight: false,
-            moveUp: false,
-            moveDown: false,
-            dashPressed: false);
+        session.HandleEnemyCreation(new Random(1114));
+        session.HandleEnemyCreation(new Random(1115), interactPressed: true);
         Assert.False(session.IsPathFogActive);
 
         AdvancePathToFloor(session, 6);
@@ -490,12 +503,44 @@ public class GameSessionTests
         PathRoom room = session.PathRun!.Layout.BossRoom;
         MoveToPathRoom(session, PathRoomType.Boss);
 
-        session.HandleEnemyCreation(new Random(1700 + floor));
+        session.HandleEnemyCreation(new Random(1600 + floor));
+        session.HandleEnemyCreation(new Random(1700 + floor), interactPressed: true);
 
-        Assert.NotNull(session.State.ActiveBoss);
-        Assert.True(session.PlayerWorldCenter.Y > room.WorldCenter.Y);
+        var boss = Assert.IsAssignableFrom<Enemy>(session.State.ActiveBoss);
+        Assert.True(session.DungeonBossInstanceActive);
+        Assert.True(session.PlayerWorldCenter.Y > boss.WorldRect().Center.Y);
         Assert.True(Vector2.Distance(
-            session.PlayerWorldCenter, room.WorldCenter) > Simulation.TileSize);
+            session.PlayerWorldCenter,
+            new Vector2(boss.WorldRect().Center.X,
+                boss.WorldRect().Center.Y)) > Simulation.TileSize);
+    }
+
+    [Fact]
+    public void PathMajorBossGateway_PreservesHealthAndReplacesTheFloorWithAnIsolatedArena()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(1610));
+        AdvancePathToFloor(session, 5);
+        Battleground suspended = session.Battleground;
+        session.State.HealthPoints = 637;
+
+        MoveToPathRoom(session, PathRoomType.Skirmish);
+        session.HandleEnemyCreation(new Random(1611));
+        Assert.NotEmpty(session.State.EnemyHolster);
+        session.State.EnemyProjectileHolster.Add(new EnemyProjectile(
+            session.Player.WorldX, session.Player.WorldY,
+            0, .5f, 100, Simulation.TileSize * .4f));
+
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.HandleEnemyCreation(new Random(1612));
+        session.HandleEnemyCreation(new Random(1613), interactPressed: true);
+
+        Assert.True(session.DungeonBossInstanceActive);
+        Assert.Equal(637, session.State.HealthPoints);
+        Assert.NotSame(suspended, session.Battleground);
+        Assert.Equal(TileType.OuterVoid, session.Battleground.TileAt(0, 0));
+        Assert.Empty(session.State.EnemyProjectileHolster);
+        Assert.Same(session.State.ActiveBoss, Assert.Single(session.State.EnemyHolster));
     }
 
     [Fact]
@@ -542,8 +587,10 @@ public class GameSessionTests
         session!.HandleEnemyCreation(new Random(170));
 
         var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
-        Assert.Equal(7_350, guardian.MaxHp);
-        Assert.Equal(148, guardian.Damage);
+        int expectedHealth = GameProfile.Profile.CasualMode ? 14_760 : 18_000;
+        int expectedDamage = GameProfile.Profile.CasualMode ? 120 : 150;
+        Assert.Equal(expectedHealth, guardian.MaxHp);
+        Assert.Equal(expectedDamage, guardian.Damage);
         Assert.Equal(senseKey, guardian.ContentPath);
         Assert.True(GameSession.UsesAuthoredBossBalance(guardian));
     }

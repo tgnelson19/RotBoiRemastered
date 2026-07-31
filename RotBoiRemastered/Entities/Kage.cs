@@ -28,25 +28,26 @@ public class Kage : SinChemesthesisBoss
     public static readonly PathChaseBossConfig KageConfig = BaseConfig with
     {
         BossName = "KAGE", Subtitle = "THE FIRST REACTION",
-        PhaseLabels = new[] { "FEAST", "PROVOCATION", "STAGNANT MIRROR", "LURE" },
+        PhaseLabels = new[] { "SPARK / FUEL", "PRESSURE / HEAT", "SOLVENT / CRYSTAL", "CHAIN REACTION", "CRITICAL MIXTURE" },
         Pattern = "minefield", OwnerPrefix = "kage_chemesthesis",
         BodyColor = new Color(169, 65, 36), AccentColor = new Color(106, 132, 52),
         MovementSpeed = .055, BodyScale = 2.05, CooldownSeconds = 1.8,
-        ShotSpeed = .30, ShotScale = .26, ShotRangeTiles = 34,
-        MovementModes = new[] { "chase", "path", "static", "path" },
+        ShotSpeed = .30, ShotScale = .34, ShotRangeTiles = 34,
+        MovementModes = new[] { "chase", "path", "static", "path", "path" },
         MidHealth = 93000, MidContactDamage = 340, MidRewardExperience = 390,
     };
 
     public static readonly SinSigilConfig KageSinConfig = new(
         PhaseFlavors: new[]
         {
-            "Take all that you can carry.", "Strike. I insist.",
-            "Stillness learns your shape.", "Come closer. There is plenty.",
+            "Spark finds fuel only where the declarations cross.", "Pressure wakes every heated seam.",
+            "Solvent clears what crystal would make permanent.", "The second reaction follows the route chosen for the first.",
+            "Every pair remains distinct inside the critical mixture.",
         },
         PhaseColors: new[]
         {
             new Color(214, 154, 52), new Color(205, 62, 38),
-            new Color(101, 133, 64), new Color(202, 82, 99),
+            new Color(101, 133, 64), new Color(202, 82, 99), new Color(232, 170, 68),
         },
         SinSigils: new (string, Vector2[][])[]
         {
@@ -91,6 +92,12 @@ public class Kage : SinChemesthesisBoss
                 new[] { new Vector2(0, -.72f), new Vector2(0, .72f) },
                 new[] { new Vector2(-.22f, .48f), new Vector2(0, .72f), new Vector2(.22f, .48f) },
             }),
+            ("CRITICAL MIXTURE", new[]
+            {
+                new[] { new Vector2(-.7f, -.5f), new Vector2(.7f, .5f) },
+                new[] { new Vector2(-.7f, .5f), new Vector2(.7f, -.5f) },
+                new[] { new Vector2(0, -.72f), new Vector2(0, .72f) },
+            }),
         },
         ActMetadata: new Dictionary<int, string>());
 
@@ -112,7 +119,7 @@ public class Kage : SinChemesthesisBoss
     {
         if (!UsesKageEncounter)
             return base.DamageFloorRatio();
-        return Phase switch { 1 => .75, 2 or 3 => .50, _ => 0.0 };
+        return Phase switch { 1 => .75, 2 or 3 => .50, 4 => .25, _ => 0.0 };
     }
 
     private void BeginStagnantMirror()
@@ -178,8 +185,10 @@ public class Kage : SinChemesthesisBoss
                 SetSinPhase(desired);
             return;
         }
-        if (Phase != 4)
-            SetSinPhase(4);
+        int lateDesired = ratio > .25 ? 4 : 5;
+        if (lateDesired != Phase
+            && _phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
+            SetSinPhase(lateDesired);
     }
 
     public override HitResult TakeDamage(double amount, string partId = "body",
@@ -217,7 +226,23 @@ public class Kage : SinChemesthesisBoss
             return new HitResult(result.Applied, false, result.Amount, result.Blocked);
         }
 
-        if (Phase == 4 && _phaseDeclarations < MinimumKageDamagePhaseDeclarations)
+        if (StagnantMirrorCleared && Phase == 4)
+        {
+            int floor = Math.Max(1, (int)Math.Round(MaxHp * .25));
+            double permitted = Math.Max(0, Hp - floor);
+            if (permitted <= 0)
+            {
+                if (_phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
+                    SetSinPhase(5);
+                return new HitResult(false, false, 0, true);
+            }
+            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+            if (Hp <= floor && _phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
+                SetSinPhase(5);
+            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+        }
+
+        if (Phase == 5 && _phaseDeclarations < MinimumKageDamagePhaseDeclarations)
         {
             double permitted = Math.Max(0, Hp - 1);
             if (permitted <= 0)
@@ -284,7 +309,7 @@ public class Kage : SinChemesthesisBoss
                 mirrorSnap.BlastRadius = Simulation.TileSize * 1.45f;
                 mirrorSnap.BurstRangeTiles = 5.5f;
                 break;
-            default: // Lust / Avarice: converging lanes make tempting gaps.
+            case 4: // Chain Reaction: converging lanes make tempting gaps.
                 KageFan(sink, aimed, 7, 2.2f, .56f, 265,
                     "lure", 6.5f);
                 var reward = Bomb(sink, playerX, playerY, 280,
@@ -297,6 +322,21 @@ public class Kage : SinChemesthesisBoss
                         lifetime: 8f, ownerSuffix: "lure_serpent",
                         amplitude: Simulation.TileSize * 1.25f,
                         frequency: .048f);
+                break;
+            default: // Critical Mixture: intersect two learned reaction pairs.
+                KageFan(sink, aimed, 7, 1.8f, .62f, 275,
+                    "critical_pressure", 7.2f);
+                Radial(sink, 6, .24f, 245, "critical_fuel", mine: true);
+                var critical = Bomb(sink, playerX, playerY, 285,
+                    "critical_reaction", burstCount: 6, fuseDuration: 2.45f,
+                    burstShotDamage: 175);
+                critical.BurstRangeTiles = 5.2f;
+                foreach (int side in new[] { -1, 1 })
+                    Shot(sink, aimed + side * .78f, .46f, 255,
+                        scale: .30f, shape: "square", path: "sine",
+                        lifetime: 8f, ownerSuffix: "critical_solvent",
+                        amplitude: Simulation.TileSize * 1.05f,
+                        frequency: .044f);
                 break;
         }
         if (PatternRotation == rotationBefore)

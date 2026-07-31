@@ -1,5 +1,24 @@
 # Path Dungeon Iteration Log
 
+## Guardian and isolated-boss overhaul
+
+The current implementation replaces constructor-specific floor stacking with
+the exact ten-entry `DungeonFloorDifficultyProfile` curve. Authored bosses and
+guardians receive this profile once; ordinary path identity is no longer applied
+to them a second time. Floor 6 is the deliberate act break at 1.80 health, 1.38
+damage, 0.88 timing, and complexity tier 3.
+
+Exactly two floors from 1-4 and two from 6-9 now contain hidden treasure arenas.
+Their rooms and minimap edges remain absent until a sense-specific clue reveals
+the sealed route. Treasure arenas are at least 23x23 tiles and use a 65%-health,
+two-act guardian variant with 3-4 rewards.
+
+Floors 5 and 10 use a one-way commitment gateway into a fresh boss-specific
+arena. The old floor, fog, waves, and geometry stop updating and rendering;
+enemies, shots, pickups, and afflictions are cleared while player health is
+preserved exactly. The floor-5 exit is created inside the isolated arena and
+discarding that arena correctly restores floor-6 fog.
+
 This is the working priority list for the composite ten-floor Path mode. It
 records what each review found, what was promoted into the next pass, and why.
 

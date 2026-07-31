@@ -1,5 +1,22 @@
 # Path Boss Iteration Log
 
+## Mastery encounter pass
+
+The current pass adds a shared arena controller, adaptive attack director,
+standalone arena definitions for all ten authored bosses, large collision-faithful
+guardian projectiles, and two-declaration health gates. Adaptive selection reads
+distance and arena dwell where supported, rejects immediate repeats, guarantees
+the phase signature within three declarations, and delays complete phrases when
+their encounter-local threat budget is full.
+
+Guardian phase identities now match the Footfall, Near/Far, Refraction, Carrier,
+and Truth Petal designs. Ishe and Kage have been expanded to five movements;
+Beaudis, Bair, Hypno, Rot, Chronos, and Ache expose their new authored phase
+language. Dissonance and Malady retain their established mechanics and receive
+only isolation/readability support. Casual extends warnings by 1.25x and lowers
+authored boss durability/damage; Hard shortens warnings and raises cadence,
+durability, and damage without changing attack geometry.
+
 This log records five consecutive review → ranking → implementation cycles for
 the composite Path boss roster. Malady and Dissonance are the reference
 encounters: both protect phase declarations from burst skipping, clean obsolete

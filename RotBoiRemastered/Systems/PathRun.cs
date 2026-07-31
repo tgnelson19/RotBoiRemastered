@@ -26,6 +26,7 @@ public sealed class PathRun
 
     private readonly List<string> _senseOrder;
     private readonly int[] _floorSeeds;
+    private readonly HashSet<int> _treasureFloors;
     private readonly List<PathRoom> _activeCombatRooms = new();
     private Task<PreparedPathFloor>? _nextFloorPreparation;
     private PathFogOfWar? _installedPreparedFog;
@@ -53,6 +54,7 @@ public sealed class PathRun
     public PathRoom? LastEnteredRoom { get; private set; }
     public double RoomEnteredAtRunSeconds { get; private set; }
     public IReadOnlyList<string> SenseOrder => _senseOrder;
+    public IReadOnlySet<int> TreasureFloors => _treasureFloors;
 
     public string SenseDisplayName => CurrentSenseKey switch
     {
@@ -62,15 +64,16 @@ public sealed class PathRun
     public string TitleBanner => $"Traversing the Path of {SenseDisplayName}";
     public Vector2 ExitPortalWorld => Layout.BossRoom.WorldCenter;
 
-    public double HealthMultiplier =>
-        IsSecondAct
-            ? 1.9 + (FloorNumber - FloorsPerAct - 1) * .22
-            : 1.0 + (FloorNumber - 1) * .10;
-    public double DamageMultiplier =>
-        IsSecondAct
-            ? 1.45 + (FloorNumber - FloorsPerAct - 1) * .09
-            : 1.0 + (FloorNumber - 1) * .055;
-    public double SpeedMultiplier => IsSecondAct ? 1.10 : 1.0;
+    public DungeonFloorDifficultyProfile DifficultyProfile =>
+        DungeonFloorDifficultyProfile.ForFloor(FloorNumber);
+    public double HealthMultiplier => DifficultyProfile.Health;
+    public double DamageMultiplier => DifficultyProfile.Damage;
+    public double TimingMultiplier => DifficultyProfile.Timing;
+    public int ComplexityTier => DifficultyProfile.Complexity;
+    // Movement speed is authored per enemy/boss. The old blanket second-act
+    // multiplier made collision-heavy enemies and bosses accelerate without
+    // changing their warning language.
+    public double SpeedMultiplier => 1.0;
 
     public PathRun(Random? rng = null)
     {
@@ -79,6 +82,7 @@ public sealed class PathRun
         _floorSeeds = new int[TotalFloors];
         for (int index = 0; index < _floorSeeds.Length; index++)
             _floorSeeds[index] = rng.Next();
+        _treasureFloors = SelectTreasureFloors(rng);
         Layout = GenerateFloor(FloorNumber);
     }
 
@@ -86,7 +90,28 @@ public sealed class PathRun
         PathFloorGenerator.Generate(
             _senseOrder[floorNumber - 1],
             floorNumber,
-            new Random(_floorSeeds[floorNumber - 1]));
+            new Random(_floorSeeds[floorNumber - 1]),
+            _treasureFloors.Contains(floorNumber));
+
+    private static HashSet<int> SelectTreasureFloors(Random rng)
+    {
+        var selected = new HashSet<int>();
+        SelectFrom([1, 2, 3, 4]);
+        SelectFrom([6, 7, 8, 9]);
+        return selected;
+
+        void SelectFrom(int[] candidates)
+        {
+            for (int index = candidates.Length - 1; index > 0; index--)
+            {
+                int swap = rng.Next(index + 1);
+                (candidates[index], candidates[swap]) =
+                    (candidates[swap], candidates[index]);
+            }
+            selected.Add(candidates[0]);
+            selected.Add(candidates[1]);
+        }
+    }
 
     /// <summary>
     /// Builds the next immutable floor and its initial visibility solution on
@@ -109,7 +134,8 @@ public sealed class PathRun
             PathFloorLayout layout = PathFloorGenerator.Generate(
                 senseKey,
                 nextFloor,
-                new Random(seed));
+                new Random(seed),
+                _treasureFloors.Contains(nextFloor));
             var fog = new PathFogOfWar(layout.Battleground);
             Vector2 observer = layout.Battleground.SpawnPosition
                 + new Vector2(playerSize / 2f);

@@ -204,7 +204,7 @@ public class AcheTests
 
         Assert.Equal(305000, boss.MaxHp);
         Assert.Equal("ACHE", boss.BossDisplayName);
-        Assert.Equal("MISFIRE", boss.PhaseLabel);
+        Assert.Equal("TRESPASS", boss.PhaseLabel);
         Assert.Equal("THE UNCOMMANDED CORE", Ache.AcheConfig.Subtitle);
         Assert.Equal(3, Ache.OrbitingArmCount);
         Assert.Equal("PHANTOM", Ache.AcheSinConfig.SinSigils[0].Name);
@@ -270,7 +270,7 @@ public class AcheTests
         StepAche(boss, context);
 
         Assert.True(boss.MidpointSurvivalActive);
-        Assert.Equal("REFLEX STORM", boss.PhaseLabel);
+        Assert.Equal("PROVOCATION", boss.PhaseLabel);
         Assert.Equal(boss.MaxHp / 2, boss.Hp);
         Assert.True(boss.TakeDamage(1000).Blocked);
     }
@@ -808,7 +808,7 @@ public class RotTests
 
         Assert.Equal(330000, boss.MaxHp);
         Assert.Equal("ROT", boss.BossDisplayName);
-        Assert.Equal("SEEP", boss.PhaseLabel);
+        Assert.Equal("CASTOFF", boss.PhaseLabel);
         Assert.Equal("THE BURIED ANCIENT", Rot.RotConfig.Subtitle);
         Assert.Equal(16, Rot.AbsorptionParticleCount);
         Assert.Equal(22, Rot.FinaleAbsorptionParticleCount);
@@ -835,7 +835,7 @@ public class RotTests
         boss.Update(Context(boss, battleground));
 
         Assert.True(boss.MidpointSurvivalActive);
-        Assert.Equal("CHOKING STILLNESS", boss.PhaseLabel);
+        Assert.Equal("METABOLISM", boss.PhaseLabel);
         Assert.Equal(boss.MaxHp / 2, boss.Hp);
         Assert.True(boss.TakeDamage(5000).Blocked);
     }

@@ -23,13 +23,13 @@ public sealed class Rot : PathChaseBoss
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("SEEP", "Rot does not advance. The ground carries its touch outward.", new Color(119, 137, 64)),
-            [2] = ("SILT", "A patient weight settles everywhere except one bank.", new Color(145, 112, 57)),
-            [3] = ("SLUMP", "The ancient sinks by an inch. The whole floor answers.", new Color(117, 86, 52)),
-            [4] = ("CHOKING STILLNESS", "Placidity is not weakness. Find the clean edge.", new Color(192, 176, 112)),
+            [1] = ("CASTOFF", "Every discarded front leaves material behind.", new Color(119, 137, 64)),
+            [2] = ("DIGESTION", "The settled burden begins to breathe.", new Color(145, 112, 57)),
+            [3] = ("COMPOST", "Old hazards feed the boundary that follows.", new Color(117, 86, 52)),
+            [4] = ("METABOLISM", "Complete the clean route before the cycle accelerates.", new Color(192, 176, 112)),
             [5] = ("BLOOM", "Discarded matter returns to the guardian that bore it.", new Color(108, 151, 66)),
             [6] = ("MIASMA", "Immense power commands the room without giving chase.", new Color(145, 82, 54)),
-            [7] = ("BURIAL", "Thirty-five seconds beneath the burden the others feared to move.", new Color(177, 104, 50)),
+            [7] = ("CLOSED CYCLE", "Every learned material returns before the ancient can collapse.", new Color(177, 104, 50)),
         };
 
     public static readonly PathChaseBossConfig RotConfig = PathChaseBossConfig.Default with

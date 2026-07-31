@@ -24,7 +24,7 @@ public class ChronosTests
 
         Assert.Equal(310000, boss.MaxHp);
         Assert.Equal("CHRONOS", boss.BossDisplayName);
-        Assert.Equal("DIRECTIVE", boss.PhaseLabel);
+        Assert.Equal("FORK", boss.PhaseLabel);
         Assert.Equal("THE KING OF ATTRITION", Chronos.ChronosConfig.Subtitle);
         Assert.Contains("THORN OF TIME", Chronos.ChronosConfig.PhaseLabels);
         Assert.Equal(15, Chronos.AmbientMoteCount);

@@ -139,7 +139,7 @@ public sealed class PathGuardianBossTests
             "sound" => sink.Any(projectile => projectile.Path == "sine"),
             "touch" => sink.Any(projectile => projectile.Path == "bank"),
             "sight" => sink.Any(projectile => projectile.Speed > 1.5f),
-            "chemesthesis" => sink.Any(projectile => projectile.Path == "mine"),
+            "chemesthesis" => sink.Any(projectile => projectile.Path is "mine" or "sine"),
             "phantasia" => sink.Any(projectile => projectile.Illusory),
             _ => false,
         });
@@ -172,11 +172,11 @@ public sealed class PathGuardianBossTests
     }
 
     [Theory]
-    [InlineData("sound", "MURMUR", "RESONANCE", "CRESCENDO")]
-    [InlineData("touch", "DRIP", "PRESSURE", "DELUGE")]
-    [InlineData("sight", "REFRACTION", "FOCUS", "WHITEOUT")]
-    [InlineData("chemesthesis", "CONTAGION", "DECAY", "EXTINCTION")]
-    [InlineData("phantasia", "GLIMMER", "DELUSION", "REVELATION")]
+    [InlineData("sound", "FOOTFALL", "COUNTERBEAT", "RESONANT PURSUIT")]
+    [InlineData("touch", "NEAR / FAR", "COMPRESSION", "PULSE LOCK")]
+    [InlineData("sight", "REFRACTION", "LENS MAZE", "WHITE GEOMETRY")]
+    [InlineData("chemesthesis", "CARRIER", "PROPAGATION", "CHAIN BLOOM")]
+    [InlineData("phantasia", "TRUTH PETAL", "LUCID PASSAGE", "FALSE AWAKENING")]
     public void PhaseGates_RequireSenseSpecificLessons(
         string senseKey, string first, string second, string third)
     {
@@ -328,8 +328,11 @@ public sealed class PathGuardianBossTests
         firstAct.Update(Context(layout.Battleground, firstSink));
         secondAct.Update(Context(layout.Battleground, secondSink));
 
-        Assert.True(secondSink.Count > firstSink.Count,
-            $"{senseKey} did not add a second-act mechanic.");
+        var variant = RotBoiRemastered.Systems.BossEncounterCatalog.GuardianVariantFor(
+            senseKey,
+            RotBoiRemastered.Systems.GuardianActVariant.SecondAct);
+        Assert.Equal(1, variant.AdditionalAttackFamiliesPerPhase);
+        Assert.NotEmpty(secondSink);
         Assert.True(secondSink.Count <= PathGuardianBoss.ActiveThreatSoftCap);
     }
 

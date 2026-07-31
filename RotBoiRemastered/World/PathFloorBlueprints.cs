@@ -46,7 +46,8 @@ internal sealed record PathRoomBlueprint(
 internal static class PathFloorBlueprints
 {
     public static IReadOnlyList<PathRoomBlueprint> Create(
-        PathLayoutStyle style, int floorNumber, Random rng)
+        PathLayoutStyle style, int floorNumber, Random rng,
+        int? treasureRoomCount = null)
     {
         const int mainY = PathFloorGenerator.Height / 2;
         const int bossX = PathFloorGenerator.Width / 2;
@@ -95,32 +96,34 @@ internal static class PathFloorBlueprints
         // while two and three become increasingly rare. The larger footprints
         // leave enough room for their guardian-strength encounter rather than
         // presenting the chest inside the old 11x11 closet.
-        int treasureCount = PathFloorGenerator.RollTreasureRoomCount(rng);
+        int treasureCount = treasureRoomCount.HasValue
+            ? Math.Clamp(treasureRoomCount.Value, 0, 3)
+            : PathFloorGenerator.RollTreasureRoomCount(rng);
         IReadOnlyList<PathRoomBlueprint> treasureCandidates = style switch
         {
             PathLayoutStyle.Switchback =>
             [
-                new(5, PathRoomType.Treasure, Around(49, 8, 15, 13), PathRoomShape.Diamond, false, 2, V()),
-                new(6, PathRoomType.Treasure, Around(8, 68, 13, 15), PathRoomShape.Ruin, false, 3, V()),
-                new(7, PathRoomType.Treasure, Around(8, 27, 13, 13), PathRoomShape.Ring, false, 1, V()),
+                new(5, PathRoomType.Treasure, Around(53, 12, 23, 23), PathRoomShape.Diamond, false, 2, V()),
+                new(6, PathRoomType.Treasure, Around(12, 68, 23, 23), PathRoomShape.Ruin, false, 3, V()),
+                new(7, PathRoomType.Treasure, Around(112, 14, 23, 23), PathRoomShape.Ring, false, 1, V()),
             ],
             PathLayoutStyle.GrandCircuit =>
             [
-                new(5, PathRoomType.Treasure, Around(16, 68, 15, 15), PathRoomShape.Ruin, false, 3, V()),
-                new(6, PathRoomType.Treasure, Around(15, 13, 15, 15), PathRoomShape.Diamond, false, 2, V()),
-                new(7, PathRoomType.Treasure, Around(10, 26, 13, 11), PathRoomShape.Ring, false, 1, V()),
+                new(5, PathRoomType.Treasure, Around(13, 68, 23, 23), PathRoomShape.Ruin, false, 3, V()),
+                new(6, PathRoomType.Treasure, Around(112, 13, 23, 23), PathRoomShape.Diamond, false, 2, V()),
+                new(7, PathRoomType.Treasure, Around(112, 68, 23, 23), PathRoomShape.Ring, false, 1, V()),
             ],
             PathLayoutStyle.Procession =>
             [
-                new(5, PathRoomType.Treasure, Around(18, 68, 15, 15), PathRoomShape.Diamond, false, 3, V()),
-                new(6, PathRoomType.Treasure, Around(18, 13, 15, 15), PathRoomShape.Ruin, false, 2, V()),
-                new(7, PathRoomType.Treasure, Around(8, 26, 13, 11), PathRoomShape.Ring, false, 1, V()),
+                new(5, PathRoomType.Treasure, Around(13, 68, 23, 23), PathRoomShape.Diamond, false, 3, V()),
+                new(6, PathRoomType.Treasure, Around(112, 13, 23, 23), PathRoomShape.Ruin, false, 2, V()),
+                new(7, PathRoomType.Treasure, Around(112, 68, 23, 23), PathRoomShape.Ring, false, 1, V()),
             ],
             _ =>
             [
-                new(5, PathRoomType.Treasure, Around(48, 10, 15, 13), PathRoomShape.Ruin, false, 2, V()),
-                new(6, PathRoomType.Treasure, Around(14, 68, 15, 15), PathRoomShape.Diamond, false, 3, V()),
-                new(7, PathRoomType.Treasure, Around(8, 53, 13, 11), PathRoomShape.Ring, false, 2, V()),
+                new(5, PathRoomType.Treasure, Around(53, 12, 23, 23), PathRoomShape.Ruin, false, 2, V()),
+                new(6, PathRoomType.Treasure, Around(13, 68, 23, 23), PathRoomShape.Diamond, false, 3, V()),
+                new(7, PathRoomType.Treasure, Around(112, 68, 23, 23), PathRoomShape.Ring, false, 2, V()),
             ],
         };
         rooms.AddRange(treasureCandidates.Take(treasureCount));

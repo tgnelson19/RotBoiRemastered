@@ -27,7 +27,7 @@ public sealed class Hypno : PhantasiaBoss
     public static readonly PathChaseBossConfig HypnoConfig = BaseConfig with
     {
         BossName = "HYPNO", Subtitle = "THE ORNATE SUGGESTION",
-        PhaseLabels = new[] { "IDOL", "SPOKEN RULE", "INHERITANCE", "CHOSEN", "OFFERING" },
+        PhaseLabels = new[] { "LAW OF MOTION", "LAW OF DISTANCE", "LAW OF FORM", "HERESY", "CONTRADICTION" },
         OwnerPrefix = "hypno_phantasia",
         BodyColor = new Color(151, 56, 144), AccentColor = new Color(211, 91, 183),
         MovementSpeed = .18, BodyScale = 1.8, CooldownSeconds = 1.8,
@@ -37,9 +37,9 @@ public sealed class Hypno : PhantasiaBoss
     public static readonly PhantasiaSigilConfig HypnoSigilConfig = new(
         PhaseFlavors: new[]
         {
-            "Surely you recognize the one before you.", "A command is true because it is spoken.",
-            "What sleeps in one generation wakes in the next.", "You chose. Do not pretend otherwise.",
-            "Everything offered was already mine.",
+            "The truth sigil decides whether motion is obedience.", "Near and far exchange meaning when the law is qualified.",
+            "Shape, not color, identifies the dangerous inheritance.", "Two laws are spoken; the truth inverts one.",
+            "A solved law clears the penalty. A failed law empowers one phrase.",
         },
         PhaseColors: new[]
         {

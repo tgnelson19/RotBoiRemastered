@@ -112,9 +112,9 @@ public class PlagueTouchBossTests
         Assert.Equal(110000, bair.MaxHp);
         Assert.Equal(380, bair.Damage);
         Assert.Equal(1, bair.Phase);
-        Assert.Equal("RIVER", bair.PhaseLabel);
+        Assert.Equal("INTAKE", bair.PhaseLabel);
         Assert.Equal(
-            new[] { "RIVER", "SWARM", "BLIGHT", "RUIN", "SILENCE" },
+            new[] { "INTAKE", "QUARTERING", "MOVING CELL", "RELEASE", "SOLITARY" },
             Bair.BairConfig.PhaseLabels);
         Assert.Equal(14.0, Bair.RuinDuration);
     }
@@ -180,7 +180,7 @@ public class PlagueTouchBossTests
         Assert.False(bair.RuinSurvivalActive);
         Assert.True(bair.RuinSurvivalCleared);
         Assert.Equal(5, bair.Phase);
-        Assert.Equal("SILENCE", bair.PhaseLabel);
+        Assert.Equal("SOLITARY", bair.PhaseLabel);
     }
 
     [Fact]

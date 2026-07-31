@@ -68,8 +68,8 @@ public sealed class Ache : Kage
         MovementModes = new[] { "chase", "path", "chase", "static", "path", "chase", "path", "static" },
         PhaseLabels = new[]
         {
-            "MISFIRE", "CROSSED NERVES", "WRONG WAY", "REFLEX STORM",
-            "AFTERSHOCK", "FRACTURE", "WHITE ACHE", "OVERLOAD",
+            "TRESPASS", "RECOIL", "FALSE ALARM", "PROVOCATION",
+            "SPLINTER", "REFLEX STORM", "OVERREACTION", "OVERLOAD",
         },
         FinalHealth = 305000, FinalContactDamage = 880, FinalRewardExperience = 840,
         FinaleDuration = 30.0,

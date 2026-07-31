@@ -23,8 +23,8 @@ public class PhantasiaBossTests
     public void Constructor_SetsFirstPhaseFlavorAndAccent()
     {
         var hypno = new Hypno(1000, 1000, MakeBattleground(), new Random(1));
-        Assert.Equal("IDOL", hypno.PhaseLabel);
-        Assert.Equal("Surely you recognize the one before you.", hypno.PhaseFlavor);
+        Assert.Equal("LAW OF MOTION", hypno.PhaseLabel);
+        Assert.Equal("The truth sigil decides whether motion is obedience.", hypno.PhaseFlavor);
         Assert.Equal(new Microsoft.Xna.Framework.Color(214, 89, 188), hypno.PhaseAccent);
     }
 
@@ -60,7 +60,7 @@ public class PhantasiaBossTests
         var hypno = new Hypno(1000, 1000, MakeBattleground(), new Random(1));
         hypno.DebugSetPhase(3);
         Assert.Equal(3, hypno.Phase);
-        Assert.Equal("INHERITANCE", hypno.PhaseLabel);
+        Assert.Equal("LAW OF FORM", hypno.PhaseLabel);
 
         hypno.Hp = hypno.MaxHp;
         hypno.Update(MakeContext(1000, 1000));

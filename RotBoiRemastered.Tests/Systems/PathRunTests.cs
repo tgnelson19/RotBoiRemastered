@@ -104,8 +104,9 @@ public sealed class PathRunTests
         Assert.True(run.AdvanceFloor(50));
 
         Assert.True(run.IsSecondAct);
-        Assert.True(run.HealthMultiplier >= floorFiveHealth * 1.3);
-        Assert.True(run.DamageMultiplier > 1.4);
+        Assert.Equal(1.80, run.HealthMultiplier, 2);
+        Assert.True(run.HealthMultiplier >= floorFiveHealth * 1.2);
+        Assert.Equal(1.38, run.DamageMultiplier, 2);
     }
 
     [Fact]

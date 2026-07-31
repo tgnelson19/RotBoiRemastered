@@ -80,6 +80,7 @@ public sealed class EnemyProjectile
     public float Travelled { get; private set; }
     public bool RemFlag { get; set; }
     public List<Vector2> Trail { get; } = new(5);
+    private bool _difficultyTimingApplied;
 
     public EnemyProjectile(
         float worldX, float worldY, float direction, float speed, float damage, float size,
@@ -178,8 +179,16 @@ public sealed class EnemyProjectile
         return rect.Intersects(WorldRect());
     }
 
-    public void Update(Battleground battleground, bool casualMode)
+    public void Update(Battleground battleground, bool casualMode, bool hardMode = false)
     {
+        if (!_difficultyTimingApplied)
+        {
+            float warningScale = casualMode ? 1.25f : hardMode ? .86f : 1f;
+            TelegraphDuration *= warningScale;
+            if (Path == "bomb")
+                FuseDuration *= warningScale;
+            _difficultyTimingApplied = true;
+        }
         float seconds = (float)Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         Age += seconds;
 

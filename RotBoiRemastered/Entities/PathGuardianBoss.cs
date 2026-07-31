@@ -32,7 +32,7 @@ public sealed record PathGuardianSenseProfile(
 /// transition cleanup, an invulnerable intermission, a threat budget, and a
 /// readable death beat.
 /// </summary>
-public sealed class PathGuardianBoss : Enemy
+public sealed class PathGuardianBoss : Enemy, IBossArenaController
 {
     public bool IsMiniGuardian { get; set; }
     public const int ActiveThreatSoftCap = 62;
@@ -49,9 +49,9 @@ public sealed class PathGuardianBoss : Enemy
                 new Color(110, 167, 207),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("MURMUR", "A pulse tests the open ground.", 2.08f, 4.8f, .52f, 1f),
-                    new PathGuardianPhaseProfile("RESONANCE", "The answer returns from both sides.", 1.78f, 4.5f, .64f, 1.05f),
-                    new PathGuardianPhaseProfile("CRESCENDO", "Every surviving note arrives together.", 1.48f, 4.15f, .78f, 1.12f),
+                    new PathGuardianPhaseProfile("FOOTFALL", "The floor remembers where you waited.", 2.02f, 4.8f, .52f, 1f),
+                    new PathGuardianPhaseProfile("COUNTERBEAT", "The remembered path answers from the edge.", 1.72f, 4.5f, .64f, 1.05f),
+                    new PathGuardianPhaseProfile("RESONANT PURSUIT", "Silence moves; the echoes do not forget.", 1.42f, 4.15f, .78f, 1.12f),
                 }),
             ["touch"] = new(
                 "PRESSURE ENGINE", "WARDEN OF THE WEIGHT BELOW",
@@ -59,9 +59,9 @@ public sealed class PathGuardianBoss : Enemy
                 new Color(166, 146, 76),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("DRIP", "Slow weight announces every impact.", 2.62f, 3.7f, .13f, .78f),
-                    new PathGuardianPhaseProfile("PRESSURE", "Banks close around the nearest refuge.", 2.25f, 3.25f, .18f, .84f),
-                    new PathGuardianPhaseProfile("DELUGE", "The whole sewer becomes a moving wall.", 1.92f, 2.9f, .23f, .9f),
+                    new PathGuardianPhaseProfile("NEAR / FAR", "Cross the pressure band before it returns.", 2.48f, 3.7f, .13f, .78f),
+                    new PathGuardianPhaseProfile("COMPRESSION", "The distance you favor begins to close.", 2.12f, 3.25f, .18f, .84f),
+                    new PathGuardianPhaseProfile("PULSE LOCK", "Every band demands a committed crossing.", 1.78f, 2.9f, .23f, .9f),
                 }),
             ["sight"] = new(
                 "DROWNED OCULUS", "LENS AT THE QUICKENED HORIZON",
@@ -69,9 +69,9 @@ public sealed class PathGuardianBoss : Enemy
                 new Color(228, 142, 63),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("REFRACTION", "A narrow fan divides the horizon.", 1.92f, 6.4f, .7f, 1.16f),
-                    new PathGuardianPhaseProfile("FOCUS", "The lens fixes a line through motion.", 1.62f, 6.0f, .82f, 1.22f),
-                    new PathGuardianPhaseProfile("WHITEOUT", "Speed erases every false opening.", 1.34f, 5.5f, .94f, 1.3f),
+                    new PathGuardianPhaseProfile("REFRACTION", "The first lens divides one threat into two.", 1.88f, 6.4f, .7f, 1.16f),
+                    new PathGuardianPhaseProfile("LENS MAZE", "Every sector turns the glass against you.", 1.56f, 6.0f, .82f, 1.22f),
+                    new PathGuardianPhaseProfile("WHITE GEOMETRY", "The complete path exists only between rays.", 1.28f, 5.5f, .94f, 1.3f),
                 }),
             ["chemesthesis"] = new(
                 "CINDER PLAGUE", "CARRIER OF THE BURNING FIELD",
@@ -79,9 +79,9 @@ public sealed class PathGuardianBoss : Enemy
                 new Color(116, 132, 50),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("CONTAGION", "Carriers mark the ground before they spread.", 2.46f, 5.6f, .22f, .92f),
-                    new PathGuardianPhaseProfile("DECAY", "Old hazards make room for new infection.", 2.12f, 5.35f, .28f, .96f),
-                    new PathGuardianPhaseProfile("EXTINCTION", "The last clean routes begin to close.", 1.78f, 5.0f, .34f, 1.02f),
+                    new PathGuardianPhaseProfile("CARRIER", "Each impact wakes a dormant node.", 2.36f, 5.6f, .22f, .92f),
+                    new PathGuardianPhaseProfile("PROPAGATION", "Infection travels farther than its carrier.", 2.02f, 5.35f, .28f, .96f),
+                    new PathGuardianPhaseProfile("CHAIN BLOOM", "Sever the route before every node answers.", 1.68f, 5.0f, .34f, 1.02f),
                 }),
             ["phantasia"] = new(
                 "DREAMING PRISM", "WARDEN OF THE ORNATE DREAM",
@@ -89,9 +89,9 @@ public sealed class PathGuardianBoss : Enemy
                 new Color(225, 128, 190),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("GLIMMER", "One true petal travels among reflections.", 2.28f, 4.8f, .44f, 1f),
-                    new PathGuardianPhaseProfile("DELUSION", "The dream surrounds its moving witness.", 1.96f, 4.55f, .55f, 1.05f),
-                    new PathGuardianPhaseProfile("REVELATION", "Truth doubles, but certainty does not.", 1.64f, 4.25f, .68f, 1.12f),
+                    new PathGuardianPhaseProfile("TRUTH PETAL", "The marked light reveals what will become real.", 2.18f, 4.8f, .44f, 1f),
+                    new PathGuardianPhaseProfile("LUCID PASSAGE", "The honest corridor moves through false walls.", 1.86f, 4.55f, .55f, 1.05f),
+                    new PathGuardianPhaseProfile("FALSE AWAKENING", "Cross the truth before the dream solidifies.", 1.54f, 4.25f, .68f, 1.12f),
                 }),
         };
 
@@ -105,6 +105,12 @@ public sealed class PathGuardianBoss : Enemy
     private bool _trialStarted;
     private double _gateTransitionDelay;
     private bool _forceRarePattern;
+    private readonly BossAttackDirector _attackDirector = new();
+    private readonly List<Vector2> _playerTrail = new(8);
+    private double _trailSampleCooldown;
+    private double _distanceBandDwell;
+    private int _lastDistanceBand = -1;
+    private float _contraction;
 
     public string SenseKey { get; }
     public int FloorNumber { get; }
@@ -132,6 +138,18 @@ public sealed class PathGuardianBoss : Enemy
     public float AttackAnticipation { get; private set; }
     public Vector2 ArenaCenter { get; }
     public float ArenaRadius { get; }
+    public float Contraction => _contraction;
+    public IReadOnlyList<Rectangle> MovementObstacles => Array.Empty<Rectangle>();
+    public float SafeRouteProgress => _contraction <= 0
+        ? 1f
+        : Math.Clamp(1f - (float)(_distanceBandDwell / 2.25), 0f, 1f);
+    public int AdaptiveAttackChoice => _attackDirector.LastChoice;
+
+    public void CompleteSafeRoute()
+    {
+        _contraction = 0;
+        _distanceBandDwell = 0;
+    }
     public bool PhaseGatePending => _gateTransitionDelay > 0;
     public bool LastPatternWasRare { get; private set; }
     public int RarePatternsCommitted { get; private set; }
@@ -144,8 +162,8 @@ public sealed class PathGuardianBoss : Enemy
             speed: 1.45f + floorNumber * .025f,
             size: Simulation.TileSize * 1.7f,
             color: GamePaths.PathsByKey[senseKey].Accent,
-            damage: 135 + floorNumber * 13,
-            hp: 5_800 + floorNumber * 1_550,
+            damage: 150,
+            hp: 18_000,
             expValue: 75 + floorNumber * 16,
             difficulty: 4.0,
             awarenessRange: awarenessRange,
@@ -172,6 +190,46 @@ public sealed class PathGuardianBoss : Enemy
 
     private double Seconds() => Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
 
+    public Vector2 ConstrainPlayer(Vector2 playerTopLeft, float playerSize)
+    {
+        Vector2 center = playerTopLeft + new Vector2(playerSize / 2f);
+        Vector2 offset = center - ArenaCenter;
+        float distance = Math.Max(1f, offset.Length());
+        float limit = ArenaRadius * (1f - _contraction * .24f) - playerSize * .7f;
+        return distance <= limit
+            ? playerTopLeft
+            : ArenaCenter + offset / distance * limit - new Vector2(playerSize / 2f);
+    }
+
+    private void UpdateAdaptiveArena(EnemyUpdateContext context, double seconds)
+    {
+        Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
+        _trailSampleCooldown -= seconds;
+        if (_trailSampleCooldown <= 0)
+        {
+            _trailSampleCooldown = .34;
+            _playerTrail.Add(player);
+            if (_playerTrail.Count > 7)
+                _playerTrail.RemoveAt(0);
+        }
+
+        float distance = Vector2.Distance(player, ArenaCenter);
+        int band = distance < ArenaRadius * .48f ? 0 : 1;
+        if (band == _lastDistanceBand)
+        {
+            _distanceBandDwell += seconds;
+            if (_distanceBandDwell > 2.25)
+                _contraction = Math.Min(.62f, _contraction + (float)seconds * .22f);
+        }
+        else
+        {
+            if (_distanceBandDwell > 1.25)
+                _contraction = Math.Max(0, _contraction - .24f);
+            _distanceBandDwell = 0;
+            _lastDistanceBand = band;
+        }
+    }
+
     /// <summary>
     /// Deterministic phase control for boss pressure tests and the existing
     /// debug workflow. Natural progression still requires declarations and
@@ -189,6 +247,7 @@ public sealed class PathGuardianBoss : Enemy
         DeathRemaining = 0;
         _attacksCompletedInPhase = 0;
         _gateTransitionDelay = 0;
+        _attackDirector.Reset();
         AttackCooldown = 0;
         PhaseAnnouncementRemaining = 2.4;
         Hp = Phase switch
@@ -217,7 +276,7 @@ public sealed class PathGuardianBoss : Enemy
 
         double floorRatio = Phase switch
         {
-            1 => .67,
+            1 => IsMiniGuardian ? .50 : .67,
             2 => .34,
             _ => 0,
         };
@@ -242,8 +301,8 @@ public sealed class PathGuardianBoss : Enemy
         }
 
         int desiredPhase = Phase;
-        if (Phase == 1 && Hp <= (int)Math.Ceiling(MaxHp * .67))
-            desiredPhase = 2;
+        if (Phase == 1 && Hp <= (int)Math.Ceiling(MaxHp * (IsMiniGuardian ? .50 : .67)))
+            desiredPhase = IsMiniGuardian ? 3 : 2;
         else if (Phase == 2 && Hp <= (int)Math.Ceiling(MaxHp * .34))
             desiredPhase = 3;
         if (desiredPhase > Phase && _attacksCompletedInPhase >= MinimumAttacksPerPhase)
@@ -255,12 +314,25 @@ public sealed class PathGuardianBoss : Enemy
     {
         if (Phase >= 3)
             return;
+        if (IsMiniGuardian && Phase == 1)
+        {
+            Phase = 3;
+            _trialStarted = true;
+            _attacksCompletedInPhase = 0;
+            _transitionRemaining = .82;
+            TransitionCleanupRequested = true;
+            AttackCooldown = Simulation.FrameRate * .48f;
+            PhaseAnnouncementRemaining = 2.4;
+            BossAudio.Emit(BossAudioCueKind.Stagger, SenseKey);
+            return;
+        }
         if (Phase == 2)
         {
             BeginTrial();
             return;
         }
         Phase += 1;
+        _attackDirector.Reset();
         _attacksCompletedInPhase = 0;
         _transitionRemaining = SenseKey switch
         {
@@ -283,6 +355,7 @@ public sealed class PathGuardianBoss : Enemy
         TrialActive = true;
         TrialRemaining = TrialDuration;
         Phase = 3;
+        _attackDirector.Reset();
         _attacksCompletedInPhase = 0;
         _transitionRemaining = 1.15;
         TransitionCleanupRequested = true;
@@ -320,6 +393,7 @@ public sealed class PathGuardianBoss : Enemy
     {
         AdvanceAge();
         double seconds = Seconds();
+        UpdateAdaptiveArena(context, seconds);
         PhaseAnnouncementRemaining = Math.Max(0, PhaseAnnouncementRemaining - seconds);
         if (Dying)
         {
@@ -370,8 +444,8 @@ public sealed class PathGuardianBoss : Enemy
             if (AttackCooldown <= 0)
             {
                 bool committed = TryCommitPattern(context, trial: true);
-                float trialCadence = Math.Max(.72f,
-                    1.08f - (FloorNumber > 5 ? .14f : 0));
+                float timing = (float)DungeonFloorDifficultyProfile.ForFloor(FloorNumber).Timing;
+                float trialCadence = Math.Max(.68f, 1.08f * timing);
                 AttackCooldown = Simulation.FrameRate *
                     (committed ? trialCadence : .22f);
                 AttackCooldownMax = AttackCooldown;
@@ -422,8 +496,9 @@ public sealed class PathGuardianBoss : Enemy
                     _gateTransitionDelay = .68;
                 }
             }
-            float cooldown = Math.Max(1.02f,
-                phaseProfile.CadenceSeconds - (FloorNumber > 5 ? .16f : 0));
+            float timing = (float)DungeonFloorDifficultyProfile.ForFloor(FloorNumber).Timing;
+            float cooldown = Math.Max(.88f,
+                phaseProfile.CadenceSeconds * timing);
             AttackCooldown = Simulation.FrameRate *
                 (committed ? cooldown : .24f);
             AttackCooldownMax = AttackCooldown;
@@ -433,7 +508,7 @@ public sealed class PathGuardianBoss : Enemy
 
     private bool AtCurrentHealthFloor() => Phase switch
     {
-        1 => Hp <= (int)Math.Ceiling(MaxHp * .67),
+        1 => Hp <= (int)Math.Ceiling(MaxHp * (IsMiniGuardian ? .50 : .67)),
         2 => Hp <= (int)Math.Ceiling(MaxHp * .34),
         _ => false,
     };
@@ -544,7 +619,7 @@ public sealed class PathGuardianBoss : Enemy
                         aimed + (index - (notes - 1) / 2f) * .17f,
                         .82f + Phase * .07f,
                         Damage * .2f,
-                        Size * .11f,
+                        Simulation.TileSize * .34f,
                         travelRange: ArenaRadius * 1.5f,
                         color: index % 3 == 0 ? SecondaryAccent : PhaseAccent,
                         shape: "diamond",
@@ -571,7 +646,7 @@ public sealed class PathGuardianBoss : Enemy
                         aimed + offset,
                         .42f + Phase * .035f,
                         Damage * .31f,
-                        Size * (.34f + Phase * .025f),
+                        Simulation.TileSize * (.46f + Phase * .025f),
                         travelRange: ArenaRadius * 1.55f,
                         color: index % 2 == 0 ? SecondaryAccent : PhaseAccent,
                         path: "bank",
@@ -595,7 +670,7 @@ public sealed class PathGuardianBoss : Enemy
                         aimed + offset,
                         0,
                         Damage * .28f,
-                        Size * .09f,
+                        Simulation.TileSize * .22f,
                         travelRange: ArenaRadius * 2.15f,
                         color: index % 2 == 0 ? PhaseAccent : SecondaryAccent,
                         path: "laser",
@@ -662,7 +737,7 @@ public sealed class PathGuardianBoss : Enemy
                         direction,
                         .92f + Phase * .08f,
                         real ? Damage * .22f : 0,
-                        Size * .1f,
+                        Simulation.TileSize * .32f,
                         travelRange: ArenaRadius * 1.5f,
                         color: real ? SecondaryAccent : PhaseAccent,
                         shape: "diamond",
@@ -706,7 +781,7 @@ public sealed class PathGuardianBoss : Enemy
                     context.ProjectileSink.Add(new EnemyProjectile(
                         ArenaCenter.X, ArenaCenter.Y,
                         index * MathF.Tau / count + rotation,
-                        .72f, Damage * .15f, Size * .1f,
+                        .72f, Damage * .15f, Simulation.TileSize * .32f,
                         travelRange: ArenaRadius * 1.15f,
                         color: index % 2 == 0 ? PhaseAccent : SecondaryAccent,
                         shape: "diamond", path: "sine",
@@ -722,7 +797,7 @@ public sealed class PathGuardianBoss : Enemy
                 {
                     var projectile = new EnemyProjectile(
                         ArenaCenter.X, ArenaCenter.Y, aimed + bank * .42f,
-                        .44f, Damage * .24f, Size * .34f,
+                        .44f, Damage * .24f, Simulation.TileSize * .50f,
                         travelRange: ArenaRadius * 1.45f,
                         color: bank == 0 ? SecondaryAccent : PhaseAccent,
                         path: "bank", owner: _owner)
@@ -742,7 +817,7 @@ public sealed class PathGuardianBoss : Enemy
                     var laser = new EnemyProjectile(
                         ArenaCenter.X, ArenaCenter.Y,
                         rotation + beam * MathF.PI / beams,
-                        0, Damage * .25f, Size * .085f,
+                        0, Damage * .25f, Simulation.TileSize * .22f,
                         travelRange: ArenaRadius * 2.2f,
                         color: beam % 2 == 0 ? PhaseAccent : SecondaryAccent,
                         path: "laser", lifetime: 1.05f,
@@ -804,7 +879,7 @@ public sealed class PathGuardianBoss : Enemy
                     context.ProjectileSink.Add(new EnemyProjectile(
                         ArenaCenter.X, ArenaCenter.Y,
                         index * MathF.Tau / count + rotation,
-                        .86f, real ? Damage * .2f : 0, Size * .1f,
+                        .86f, real ? Damage * .2f : 0, Simulation.TileSize * .32f,
                         travelRange: ArenaRadius * 1.3f,
                         color: real ? SecondaryAccent : PhaseAccent,
                         shape: "diamond", path: "sine",
@@ -833,6 +908,85 @@ public sealed class PathGuardianBoss : Enemy
     private void FireSound(EnemyUpdateContext context)
     {
         var center = Center();
+        float playerDistance = Vector2.Distance(
+            new Vector2(context.PlayerWorldX, context.PlayerWorldY),
+            ArenaCenter);
+        Span<float> weights = stackalloc float[]
+        {
+            1f,
+            1.2f + _playerTrail.Count * .08f,
+            Phase >= 2 ? .8f + (playerDistance > ArenaRadius * .55f ? 1f : 0f) : .15f,
+        };
+        int choice = _attackDirector.Choose(
+            3,
+            Phase == 1 ? 1 : 2,
+            weights,
+            _rng);
+        float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
+        if (choice == 1 && _playerTrail.Count > 0)
+        {
+            int echoes = Math.Min(Phase + 1, _playerTrail.Count);
+            for (int index = 0; index < echoes; index++)
+            {
+                Vector2 origin = _playerTrail[Math.Max(0,
+                    _playerTrail.Count - 1 - index * Math.Max(1, _playerTrail.Count / echoes))];
+                float towardPlayer = MathF.Atan2(
+                    context.PlayerWorldY - origin.Y,
+                    context.PlayerWorldX - origin.X);
+                for (int side = -1; side <= 1; side++)
+                {
+                    context.ProjectileSink.Add(new EnemyProjectile(
+                        origin.X,
+                        origin.Y,
+                        towardPlayer + side * .22f,
+                        .64f + Phase * .08f,
+                        Damage * .22f,
+                        Simulation.TileSize * .38f,
+                        travelRange: ArenaRadius * 1.7f,
+                        color: side == 0 ? SecondaryAccent : PhaseAccent,
+                        shape: "diamond",
+                        path: "sine",
+                        amplitude: side * Simulation.TileSize * .34f,
+                        frequency: .021f,
+                        owner: _owner)
+                    {
+                        TelegraphDuration = .62f,
+                    });
+                }
+            }
+            return;
+        }
+        if (choice == 2 && Phase >= 2)
+        {
+            Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
+            Vector2 radial = Vector2.Normalize(player - ArenaCenter);
+            if (!float.IsFinite(radial.X))
+                radial = Vector2.UnitX;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Vector2 origin = ArenaCenter + radial * side * ArenaRadius * .88f;
+                float direction = MathF.Atan2(player.Y - origin.Y, player.X - origin.X);
+                for (int lane = -1; lane <= 1; lane++)
+                {
+                    context.ProjectileSink.Add(new EnemyProjectile(
+                        origin.X,
+                        origin.Y,
+                        direction + lane * .20f,
+                        .78f + Phase * .07f,
+                        Damage * .24f,
+                        Simulation.TileSize * .36f,
+                        travelRange: ArenaRadius * 1.8f,
+                        color: side < 0 ? PhaseAccent : SecondaryAccent,
+                        shape: "diamond",
+                        owner: _owner,
+                        ignoreWalls: true)
+                    {
+                        TelegraphDuration = .72f,
+                    });
+                }
+            }
+            return;
+        }
         int spokes = 5 + Phase * 2 + (FloorNumber > 5 ? 2 : 0);
         float phaseOffset = Age * .012f;
         for (int index = 0; index < spokes; index++)
@@ -840,7 +994,7 @@ public sealed class PathGuardianBoss : Enemy
             float direction = phaseOffset + index * MathF.Tau / spokes;
             var pulse = new EnemyProjectile(
                 center.X, center.Y, direction, .82f + Phase * .08f,
-                Damage * .18f, Size * .12f,
+                Damage * .18f, Simulation.TileSize * .32f,
                 travelRange: Simulation.TileSize * (10 + Phase * 2), color: UiTheme.Cream,
                 shape: "diamond", owner: _owner)
             {
@@ -848,12 +1002,11 @@ public sealed class PathGuardianBoss : Enemy
             };
             context.ProjectileSink.Add(pulse);
         }
-        float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
         foreach (float side in new[] { -1f, 1f })
         {
             var echo = new EnemyProjectile(
                 center.X, center.Y, aimed, 1.05f + Phase * .08f,
-                Damage * .26f, Size * .13f,
+                Damage * .26f, Simulation.TileSize * .36f,
                 travelRange: Simulation.TileSize * 16f, color: PhaseAccent,
                 shape: "diamond", path: "sine",
                 amplitude: side * Simulation.TileSize * (.45f + Phase * .12f),
@@ -869,13 +1022,59 @@ public sealed class PathGuardianBoss : Enemy
     {
         var center = Center();
         float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
+        float distance = Vector2.Distance(
+            new Vector2(context.PlayerWorldX, context.PlayerWorldY),
+            ArenaCenter);
+        Span<float> weights = stackalloc float[]
+        {
+            1.2f,
+            Phase >= 2 ? 1f + (float)_distanceBandDwell * .15f : .25f,
+            Phase >= 3 ? 1.15f : .18f,
+        };
+        int choice = _attackDirector.Choose(3, Phase - 1, weights, _rng);
+        if (choice == 0)
+        {
+            bool playerNear = distance < ArenaRadius * .48f;
+            int count = 12 + (FloorNumber > 5 ? 2 : 0);
+            int safe = (int)MathF.Round(
+                ((aimed % MathF.Tau + MathF.Tau) % MathF.Tau)
+                / MathF.Tau * count) % count;
+            for (int index = 0; index < count; index++)
+            {
+                int gap = Math.Min((index - safe + count) % count,
+                    (safe - index + count) % count);
+                if (gap <= 1)
+                    continue;
+                float angle = index * MathF.Tau / count + _patternRotation * .07f;
+                Vector2 origin = playerNear
+                    ? ArenaCenter
+                    : ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ArenaRadius * .88f;
+                float direction = playerNear ? angle : angle + MathF.PI;
+                context.ProjectileSink.Add(new EnemyProjectile(
+                    origin.X,
+                    origin.Y,
+                    direction,
+                    playerNear ? .54f : .43f,
+                    Damage * .24f,
+                    Simulation.TileSize * .48f,
+                    travelRange: ArenaRadius * 1.45f,
+                    color: index % 2 == 0 ? PhaseAccent : SecondaryAccent,
+                    path: "bank",
+                    owner: _owner,
+                    ignoreWalls: true)
+                {
+                    TelegraphDuration = .92f,
+                });
+            }
+            return;
+        }
         int banks = 1 + Phase + (FloorNumber > 5 ? 1 : 0);
         for (int index = 0; index < banks; index++)
         {
             float offset = (index - (banks - 1) / 2f) * .24f;
             var bank = new EnemyProjectile(
                 center.X, center.Y, aimed + offset, .48f + Phase * .04f,
-                Damage * .3f, Size * (.28f + Phase * .035f),
+                Damage * .3f, Simulation.TileSize * (.46f + Phase * .025f),
                 travelRange: Simulation.TileSize * 12f, color: new Color(103, 91, 55),
                 path: "bank", owner: _owner)
             {
@@ -883,7 +1082,7 @@ public sealed class PathGuardianBoss : Enemy
             };
             context.ProjectileSink.Add(bank);
         }
-        if (Phase >= 2)
+        if (Phase >= 2 && (choice == 2 || Phase == 3))
         {
             float poolSize = Simulation.TileSize * (1.25f + Phase * .18f);
             var pool = new EnemyProjectile(
@@ -903,6 +1102,50 @@ public sealed class PathGuardianBoss : Enemy
     {
         var center = Center();
         float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
+        float playerAngle = MathF.Atan2(
+            context.PlayerWorldY - ArenaCenter.Y,
+            context.PlayerWorldX - ArenaCenter.X);
+        Span<float> weights = stackalloc float[]
+        {
+            1f,
+            Phase >= 2 ? 1.2f : .45f,
+            Phase >= 3 || FloorNumber > 5 ? 1.1f : .25f,
+        };
+        int choice = _attackDirector.Choose(3, Phase - 1, weights, _rng);
+        if (choice == 1)
+        {
+            int lenses = 2 + (Phase >= 3 ? 1 : 0);
+            for (int lens = 0; lens < lenses; lens++)
+            {
+                float lensAngle = playerAngle + MathF.PI
+                    + (lens - (lenses - 1) / 2f) * .74f;
+                Vector2 origin = ArenaCenter
+                    + new Vector2(MathF.Cos(lensAngle), MathF.Sin(lensAngle))
+                    * ArenaRadius * .82f;
+                float toward = MathF.Atan2(
+                    context.PlayerWorldY - origin.Y,
+                    context.PlayerWorldX - origin.X);
+                for (int split = -1; split <= 1; split++)
+                {
+                    context.ProjectileSink.Add(new EnemyProjectile(
+                        origin.X,
+                        origin.Y,
+                        toward + split * (.26f + lens * .04f),
+                        1.18f + Phase * .12f,
+                        Damage * .19f,
+                        Simulation.TileSize * .32f,
+                        travelRange: ArenaRadius * 1.8f,
+                        color: split == 0 ? SecondaryAccent : PhaseAccent,
+                        shape: "diamond",
+                        owner: _owner,
+                        ignoreWalls: true)
+                    {
+                        TelegraphDuration = .68f,
+                    });
+                }
+            }
+            return;
+        }
         int count = 4 + Phase * 2 + (FloorNumber > 5 ? 2 : 0);
         for (int index = 0; index < count; index++)
         {
@@ -910,7 +1153,7 @@ public sealed class PathGuardianBoss : Enemy
             float offset = -.34f + fraction * .68f;
             var ray = new EnemyProjectile(
                 center.X, center.Y, aimed + offset, 1.55f + Phase * .18f,
-                Damage * .16f, Size * .085f,
+                Damage * .16f, Simulation.TileSize * .30f,
                 travelRange: Simulation.TileSize * 14f, color: new Color(135, 210, 230),
                 shape: "diamond", owner: _owner)
             {
@@ -918,10 +1161,10 @@ public sealed class PathGuardianBoss : Enemy
             };
             context.ProjectileSink.Add(ray);
         }
-        if (Phase >= 2 || FloorNumber > 5)
+        if (choice == 2 && (Phase >= 2 || FloorNumber > 5))
         {
             var laser = new EnemyProjectile(
-                center.X, center.Y, aimed, 0, Damage * .32f, Size * .1f,
+                center.X, center.Y, aimed, 0, Damage * .32f, Simulation.TileSize * .22f,
                 travelRange: Simulation.TileSize * 22f, color: new Color(228, 142, 63),
                 path: "laser", lifetime: 1.1f + Phase * .18f,
                 angularSpeed: Phase == 3 ? (_rng.Next(2) == 0 ? .08f : -.08f) : 0,
@@ -935,6 +1178,48 @@ public sealed class PathGuardianBoss : Enemy
 
     private void FireChemesthesis(EnemyUpdateContext context)
     {
+        Span<float> weights = stackalloc float[]
+        {
+            1.15f,
+            Phase >= 2 ? 1.15f : .35f,
+            Phase >= 3 ? 1.25f : .20f,
+        };
+        int choice = _attackDirector.Choose(3, Phase - 1, weights, _rng);
+        var center = Center();
+        float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
+        if (choice is 0 or 2)
+        {
+            int carriers = 3 + Phase;
+            for (int index = 0; index < carriers; index++)
+            {
+                float offset = (index - (carriers - 1) / 2f) * .24f;
+                context.ProjectileSink.Add(new EnemyProjectile(
+                    center.X,
+                    center.Y,
+                    aimed + offset,
+                    .58f + Phase * .04f,
+                    Damage * .25f,
+                    Simulation.TileSize * .44f,
+                    travelRange: ArenaRadius * 1.65f,
+                    color: index % 2 == 0 ? PhaseAccent : SecondaryAccent,
+                    shape: "diamond",
+                    path: "sine",
+                    amplitude: (index % 2 == 0 ? 1 : -1) * Simulation.TileSize * .22f,
+                    frequency: .018f,
+                    owner: _owner)
+                {
+                    TelegraphDuration = .72f,
+                    Affliction = "slow",
+                    AfflictionDuration = 1.2f,
+                    AfflictionStrength = .08f,
+                    Exposure = .35f,
+                    AfflictionSource = ArenaCenter,
+                });
+            }
+            if (choice == 0)
+                return;
+        }
+
         int count = 2 + Phase + (FloorNumber > 5 ? 1 : 0);
         for (int index = 0; index < count; index++)
         {
@@ -954,15 +1239,13 @@ public sealed class PathGuardianBoss : Enemy
             context.ProjectileSink.Add(mine);
         }
 
-        var center = Center();
         int spores = 3 + Phase + (FloorNumber > 5 ? 1 : 0);
-        float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
         for (int index = 0; index < spores; index++)
         {
             float offset = (index - (spores - 1) / 2f) * .19f;
             context.ProjectileSink.Add(new EnemyProjectile(
                 center.X, center.Y, aimed + offset, .68f,
-                Damage * .18f, Size * .13f,
+                Damage * .18f, Simulation.TileSize * .32f,
                 travelRange: Simulation.TileSize * 18f, color: new Color(116, 132, 50),
                 shape: "diamond", path: "sine", amplitude: Simulation.TileSize * .28f,
                 frequency: .02f, owner: _owner));
@@ -973,6 +1256,47 @@ public sealed class PathGuardianBoss : Enemy
     {
         var center = Center();
         float aimed = Aim(context.PlayerWorldX, context.PlayerWorldY);
+        Span<float> weights = stackalloc float[]
+        {
+            1.15f,
+            Phase >= 2 ? 1.2f : .30f,
+            Phase >= 3 ? 1.25f : .18f,
+        };
+        int choice = _attackDirector.Choose(3, Phase - 1, weights, _rng);
+        if (choice == 1)
+        {
+            int walls = 6 + (FloorNumber > 5 ? 2 : 0);
+            int truthGap = _patternRotation % walls;
+            float rotation = aimed + MathF.PI / 2f;
+            for (int index = 0; index < walls; index++)
+            {
+                bool illusion = index == truthGap
+                    || index == (truthGap + 1) % walls;
+                float direction = rotation
+                    + (index - (walls - 1) / 2f) * .24f;
+                var wall = new EnemyProjectile(
+                    ArenaCenter.X,
+                    ArenaCenter.Y,
+                    direction,
+                    0,
+                    illusion ? 0 : Damage * .28f,
+                    Simulation.TileSize * .24f,
+                    travelRange: ArenaRadius * 2.2f,
+                    color: illusion ? SecondaryAccent : PhaseAccent,
+                    shape: "laser",
+                    path: "laser",
+                    lifetime: 1.35f,
+                    owner: _owner,
+                    ignoreWalls: true)
+                {
+                    Illusory = illusion,
+                    TruthMarked = illusion,
+                    TelegraphDuration = 1.05f,
+                };
+                context.ProjectileSink.Add(wall);
+            }
+            return;
+        }
         int count = 5 + Phase * 2 + (FloorNumber > 5 ? 2 : 0);
         int realIndex = _rng.Next(count);
         for (int index = 0; index < count; index++)
@@ -984,7 +1308,7 @@ public sealed class PathGuardianBoss : Enemy
                     && index == (realIndex + count / 2) % count);
             var petal = new EnemyProjectile(
                 center.X, center.Y, aimed + offset, 1.0f + Phase * .08f,
-                real ? Damage * .24f : 0, Size * .105f,
+                real ? Damage * .24f : 0, Simulation.TileSize * .32f,
                 travelRange: Simulation.TileSize * 16f, color: new Color(202, 85, 174),
                 shape: "diamond", owner: _owner)
             {
@@ -994,7 +1318,7 @@ public sealed class PathGuardianBoss : Enemy
             };
             context.ProjectileSink.Add(petal);
         }
-        if (Phase >= 2)
+        if (Phase >= 2 && choice == 2)
         {
             int orbitCount = Phase + 1;
             float radius = Simulation.TileSize * (1.45f + Phase * .18f);
@@ -1004,7 +1328,7 @@ public sealed class PathGuardianBoss : Enemy
                 context.ProjectileSink.Add(new EnemyProjectile(
                     context.PlayerWorldX + MathF.Cos(angle) * radius,
                     context.PlayerWorldY + MathF.Sin(angle) * radius,
-                    0, 0, Damage * .16f, Size * .09f,
+                    0, 0, Damage * .16f, Simulation.TileSize * .30f,
                     color: PhaseAccent, shape: "diamond", path: "orbit",
                     lifetime: 4.4f, orbitCenter: new Vector2(context.PlayerWorldX, context.PlayerWorldY),
                     orbitRadius: radius, orbitAngle: angle, angularSpeed: .62f + Phase * .1f,

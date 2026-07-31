@@ -1,5 +1,31 @@
 # Boss encounters
 
+## Dungeon Guardian and Boss Overhaul (current contract)
+
+The runtime now uses `BossEncounterCatalog`, `BossArenaDefinition`,
+`IBossArenaController`, and `BossAttackDirector` as the shared encounter
+contract. The older implementation notes later in this document remain useful
+history, but their former phase labels are superseded by the authored sets below.
+
+- Guardians: Footfall / Counterbeat / Resonant Pursuit; Near/Far / Compression /
+  Pulse Lock; Refraction / Lens Maze / White Geometry; Carrier / Propagation /
+  Chain Bloom; Truth Petal / Lucid Passage / False Awakening.
+- Level 10: Beaudis uses Approach through Sonic Boom; Bair uses Intake through
+  Solitary; Ishe now has five movements from Exposure through Afterimage; Kage
+  now has five movements from Spark/Fuel through Critical Mixture; Hypno uses
+  the five Contradictory Laws movements.
+- Level 20: Rot uses the Decomposition Cycle, Chronos uses Branching Futures,
+  and Ache uses the Overreaction Engine. Dissonance's nine phases and Malady's
+  ten movements are mechanically preserved.
+
+Dungeon floors 5 and 10 no longer fight in the generated room. Activating the
+one-way commitment gateway suspends the floor, clears non-boss combat state,
+preserves current health, and installs a boss-specific 35x35 void-backed arena.
+Floor-5 rewards and its next-floor portal remain inside that arena; floor 10
+completes the run there. All authored damage phases require two admitted
+declarations, adaptive selectors prohibit immediate repeats, and signatures are
+guaranteed within three declarations.
+
 Bosses are registered through `BOSS_CATALOG`. A boss exposes the normal enemy
 combat contract plus phase metadata for the shared boss HUD. Every path has a
 level-10 lesson and a level-20 examination built from the same pacing grammar:
@@ -8,8 +34,8 @@ level-10 lesson and a level-20 examination built from the same pacing grammar:
 | --- | --- | --- | --- | --- |
 | Sound | Beaudis: 50,000 / 220 / 5 | Endure, 14s at 50% HP | Dissonance: 150,000 / 550 / 9 | 20s at 67%, 20s at 33%, Jera 40s at 0% |
 | Touch | Bair: 110,000 / 380 / 5 | Ruin, 14s at 50% HP | Rot: 330,000 / 980 / 7 | Choking Stillness 22s at 50%, Burial 35s at 0% |
-| Sight | Ishe: 75,000 / 300 / 4 | Flash, 12s at 50% HP | Chronos: 310,000 / 880 / 7 | Still Second 20s at 50%, King's Attrition 35s at 0% |
-| Chemesthesis | Kage: 93,000 / 340 / 4 | Stagnant Mirror, 14s at 50% HP | Ache: 305,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 30s at 0% |
+| Sight | Ishe: 75,000 / 300 / 5 | Shutter, 12s at 50% HP | Chronos: 310,000 / 880 / 7 | Still Second 20s at 50%, King's Attrition 35s at 0% |
+| Chemesthesis | Kage: 93,000 / 340 / 5 | Solvent / Crystal, 14s at 50% HP | Ache: 305,000 / 880 / 8 | Reflex Storm 20s at 50%, Overload 30s at 0% |
 | Phantasia | Hypno: 107,000 / 360 / 5 | Chosen, 14s at 50% HP | Malady: 320,000 / 900 / 10 | Intermission 18s at 50%, Apotheosis 30s at 0% |
 
 Each midpoint has almost exactly one third of its paired finale's raw health,

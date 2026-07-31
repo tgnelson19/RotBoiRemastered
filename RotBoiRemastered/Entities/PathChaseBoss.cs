@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -87,12 +88,14 @@ public sealed record PathChaseBossConfig(
 ///   `_arena_center()` -> cached field) instead of reading a
 ///   `background.py` global from both update- and draw-side methods.
 /// </summary>
-public class PathChaseBoss : Enemy
+public class PathChaseBoss : Enemy, IBossArenaController
 {
     protected readonly Random Rng;
     protected PathChaseBossConfig Config { get; }
     public Vector2 ArenaCenter { get; }
     public float ArenaRadius { get; }
+    public float Contraction => 0f;
+    IReadOnlyList<Rectangle> IBossArenaController.MovementObstacles => Array.Empty<Rectangle>();
 
     public int Phase { get; protected set; } = 1;
     public string PhaseLabel { get; protected set; }
@@ -445,6 +448,13 @@ public class PathChaseBoss : Enemy
             }
         }
         MarkAttack(.42f);
+    }
+
+    public Vector2 ConstrainPlayer(Vector2 playerTopLeft, float playerSize)
+    {
+        var constrained = ConstrainPlayerPosition(
+            playerTopLeft.X, playerTopLeft.Y, playerSize);
+        return new Vector2(constrained.X, constrained.Y);
     }
 
     /// <summary>
