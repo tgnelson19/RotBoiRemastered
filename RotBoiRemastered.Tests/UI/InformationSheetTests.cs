@@ -194,4 +194,94 @@ public class InformationSheetTests
         Assert.Equal(20, level);
         Assert.Equal("Complete", milestone);
     }
+
+    [Fact]
+    public void LiveLootDrag_MovesLootIntoChosenStashSlot()
+    {
+        var state = MakeState();
+        var loot = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Rare");
+        var crate = new LootCrate(0, 0, new[] { loot });
+        state.NearbyCrate = crate;
+        state.LootCrateList.Add(crate);
+        var sheet = new InformationSheet(1280, 720);
+        var lootRect = new Rectangle(10, 10, 40, 40);
+        var stashRects = Enumerable.Range(0, InformationSheet.InventorySlotCount)
+            .Select(index => new Rectangle(100 + index * 45, 10, 40, 40)).ToArray();
+        sheet.ConfigureLiveLootLayout(new Dictionary<string, Rectangle>(),
+            new[] { lootRect }, stashRects);
+
+        sheet.HandleLiveLootDrag(state, Vector2.Zero, lootRect.Center,
+            mouseDown: true, mousePressed: true);
+        sheet.HandleLiveLootDrag(state, Vector2.Zero, stashRects[3].Center,
+            mouseDown: false, mousePressed: false);
+
+        Assert.Same(loot, state.Inventory[3]);
+        Assert.Null(state.NearbyCrate);
+        Assert.DoesNotContain(crate, state.LootCrateList);
+    }
+
+    [Fact]
+    public void LiveLootDrag_DoesNotPickUpStashedItems()
+    {
+        var state = MakeState();
+        state.Inventory[0] = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Rare");
+        var crate = new LootCrate(0, 0,
+            new[] { new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Rare") });
+        state.NearbyCrate = crate;
+        var sheet = new InformationSheet(1280, 720);
+        var stashRect = new Rectangle(100, 10, 40, 40);
+        sheet.ConfigureLiveLootLayout(new Dictionary<string, Rectangle>(),
+            new[] { new Rectangle(10, 10, 40, 40) }, new[] { stashRect });
+
+        sheet.HandleLiveLootDrag(state, Vector2.Zero, stashRect.Center,
+            mouseDown: true, mousePressed: true);
+
+        Assert.False(sheet.DragInProgress);
+        Assert.NotNull(state.Inventory[0]);
+    }
+
+    [Fact]
+    public void QuickEquipLoot_SwapsCurrentEquipmentBackIntoDrop()
+    {
+        var state = MakeState();
+        var equipped = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Common");
+        var loot = new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Legendary");
+        state.Equipment["weapon"] = equipped;
+        var crate = new LootCrate(0, 0, new[] { loot });
+        state.NearbyCrate = crate;
+        var sheet = new InformationSheet(1280, 720);
+
+        bool changed = sheet.QuickEquipLoot(state, 0, "weapon");
+
+        Assert.True(changed);
+        Assert.Same(loot, state.Equipment["weapon"]);
+        Assert.Same(equipped, crate.Items[0]);
+        Assert.Same(crate, state.NearbyCrate);
+    }
+
+    [Fact]
+    public void LiveLootDrag_SwapsCompatibleEquipmentBackIntoDrop()
+    {
+        var state = MakeState();
+        var equipped = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Common");
+        var loot = new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Legendary");
+        state.Equipment["weapon"] = equipped;
+        var crate = new LootCrate(0, 0, new[] { loot });
+        state.NearbyCrate = crate;
+        var sheet = new InformationSheet(1280, 720);
+        var lootRect = new Rectangle(10, 10, 40, 40);
+        var weaponRect = new Rectangle(100, 10, 40, 40);
+        sheet.ConfigureLiveLootLayout(
+            new Dictionary<string, Rectangle> { ["weapon"] = weaponRect },
+            new[] { lootRect }, Array.Empty<Rectangle>());
+
+        sheet.HandleLiveLootDrag(state, Vector2.Zero, lootRect.Center,
+            mouseDown: true, mousePressed: true);
+        sheet.HandleLiveLootDrag(state, Vector2.Zero, weaponRect.Center,
+            mouseDown: false, mousePressed: false);
+
+        Assert.Same(loot, state.Equipment["weapon"]);
+        Assert.Same(equipped, crate.Items[0]);
+        Assert.False(sheet.DragInProgress);
+    }
 }

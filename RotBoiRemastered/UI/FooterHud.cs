@@ -8,6 +8,8 @@ namespace RotBoiRemastered.UI;
 
 public enum FooterAction { None, OpenDossier, OpenLevelUp }
 
+public sealed record QuickLootCommand(int LootIndex, string EquipmentKey);
+
 public sealed class FooterLayout
 {
     public required Rectangle Bounds { get; init; }
@@ -22,7 +24,19 @@ public sealed class FooterLayout
     public bool Compact { get; init; }
 }
 
-/// <summary>Compact, read-only combat HUD. Deliberate item work belongs in the dossier.</summary>
+public sealed class QuickLootLayout
+{
+    public required Rectangle Bounds { get; init; }
+    public required Rectangle LootLabel { get; init; }
+    public required Rectangle StashLabel { get; init; }
+    public required IReadOnlyList<Rectangle> LootSlots { get; init; }
+    public required IReadOnlyList<Rectangle> StashSlots { get; init; }
+}
+
+/// <summary>
+/// Compact combat HUD. Equipped and stashed items remain read-only during combat;
+/// only nearby world loot can be moved through the transient quick-loot strip.
+/// </summary>
 public sealed class FooterHud
 {
     private static readonly string[] EquipmentOrder =
@@ -30,12 +44,21 @@ public sealed class FooterHud
     private static readonly string[] EquipmentLabels = ["W", "A", "R", "1", "2"];
 
     private Rectangle _bounds;
+    private Rectangle _quickLootBounds;
     private Rectangle _equipmentHit;
     private Rectangle _experienceHit;
     private ItemDrop? _tooltipItem;
+    private readonly Dictionary<string, Rectangle> _equipmentSlotRects = new();
+    private readonly List<Rectangle> _quickLootSlotRects = new(InformationSheet.CrateSlotCount);
+    private readonly List<Rectangle> _quickStashSlotRects = new(InformationSheet.InventorySlotCount);
+    private int _quickLootSelection;
+    private int _preferredAccessorySlot;
 
     public Rectangle Bounds => _bounds;
-    public bool Contains(Point point) => _bounds.Contains(point);
+    public IReadOnlyDictionary<string, Rectangle> EquipmentSlotRects => _equipmentSlotRects;
+    public IReadOnlyList<Rectangle> QuickLootSlotRects => _quickLootSlotRects;
+    public IReadOnlyList<Rectangle> QuickStashSlotRects => _quickStashSlotRects;
+    public bool Contains(Point point) => _bounds.Contains(point) || _quickLootBounds.Contains(point);
 
     public static int ReservedHeight(int screenWidth, int screenHeight)
     {
@@ -131,7 +154,54 @@ public sealed class FooterHud
         };
     }
 
-    public void Draw(SpriteBatch spriteBatch, RunState state, Point mousePosition, PathRun? pathRun = null)
+    public static QuickLootLayout CalculateQuickLootLayout(FooterLayout footer, float scale,
+        int lootSlotCount = InformationSheet.CrateSlotCount)
+    {
+        lootSlotCount = Math.Clamp(lootSlotCount, 1, InformationSheet.CrateSlotCount);
+        int gap = Math.Max(2, (int)MathF.Round(4 * scale));
+        int pad = Math.Max(3, (int)MathF.Round(6 * scale));
+        int lootLabelWidth = Math.Max(28, (int)MathF.Round((footer.Compact ? 42 : 66) * scale));
+        int stashLabelWidth = Math.Max(34, (int)MathF.Round((footer.Compact ? 52 : 86) * scale));
+        int slotCount = lootSlotCount + InformationSheet.InventorySlotCount;
+        int availableForSlots = footer.Bounds.Width - pad * 2 - lootLabelWidth - stashLabelWidth
+            - gap * (slotCount + 1);
+        int slotSize = Math.Clamp(availableForSlots / slotCount,
+            Math.Max(16, (int)(22 * scale)), Math.Max(22, (int)(44 * scale)));
+        int contentWidth = lootLabelWidth + stashLabelWidth + slotSize * slotCount
+            + gap * (slotCount + 1);
+        int height = slotSize + pad * 2;
+        int x = footer.Bounds.Center.X - contentWidth / 2;
+        int y = footer.Bounds.Y - height - gap;
+        var bounds = new Rectangle(x, y, contentWidth, height);
+        int cursor = bounds.X + pad;
+        var lootLabel = new Rectangle(cursor, bounds.Y, lootLabelWidth - pad, bounds.Height);
+        cursor += lootLabelWidth;
+        var lootSlots = new List<Rectangle>(lootSlotCount);
+        for (int index = 0; index < lootSlotCount; index++)
+        {
+            lootSlots.Add(new Rectangle(cursor, bounds.Y + pad, slotSize, slotSize));
+            cursor += slotSize + gap;
+        }
+        var stashLabel = new Rectangle(cursor, bounds.Y, stashLabelWidth - gap, bounds.Height);
+        cursor += stashLabelWidth;
+        var stashSlots = new List<Rectangle>(InformationSheet.InventorySlotCount);
+        for (int index = 0; index < InformationSheet.InventorySlotCount; index++)
+        {
+            stashSlots.Add(new Rectangle(cursor, bounds.Y + pad, slotSize, slotSize));
+            cursor += slotSize + gap;
+        }
+        return new QuickLootLayout
+        {
+            Bounds = bounds,
+            LootLabel = lootLabel,
+            StashLabel = stashLabel,
+            LootSlots = lootSlots,
+            StashSlots = stashSlots,
+        };
+    }
+
+    public void Draw(SpriteBatch spriteBatch, RunState state, Point mousePosition, PathRun? pathRun = null,
+        bool preferControllerPrompts = false, ItemDrop? draggedItem = null)
     {
         float scale = UiTheme.DisplayScale(spriteBatch);
         var viewport = spriteBatch.GraphicsDevice.Viewport;
@@ -139,6 +209,9 @@ public sealed class FooterHud
         _bounds = layout.Bounds;
         _equipmentHit = layout.Equipment;
         _experienceHit = layout.Experience;
+        _quickLootBounds = Rectangle.Empty;
+        _quickLootSlotRects.Clear();
+        _quickStashSlotRects.Clear();
         _tooltipItem = null;
 
         float chromeTime = (float)(state.RunTimeSeconds * Math.Clamp(
@@ -153,16 +226,19 @@ public sealed class FooterHud
         DrawExperience(spriteBatch, layout, state, scale);
 
         if (state.NearbyCrate is { Items.Count: > 0 })
+            DrawQuickLoot(spriteBatch, layout, state, mousePosition, scale, chromeTime,
+                preferControllerPrompts);
+
+        if (draggedItem is not null)
         {
-            string key = Keybinds.LabelForKey(Keybinds.KeyFor("hud_toggle"));
-            var notice = new Rectangle(layout.Bounds.X, layout.Bounds.Y - Math.Max(25, (int)(31 * scale)),
-                Math.Min(layout.Bounds.Width, Math.Max(210, (int)(310 * scale))), Math.Max(21, (int)(25 * scale)));
-            UiTheme.DrawCompositePanel(spriteBatch, notice, chromeTime, UiTheme.PanelRaised, UiTheme.Gold, shadow: 3);
-            UiTheme.DrawText(spriteBatch, $"LOOT NEARBY  //  {key} TO INSPECT", 8 * scale,
-                UiTheme.Gold, notice.Center.ToVector2(), "center");
+            int dragSize = Math.Max(30, (int)(48 * scale));
+            var dragRect = new Rectangle(mousePosition.X - dragSize / 2,
+                mousePosition.Y - dragSize / 2, dragSize, dragSize);
+            ItemCards.DrawItemCard(spriteBatch, dragRect, draggedItem, hovered: true,
+                (float)state.RunTimeSeconds);
         }
 
-        if (_tooltipItem is not null)
+        if (_tooltipItem is not null && draggedItem is null)
             DrawTooltip(spriteBatch, _tooltipItem, mousePosition, scale, viewport.Bounds);
     }
 
@@ -174,6 +250,9 @@ public sealed class FooterHud
         _bounds = layout.Bounds;
         _equipmentHit = layout.Equipment;
         _experienceHit = Rectangle.Empty;
+        _quickLootBounds = Rectangle.Empty;
+        _quickLootSlotRects.Clear();
+        _quickStashSlotRects.Clear();
         _tooltipItem = null;
         UiTheme.DrawCompositePanel(spriteBatch, layout.Bounds, time,
             UiTheme.Void * .96f, UiTheme.Cream, shadow: 7);
@@ -236,10 +315,12 @@ public sealed class FooterHud
     private void DrawEquipment(SpriteBatch spriteBatch, FooterLayout layout, RunState state,
         Point mousePosition, float scale)
     {
+        _equipmentSlotRects.Clear();
         for (int index = 0; index < EquipmentOrder.Length; index++)
         {
             string key = EquipmentOrder[index];
             Rectangle rect = layout.EquipmentSlots[index];
+            _equipmentSlotRects[key] = rect;
             ItemDrop? item = state.Equipment.GetValueOrDefault(key);
             bool hovered = rect.Contains(mousePosition);
             if (item is not null)
@@ -257,6 +338,127 @@ public sealed class FooterHud
                     rect.Center.ToVector2(), "center");
             }
         }
+    }
+
+    private void DrawQuickLoot(SpriteBatch spriteBatch, FooterLayout footer, RunState state,
+        Point mousePosition, float scale, float chromeTime, bool preferControllerPrompts)
+    {
+        int visibleLootCount = Math.Min(state.NearbyCrate!.Items.Count,
+            InformationSheet.CrateSlotCount);
+        QuickLootLayout layout = CalculateQuickLootLayout(footer, scale, visibleLootCount);
+        _quickLootBounds = layout.Bounds;
+        _quickLootSlotRects.AddRange(layout.LootSlots);
+        _quickStashSlotRects.AddRange(layout.StashSlots);
+        int lootCount = layout.LootSlots.Count;
+        _quickLootSelection = Math.Clamp(_quickLootSelection, 0, Math.Max(0, lootCount - 1));
+
+        UiTheme.DrawCompositePanel(spriteBatch, layout.Bounds, chromeTime,
+            UiTheme.PanelRaised * .98f, UiTheme.Gold, shadow: 4);
+        UiTheme.DrawText(spriteBatch, "LOOT", 6.5 * scale, UiTheme.Gold,
+            layout.LootLabel.Center.ToVector2(), "center", bold: true);
+        float stashLabelY = footer.Compact
+            ? layout.StashLabel.Center.Y
+            : layout.StashLabel.Center.Y - 6 * scale;
+        UiTheme.DrawText(spriteBatch, "STASH", footer.Compact ? 6 * scale : 5.5 * scale,
+            UiTheme.Purple, new Vector2(layout.StashLabel.Center.X, stashLabelY), "center");
+        if (!footer.Compact)
+            UiTheme.DrawText(spriteBatch, "TAB ONLY", 4.75 * scale, UiTheme.Muted,
+                new Vector2(layout.StashLabel.Center.X, layout.StashLabel.Center.Y + 7 * scale), "center");
+
+        string? targetKey = null;
+        for (int index = 0; index < layout.LootSlots.Count; index++)
+        {
+            Rectangle rect = layout.LootSlots[index];
+            bool selected = preferControllerPrompts && index == _quickLootSelection;
+            bool hovered = rect.Contains(mousePosition);
+            if (index < lootCount)
+            {
+                ItemDrop item = state.NearbyCrate.Items[index];
+                ItemCards.DrawItemCard(spriteBatch, rect, item, hovered, (float)state.RunTimeSeconds);
+                if (hovered)
+                    _tooltipItem = item;
+                if (selected)
+                    targetKey = EquipmentTargetFor(item, state, _preferredAccessorySlot);
+            }
+            else
+            {
+                Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink,
+                    Math.Max(2, (int)(3 * scale)));
+                Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Border * .6f,
+                    1, Math.Max(2, (int)(3 * scale)));
+            }
+            if (selected)
+                Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream,
+                    Math.Max(1, (int)(2 * scale)));
+        }
+
+        for (int index = 0; index < layout.StashSlots.Count; index++)
+        {
+            Rectangle rect = layout.StashSlots[index];
+            ItemDrop? item = state.Inventory[index];
+            bool hovered = rect.Contains(mousePosition);
+            if (item is not null)
+            {
+                ItemCards.DrawItemCard(spriteBatch, rect, item, hovered, (float)state.RunTimeSeconds);
+                if (hovered)
+                    _tooltipItem = item;
+            }
+            else
+            {
+                Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink,
+                    Math.Max(2, (int)(3 * scale)));
+                Primitives2D.RoundedRectOutline(spriteBatch, rect,
+                    hovered ? UiTheme.Purple : UiTheme.Border, Math.Max(1, (int)(1.5f * scale)),
+                    Math.Max(2, (int)(3 * scale)));
+                UiTheme.DrawText(spriteBatch, (index + 1).ToString(), 5.5 * scale, UiTheme.Muted,
+                    rect.Center.ToVector2(), "center");
+            }
+        }
+
+        if (targetKey is not null && _equipmentSlotRects.TryGetValue(targetKey, out Rectangle targetRect))
+            Primitives2D.RectOutline(spriteBatch, targetRect, UiTheme.Gold,
+                Math.Max(1, (int)(2 * scale)));
+
+        if (preferControllerPrompts)
+        {
+            string prompt = lootCount > 0 ? "D-PAD SELECT  //  A SWAP" : "";
+            UiTheme.DrawText(spriteBatch, prompt, 5.5 * scale, UiTheme.Cream,
+                new Vector2(layout.Bounds.Center.X, layout.Bounds.Y - Math.Max(3, 4 * scale)), "midbottom");
+        }
+    }
+
+    public QuickLootCommand? HandleQuickLootController(RunState state)
+    {
+        if (state.NearbyCrate is not { Items.Count: > 0 } crate)
+        {
+            _quickLootSelection = 0;
+            return null;
+        }
+        int count = Math.Min(crate.Items.Count, InformationSheet.CrateSlotCount);
+        if (InputState.ControllerDpadLeftPressed)
+            _quickLootSelection = (_quickLootSelection - 1 + count) % count;
+        if (InputState.ControllerDpadRightPressed)
+            _quickLootSelection = (_quickLootSelection + 1) % count;
+        _quickLootSelection = Math.Clamp(_quickLootSelection, 0, count - 1);
+        ItemDrop selected = crate.Items[_quickLootSelection];
+        if (selected.SlotType == "accessory"
+            && (InputState.ControllerDpadUpPressed || InputState.ControllerDpadDownPressed))
+            _preferredAccessorySlot = 1 - _preferredAccessorySlot;
+        if (!InputState.ControllerConfirmPressed)
+            return null;
+        return new QuickLootCommand(_quickLootSelection,
+            EquipmentTargetFor(selected, state, _preferredAccessorySlot));
+    }
+
+    public static string EquipmentTargetFor(ItemDrop item, RunState state, int preferredAccessorySlot = 0)
+    {
+        if (item.SlotType != "accessory")
+            return item.SlotType;
+        if (state.Equipment["accessory_1"] is null)
+            return "accessory_1";
+        if (state.Equipment["accessory_2"] is null)
+            return "accessory_2";
+        return preferredAccessorySlot == 0 ? "accessory_1" : "accessory_2";
     }
 
     private static void DrawResources(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale)

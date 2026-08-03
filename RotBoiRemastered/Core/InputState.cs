@@ -39,6 +39,10 @@ public static class InputState
     public static bool ControllerViewPressed { get; set; }
     public static bool ControllerConfirmPressed { get; set; }
     public static bool ControllerBackPressed { get; set; }
+    public static bool ControllerDpadUpPressed { get; set; }
+    public static bool ControllerDpadDownPressed { get; set; }
+    public static bool ControllerDpadLeftPressed { get; set; }
+    public static bool ControllerDpadRightPressed { get; set; }
     public static bool UiUpPressed { get; set; }
     public static bool UiDownPressed { get; set; }
     public static bool UiLeftPressed { get; set; }

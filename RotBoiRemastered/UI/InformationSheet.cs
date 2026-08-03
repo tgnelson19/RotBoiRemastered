@@ -157,6 +157,7 @@ public sealed class InformationSheet
     private float _presentationTime;
 
     public bool DragInProgress { get; private set; }
+    public ItemDrop? DraggingItem => _draggingItem;
 
     /// <summary>Abandons the current drag without moving either item.</summary>
     public void CancelDrag()
@@ -164,6 +165,55 @@ public sealed class InformationSheet
         _draggingItem = null;
         _draggingSource = null;
         DragInProgress = false;
+    }
+
+    /// <summary>
+    /// Reuses the dossier's transfer destinations for the live quick-loot strip.
+    /// The caller replaces these every draw, so resize and GUI-scale changes cannot
+    /// leave stale combat hit targets behind.
+    /// </summary>
+    public void ConfigureLiveLootLayout(
+        IReadOnlyDictionary<string, Rectangle> equipmentSlotRects,
+        IReadOnlyList<Rectangle> lootSlotRects,
+        IReadOnlyList<Rectangle> stashSlotRects)
+    {
+        _equipmentSlotRects.Clear();
+        foreach (var (key, rect) in equipmentSlotRects)
+            _equipmentSlotRects[key] = rect;
+        _lootPanelSlotRects.Clear();
+        _lootPanelSlotRects.AddRange(lootSlotRects);
+        _inventorySlotRects.Clear();
+        _inventorySlotRects.AddRange(stashSlotRects);
+    }
+
+    public void HandleLiveLootDrag(RunState state, Vector2 playerWorldPosition,
+        Point mousePosition, bool mouseDown, bool mousePressed)
+    {
+        if (state.NearbyCrate is not { Items.Count: > 0 })
+        {
+            if (DragInProgress)
+                CancelDrag();
+            return;
+        }
+        HandleDrag(state, playerWorldPosition, mousePosition, mouseDown, mousePressed,
+            allowWorldDrop: false, lootOnlyPickup: true);
+    }
+
+    public bool QuickEquipLoot(RunState state, int lootIndex, string equipmentKey)
+    {
+        if (state.NearbyCrate is not { } crate
+            || lootIndex < 0 || lootIndex >= crate.Items.Count
+            || !EquipmentSlotTypes.TryGetValue(equipmentKey, out string? slotType))
+            return false;
+        ItemDrop item = crate.Items[lootIndex];
+        if (item.SlotType != slotType)
+            return false;
+        ItemDrop? displaced = state.Equipment[equipmentKey];
+        state.Equipment[equipmentKey] = item;
+        GameProfile.DiscoverItem(item.Name);
+        ReturnDisplacedToCrate(state, new CrateDragSource(crate, lootIndex), displaced);
+        state.CombinePlayerStats();
+        return true;
     }
 
     public InformationSheet(int screenWidth, int screenHeight)
@@ -1750,7 +1800,7 @@ public sealed class InformationSheet
     /// </summary>
     public void HandleDrag(RunState state, Vector2 playerWorldPosition, Point mousePosition, bool mouseDown, bool mousePressed,
         IReadOnlyList<Rectangle>? vaultSlotRects = null, bool allowWorldDrop = true,
-        Rectangle? explicitDropRect = null)
+        Rectangle? explicitDropRect = null, bool lootOnlyPickup = false)
     {
         _vaultSlotRects = vaultSlotRects ?? Array.Empty<Rectangle>();
         _allowWorldDrop = allowWorldDrop;
@@ -1761,14 +1811,17 @@ public sealed class InformationSheet
         {
             if (!mousePressed)
                 return;
-            foreach (var (key, rect) in _equipmentSlotRects)
+            if (!lootOnlyPickup)
             {
-                if (rect.Contains(mousePosition) && state.Equipment[key] is not null)
+                foreach (var (key, rect) in _equipmentSlotRects)
                 {
-                    _draggingItem = state.Equipment[key];
-                    _draggingSource = new EquipmentDragSource(key);
-                    DragInProgress = true;
-                    return;
+                    if (rect.Contains(mousePosition) && state.Equipment[key] is not null)
+                    {
+                        _draggingItem = state.Equipment[key];
+                        _draggingSource = new EquipmentDragSource(key);
+                        DragInProgress = true;
+                        return;
+                    }
                 }
             }
             for (int index = 0; index < _lootPanelSlotRects.Count; index++)
@@ -1782,24 +1835,27 @@ public sealed class InformationSheet
                     return;
                 }
             }
-            for (int index = 0; index < _inventorySlotRects.Count; index++)
+            if (!lootOnlyPickup)
             {
-                if (_inventorySlotRects[index].Contains(mousePosition) && state.Inventory[index] is not null)
+                for (int index = 0; index < _inventorySlotRects.Count; index++)
                 {
-                    _draggingItem = state.Inventory[index];
-                    _draggingSource = new InventoryDragSource(index);
-                    DragInProgress = true;
-                    return;
+                    if (_inventorySlotRects[index].Contains(mousePosition) && state.Inventory[index] is not null)
+                    {
+                        _draggingItem = state.Inventory[index];
+                        _draggingSource = new InventoryDragSource(index);
+                        DragInProgress = true;
+                        return;
+                    }
                 }
-            }
-            for (int index = 0; index < _vaultSlotRects.Count; index++)
-            {
-                if (_vaultSlotRects[index].Contains(mousePosition) && index < GameProfile.Profile.Storage.Count)
+                for (int index = 0; index < _vaultSlotRects.Count; index++)
                 {
-                    _draggingItem = Items.Deserialize(GameProfile.Profile.Storage[index]);
-                    _draggingSource = new VaultDragSource(index);
-                    DragInProgress = true;
-                    return;
+                    if (_vaultSlotRects[index].Contains(mousePosition) && index < GameProfile.Profile.Storage.Count)
+                    {
+                        _draggingItem = Items.Deserialize(GameProfile.Profile.Storage[index]);
+                        _draggingSource = new VaultDragSource(index);
+                        DragInProgress = true;
+                        return;
+                    }
                 }
             }
             return;

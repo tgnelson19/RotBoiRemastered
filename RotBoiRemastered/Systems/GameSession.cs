@@ -4036,11 +4036,25 @@ public sealed class GameSession
         return (points, tip, direction);
     }
 
-    public void DrawFooter(SpriteBatch spriteBatch, Point mousePosition) =>
-        FooterHud.Draw(spriteBatch, State, mousePosition, PathRun);
+    public void DrawFooter(SpriteBatch spriteBatch, Point mousePosition)
+    {
+        FooterHud.Draw(spriteBatch, State, mousePosition, PathRun,
+            PreferControllerPrompts, InformationSheet.DraggingItem);
+        InformationSheet.ConfigureLiveLootLayout(FooterHud.EquipmentSlotRects,
+            FooterHud.QuickLootSlotRects, FooterHud.QuickStashSlotRects);
+    }
 
     public FooterAction HandleFooterAction(Point mousePosition, bool mousePressed) =>
         FooterHud.HandleInput(State, mousePosition, mousePressed);
+
+    public bool HandleQuickLootInput(Point mousePosition, bool mouseDown, bool mousePressed)
+    {
+        InformationSheet.HandleLiveLootDrag(State, PlayerWorldCenter,
+            mousePosition, mouseDown, mousePressed);
+        QuickLootCommand? command = FooterHud.HandleQuickLootController(State);
+        return command is not null
+            && InformationSheet.QuickEquipLoot(State, command.LootIndex, command.EquipmentKey);
+    }
 
     public void DrawDossier(SpriteBatch spriteBatch, Point mousePosition, BountyInfo? bounty) =>
         InformationSheet.DrawDossier(

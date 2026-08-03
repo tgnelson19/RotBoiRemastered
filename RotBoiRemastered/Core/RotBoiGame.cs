@@ -343,6 +343,14 @@ public class RotBoiGame : Game
             && _previousGamePadState.Buttons.A == ButtonState.Released;
         InputState.ControllerBackPressed = gamePadState.Buttons.B == ButtonState.Pressed
             && _previousGamePadState.Buttons.B == ButtonState.Released;
+        InputState.ControllerDpadUpPressed = gamePadState.DPad.Up == ButtonState.Pressed
+            && _previousGamePadState.DPad.Up == ButtonState.Released;
+        InputState.ControllerDpadDownPressed = gamePadState.DPad.Down == ButtonState.Pressed
+            && _previousGamePadState.DPad.Down == ButtonState.Released;
+        InputState.ControllerDpadLeftPressed = gamePadState.DPad.Left == ButtonState.Pressed
+            && _previousGamePadState.DPad.Left == ButtonState.Released;
+        InputState.ControllerDpadRightPressed = gamePadState.DPad.Right == ButtonState.Pressed
+            && _previousGamePadState.DPad.Right == ButtonState.Released;
         int uiX = gamePadState.DPad.Left == ButtonState.Pressed ? -1
             : gamePadState.DPad.Right == ButtonState.Pressed ? 1
             : left.X < -.55f ? -1 : left.X > .55f ? 1 : 0;
@@ -456,6 +464,9 @@ public class RotBoiGame : Game
         var session = _session!;
         session.State.RunTimeSeconds += Math.Min(gameTime.ElapsedGameTime.TotalMilliseconds, 50) / 1000.0;
 
+        bool quickLootConsumed = session.HandleQuickLootInput(InputState.MousePosition,
+            InputState.MouseDown, InputState.MousePressed);
+
         var footerAction = session.HandleFooterAction(InputState.MousePosition, InputState.MousePressed);
         if (footerAction == FooterAction.OpenLevelUp && session.TryPurchaseLevelUp())
         {
@@ -473,11 +484,16 @@ public class RotBoiGame : Game
         session.RecordControllerActivity(
             InputState.ControllerMove != Vector2.Zero
             || InputState.ControllerAim != Vector2.Zero
-            || InputState.ControllerDashPressed
+            || quickLootConsumed
+            || InputState.ControllerDpadUpPressed
+            || InputState.ControllerDpadDownPressed
+            || InputState.ControllerDpadLeftPressed
+            || InputState.ControllerDpadRightPressed
             || InputState.ControllerAutofirePressed
             || InputState.ControllerInteractPressed);
         session.MovePlayer(moveLeft, moveRight, moveUp, moveDown,
-            Keybinds.Pressed("dash") || InputState.ControllerDashPressed, InputState.ControllerMove);
+            Keybinds.Pressed("dash") || (InputState.ControllerDashPressed && !quickLootConsumed),
+            InputState.ControllerMove);
 
         var mouseScreen = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
         bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
