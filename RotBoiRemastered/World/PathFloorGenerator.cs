@@ -269,7 +269,6 @@ public sealed class PathFloorLayout
     public IReadOnlyList<PathRoom> TreasureRooms { get; }
     public IReadOnlyList<PathRoom> MainRouteRooms { get; }
     public IReadOnlyList<PathRoom> RequiredRoomsBeforeBoss { get; }
-    public bool BossRouteUnlocked => RequiredRoomsBeforeBoss.All(room => room.IsCleared);
     public IReadOnlyList<PathDecoration> Decorations => Battleground.PathDecorations;
 
     public PathFloorLayout(Battleground battleground, IReadOnlyList<PathRoom> rooms,

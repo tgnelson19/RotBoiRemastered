@@ -18,26 +18,6 @@ namespace RotBoiRemastered.Tests.UI;
 public class InformationSheetTests
 {
     [Fact]
-    public void ArenaWidth_NeverExceeds42PercentOfScreen()
-    {
-        var sheet = new InformationSheet(800, 600);
-        Assert.True(800 - sheet.ArenaWidth <= 800 * .42);
-    }
-
-    [Fact]
-    public void ToggleTabDetails_DoesNotChangeArenaWidthOrTouchProfile()
-    {
-        var sheet = new InformationSheet(1920, 1080);
-        int before = sheet.ArenaWidth;
-        var profileBefore = GameProfile.Profile;
-
-        sheet.ToggleTabDetails();
-
-        Assert.Equal(before, sheet.ArenaWidth);
-        Assert.Same(profileBefore, GameProfile.Profile);
-    }
-
-    [Fact]
     public void ActiveTrackedQuests_ReturnsFourIncompleteQuestsClosestToCompletion()
     {
         var profile = new GameProfileData();
@@ -59,23 +39,6 @@ public class InformationSheetTests
         var quests = InformationSheet.ActiveTrackedQuests(new GameProfileData(), maximum: 2);
 
         Assert.Equal(2, quests.Count);
-    }
-
-    [Fact]
-    public void SyncLayout_SameSize_DoesNotChangeArenaWidth()
-    {
-        var sheet = new InformationSheet(1920, 1080);
-        int before = sheet.ArenaWidth;
-        sheet.SyncLayout(1920, 1080);
-        Assert.Equal(before, sheet.ArenaWidth);
-    }
-
-    [Fact]
-    public void SyncLayout_DifferentSize_RebuildsLayout()
-    {
-        var sheet = new InformationSheet(1920, 1080);
-        sheet.SyncLayout(800, 600);
-        Assert.True(sheet.ArenaWidth < 800);
     }
 
     private static RunState MakeState()

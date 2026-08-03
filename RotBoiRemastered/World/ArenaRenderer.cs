@@ -1468,10 +1468,14 @@ public sealed class ArenaRenderer
             return;
 
         float seed = tileX * .73f + tileY * 1.19f;
-        float pulse = WorldLighting.Flicker(visualTime, seed);
+        LightAnimationSample light = WorldLighting.SampleMotion(
+            visualTime,
+            seed,
+            WorldLighting.StyleForPath(themeKey),
+            activity);
         Vector2 window = Across(.5f, .45f);
         Color emissive = Color.Lerp(palette.Accent, palette.Detail, .55f)
-            * ((.35f + pulse * .45f) * activity);
+            * ((.35f + light.Intensity * .45f) * activity);
         switch (themeKey)
         {
             case "touch":
@@ -1504,7 +1508,7 @@ public sealed class ArenaRenderer
                 break;
             case "phantasia":
                 Primitives2D.FillCircle(spriteBatch, window,
-                    2f + pulse * 2f, emissive);
+                    2f + light.Halo * 2f, emissive);
                 Primitives2D.Line(spriteBatch, window - new Vector2(6, 0),
                     window + new Vector2(6, 0), emissive * .6f, 1);
                 break;
@@ -1608,7 +1612,12 @@ public sealed class ArenaRenderer
         float cx = center.X;
         float floorY = center.Y + Battleground.TileSize * .32f;
         float seed = decoration.Variant * 1.71f + decoration.RoomId * .37f;
-        float motion = .25f + .75f * visualIntensity;
+        float motion = Math.Clamp(visualIntensity, 0f, 1f);
+        LightAnimationSample light = WorldLighting.SampleMotion(
+            visualTime,
+            seed,
+            WorldLighting.StyleForDecoration(decoration.Kind),
+            motion);
         if (decoration.Kind == PathDecorationKind.LensBuoy)
             floorY += MathF.Round(MathF.Sin(visualTime * 1.5f + seed) * 3f * motion);
         int S(float value) => Math.Max(1, (int)MathF.Round(value * scale));
@@ -1894,6 +1903,61 @@ public sealed class ArenaRenderer
                 break;
         }
 
+        // These compact emissive cores share the exact deterministic sample
+        // used by the projected light pool. The fixture and its illumination
+        // therefore breathe as one object instead of reading as two effects.
+        Color synchronizedCore = palette.Detail
+            * Math.Clamp(light.Intensity * .88f, 0f, 1f);
+        switch (decoration.Kind)
+        {
+            case PathDecorationKind.Valve:
+                Primitives2D.FillCircle(spriteBatch, P(0, -23), S(2), synchronizedCore);
+                break;
+            case PathDecorationKind.Pump:
+                Primitives2D.FillCircle(spriteBatch, P(0, -8), S(3), synchronizedCore);
+                break;
+            case PathDecorationKind.PressureTank:
+                Primitives2D.FillCircle(spriteBatch, P(0, -25), S(2), synchronizedCore);
+                break;
+            case PathDecorationKind.LensBuoy:
+                Primitives2D.FillCircle(spriteBatch, P(0, -24), S(4), synchronizedCore);
+                break;
+            case PathDecorationKind.MirrorArch:
+                Primitives2D.Line(spriteBatch, P(-4, -31), P(5, -10),
+                    synchronizedCore, S(2));
+                break;
+            case PathDecorationKind.EchoPylon:
+                Primitives2D.FillCircle(spriteBatch, P(0, -24), S(3), synchronizedCore);
+                break;
+            case PathDecorationKind.Chime:
+                for (int chime = -1; chime <= 1; chime++)
+                {
+                    Primitives2D.FillCircle(spriteBatch,
+                        P(chime * 9, -8 - Math.Abs(chime) * 7),
+                        S(2), synchronizedCore);
+                }
+                break;
+            case PathDecorationKind.LightningRod:
+                Primitives2D.FillCircle(spriteBatch, P(0, -46), S(3), synchronizedCore);
+                break;
+            case PathDecorationKind.OrganStack:
+                Primitives2D.FillCircle(spriteBatch, P(0, -34), S(3), synchronizedCore);
+                break;
+            case PathDecorationKind.PrismObelisk:
+                Primitives2D.FillCircle(spriteBatch, P(0, -26), S(3), synchronizedCore);
+                break;
+            case PathDecorationKind.OrbitShrine:
+                Primitives2D.FillCircle(spriteBatch, P(0, -22), S(6), synchronizedCore);
+                break;
+            case PathDecorationKind.LanternSpire:
+                Primitives2D.FillCircle(spriteBatch, P(0, -29), S(4), synchronizedCore);
+                break;
+            case PathDecorationKind.FurnaceIdol:
+                Primitives2D.FillRect(spriteBatch, Rect(-5, -13, 10, 7),
+                    palette.Accent * Math.Clamp(light.Intensity * .92f, 0f, 1f));
+                break;
+        }
+
         float activity = visualIntensity * (.35f + roomEnergy * .65f);
         if (activity <= 0)
             return;
@@ -1986,9 +2050,9 @@ public sealed class ArenaRenderer
                 }
             case PathDecorationKind.LanternSpire:
                 {
-                    float pulse = .5f + .5f * MathF.Sin(visualTime * 2.5f + seed);
                     Primitives2D.CircleOutline(spriteBatch, P(0, -29),
-                        S(12 + pulse * 5), palette.Accent * (.2f + pulse * .42f),
+                        S(12 + light.Halo * 5),
+                        palette.Accent * Math.Clamp(.2f + light.Halo * .32f, 0f, .62f),
                         S(2), 20);
                     break;
                 }
@@ -2006,15 +2070,11 @@ public sealed class ArenaRenderer
                 break;
             case PathDecorationKind.FurnaceIdol:
                 {
-                    float pulse = .55f + .45f * MathF.Sin(
-                        visualTime * (2.1f + roomEnergy) + seed);
                     Primitives2D.FillRect(spriteBatch, Rect(-5, -13, 10, 7),
-                        palette.Accent * (.52f + pulse * .42f));
-                    if (pulse > .82f)
-                    {
-                        Primitives2D.FillRect(spriteBatch, Rect(-2, -20, 4, 4),
-                            palette.Detail * .72f);
-                    }
+                        palette.Accent * Math.Clamp(light.Intensity * .88f, 0f, 1f));
+                    float ember = Math.Clamp((light.Halo - .88f) / .24f, 0f, 1f);
+                    Primitives2D.FillRect(spriteBatch, Rect(-2, -20, 4, 4),
+                        palette.Detail * (ember * .72f));
                     break;
                 }
         }

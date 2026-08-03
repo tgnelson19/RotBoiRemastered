@@ -7,149 +7,184 @@ using RotBoiRemastered.Systems;
 
 namespace RotBoiRemastered.UI;
 
-/// <summary>What HandleInput determined should happen, matching MenuAction's return-a-result shape.</summary>
 public enum TitleAction { None, EnterSoul, Settings, Quit }
 
-/// <summary>
-/// The title screen: entry point, field manual, best-run tag. Ported from
-/// character.py's runTheTitleScreen() (one big function in Python too -- no
-/// separate helpers to extract). Follows Menus.cs's shape (Draw/HandleInput
-/// pair, no module globals) rather than mutating state directly -- the
-/// caller (Core/RotBoiGame.cs) is responsible for actually activating a path
-/// and constructing/resetting a GameSession.
-///
-/// Every run now begins in The Soul. Its five outer portals own individual
-/// sense runs while the convergence portal owns the randomized composite
-/// Path, keeping all run choices in the authored world instead of this menu.
-///
-/// Dropped vs. Python: the best-run tag reads GameProfile.Profile.BestLevel/
-/// BestKills directly rather than `max(cS.highestLevel, profile["best_level"])`
-/// -- GameProfile.RecordRun already updates BestLevel synchronously on every
-/// defeat/completion, so the profile value is never stale by the time this
-/// screen is shown again; there's no live "current session" value that could
-/// ever exceed it here.
-/// </summary>
+/// <summary>A quiet threshold into the Soul; detailed controls live in Settings.</summary>
 public sealed class TitleScreen
 {
     private readonly PresentationClock _presentationClock = new();
+    private readonly UiFocusNavigator _focus = new();
     private Rectangle _soulButton;
     private Rectangle _settingsButton;
+    private Rectangle _quitButton;
+    private Rectangle _confirmCancel;
+    private Rectangle _confirmQuit;
+    private bool _quitConfirmation;
 
     public void AdvancePresentation(double seconds) =>
         _presentationClock.Advance(seconds);
 
-    private static void DrawGrid(SpriteBatch spriteBatch, int screenWidth, int screenHeight)
+    public void Draw(SpriteBatch spriteBatch, int screenWidth, int screenHeight,
+        Point mouse, bool mouseDown)
     {
-        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight), UiTheme.Void);
-        int grid = Math.Max(28, Math.Min(screenWidth, screenHeight) / 28);
-        var gridColor = new Color(23, 27, 35);
-        for (int x = 0; x < screenWidth; x += grid)
-            Primitives2D.Line(spriteBatch, new Vector2(x, 0), new Vector2(x, screenHeight), gridColor, 1);
-        for (int y = 0; y < screenHeight; y += grid)
-            Primitives2D.Line(spriteBatch, new Vector2(0, y), new Vector2(screenWidth, y), gridColor, 1);
-    }
+        float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
+        float animation = (float)(_presentationClock.Seconds
+            * GameProfile.Profile.VisualEffectsIntensity);
+        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight),
+            UiTheme.Void);
 
-    public void Draw(SpriteBatch spriteBatch, int screenWidth, int screenHeight, Point mousePosition, bool mouseDown)
-    {
-        DrawGrid(spriteBatch, screenWidth, screenHeight);
+        int margin = Math.Max(10, (int)(20 * scale));
+        var frame = new Rectangle(margin, margin, screenWidth - margin * 2,
+            screenHeight - margin * 2);
+        UiTheme.DrawCompositePanel(spriteBatch, frame, animation,
+            new Color(9, 11, 16), UiTheme.Border, 8);
 
-        float scale = Math.Min(screenWidth, screenHeight);
-        UiTheme.DrawSoulRose(
-            spriteBatch,
-            new Vector2(screenWidth / 2f, screenHeight * .19f),
-            scale * .14f,
-            _presentationClock.Seconds,
-            .62f,
-            GameProfile.Profile.PathMastery);
-        // Text sizes below (scale * .095, etc.) already pick up TextSize
-        // through UiTheme.Font internally. Layout (button/panel widths,
-        // heights, gaps) only ever scaled with GuiScale via uiScale --
-        // DrawButton's own shrink-to-fit loop has a floor (raw size 9) that
-        // still renders far too wide once a high TextSize multiplies it, so
-        // without growing the boxes too, a long button label could overlap
-        // its own border well before the text could shrink enough to fit.
-        // uiScale now folds in the same growth-only factor
-        // InformationSheet.TextGrowthFactor uses, so layout keeps pace with
-        // whatever TextSize the text itself is already rendering at. The
-        // extra headroom factor is capped well below MaxTextScale (2.0) --
-        // DisplayScale already folds in GuiScale (up to 1.3x), and at max
-        // GuiScale *and* max TextSize the two multiplied together (2.6x)
-        // pushed the whole stack past the bottom of the screen. Capping
-        // the headroom side of that product keeps both sliders maxed out
-        // simultaneously from overflowing.
-        float uiScale = UiTheme.DisplayScale(screenWidth, screenHeight) * (float)Math.Max(1.0, Math.Min(1.3, UiTheme.TextScaleMultiplier()));
-        float contentWidth = Math.Min(screenWidth * .68f, 980 * uiScale);
-        float left = (screenWidth - contentWidth) / 2f;
-        // Free-floating title/subtitle/tagline text has no container to grow
-        // with it, so a high TextSize can make one line's rendered height
-        // alone exceed the fixed gap to the next fraction-of-screen-height
-        // anchor below it. Math.Max(originalFraction, previousBottom + gap)
-        // falls back to that measured bottom only once it would actually
-        // overlap -- at default TextSize this is always the original
-        // fraction (unchanged from before), so nothing shifts for anyone
-        // who hasn't touched the slider. Capped on the high end too (at
-        // roughly double its floor) so the cascade itself can't compound
-        // into an overflow no matter how large uiScale gets.
-        float gap = Math.Min(8 * uiScale, screenHeight * .018f);
-        var titleRect = UiTheme.DrawText(spriteBatch, "ROTBOI", scale * .095, UiTheme.Text, new Vector2(screenWidth / 2f, screenHeight * .12f), "midtop");
-        float subtitleY = Math.Max(screenHeight * .245f, titleRect.Bottom + gap);
-        var subtitleRect = UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", scale * .026, UiTheme.Cream, new Vector2(screenWidth / 2f, subtitleY), "midtop");
-        float taglineY = Math.Max(screenHeight * .305f, subtitleRect.Bottom + gap);
-        var taglineRect = UiTheme.DrawText(spriteBatch, "EVERY PATH BEGINS IN THE SOUL.", scale * .019, UiTheme.Muted, new Vector2(screenWidth / 2f, taglineY), "midtop");
+        float min = Math.Min(screenWidth, screenHeight);
+        float roseRadius = Math.Clamp(min * .11f, 30, 110);
+        var roseCenter = new Vector2(screenWidth / 2f,
+            Math.Max(frame.Y + roseRadius + 12 * scale, screenHeight * .22f));
+        UiTheme.DrawSoulRose(spriteBatch, roseCenter, roseRadius, animation,
+            .68f, GameProfile.Profile.PathMastery);
 
-        // The title screen is deliberately only a threshold now. Direct sense
-        // and composite choices both happen at physical portals in The Soul.
-        float soulButtonY = Math.Max(screenHeight * .5f, taglineRect.Bottom + gap * 4);
-        float soulButtonHeight = Math.Min(Math.Max(58 * uiScale, scale * .068f), scale * .098f);
-        _soulButton = new Rectangle((int)(left + contentWidth * .22f), (int)soulButtonY,
-            (int)(contentWidth * .56f), (int)soulButtonHeight);
-        UiTheme.DrawButton(spriteBatch, _soulButton, "ENTER THE SOUL", mousePosition, mouseDown, true,
-            UiTheme.Purple, "SPACE / F / ENTER", (int)(scale * .019f));
+        float titleY = roseCenter.Y + roseRadius * .78f;
+        Rectangle title = UiTheme.DrawText(spriteBatch, "ROTBOI", min * .076,
+            UiTheme.Text, new Vector2(screenWidth / 2f, titleY), "midtop");
+        UiTheme.DrawText(spriteBatch, "R E M A S T E R E D", min * .019,
+            UiTheme.Cream, new Vector2(screenWidth / 2f, title.Bottom + 3 * scale),
+            "midtop");
 
-        float settingsButtonY = Math.Max(screenHeight * .615f, soulButtonY + soulButtonHeight + gap * 2);
-        _settingsButton = new Rectangle((int)(left + contentWidth * .35f), (int)settingsButtonY,
-            (int)(contentWidth * .30f), (int)Math.Min(Math.Max(42 * uiScale, scale * .052f), scale * .078f));
-        UiTheme.DrawButton(spriteBatch, _settingsButton, "SETTINGS", mousePosition, mouseDown, true,
-            UiTheme.Blue, null, (int)(scale * .014f));
+        float width = Math.Min(screenWidth * .52f, 540 * scale);
+        width = Math.Max(210, width);
+        int buttonHeight = Math.Max(34, (int)(52 * scale));
+        int gap = Math.Max(6, (int)(9 * scale));
+        int firstY = Math.Max((int)(screenHeight * .53f), title.Bottom + (int)(34 * scale));
+        int left = (screenWidth - (int)width) / 2;
+        _soulButton = new Rectangle(left, firstY, (int)width, buttonHeight);
+        int smallWidth = ((int)width - gap) / 2;
+        _settingsButton = new Rectangle(left, _soulButton.Bottom + gap,
+            smallWidth, buttonHeight);
+        _quitButton = new Rectangle(_settingsButton.Right + gap,
+            _settingsButton.Y, smallWidth, buttonHeight);
 
-        float controlsY = Math.Max(screenHeight * .665f, _settingsButton.Bottom + gap * 3);
-        var controlsRect = new Rectangle((int)left, (int)controlsY, (int)contentWidth,
-            (int)Math.Min(Math.Max(116 * uiScale, screenHeight * .15f), screenHeight * .21f));
-        UiTheme.DrawLivingPanel(
-            spriteBatch, controlsRect, "sound", _presentationClock.Seconds,
-            UiTheme.Panel, UiTheme.Border, shadow: 6, composite: true);
-        UiTheme.DrawText(spriteBatch, "FIELD MANUAL", scale * .018, UiTheme.Text,
-            new Vector2(controlsRect.X + 18 * uiScale, controlsRect.Y + 14 * uiScale));
-        var controls = new[] { ("WASD", "MOVE"), ("MOUSE", "AIM + FIRE"), ("SPACE", "DASH"), ("Q / E", "ROTATE"), ("I", "AUTOFIRE") };
-        float cellWidth = (controlsRect.Width - 36 * uiScale) / controls.Length;
-        for (int index = 0; index < controls.Length; index++)
-        {
-            var (key, action) = controls[index];
-            float centerX = controlsRect.X + 18 * uiScale + cellWidth * (index + .5f);
-            int keyWidth = (int)Math.Min(82 * uiScale, cellWidth - 12 * uiScale);
-            var keyRect = new Rectangle((int)(centerX - keyWidth / 2f), (int)(controlsRect.Center.Y - 3 - 17 * uiScale), keyWidth, (int)(34 * uiScale));
-            Primitives2D.FillRect(spriteBatch, keyRect, UiTheme.Ink);
-            Primitives2D.RectOutline(spriteBatch, keyRect, UiTheme.Blue, 2);
-            UiTheme.DrawText(spriteBatch, key, scale * .014, UiTheme.Blue, new Vector2(keyRect.Center.X, keyRect.Center.Y), "center");
-            UiTheme.DrawText(spriteBatch, action, scale * .011, UiTheme.Muted, new Vector2(centerX, keyRect.Bottom + 11 * uiScale), "midtop");
-        }
+        _focus.BeginFrame();
+        _focus.Register("soul", _soulButton);
+        _focus.Register("settings", _settingsButton);
+        _focus.Register("quit", _quitButton);
+        DrawButton(spriteBatch, "soul", _soulButton, "ENTER THE SOUL", mouse,
+            mouseDown, UiTheme.Purple, "ENTER", 13 * scale);
+        DrawButton(spriteBatch, "settings", _settingsButton, "SETTINGS", mouse,
+            mouseDown, UiTheme.Blue, null, 10 * scale);
+        DrawButton(spriteBatch, "quit", _quitButton, "QUIT", mouse,
+            mouseDown, UiTheme.Red, null, 10 * scale);
 
         int bestLevel = GameProfile.Profile.BestLevel;
-        string recordLabel = bestLevel <= 0 ? "NO RUNS LOGGED" : $"BEST RUN  //  LEVEL {bestLevel:D2}  //  {GameProfile.Profile.BestKills} KILLS";
-        UiTheme.DrawTag(spriteBatch, recordLabel, new Vector2(left, screenHeight * .87f), bestLevel > 0 ? UiTheme.Gold : UiTheme.Border, scale * .012);
-        UiTheme.DrawText(spriteBatch, "SPACE / F / ENTER  ENTER THE SOUL    ESC  QUIT", scale * .012, UiTheme.Muted,
-            new Vector2(left + contentWidth, screenHeight * .875f), "topright");
+        string best = bestLevel <= 0 ? "NO RUNS LOGGED" :
+            $"BEST RUN  //  LEVEL {bestLevel:D2}  //  {GameProfile.Profile.BestKills} KILLS";
+        UiTheme.DrawText(spriteBatch, best, 8 * scale,
+            bestLevel > 0 ? UiTheme.Gold : UiTheme.Muted,
+            new Vector2(screenWidth / 2f,
+                Math.Min(frame.Bottom - 12 * scale, _settingsButton.Bottom + 24 * scale)),
+            "midtop");
+
+        if (_quitConfirmation)
+            DrawQuitConfirmation(spriteBatch, frame, mouse, mouseDown, scale, animation);
     }
 
-    public TitleAction HandleInput(IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed)
+    private void DrawButton(SpriteBatch spriteBatch, string id, Rectangle rect,
+        string label, Point mouse, bool mouseDown, Color accent, string? hint,
+        double size)
     {
-        if (keysPressed.Contains(Keys.Space) || keysPressed.Contains(Keys.F) || keysPressed.Contains(Keys.Enter)
-            || (_soulButton.Contains(mousePosition) && mousePressed))
-            return TitleAction.EnterSoul;
-        if (_settingsButton.Contains(mousePosition) && mousePressed)
-            return TitleAction.Settings;
-        if (keysPressed.Contains(Keys.Escape))
-            return TitleAction.Quit;
+        UiTheme.DrawButton(spriteBatch, rect, label, mouse, mouseDown, true,
+            accent, hint, size);
+        if (_focus.IsFocused(id))
+            Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, 2);
+    }
+
+    private void DrawQuitConfirmation(SpriteBatch spriteBatch, Rectangle frame,
+        Point mouse, bool mouseDown, float scale, float animation)
+    {
+        Primitives2D.FillRect(spriteBatch, frame, new Color(0, 0, 0, 190));
+        int width = Math.Min(frame.Width - 20, Math.Max(240, (int)(410 * scale)));
+        int height = Math.Min(frame.Height - 20, Math.Max(130, (int)(165 * scale)));
+        var modal = new Rectangle(frame.Center.X - width / 2,
+            frame.Center.Y - height / 2, width, height);
+        UiTheme.DrawCompositePanel(spriteBatch, modal, animation,
+            UiTheme.PanelRaised, UiTheme.Red, 8);
+        UiTheme.DrawText(spriteBatch, "QUIT THE GAME?", 16 * scale, UiTheme.Text,
+            new Vector2(modal.Center.X, modal.Y + 20 * scale), "midtop");
+        UiTheme.DrawText(spriteBatch, "Your profile will be saved before closing.",
+            8 * scale, UiTheme.Muted,
+            new Vector2(modal.Center.X, modal.Y + 52 * scale), "midtop");
+        int pad = Math.Max(8, (int)(12 * scale));
+        int h = Math.Max(34, (int)(44 * scale));
+        _confirmCancel = new Rectangle(modal.X + pad, modal.Bottom - pad - h,
+            (modal.Width - pad * 3) / 2, h);
+        _confirmQuit = new Rectangle(_confirmCancel.Right + pad, _confirmCancel.Y,
+            _confirmCancel.Width, h);
+        UiTheme.DrawButton(spriteBatch, _confirmCancel, "CANCEL", mouse, mouseDown,
+            true, UiTheme.Border, null, 9 * scale);
+        UiTheme.DrawButton(spriteBatch, _confirmQuit, "QUIT", mouse, mouseDown,
+            true, UiTheme.Red, null, 9 * scale);
+    }
+
+    public TitleAction HandleInput(IReadOnlySet<Keys> keysPressed, Point mouse,
+        bool mousePressed)
+    {
+        if (_quitConfirmation)
+        {
+            if (keysPressed.Contains(Keys.Escape) || InputState.ControllerBackPressed
+                || mousePressed && _confirmCancel.Contains(mouse))
+            {
+                _quitConfirmation = false;
+                return TitleAction.None;
+            }
+            if (keysPressed.Contains(Keys.Enter) || InputState.ControllerConfirmPressed
+                || mousePressed && _confirmQuit.Contains(mouse))
+            {
+                _quitConfirmation = false;
+                return TitleAction.Quit;
+            }
+            return TitleAction.None;
+        }
+
+        string? hovered = _focus.At(mouse);
+        if (mousePressed && hovered is not null) _focus.Focus(hovered);
+        bool up = InputState.UiUpPressed || keysPressed.Contains(Keys.Up)
+            || keysPressed.Contains(Keys.W);
+        bool down = InputState.UiDownPressed || keysPressed.Contains(Keys.Down)
+            || keysPressed.Contains(Keys.S);
+        bool left = InputState.UiLeftPressed || keysPressed.Contains(Keys.Left)
+            || keysPressed.Contains(Keys.A);
+        bool right = InputState.UiRightPressed || keysPressed.Contains(Keys.Right)
+            || keysPressed.Contains(Keys.D);
+        if (up) _focus.Move(0, -1);
+        if (down) _focus.Move(0, 1);
+        if (left) _focus.Move(-1, 0);
+        if (right) _focus.Move(1, 0);
+
+        if (keysPressed.Contains(Keys.Escape) || InputState.ControllerBackPressed)
+        {
+            _quitConfirmation = true;
+            return TitleAction.None;
+        }
+        if (keysPressed.Contains(Keys.F)) return TitleAction.EnterSoul;
+
+        bool confirm = keysPressed.Contains(Keys.Enter) || keysPressed.Contains(Keys.Space)
+            || InputState.ControllerConfirmPressed || mousePressed;
+        if (!confirm) return TitleAction.None;
+        string? activated = mousePressed ? hovered : _focus.FocusedId ?? "soul";
+        return activated switch
+        {
+            "soul" => TitleAction.EnterSoul,
+            "settings" => TitleAction.Settings,
+            "quit" => OpenQuitConfirmation(),
+            _ => TitleAction.None,
+        };
+    }
+
+    private TitleAction OpenQuitConfirmation()
+    {
+        _quitConfirmation = true;
         return TitleAction.None;
     }
 }

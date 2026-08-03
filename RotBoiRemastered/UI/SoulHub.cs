@@ -193,9 +193,6 @@ public sealed class SoulHub
         session.Player.SetAnimatedPosition(center.X - half, center.Y - half);
     }
 
-    /// <summary>True while the carried-loadout sidebar (right side, same style/drag as gameplay) should be visible -- free-roam or the Vault open, not while browsing the other three stations.</summary>
-    private bool SidebarShown => _overlay is null || _overlay == "storage";
-
     /// <summary>
     /// Returns the GamePaths key of a portal whose entry animation just
     /// finished (caller starts a run there), or null. A bare F near a portal
@@ -241,6 +238,19 @@ public sealed class SoulHub
         }
         if (_overlay is not null)
         {
+            if (_overlay == "storage")
+            {
+                bool handled = session.HandleLoadoutNavigation(keysPressed,
+                    _vaultSlotRects, dossier: false);
+                if (handled)
+                    return null;
+                if (InputState.ControllerBackPressed)
+                {
+                    _overlay = null;
+                    session.InformationSheet.CancelDrag();
+                    return null;
+                }
+            }
             bool walkedAway = !_stationWorld.TryGetValue(_overlay, out var station)
                 || !WithinStationRadius(session.PlayerWorldCenter, station, StationCloseRadiusTiles);
             if (keysPressed.Contains(Keys.F) || walkedAway)
@@ -267,14 +277,10 @@ public sealed class SoulHub
                     _overlay = nearby;
             }
         }
-        if (SidebarShown)
+        if (_overlay == "storage")
         {
-            // _vaultSlotRects only gets refreshed while the Vault panel is actually drawn
-            // (DrawVault, gated on _overlay == "storage") -- pass an empty list otherwise,
-            // or a stale rect from a since-closed Vault could still register a pick-up in
-            // free-roam, over a spot nothing is being drawn anymore.
-            var vaultSlotRects = _overlay == "storage" ? _vaultSlotRects : (IReadOnlyList<Rectangle>)Array.Empty<Rectangle>();
-            session.HandleCarriedLoadoutDrag(mouse, mouseDown, mousePressed, vaultSlotRects);
+            session.HandleCarriedLoadoutDrag(mouse, mouseDown, mousePressed,
+                _vaultSlotRects);
         }
         if (!mousePressed)
             return null;
@@ -834,12 +840,8 @@ public sealed class SoulHub
         DrawNearbyPrompt(spriteBatch, session);
         if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
         if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session, mouse, mouseDown);
-        // Drawn last so the dragged-item icon (part of this call, see
-        // InformationSheet.DrawCarriedLoadout) always renders on top, wherever the
-        // cursor currently is -- including over the Vault panel drawn just above.
-        if (SidebarShown)
-            session.DrawCarriedLoadout(
-                spriteBatch, mouse, (float)_seconds);
+        if (_overlay is null && _confirmingPortalKey is null)
+            session.DrawSoulFooter(spriteBatch, mouse, (float)_seconds);
         // Absolute last: once committed, the fade must cover everything above
         // (sidebar included) so the ResetAll scene swap underneath is never visible.
         if (_enteringPortalKey is not null) DrawPortalFade(spriteBatch, session);
@@ -1114,18 +1116,39 @@ public sealed class SoulHub
         int screenWidth = session.ScreenWidth, screenHeight = session.ScreenHeight;
         if (_overlay == "storage")
         {
-            // Bounded to the arena (left of the sidebar), a separate interface from the
-            // always-visible carried-loadout sidebar on the right -- see DrawWorld/
-            // SidebarShown. Doesn't darken/cover the sidebar, so it stays legible and
-            // draggable while the Vault is open.
-            int arenaWidth = session.InformationSheet.ArenaWidth;
-            Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, arenaWidth, screenHeight), UiTheme.Void * .94f);
-            var vaultPanel = new Rectangle((int)(arenaWidth * .07f), (int)(screenHeight * .12f),
-                (int)(arenaWidth * .55f), (int)(screenHeight * .72f));
+            Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight), UiTheme.Void * .94f);
+            int margin = Math.Max(Px(8),
+                (int)(Math.Min(screenWidth, screenHeight) * .045f));
+            int gap = Math.Max(Px(7), margin / 3);
+            var workspace = new Rectangle(margin, margin,
+                screenWidth - margin * 2, screenHeight - margin * 2);
+            bool stack = screenWidth < 900
+                || workspace.Width < workspace.Height * 1.25f;
+            Rectangle vaultPanel;
+            Rectangle loadoutPanel;
+            if (stack)
+            {
+                int topHeight = (workspace.Height - gap) / 2;
+                vaultPanel = new Rectangle(workspace.X, workspace.Y,
+                    workspace.Width, topHeight);
+                loadoutPanel = new Rectangle(workspace.X, vaultPanel.Bottom + gap,
+                    workspace.Width, workspace.Bottom - vaultPanel.Bottom - gap);
+            }
+            else
+            {
+                int leftWidth = (workspace.Width - gap) / 2;
+                vaultPanel = new Rectangle(workspace.X, workspace.Y,
+                    leftWidth, workspace.Height);
+                loadoutPanel = new Rectangle(vaultPanel.Right + gap, workspace.Y,
+                    workspace.Right - vaultPanel.Right - gap, workspace.Height);
+            }
+            session.BeginLoadoutFocus();
             SoulVisualRenderer.DrawOverlayFrame(
                 spriteBatch, vaultPanel, "storage", UiTheme.Gold);
-            DrawVault(spriteBatch, vaultPanel, mouse);
+            DrawVault(spriteBatch, vaultPanel, mouse, session);
             if (_tooltip is not null) DrawTooltip(spriteBatch, mouse, vaultPanel);
+            session.DrawSoulLoadoutPanel(spriteBatch, loadoutPanel, mouse,
+                (float)_seconds);
             return;
         }
 
@@ -1149,15 +1172,14 @@ public sealed class SoulHub
     private static string TimeLabel(double seconds) => $"{(int)seconds / 60:00}:{(int)seconds % 60:00}";
 
     /// <summary>
-    /// Safe, permanent, MetaProgression.StorageCapacity-limited -- a separate interface
-    /// from the carried-loadout sidebar (session.DrawCarriedLoadout, the same style/hub
-    /// layout as a real run's sidebar, drawn on the right by DrawWorld). Drag items
-    /// between the two; the drag itself lives in InformationSheet (see its
+    /// Safe, permanent, MetaProgression.StorageCapacity-limited storage. Drag items
+    /// between it and the paired carried-loadout panel; the drag itself lives in InformationSheet (see its
     /// VaultDragSource), fed this panel's slot rects via
     /// GameSession.HandleCarriedLoadoutDrag -- there's no click-to-stage step anymore,
     /// what's in your sidebar *is* what you're bringing into your next run, live.
     /// </summary>
-    private void DrawVault(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
+    private void DrawVault(SpriteBatch spriteBatch, Rectangle panel, Point mouse,
+        GameSession session)
     {
         UiTheme.DrawText(spriteBatch, "VAULT RELIQUARY", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
         UiTheme.DrawText(spriteBatch, "SAFE MEMORY  //  DRAG RELICS TO AND FROM YOUR INVENTORY", Fs(9), UiTheme.Gold,
@@ -1170,8 +1192,14 @@ public sealed class SoulHub
         for (int index = 0; index < MetaProgression.StorageCapacity; index++)
         {
             int column = index % vaultColumns, row = index / vaultColumns;
-            var rect = new Rectangle(vaultLeft + column * (slotSize + gap), vaultTop + row * (slotSize + gap), slotSize, slotSize);
-            _vaultSlotRects.Add(rect);
+            _vaultSlotRects.Add(new Rectangle(
+                vaultLeft + column * (slotSize + gap),
+                vaultTop + row * (slotSize + gap), slotSize, slotSize));
+        }
+        session.RegisterVaultFocus(_vaultSlotRects);
+        for (int index = 0; index < MetaProgression.StorageCapacity; index++)
+        {
+            Rectangle rect = _vaultSlotRects[index];
             Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
             Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Border, Px(2));
             if (index >= GameProfile.Profile.Storage.Count) continue;
@@ -1180,6 +1208,8 @@ public sealed class SoulHub
             ItemCards.DrawItemCard(
                 spriteBatch, rect, drop, rect.Contains(mouse), (float)_seconds);
             if (rect.Contains(mouse)) _tooltip = $"{drop.Rarity} {drop.Name}  //  Drag to your inventory to carry it into a run.";
+            if (session.IsLoadoutFocused($"vault:{index}"))
+                Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, Px(2));
         }
         int vaultRows = (MetaProgression.StorageCapacity + vaultColumns - 1) / vaultColumns;
         UiTheme.DrawText(spriteBatch, $"{GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", Fs(9), UiTheme.Muted,

@@ -58,9 +58,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   `levelingHandler.py`'s `_projected_value`/`_recommendation` and
   `menus.py`'s `draw_results` read `cS.*` fields directly -- but
   `characterStats.py` isn't ported yet (see "Explicitly deferred" below), so
-  `LevelUpStatSnapshot` and `RunResultsSnapshot` carry exactly the fields
-  each screen needs, built by whatever eventually owns real run state. Same
-  pattern as `Entities/EnemyUpdateContext`.
+  `LevelUpStatSnapshot` carries the leveling projection fields, while the
+  immutable `RunResultReport` captures the complete debrief and exact reward
+  deltas once at finalization. Same pattern as `Entities/EnemyUpdateContext`.
 - **`MenuAction` enum replaces direct `vH.state = ...` assignment.**
   `handle_pause`/`handle_results` return what the caller should do
   (`Resume`/`Restart`/`ReturnToTitle`/`None`) instead of mutating a state
@@ -71,10 +71,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   stateful module ported so far: `menus.py`'s `_buttons`/`_settings_tab`/
   `_rebinding_action` are fields on `Menus`; `levelingHandler.py`'s mutable
   attributes are fields on `LevelingHandler`.
-- The Options grid includes a persisted 30-360 FPS slider (five-FPS steps) and
-  Vertical Sync toggle alongside the existing display, scale, text, and camera
-  controls. Frame-cap changes apply immediately; VSync changes reconcile the
-  graphics device once.
+- The settings-first pause overlay uses a fixed category rail, one scrollable
+  page, and a separate session-action rail. Display changes apply immediately;
+  destructive session actions require confirmation.
 - **Mouse position/state are explicit method parameters** on every
   `Menus`/`LevelingHandler` draw/input method (matching `UiTheme.DrawButton`'s
   existing shape) rather than reads of `vH.mouseX`/`mouseY`/`mouseDown`.
@@ -91,45 +90,31 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   `_sync_legacy_fields` (a "keep old attribute names working while callers
   migrate" shim with nothing left in this codebase to migrate).
 
-## InformationSheet.cs
+## FooterHud.cs and InformationSheet.cs
 
 - Takes `Systems.RunState` directly (see Systems/README.md) rather than a
-  purpose-built snapshot type like `LevelUpStatSnapshot`/`RunResultsSnapshot`
+  purpose-built snapshot type like `LevelUpStatSnapshot`/`RunResultReport`
   -- it reads nearly RunState's entire surface area (equipment, loot crates,
   combat stats, encounter pressure, upgrade history...), so a snapshot would
   just duplicate every field. This was the reason the file was deferred in
   the first place (paired with "how does Player.cs's data model work");
   now that `RunState`/`GameSession` exist, that pairing is resolved.
-- **Draw/hit-rects vs. drag-resolution split, same shape as
-  `LevelingHandler.DrawCards`/`PlayerClicked`.** Python's `drawSheet()` +
-  `_handle_equipment_drag()` combined drawing, hit-rect population,
-  drag-press capture, drag-release resolution, and the cursor-following
-  drag icon into one call. Split into `DrawSheet` (draws every panel,
-  refreshes this frame's equipment/loot-slot hit rects, draws the dragged
-  icon or the tooltip) and `HandleDrag` (press capture / release
-  resolution against those hit rects) -- call `DrawSheet` first every
-  frame, then `HandleDrag`, exactly like `LevelingHandler`. One accepted,
-  purely cosmetic difference from Python noted in the class doc comment:
-  on the exact frame a drag is captured, Python suppresses the tooltip and
-  starts drawing the dragged icon that same frame; here it lags by one
-  frame since `HandleDrag` hasn't run yet when `DrawSheet` checks.
+- `FooterHud` is the only persistent run HUD: health/dash, five read-only
+  equipment slots, fragments, three normalized profile-selected stats, and
+  the full XP/level action. It overlays the full combat viewport and exposes
+  a footer-safe rectangle for other combat overlays.
+- `InformationSheet` owns the paused, scrollable dossier and shared loadout
+  transfer rules. The same equipment/stash interaction is reused beside the
+  Soul Vault, including keyboard/controller confirm-to-pick/place and Back
+  cancellation.
 - **`DragSource` record hierarchy** (`EquipmentDragSource`/`CrateDragSource`)
   replaces Python's tagged tuple (`("equipment", key)` /
   `("crate", crate, index)`).
-- **Camera re-centering is `GameSession`'s job, not this class's.**
-  Python's `_sync_layout`/`toggle_mode` set `bG.lockX = self.arena_width / 2`
-  directly (informationSheet.py owning a background.py global). Camera
-  isn't visible from `InformationSheet`, and `GameSession` already owns it,
-  so `GameSession`'s constructor/`Resize`/`ResetAll` do the re-centering
-  using `InformationSheet.ArenaWidth` instead.
-- **The old compact/expanded `HudMode` is gone.** The sidebar is a single
-  fixed width now; build identity is part of its compact run-summary header,
-  keeping guidance out of the camera view. Weapon stats, active/all quest
-  progress, and cosmetic configuration are optional sections in a persisted
-  Tab-toggled details view (`DrawTabDetails`/`ToggleTabDetails`) instead of
-  always occupying sidebar space. `GameSession.ToggleTabDetails` (renamed
-  from `ToggleHudMode`) just forwards to it now -- no more `ArenaWidth`
-  change to re-center the camera for.
+- **Camera re-centering is full-screen.** Construction, reset, resize,
+  fullscreen changes, and Path-floor installation all lock against the full
+  viewport. No sidebar-width dependency remains.
+- The old `HudMode`, fixed sidebar, and configurable live Tab sections are
+  gone. Tab/View opens the paused dossier; cosmetics remain in the Soul.
 - **No implicit per-frame `_sync_layout()` self-check** -- `SyncLayout` is
   called explicitly from `GameSession.Resize`, matching
   `LevelingHandler.UpdateLayout`'s existing contract instead of re-deriving

@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -13,6 +14,7 @@ public class DamageTextTests
     [Fact]
     public void Update_FlagsForDeletion_OnceLifetimeExpires()
     {
+        Simulation.ResetForTests();
         var text = new DamageText(0, 0, Color.White, 42, 20, lifetimeFrames: 4);
         Assert.False(text.DeleteMe);
         text.Update();

@@ -60,15 +60,15 @@ public class MenusTests : IDisposable
     }
 
     [Fact]
-    public void HandlePause_Q_ReturnsReturnToTitle()
+    public void HandlePause_Q_DoesNotBypassReturnToTitleConfirmation()
     {
         var menus = new Menus();
         var result = menus.HandlePause(new HashSet<Keys> { Keys.Q }, Point.Zero, false, false);
-        Assert.Equal(MenuAction.ReturnToTitle, result);
+        Assert.Equal(MenuAction.None, result);
     }
 
     [Fact]
-    public void HandlePause_RestartKeybind_ReturnsRestart()
+    public void HandlePause_RestartKeybind_DoesNotBypassConfirmation()
     {
         var menus = new Menus();
         var restartKey = Keybinds.KeyFor("restart");
@@ -76,7 +76,7 @@ public class MenusTests : IDisposable
 
         var result = menus.HandlePause(new HashSet<Keys> { restartKey!.Value }, Point.Zero, false, false);
 
-        Assert.Equal(MenuAction.Restart, result);
+        Assert.Equal(MenuAction.None, result);
     }
 
     [Fact]
@@ -85,30 +85,6 @@ public class MenusTests : IDisposable
         var menus = new Menus();
         var result = menus.HandlePause(new HashSet<Keys>(), Point.Zero, false, false);
         Assert.Equal(MenuAction.None, result);
-    }
-
-    [Fact]
-    public void ToggleQuickViewOption_PersistsSelection()
-    {
-        Assert.False(GameProfile.Profile.TabShowCosmetics);
-
-        var result = Menus.ToggleQuickViewOption("TabShowCosmetics");
-
-        Assert.True(result);
-        Assert.True(GameProfile.Profile.TabShowCosmetics);
-        Assert.True(File.Exists(GameProfile.SavePath));
-    }
-
-    [Fact]
-    public void ToggleQuickViewOption_QuestScopesAreMutuallyExclusive()
-    {
-        Assert.True(Menus.ToggleQuickViewOption("TabShowActiveQuests"));
-        Assert.True(GameProfile.Profile.TabShowActiveQuests);
-
-        Assert.True(Menus.ToggleQuickViewOption("TabShowAllQuests"));
-
-        Assert.False(GameProfile.Profile.TabShowActiveQuests);
-        Assert.True(GameProfile.Profile.TabShowAllQuests);
     }
 
     [Fact]

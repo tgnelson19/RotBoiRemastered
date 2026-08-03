@@ -133,20 +133,6 @@ public sealed class PathFloorGeneratorTests
     }
 
     [Fact]
-    public void BossRoute_UnlocksOnlyAfterEveryRequiredRoomIsCleared()
-    {
-        var layout = PathFloorGenerator.Generate("sound", 4, new Random(77));
-
-        Assert.False(layout.BossRouteUnlocked);
-        foreach (PathRoom room in layout.RequiredRoomsBeforeBoss.Take(6))
-            room.IsCleared = true;
-        Assert.False(layout.BossRouteUnlocked);
-
-        layout.RequiredRoomsBeforeBoss[^1].IsCleared = true;
-        Assert.True(layout.BossRouteUnlocked);
-    }
-
-    [Fact]
     public void RollTreasureRoomCount_UsesChainedHalfChanceAndCapsAtThree()
     {
         Assert.Equal(0, PathFloorGenerator.RollTreasureRoomCount(

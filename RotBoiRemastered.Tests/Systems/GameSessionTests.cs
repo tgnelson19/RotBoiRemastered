@@ -84,14 +84,6 @@ public class GameSessionTests
         }
     }
 
-    private static void UnlockPathBoss(GameSession session)
-    {
-        Assert.NotNull(session.PathRun);
-        foreach (PathRoom room in session.PathRun!.Layout.RequiredRoomsBeforeBoss)
-            room.IsCleared = true;
-        Assert.True(session.PathRun.Layout.BossRouteUnlocked);
-    }
-
     private static void FinishPendingPathWaves(
         GameSession session,
         int seed = 9000)
@@ -256,7 +248,6 @@ public class GameSessionTests
         session.StartPathRun(new Random(10));
         Assert.True(session.IsPathFogActive);
 
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
         session.HandleEnemyCreation(new Random(110));
         Assert.NotNull(session.State.ActiveBoss);
@@ -291,7 +282,6 @@ public class GameSessionTests
         var session = MakeSession();
         session.StartPathRun(new Random(111));
         AdvancePathToFloor(session, floor);
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
         session.HandleEnemyCreation(new Random(1100 + floor));
         session.HandleEnemyCreation(new Random(1110 + floor), interactPressed: true);
@@ -313,7 +303,6 @@ public class GameSessionTests
         var session = MakeSession();
         session.StartPathRun(new Random(112));
         AdvancePathToFloor(session, 5);
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
         session.HandleEnemyCreation(new Random(1114));
         session.HandleEnemyCreation(new Random(1115), interactPressed: true);
@@ -478,7 +467,6 @@ public class GameSessionTests
     {
         var session = MakeSession();
         session.StartPathRun(new Random(16));
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
 
         session.HandleEnemyCreation(new Random(17));
@@ -489,11 +477,86 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void PathBossRoom_NormalSevenRoomClearSpawnsGuardian()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(1601));
+
+        foreach (PathRoom room in session.PathRun!.Layout.RequiredRoomsBeforeBoss)
+        {
+            session.Player.SetPosition(
+                room.WorldCenter.X - (float)session.State.PlayerSize / 2f,
+                room.WorldCenter.Y - (float)session.State.PlayerSize / 2f);
+            session.HandleEnemyCreation(new Random(2000 + room.Id));
+            FinishPendingPathWaves(session, 3000 + room.Id * 20);
+            Assert.Contains(room, session.PathRun.ActiveCombatRooms);
+
+            session.State.EnemyHolster.Clear();
+            session.HandleEnemyCreation(new Random(4000 + room.Id));
+            Assert.True(room.IsCleared);
+        }
+
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.HandleEnemyCreation(new Random(5000));
+
+        var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
+        Assert.Same(guardian, Assert.Single(session.State.EnemyHolster));
+    }
+
+    [Fact]
+    public void PathBossRoom_RushingAllSevenUnclearedRoomsStillSpawnsGuardian()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(1602));
+
+        foreach (PathRoom room in session.PathRun!.Layout.RequiredRoomsBeforeBoss)
+        {
+            session.Player.SetPosition(
+                room.WorldCenter.X - (float)session.State.PlayerSize / 2f,
+                room.WorldCenter.Y - (float)session.State.PlayerSize / 2f);
+            session.HandleEnemyCreation(new Random(6000 + room.Id));
+            Assert.True(room.IsActivated);
+            Assert.False(room.IsCleared);
+        }
+
+        Assert.Equal(7, session.PathRun.ActiveCombatRooms.Count);
+        MoveToPathRoom(session, PathRoomType.Boss);
+        session.HandleEnemyCreation(new Random(7000));
+
+        var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
+        Assert.Contains(guardian, session.State.EnemyHolster);
+        Assert.True(session.State.EnemyHolster.Count > 1);
+        Assert.All(session.PathRun.Layout.RequiredRoomsBeforeBoss,
+            room => Assert.False(room.IsCleared));
+    }
+
+    [Fact]
+    public void PathRoomEnemy_OptionalKillStillDropsExperience()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(1603));
+        PathRoom room = session.PathRun!.Layout.RequiredRoomsBeforeBoss[0];
+        session.Player.SetPosition(
+            room.WorldCenter.X - (float)session.State.PlayerSize / 2f,
+            room.WorldCenter.Y - (float)session.State.PlayerSize / 2f);
+        session.HandleEnemyCreation(new Random(8000));
+        FinishPendingPathWaves(session, 8100);
+
+        Enemy defeated = session.State.EnemyHolster[0];
+        double reward = defeated.ExpValue;
+        defeated.TakeDamage(defeated.MaxHp * 10);
+        session.HandleDamagingEnemies(new Random(8200));
+
+        ExperienceBubble bubble = Assert.Single(session.State.ExperienceList);
+        Assert.True(reward > 0);
+        Assert.True(bubble.Value > 0);
+    }
+
+    [Fact]
     public void PathBossRoom_OrdinaryFloor_DoesNotTeleportPlayer()
     {
         var session = MakeSession();
         session.StartPathRun(new Random(16));
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
         Vector2 enteredPosition = new(
             session.Player.WorldX, session.Player.WorldY);
@@ -514,7 +577,6 @@ public class GameSessionTests
         session.StartPathRun(new Random(16));
         AdvancePathToFloor(session, floor);
         PathRoom room = session.PathRun!.Layout.BossRoom;
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
 
         session.HandleEnemyCreation(new Random(1600 + floor));
@@ -545,8 +607,6 @@ public class GameSessionTests
             session.Player.WorldX, session.Player.WorldY,
             0, .5f, 100, Simulation.TileSize * .4f));
 
-        session.State.EnemyHolster.Clear();
-        UnlockPathBoss(session);
         MoveToPathRoom(session, PathRoomType.Boss);
         session.HandleEnemyCreation(new Random(1612));
         session.HandleEnemyCreation(new Random(1613), interactPressed: true);
@@ -599,7 +659,6 @@ public class GameSessionTests
         }
         Assert.NotNull(session);
 
-        UnlockPathBoss(session!);
         MoveToPathRoom(session!, PathRoomType.Boss);
         session!.HandleEnemyCreation(new Random(170));
 
@@ -613,7 +672,7 @@ public class GameSessionTests
     }
 
     [Fact]
-    public void PathBossRoom_WaitsForRushedEarlierRoomsToClear()
+    public void PathBossRoom_PreservesEnemiesFromRushedEarlierRooms()
     {
         var session = MakeSession();
         session.StartPathRun(new Random(16));
@@ -626,15 +685,10 @@ public class GameSessionTests
         MoveToPathRoom(session, PathRoomType.Boss);
         session.HandleEnemyCreation(new Random(18));
 
-        Assert.Null(session.State.ActiveBoss);
-        Assert.Contains(pursuingEnemy!, session.State.EnemyHolster);
-
-        session.State.EnemyHolster.Clear();
-        UnlockPathBoss(session);
-        session.HandleEnemyCreation(new Random(19));
-
         Assert.NotNull(session.State.ActiveBoss);
-        Assert.Same(session.State.ActiveBoss, Assert.Single(session.State.EnemyHolster));
+        Assert.Contains(pursuingEnemy!, session.State.EnemyHolster);
+        Assert.Contains(session.State.ActiveBoss, session.State.EnemyHolster);
+        Assert.True(session.State.EnemyHolster.Count > 1);
     }
 
     [Fact]
@@ -666,7 +720,6 @@ public class GameSessionTests
             session!.HandleEnemyCreation(new Random(191));
             Assert.NotEmpty(session.State.EnemyHolster);
 
-            UnlockPathBoss(session);
             MoveToPathRoom(session, PathRoomType.Boss);
             session.HandleEnemyCreation(new Random(192));
             var guardian = Assert.IsType<PathGuardianBoss>(
@@ -724,7 +777,6 @@ public class GameSessionTests
 
             var failedSession = MakeSession();
             failedSession.StartPathRun(new Random(194));
-            UnlockPathBoss(failedSession);
             MoveToPathRoom(failedSession, PathRoomType.Boss);
             failedSession.HandleEnemyCreation(new Random(195));
             failedSession.State.RunTimeSeconds = 20;

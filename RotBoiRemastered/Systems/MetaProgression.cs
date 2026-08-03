@@ -7,6 +7,19 @@ public sealed record SkillNode(
 public sealed record QuestDefinition(
     string Key, string Symbol, string Name, string Description, string Counter, long Target, int Reward = 1);
 
+/// <summary>Exact persisted deltas produced while finalizing a successful run.</summary>
+public sealed record RunRewardSummary(
+    int SoulTokensBefore,
+    int SoulTokensAfter,
+    int PathMasteryBefore,
+    int PathMasteryAfter,
+    int NewGamePlusBefore,
+    int NewGamePlusAfter,
+    bool EquipmentRetained)
+{
+    public int SoulTokenDelta => SoulTokensAfter - SoulTokensBefore;
+}
+
 /// <summary>Permanent, UI-independent progression rules shared by the Soul and run startup.</summary>
 public static class MetaProgression
 {
@@ -133,8 +146,11 @@ public static class MetaProgression
         GameProfile.SaveProfile();
     }
 
-    public static void RecordExtraction(RunState state, string path, bool completed)
+    public static RunRewardSummary RecordExtraction(RunState state, string path, bool completed)
     {
+        int tokensBefore = GameProfile.Profile.SoulTokens;
+        int masteryBefore = GameProfile.Profile.PathMastery.GetValueOrDefault(path);
+        int newGamePlusBefore = GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(path);
         var run = new ExtractedRunData
         {
             Path = path,
@@ -158,5 +174,13 @@ public static class MetaProgression
             NewGamePlus.RecordCompletion(path, state.NewGamePlusLevel);
         }
         GameProfile.SaveProfile();
+        return new RunRewardSummary(
+            tokensBefore,
+            GameProfile.Profile.SoulTokens,
+            masteryBefore,
+            GameProfile.Profile.PathMastery.GetValueOrDefault(path),
+            newGamePlusBefore,
+            GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(path),
+            EquipmentRetained: true);
     }
 }

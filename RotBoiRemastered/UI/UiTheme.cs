@@ -333,6 +333,49 @@ public static class UiTheme
         return rect;
     }
 
+    /// <summary>
+    /// Neutral five-sense chrome for interfaces which belong to the whole
+    /// Soul rather than whichever Path happens to be active.
+    /// </summary>
+    public static Rectangle DrawCompositePanel(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float animationTime,
+        Color? fill = null,
+        Color? border = null,
+        int shadow = 5,
+        bool hovered = false)
+    {
+        Color accent = border ?? Cream;
+        DrawPanel(spriteBatch, rect, fill ?? Panel, accent, shadow, hovered);
+        int corner = Math.Max(5, Math.Min(rect.Width, rect.Height) / 10);
+        int lineWidth = Math.Max(1, corner / 5);
+        float pulse = .56f + .12f * MathF.Sin(animationTime * 1.4f);
+        Color motif = Purple * pulse;
+        Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Top + corner),
+            new Vector2(rect.Left + corner, rect.Top), motif, lineWidth);
+        Primitives2D.Line(spriteBatch, new Vector2(rect.Right - corner, rect.Top),
+            new Vector2(rect.Right, rect.Top + corner), motif, lineWidth);
+        Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Bottom - corner),
+            new Vector2(rect.Left + corner, rect.Bottom), motif, lineWidth);
+        Primitives2D.Line(spriteBatch, new Vector2(rect.Right - corner, rect.Bottom),
+            new Vector2(rect.Right, rect.Bottom - corner), motif, lineWidth);
+
+        float segmentWidth = Math.Min(rect.Width * .46f, 230f * DisplayScale(spriteBatch))
+            / GamePaths.Paths.Count;
+        float start = rect.Center.X - segmentWidth * GamePaths.Paths.Count / 2f;
+        int lit = Math.Abs((int)MathF.Floor(animationTime * 2f)) % GamePaths.Paths.Count;
+        for (int index = 0; index < GamePaths.Paths.Count; index++)
+        {
+            Color color = GamePaths.Paths[index].Accent;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)(start + index * segmentWidth + 2), rect.Top + lineWidth,
+                    Math.Max(2, (int)segmentWidth - 4), Math.Max(1, lineWidth)),
+                color * (index == lit ? .78f : .28f));
+        }
+        return rect;
+    }
+
     public static void DrawSoulRose(
         SpriteBatch spriteBatch,
         Vector2 center,

@@ -48,6 +48,25 @@ public class EnemyTests
         Assert.Equal("alerted", enemy.AwarenessState);
         enemy.Update(MakeContext(157, 135, battleground)); // distance 22 -> disengaging
         Assert.Equal("disengaging", enemy.AwarenessState);
+        enemy.Update(MakeContext(170, 135, battleground)); // distance 35 -> outside leash
+        Assert.Equal("wandering", enemy.AwarenessState);
+    }
+
+    [Fact]
+    public void Collector_DisengagesInsteadOfFollowingPlayerAcrossTheDungeon()
+    {
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var collector = new CollectorEnemy(
+            125, 125, speed: 2, size: 20, Color.Red,
+            damage: 10, hp: 50, expValue: 5, difficulty: 1,
+            awarenessRange: 40f, rng: new Random(2));
+        collector.DisengageRange = 80f;
+
+        collector.Update(MakeContext(145, 135, battleground));
+        Assert.Equal("alerted", collector.AwarenessState);
+
+        collector.Update(MakeContext(1000, 1000, battleground));
+        Assert.Equal("wandering", collector.AwarenessState);
     }
 
     [Fact]

@@ -121,12 +121,13 @@ public sealed class ReforgeHandler
     {
         EnsureSelection(state);
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, _screenWidth, _screenHeight), UiTheme.Void);
-        int grid = Px(36);
-        Color gridColor = new(23, 27, 35);
-        for (int x = 0; x < _screenWidth; x += grid)
-            Primitives2D.Line(spriteBatch, new Vector2(x, 0), new Vector2(x, _screenHeight), gridColor, 1);
-        for (int y = 0; y < _screenHeight; y += grid)
-            Primitives2D.Line(spriteBatch, new Vector2(0, y), new Vector2(_screenWidth, y), gridColor, 1);
+        int frameMargin = Px(18);
+        float chromeTime = (float)(state.RunTimeSeconds
+            * GameProfile.Profile.VisualEffectsIntensity);
+        UiTheme.DrawCompositePanel(spriteBatch,
+            new Rectangle(frameMargin, frameMargin,
+                _screenWidth - frameMargin * 2, _screenHeight - frameMargin * 2),
+            chromeTime, UiTheme.Panel, UiTheme.Border, 7);
 
         UiTheme.DrawButton(spriteBatch, _backRect, "BACK", mousePosition, mouseDown,
             accentColor: UiTheme.Cream, keyHint: "ESC", textSize: Px(12));
@@ -144,9 +145,7 @@ public sealed class ReforgeHandler
             bool selected = slot == _selectedSlot;
             var panel = rect;
             panel.Inflate(Px(8), Px(8));
-            UiTheme.DrawLivingPanel(
-                spriteBatch, panel, GamePaths.Active().Key,
-                (float)state.RunTimeSeconds,
+            UiTheme.DrawCompositePanel(spriteBatch, panel, chromeTime,
                 selected ? UiTheme.PanelHover : UiTheme.Panel,
                 selected ? UiTheme.Gold : UiTheme.Border,
                 shadow: selected ? 8 : 4,
@@ -189,9 +188,8 @@ public sealed class ReforgeHandler
         var rect = new Rectangle((_screenWidth - width) / 2, top, width, Px(225));
         Color rarity = UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border);
         Color grade = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
-        UiTheme.DrawLivingPanel(
-            spriteBatch, rect, GamePaths.Active().Key,
-            0f, UiTheme.PanelRaised, rarity, shadow: 7);
+        UiTheme.DrawCompositePanel(spriteBatch, rect, 0f,
+            UiTheme.PanelRaised, rarity, shadow: 7);
         UiTheme.DrawText(spriteBatch, item.DisplayName.ToUpperInvariant(), Px(24), UiTheme.Text,
             new Vector2(rect.X + Px(20), rect.Y + Px(15)));
         UiTheme.DrawText(spriteBatch, $"{item.Rarity.ToUpperInvariant()} RARITY  //  GRADE {item.Grade} ({Items.GradePower(item.Grade):P0} STATS)",

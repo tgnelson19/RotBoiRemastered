@@ -35,11 +35,8 @@ public sealed class GameProfileData
     /// telegraphs and basic pose animation deliberately ignore this value.
     /// </summary>
     public double VisualEffectsIntensity { get; set; } = 1.0;
-    /// <summary>Sections included in the in-run details view opened with the HUD-detail key (Tab by default).</summary>
-    public bool TabShowWeaponStats { get; set; } = true;
-    public bool TabShowActiveQuests { get; set; }
-    public bool TabShowAllQuests { get; set; }
-    public bool TabShowCosmetics { get; set; }
+    /// <summary>Three stable IDs from FooterStats displayed in the combat footer.</summary>
+    public List<string> FooterStats { get; set; } = global::RotBoiRemastered.UI.FooterStats.Defaults.ToList();
     public double TextSize { get; set; } = 1.0;
     public double GuiScale { get; set; } = 1.0;
     public double DamageTextSize { get; set; } = 0.8;
@@ -203,6 +200,7 @@ public static class GameProfile
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         profile.CameraZoom = Math.Clamp(profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
         profile.VisualEffectsIntensity = Math.Clamp(profile.VisualEffectsIntensity, 0.0, 1.0);
+        profile.FooterStats = global::RotBoiRemastered.UI.FooterStats.NormalizeSelection(profile.FooterStats);
         profile.MaxFrameRate = FramePacing.NormalizeFrameRate(profile.MaxFrameRate);
         profile.Keybinds ??= new();
         profile.SkillLevels ??= new();

@@ -100,6 +100,12 @@ public static class Keybinds
         }
     }
 
+    public static void ResetDefaults()
+    {
+        Bindings = ActionDefaults.ToDictionary(pair => pair.Key, pair => (Keys?)pair.Value);
+        Save();
+    }
+
     /// <summary>
     /// Human-readable key name. Not byte-identical to pygame's key.name()
     /// output (e.g. "LEFTSHIFT" here vs. "left shift" there) but equally

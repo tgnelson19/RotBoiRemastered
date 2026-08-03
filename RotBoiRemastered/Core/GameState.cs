@@ -10,6 +10,7 @@ public enum GameState
     GameRun,
     Leveling,
     Reforging,
+    Dossier,
     Paused,
     Results,
     Soul,

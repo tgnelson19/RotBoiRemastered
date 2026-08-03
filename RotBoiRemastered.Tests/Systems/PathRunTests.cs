@@ -74,20 +74,21 @@ public sealed class PathRunTests
     }
 
     [Fact]
-    public void BossRoom_CannotActivateUntilAllSevenRouteRoomsAreCleared()
+    public void BossRoom_ActivatesAfterRushingSevenUnclearedRouteRooms()
     {
         var run = new PathRun(new Random(18));
 
-        Assert.Null(run.TryActivateRoom(run.Layout.BossRoom.WorldCenter));
-        Assert.False(run.Layout.BossRoom.IsActivated);
-
         foreach (PathRoom room in run.Layout.RequiredRoomsBeforeBoss)
-            room.IsCleared = true;
+        {
+            Assert.Same(room, run.TryActivateRoom(room.WorldCenter));
+            Assert.False(room.IsCleared);
+        }
 
         Assert.Same(
             run.Layout.BossRoom,
             run.TryActivateRoom(run.Layout.BossRoom.WorldCenter));
         Assert.True(run.Layout.BossRoom.IsActivated);
+        Assert.Equal(7, run.ActiveCombatRooms.Count);
     }
 
     [Fact]

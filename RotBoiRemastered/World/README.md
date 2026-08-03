@@ -64,11 +64,14 @@ the Python source:
   drawn without replacement from an eight-shape module deck (chamber, hall,
   arena, maze, crossroads, diamond, ring, and ruin) and placed into one of four
   non-overlapping route silhouettes, so room scale and pacing remain uniform
-  while combinations vary by seed. The boss route cannot activate until all
-  seven mandatory rooms are cleared. Optional treasure and challenge wings
-  remain branches rather than shortcuts. Treasure count uses chained 50% rolls
-  capped at three, and their enlarged footprints support guardian-strength
-  encounters. Sense-specific corridors use an authored dog-leg router with a
+  while combinations vary by seed. Entering a room activates its encounter,
+  but thresholds never lock: players may fight for XP or rush onward with
+  alerted enemies pursuing until their distance leash disengages them. The
+  boss activates on arrival even when earlier rooms remain uncleared. Optional
+  treasure and challenge wings remain branches rather than shortcuts.
+  Treasure count uses chained 50% rolls capped at three, and their enlarged
+  footprints support guardian-strength encounters. Sense-specific corridors
+  use an authored dog-leg router with a
   bounded grid fallback that avoids unrelated rooms and carries directional/
   threshold marks. The boss room stays at the battleground's exact center so every
   existing sense boss can reuse its authored arena geometry. Each sense owns

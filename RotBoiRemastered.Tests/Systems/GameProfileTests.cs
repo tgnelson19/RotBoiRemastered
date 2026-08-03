@@ -26,10 +26,7 @@ public class GameProfileTests : IDisposable
         Assert.Equal(defaults.AimGuide, profile.AimGuide);
         Assert.Equal(defaults.HighContrast, profile.HighContrast);
         Assert.Equal(defaults.VisualEffectsIntensity, profile.VisualEffectsIntensity);
-        Assert.Equal(defaults.TabShowWeaponStats, profile.TabShowWeaponStats);
-        Assert.Equal(defaults.TabShowActiveQuests, profile.TabShowActiveQuests);
-        Assert.Equal(defaults.TabShowAllQuests, profile.TabShowAllQuests);
-        Assert.Equal(defaults.TabShowCosmetics, profile.TabShowCosmetics);
+        Assert.Equal(FooterStats.Defaults, profile.FooterStats);
         Assert.Equal(defaults.TextSize, profile.TextSize);
         Assert.Equal(defaults.GuiScale, profile.GuiScale);
         Assert.Equal(defaults.DamageTextSize, profile.DamageTextSize);
@@ -124,9 +121,7 @@ public class GameProfileTests : IDisposable
                 VisualEffectsIntensity = .42,
                 MaxFrameRate = 144,
                 VSync = false,
-                TabShowWeaponStats = false,
-                TabShowActiveQuests = true,
-                TabShowCosmetics = true,
+                FooterStats = ["projectiles", "critical", "range"],
                 Keybinds = new Dictionary<string, int?> { ["dash"] = 42, ["move_up"] = null },
                 NewGamePlusUnlocked = new Dictionary<string, int> { ["sound"] = 4 },
                 SelectedNewGamePlus = new Dictionary<string, int> { ["sound"] = 3 },
@@ -166,9 +161,8 @@ public class GameProfileTests : IDisposable
             Assert.Equal(.42, reloaded.VisualEffectsIntensity);
             Assert.Equal(145, reloaded.MaxFrameRate);
             Assert.False(reloaded.VSync);
-            Assert.False(reloaded.TabShowWeaponStats);
-            Assert.True(reloaded.TabShowActiveQuests);
-            Assert.True(reloaded.TabShowCosmetics);
+            Assert.Equal(new[] { "projectiles", "critical", "range" },
+                reloaded.FooterStats);
             Assert.Equal(42, reloaded.Keybinds["dash"]);
             Assert.Null(reloaded.Keybinds["move_up"]);
             Assert.Equal(4, reloaded.NewGamePlusUnlocked["sound"]);
@@ -205,6 +199,29 @@ public class GameProfileTests : IDisposable
         GameProfileData profile = GameProfile.LoadProfile(path);
 
         Assert.Equal(expectedFrameRate, profile.MaxFrameRate);
+    }
+
+    [Fact]
+    public void FooterStats_InvalidAndDuplicateIdsAreNormalizedToThreeDefaults()
+    {
+        string path = Path.Combine(_tempDir, "footer-invalid.json");
+        File.WriteAllText(path,
+            """{"FooterStats":["damage","unknown","damage"]}""");
+
+        GameProfileData profile = GameProfile.LoadProfile(path);
+
+        Assert.Equal(new[] { "damage", "attack_rate", "defense" },
+            profile.FooterStats);
+    }
+
+    [Fact]
+    public void FooterStats_SelectingAnExistingStatSwapsSlots()
+    {
+        var selected = new[] { "damage", "attack_rate", "defense" };
+
+        List<string> swapped = FooterStats.Select(selected, 0, "defense");
+
+        Assert.Equal(new[] { "defense", "attack_rate", "damage" }, swapped);
     }
 
     [Fact]

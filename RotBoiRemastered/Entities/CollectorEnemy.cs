@@ -31,14 +31,17 @@ public sealed class CollectorEnemy : Enemy
     {
         AdvanceAge();
         var battleground = context.Battleground;
-        if (Encounter is not null && !EngagementAllowed)
+        float centerX = WorldX + Size / 2f, centerY = WorldY + Size / 2f;
+        float playerDistance = Vector2.Distance(
+            new Vector2(centerX, centerY),
+            new Vector2(context.PlayerWorldX, context.PlayerWorldY));
+        if (!UpdateAwareness(playerDistance))
         {
             Wander(battleground, .2f);
             FinishMovementTracking();
             return;
         }
 
-        float centerX = WorldX + Size / 2f, centerY = WorldY + Size / 2f;
         bool handledBubble = false;
         foreach (var bubble in context.ExperienceBubbles.ToList())
         {

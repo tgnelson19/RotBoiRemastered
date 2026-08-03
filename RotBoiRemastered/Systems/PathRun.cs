@@ -235,8 +235,7 @@ public sealed class PathRun
         if (ExitPortalOpen || IsComplete)
             return null;
         var room = Layout.RoomAt(playerWorldCenter);
-        if (room is null || room.IsActivated
-            || (room.Type == PathRoomType.Boss && !Layout.BossRouteUnlocked))
+        if (room is null || room.IsActivated)
             return null;
 
         room.IsActivated = true;

@@ -125,12 +125,12 @@ public sealed class LevelingHandler
     public void DrawCards(SpriteBatch spriteBatch, LevelUpStatSnapshot stats, Point mousePosition, bool mouseDown)
     {
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, _screenWidth, _screenHeight), UiTheme.Void);
-        int gridSize = Math.Max(24, (int)(_tileSize * 0.55f));
-        var gridColor = new Color(23, 27, 35);
-        for (int x = 0; x < _screenWidth; x += gridSize)
-            Primitives2D.Line(spriteBatch, new Vector2(x, 0), new Vector2(x, _screenHeight), gridColor, 1);
-        for (int y = 0; y < _screenHeight; y += gridSize)
-            Primitives2D.Line(spriteBatch, new Vector2(0, y), new Vector2(_screenWidth, y), gridColor, 1);
+        int frameMargin = Math.Max(8, (int)(_tileSize * .22f));
+        UiTheme.DrawCompositePanel(spriteBatch,
+            new Rectangle(frameMargin, frameMargin,
+                _screenWidth - frameMargin * 2, _screenHeight - frameMargin * 2),
+            stats.PresentationTime * (float)GameProfile.Profile.VisualEffectsIntensity,
+            UiTheme.Panel, UiTheme.Border, 7);
 
         UiTheme.DrawText(spriteBatch, "LEVEL SECURED", _tileSize * 0.34, UiTheme.Green,
             new Vector2(_screenWidth / 2f, _tileSize * 0.3f), "midtop");
@@ -153,9 +153,9 @@ public sealed class LevelingHandler
             Color accent = UiTheme.RarityColors.TryGetValue(card.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
             bool pressed = hovered && mouseDown;
             var visualRect = new Rectangle(rect.X, rect.Y + (int)(pressed ? Px(2) : hovered ? -Px(7) : 0), rect.Width, rect.Height);
-            UiTheme.DrawLivingPanel(
-                spriteBatch, visualRect, stats.PathKey,
-                stats.PresentationTime + index * .23f,
+            UiTheme.DrawCompositePanel(spriteBatch, visualRect,
+                (stats.PresentationTime + index * .23f)
+                    * (float)GameProfile.Profile.VisualEffectsIntensity,
                 UiTheme.Panel, hovered ? accent : UiTheme.Border,
                 shadow: pressed ? 3 : 7, hovered: hovered);
             Primitives2D.FillRect(spriteBatch, new Rectangle(visualRect.X, visualRect.Y, visualRect.Width, (int)Px(9)), accent);

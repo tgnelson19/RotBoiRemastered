@@ -49,8 +49,8 @@ port first since they were deliberately kept pygame-free in the Python original.
   enemy collision and death handling, stored-XP pickup plus explicit paid
   leveling handoff, Fragment-funded equipped-item reforging, loot
   crate pickup, player damage-taking. One session object owns the player,
-  run state, battleground, camera, leveling screen, and (now)
-  `UI/InformationSheet.cs`'s sidebar HUD, and orchestrates them each frame
+  run state, battleground, camera, leveling screen, `UI/FooterHud.cs`, and
+  the paused `UI/InformationSheet.cs` dossier, and orchestrates them each frame
   -- see its doc comment for the full, explicit list of deferred
   boss-specific branches (nothing was silently dropped). Every combined
   Python update-and-draw function was split into separate Update/Draw
@@ -58,9 +58,8 @@ port first since they were deliberately kept pygame-free in the Python original.
   interleaved them purely to share one loop, and drawing order was never
   semantically significant, so splitting makes the spawn/collision/
   pressure-budget logic unit testable without a GraphicsDevice.
-  `GameSession` also owns Camera re-centering against
-  `InformationSheet.ArenaWidth` (constructor/`Resize`/`ResetAll` --
-  see UI/README.md) and
+  `GameSession` also owns full-viewport camera re-centering
+  (constructor/`Resize`/`ResetAll` -- see UI/README.md) and
   `SelectBountyTarget()`/`BountyInfo` (ported from
   character.py's `selectBountyTarget()`, feeds InformationSheet's
   objective panel). Now that `Entities/Beaudis.cs`/`Entities/Dissonance.cs`
