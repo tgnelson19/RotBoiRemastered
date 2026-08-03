@@ -65,7 +65,17 @@ public sealed class Ache : Kage
         FinalBodyColor = new Color(232, 112, 31), FinalAccentColor = new Color(54, 143, 218),
         FinalBodyScale = 1.6, FinalCooldownSeconds = 1.8, FinalShotSpeed = .34, FinalShotScale = .27,
         MovementSpeed = .21,
-        MovementModes = new[] { "chase", "path", "chase", "static", "path", "chase", "path", "static" },
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 9f, .58f, .52f),
+            BossMovementPhaseProfile.Chase(1.18f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 8f, .64f, .58f),
+            BossMovementPhaseProfile.Chase(1.28f),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 7f, .68f, .62f, -1),
+            BossMovementPhaseProfile.Stationary(),
+        },
         PhaseLabels = new[]
         {
             "TRESPASS", "RECOIL", "FALSE ALARM", "PROVOCATION",
@@ -357,6 +367,7 @@ public sealed class Ache : Kage
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
             SetSinPhase(5);
         }
+        FinishMovementTracking();
     }
 
     protected override void SetSinPhase(int phase)
@@ -577,31 +588,59 @@ public sealed class Ache : Kage
             return;
         }
 
-        float attackPulse = VisualAttackTimer > 0
-            ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI)
-            : 0f;
+        float seconds = VisualAgeSeconds;
+        float attackPulse = VisualAttackPulse;
         float survivalSpread = VisualSurvivalActive ? 1.58f : 1f;
-        float oscillation = 1f + MathF.Sin(Age * .09f) * .08f + attackPulse * .12f;
+        float oscillation = 1f + BossAnimation.Sine(seconds, .7f) * .08f
+            + attackPulse * .12f;
         float coreExtent = Size * .29f * oscillation;
         Vector2 jittered = center + new Vector2(
-            MathF.Sin(Age * .031f) * 4.2f + MathF.Sin(Age * .007f) * 3.4f,
-            MathF.Sin(Age * .023f + 1.1f) * 3.8f);
+            BossAnimation.Sine(seconds, 2.15f) * 4.2f
+                + BossAnimation.Sine(seconds, 8.9f) * 3.4f,
+            BossAnimation.Sine(seconds, 2.73f, .18f) * 3.8f);
+        Color armSignal = Phase is 7 or 8
+            ? Color.Lerp(blue, UiTheme.Cream, .48f)
+            : blue;
+        float disagreement = Phase switch
+        {
+            2 => 1.18f,
+            3 => -1.08f,
+            5 => 1.34f,
+            6 => -.82f,
+            7 => 1.52f,
+            8 => 1.72f,
+            _ => 1f,
+        };
 
         Span<(Vector2 Center, float Angle, float Depth)> arms =
             stackalloc (Vector2, float, float)[OrbitingArmCount];
         for (int index = 0; index < OrbitingArmCount; index++)
         {
             float direction = index == 1 ? -1f : 1f;
-            float drift = Age * (.009f + index * .0025f) * direction;
-            float hesitation = MathF.Sin(Age * (.0034f + index * .0008f) + index * 1.9f) * .62f;
+            if (Phase is 3 or 6)
+                direction *= -1f;
+            float drift = seconds * (.54f + index * .15f) * direction * disagreement;
+            float hesitation = BossAnimation.Sine(seconds,
+                4.9f - index * .62f, index * .3f) * (.48f + Phase * .025f);
             float angle = drift + hesitation + index * MathF.Tau / OrbitingArmCount;
-            float radius = Size * (.62f + .14f * MathF.Sin(Age * (.011f + index * .003f) + index * 1.7f)) * survivalSpread;
-            float droop = Size * (.06f + index * .035f) * (.5f + .5f * MathF.Sin(Age * .006f + index));
+            float radius = Size * (.62f + .14f * BossAnimation.Sine(seconds,
+                1.52f - index * .17f, index * .27f)) * survivalSpread;
+            if (index == (Phase - 1) % OrbitingArmCount)
+                radius += Size * attackPulse * .16f;
+            float droop = Size * (.06f + index * .035f)
+                * BossAnimation.CosinePulse(seconds, 3.6f, index * .16f);
             var armCenter = jittered + new Vector2(MathF.Cos(angle) * radius,
                 MathF.Sin(angle) * radius * .54f + droop);
             arms[index] = (armCenter, angle, MathF.Sin(angle));
             Primitives2D.Line(spriteBatch, jittered, armCenter, UiTheme.Ink, Math.Max(4, (int)(Size * .07f)));
-            Primitives2D.Line(spriteBatch, jittered, armCenter, blue * .72f, Math.Max(1, (int)(Size * .025f)));
+            Primitives2D.Line(spriteBatch, jittered, armCenter, armSignal * .72f, Math.Max(1, (int)(Size * .025f)));
+        }
+        if (Phase is 2 or 5 or 8)
+        {
+            for (int index = 0; index < arms.Length; index++)
+                Primitives2D.Line(spriteBatch, arms[index].Center,
+                    arms[(index + 1) % arms.Length].Center,
+                    (index % 2 == 0 ? orange : armSignal) * .38f, 2);
         }
 
         for (int index = 1; index < arms.Length; index++)
@@ -626,17 +665,18 @@ public sealed class Ache : Kage
                 spriteBatch,
                 arm.Center,
                 Size * .12f,
-                blue,
+                armSignal,
                 new Color(75, 183, 235),
                 orange,
                 -arm.Angle * 1.3f,
                 arm.Angle * .73f,
-                Age * .013f);
+                seconds * .78f);
         }
 
         BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
-            Age * .041f, .58f + MathF.Sin(Age * .021f) * .32f, MathF.Sin(Age * .017f) * .18f);
-        float energyRadius = Size * (.075f + .012f * MathF.Sin(Age * .11f));
+            seconds * 2.46f, .58f + BossAnimation.Sine(seconds, .79f) * .32f,
+            BossAnimation.Sine(seconds, .98f) * .18f);
+        float energyRadius = Size * (.075f + .012f * BossAnimation.Sine(seconds, .57f));
         Primitives2D.FillCircle(spriteBatch, jittered, (int)energyRadius + 5, UiTheme.Ink);
         Primitives2D.FillCircle(spriteBatch, jittered, Math.Max(2, (int)energyRadius), blue);
 
@@ -649,12 +689,12 @@ public sealed class Ache : Kage
                 spriteBatch,
                 arm.Center,
                 Size * .12f,
-                blue,
+                armSignal,
                 new Color(75, 183, 235),
                 orange,
                 -arm.Angle * 1.3f,
                 arm.Angle * .73f,
-                Age * .013f);
+                seconds * .78f);
         }
 
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .78f), (int)(Size * .92f), 6));

@@ -34,7 +34,15 @@ public class Ishe : PathChaseBoss
         MovementSpeed = .43, BodyScale = 1.42, CooldownSeconds = 1.4,
         ShotSpeed = 1.45, ShotDamage = 215, ShotScale = .30, ShotRangeTiles = 24,
         ArenaShape = "triangle", ArenaScale = 11.2,
-        MovementModes = new[] { "chase", "path", "static", "path", "path" },
+        MotionTheme = BossMotionTheme.Sight,
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 6f, .62f, .62f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 5.5f, .64f, .64f, -1),
+            BossMovementPhaseProfile.Chase(1.12f),
+        },
         MidHealth = 75000, MidContactDamage = 300, MidRewardExperience = 360,
     };
 
@@ -56,7 +64,6 @@ public class Ishe : PathChaseBoss
     public int IshePhaseDeclarations => _phaseDeclarations;
     protected virtual bool UsesIsheEncounter => true;
     protected override bool VisualSurvivalActive => FlashSurvivalActive || base.VisualSurvivalActive;
-    protected override bool TargetRealPlayerDuringPathMovement => true;
 
     protected static readonly IReadOnlyDictionary<string, (string Name, Vector2[][] Strokes)> SightSymbols =
         new Dictionary<string, (string, Vector2[][])>
@@ -450,6 +457,59 @@ public class Ishe : PathChaseBoss
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
             ApplyIshePhase(4);
         }
+        FinishMovementTracking();
+    }
+
+    protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        EnemyRenderPose renderPose = RenderPose(camera, playerWorldPosition, screenShake);
+        Vector2 center = camera.WorldToScreen(new Vector2(WorldX + Size / 2f,
+            WorldY + Size / 2f), playerWorldPosition, screenShake);
+        if (Dying)
+        {
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size,
+                new Color(68, 164, 216), PhaseAccent, 14);
+            return;
+        }
+
+        float heading = MathF.Atan2(renderPose.Facing.Y, renderPose.Facing.X);
+        float attack = VisualAttackPulse;
+        float opening = FlashSurvivalActive ? .08f : .72f - attack * .5f;
+        Color blue = new(62, 151, 211);
+        Color ice = new(172, 224, 241);
+
+        if (Moved)
+        {
+            Vector2 normal = new(-renderPose.Facing.Y, renderPose.Facing.X);
+            for (int ghost = 3; ghost >= 1; ghost--)
+            {
+                Vector2 ghostCenter = center - renderPose.Facing * Size * ghost * .16f;
+                float alpha = (4 - ghost) * .07f;
+                Primitives2D.PolygonOutline(spriteBatch, new[]
+                {
+                    ghostCenter + renderPose.Facing * Size * .42f,
+                    ghostCenter + normal * Size * .27f,
+                    ghostCenter - renderPose.Facing * Size * .42f,
+                    ghostCenter - normal * Size * .27f,
+                }, PhaseAccent * alpha, Math.Max(1, 4 - ghost));
+            }
+        }
+
+        for (int fin = 0; fin < 3; fin++)
+        {
+            float angle = heading + fin * MathF.Tau / 3f;
+            Vector2 point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                * Size * (.43f + attack * .055f);
+            BossVisuals.PrismPetal(spriteBatch, point, Size * .42f, Size * .14f,
+                fin == 0 ? ice : blue, PhaseAccent, angle);
+        }
+        BossVisuals.Aperture(spriteBatch, center, Size * .38f, blue,
+            PhaseAccent, opening, heading + VisualAgeSeconds * .65f, 6);
+        Primitives2D.FillCircle(spriteBatch, center, Size * .055f,
+            FlashSurvivalActive ? UiTheme.Void : UiTheme.Cream);
+        DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f),
+            (int)(center.Y - Size * .67f), (int)(Size * .92f), 6));
     }
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)

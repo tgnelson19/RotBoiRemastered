@@ -150,7 +150,7 @@ public sealed class ArsenalMiniBoss : Enemy
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         float walk = Moved ? MathF.Sin(Age * .15f) : 0f;
-        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .2f), 0f, 1f) * MathF.PI) : 0f;
+        float attack = VisualAttackPulse;
         int width = (int)(Size * (1f + Math.Abs(walk) * .045f + attack * .1f));
         int height = (int)(Size * (1f - Math.Abs(walk) * .035f - attack * .07f));
         int bob = (int)(Math.Abs(walk) * Size * .045f);

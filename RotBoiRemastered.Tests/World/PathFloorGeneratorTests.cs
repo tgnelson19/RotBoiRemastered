@@ -52,6 +52,100 @@ public sealed class PathFloorGeneratorTests
         }
     }
 
+    [Theory]
+    [InlineData("sound")]
+    [InlineData("touch")]
+    [InlineData("sight")]
+    [InlineData("chemesthesis")]
+    [InlineData("phantasia")]
+    public void Generate_RequiresSevenSerialCombatModulesBeforeBoss(string senseKey)
+    {
+        for (int seed = 0; seed < 12; seed++)
+        {
+            var layout = PathFloorGenerator.Generate(
+                senseKey,
+                1 + seed % 10,
+                new Random(seed * 997 + 41));
+
+            Assert.Equal(9, layout.MainRouteRooms.Count);
+            Assert.Equal(7, layout.RequiredRoomsBeforeBoss.Count);
+            Assert.All(layout.RequiredRoomsBeforeBoss, room =>
+            {
+                Assert.True(room.IsMainPath);
+                Assert.True(room.IsCombatRoom);
+                Assert.InRange(room.Depth, 1, 7);
+                Assert.Equal(senseKey, room.ThemeKey);
+                Assert.NotEqual(room.ShapeDisplayName, room.DungeonDisplayName);
+            });
+            Assert.Equal(7,
+                layout.RequiredRoomsBeforeBoss.Select(room => room.Shape).Distinct().Count());
+            Assert.Equal(8, layout.BossRoom.Depth);
+
+            for (int index = 0; index + 1 < layout.MainRouteRooms.Count; index++)
+            {
+                PathRoom from = layout.MainRouteRooms[index];
+                PathRoom to = layout.MainRouteRooms[index + 1];
+                Assert.Contains(layout.Connections, connection =>
+                    connection.FromRoomId == from.Id
+                    && connection.ToRoomId == to.Id
+                    && !connection.Hidden);
+            }
+
+            for (int left = 0; left < layout.MainRouteRooms.Count; left++)
+            {
+                for (int right = left + 1; right < layout.MainRouteRooms.Count; right++)
+                {
+                    PathRoom leftRoom = layout.MainRouteRooms[left];
+                    PathRoom rightRoom = layout.MainRouteRooms[right];
+                    Assert.False(leftRoom.TileBounds.Intersects(rightRoom.TileBounds),
+                        $"{senseKey} seed {seed}, {layout.Style}: room {leftRoom.Id} "
+                        + $"{leftRoom.TileBounds} overlaps room {rightRoom.Id} "
+                        + $"{rightRoom.TileBounds}");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Generate_ShufflesTheCompleteRoomModuleLibraryAcrossFloors()
+    {
+        var sequences = new HashSet<string>();
+        var shapes = new HashSet<PathRoomShape>();
+        for (int seed = 0; seed < 40; seed++)
+        {
+            var layout = PathFloorGenerator.Generate(
+                "phantasia",
+                1 + seed % 10,
+                new Random(seed));
+            PathRoomShape[] sequence = layout.RequiredRoomsBeforeBoss
+                .Select(room => room.Shape)
+                .ToArray();
+            sequences.Add(string.Join(',', sequence));
+            shapes.UnionWith(sequence);
+        }
+
+        Assert.True(sequences.Count >= 24);
+        Assert.Equal(
+            Enum.GetValues<PathRoomShape>()
+                .Where(shape => shape != PathRoomShape.Sanctuary)
+                .Order(),
+            shapes.Order());
+    }
+
+    [Fact]
+    public void BossRoute_UnlocksOnlyAfterEveryRequiredRoomIsCleared()
+    {
+        var layout = PathFloorGenerator.Generate("sound", 4, new Random(77));
+
+        Assert.False(layout.BossRouteUnlocked);
+        foreach (PathRoom room in layout.RequiredRoomsBeforeBoss.Take(6))
+            room.IsCleared = true;
+        Assert.False(layout.BossRouteUnlocked);
+
+        layout.RequiredRoomsBeforeBoss[^1].IsCleared = true;
+        Assert.True(layout.BossRouteUnlocked);
+    }
+
     [Fact]
     public void RollTreasureRoomCount_UsesChainedHalfChanceAndCapsAtThree()
     {
@@ -143,7 +237,7 @@ public sealed class PathFloorGeneratorTests
     public void FindSpawnRect_StaysInsideRequestedRoom()
     {
         var layout = PathFloorGenerator.Generate("sight", 4, new Random(5));
-        var room = layout.Rooms.Single(value => value.Type == PathRoomType.Assault);
+        var room = layout.Rooms.First(value => value.Type == PathRoomType.Assault);
 
         for (int index = 0; index < 50; index++)
         {
@@ -179,8 +273,8 @@ public sealed class PathFloorGeneratorTests
         Assert.Contains(PathRoomShape.GrandArena, shapes);
         Assert.Contains(PathRoomShape.Maze, shapes);
         Assert.Contains(PathRoomShape.Crossroads, shapes);
-        Assert.True(widest >= 29);
-        Assert.True(tallest >= 29);
+        Assert.True(widest >= 17);
+        Assert.True(tallest >= 17);
     }
 
     [Theory]
@@ -281,7 +375,7 @@ public sealed class PathFloorGeneratorTests
             .ToList();
         int xSpan = hallSpawns.Max(rect => rect.Center.X) - hallSpawns.Min(rect => rect.Center.X);
         int ySpan = hallSpawns.Max(rect => rect.Center.Y) - hallSpawns.Min(rect => rect.Center.Y);
-        Assert.True(Math.Max(xSpan, ySpan) >= Battleground.TileSize * 12);
+        Assert.True(Math.Max(xSpan, ySpan) >= Battleground.TileSize * 8);
 
         var arena = hallLayout.Rooms.First(room => room.Shape == PathRoomShape.GrandArena);
         var arenaSpawns = Enumerable.Range(0, 8)

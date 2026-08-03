@@ -68,4 +68,22 @@ public sealed class PlayerVisualTests
             expected,
             Player.HealthBarFillWidth(width, health, maximum));
     }
+
+    [Fact]
+    public void PresentationClockAdvancesWhileTeleportsDoNotLatchMovement()
+    {
+        var player = new Player(10, 20);
+
+        player.AdvanceVisuals(.025);
+        Assert.Equal(.025f, player.PresentationTime, 5);
+        Assert.False(player.VisualMoved);
+
+        player.SetPosition(300, 400);
+        player.AdvanceVisuals(.025);
+        Assert.False(player.VisualMoved);
+
+        player.SetAnimatedPosition(305, 400);
+        player.AdvanceVisuals(.025);
+        Assert.True(player.VisualMoved);
+    }
 }

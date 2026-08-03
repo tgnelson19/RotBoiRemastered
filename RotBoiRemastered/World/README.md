@@ -50,21 +50,36 @@ the Python source:
   (no `GraphicsDevice` needed) specifically so the wall-face-culling/
   decoration-selection logic has direct unit test coverage --
   `RotBoiRemastered.Tests/World/ArenaRendererTests.cs`.
+- `WorldLighting.cs` owns the combat atmosphere pass. It darkens only the
+  world viewport, restores a path-colored player light, and derives emissive
+  sources from authored raised landmarks. Standalone and instanced arenas
+  receive deterministic, non-colliding light posts on nearby walkable tiles.
+  The pass runs before `PathFogOfWar`, so lighting never reveals unexplored
+  space; radial falloff is a cached texture rather than per-frame scanline
+  geometry. Theme coverage, fixture placement, and continuous flicker curves
+  are covered by `RotBoiRemastered.Tests/World/WorldLightingTests.cs`.
 - `PathFloorGenerator.cs` builds composite Path-mode dungeon floors from the
-  existing tile and palette vocabulary. Four macro-layouts arrange protected
-  starts, long halls, arenas, mazes, crossroads, rings, diamonds, ruins,
-  optional treasure branches, optional challenge branches, and a center-aligned
-  boss room. Treasure count uses chained 50% rolls capped at three, and their
-  enlarged footprints support guardian-strength encounters. Sense-specific
-  corridors are routed around unrelated rooms and carry directional/threshold
-  marks. The boss room stays at the battleground's exact center so every
+  existing tile and palette vocabulary. Every floor now has a protected start,
+  seven mandatory combat-room modules, and then its boss room. The seven are
+  drawn without replacement from an eight-shape module deck (chamber, hall,
+  arena, maze, crossroads, diamond, ring, and ruin) and placed into one of four
+  non-overlapping route silhouettes, so room scale and pacing remain uniform
+  while combinations vary by seed. The boss route cannot activate until all
+  seven mandatory rooms are cleared. Optional treasure and challenge wings
+  remain branches rather than shortcuts. Treasure count uses chained 50% rolls
+  capped at three, and their enlarged footprints support guardian-strength
+  encounters. Sense-specific corridors use an authored dog-leg router with a
+  bounded grid fallback that avoids unrelated rooms and carries directional/
+  threshold marks. The boss room stays at the battleground's exact center so every
   existing sense boss can reuse its authored arena geometry. Each sense owns
   two boss-room obstacle silhouettes; `EvaluateBossArenaSafety` verifies their
   centered 9x9 spawn, three-tile cardinal lanes, connected analog-stick
   traversal, and separated safe footprints for two simultaneous players.
 - `PathFloorBlueprints.cs` owns macro-layout coordinates and separates spatial
-  silhouette (`PathRoomShape`) from gameplay purpose (`PathRoomType`). This is
-  what lets an Assault be an arena on one floor and a maze on another.
+  silhouette (`PathRoomShape`) from gameplay purpose (`PathRoomType`). It owns
+  the shared shuffled module deck, seven-room encounter cadence, compact route
+  sockets, and branch sockets. This is what lets an Assault be an arena on one
+  floor and a maze on another without changing its combat contract.
 - `PathFogOfWar.cs` owns persistent discovery and current line of sight for
   generated floors. Rays use the player's real sub-tile position and traverse
   grid boundaries without a range cap. A non-cascading presentation pass keeps
@@ -91,6 +106,12 @@ the Python source:
   grade. The live Path draw uses one combined raised-scenery/actor pass,
   allocation-free wall quads, retained painter buffers, and coalesced fog runs
   instead of redrawing the raised layer or submitting one mask per tile.
+  `Battleground` partitions animated floor, raised, and ambient decoration
+  arrays once during construction, so the longer seven-room floors do not
+  re-filter static scenery every frame. Each shuffled module also receives a
+  small shape-authored arrangement in its sense vocabulary: halls get an aisle,
+  crossroads get cardinal machinery, rings and diamonds get ritual markers,
+  mazes get navigation anchors, and ruins get asymmetric relic clusters.
   Protected starts are now full ceremonial thresholds with a
   sense-specific central crest, processional floor axis, paired landmarks, and
   denser ambience. Every `GrandArena` room has also been recomposed around a

@@ -146,7 +146,7 @@ public sealed class SnakeEnemy : Enemy
         }
 
         Vector2 headScreenPos = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .25f), 0f, 1f) * MathF.PI) : 0f;
+        float attack = VisualAttackPulse;
         float headBob = Moved ? Math.Abs(MathF.Sin(Age * .18f)) * HeadSize * .055f : MathF.Sin(Age * .035f) * 1.5f;
         int headWidth = (int)(HeadSize * (1f + attack * .16f));
         int headHeight = (int)(HeadSize * (1f - attack * .1f));

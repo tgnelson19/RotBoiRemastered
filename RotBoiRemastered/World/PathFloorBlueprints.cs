@@ -39,14 +39,42 @@ internal sealed record PathRoomBlueprint(
     int Variant);
 
 /// <summary>
-/// Authored macro-layout grammar for Path floors. Dimensions deliberately
-/// vary by several screen lengths; procedural work inside each blueprint
-/// supplies the micro-layout, theme treatment, props, and encounters.
+/// Authored macro-layout grammar for Path floors. Seven similarly scaled room
+/// modules are shuffled into a serial route before the centered boss chamber.
+/// The stable placement sockets protect traversal and camera readability;
+/// the shuffled module deck supplies the room-to-room variety.
 /// </summary>
 internal static class PathFloorBlueprints
 {
+    public const int RequiredPreBossRoomCount = 7;
+
+    private static readonly PathRoomShape[] ModuleDeck =
+    [
+        PathRoomShape.Chamber,
+        PathRoomShape.LongHall,
+        PathRoomShape.GrandArena,
+        PathRoomShape.Maze,
+        PathRoomShape.Crossroads,
+        PathRoomShape.Diamond,
+        PathRoomShape.Ring,
+        PathRoomShape.Ruin,
+    ];
+
+    private static readonly PathRoomType[] EncounterCadence =
+    [
+        PathRoomType.Skirmish,
+        PathRoomType.Skirmish,
+        PathRoomType.Assault,
+        PathRoomType.Skirmish,
+        PathRoomType.Assault,
+        PathRoomType.Elite,
+        PathRoomType.Elite,
+    ];
+
     public static IReadOnlyList<PathRoomBlueprint> Create(
-        PathLayoutStyle style, int floorNumber, Random rng,
+        PathLayoutStyle style,
+        int floorNumber,
+        Random rng,
         int? treasureRoomCount = null)
     {
         const int mainY = PathFloorGenerator.Height / 2;
@@ -56,94 +84,131 @@ internal static class PathFloorBlueprints
             new(centerX - width / 2, centerY - height / 2, width, height);
 
         int V() => rng.Next(8);
-        var rooms = style switch
+
+        var rooms = new List<PathRoomBlueprint>(12)
         {
-            PathLayoutStyle.Switchback => new List<PathRoomBlueprint>
-            {
-                new(0, PathRoomType.Start, Around(8, mainY, 13, 13), PathRoomShape.Sanctuary, true, 0, V()),
-                new(1, PathRoomType.Skirmish, Around(27, 15, 29, 9), PathRoomShape.LongHall, true, 1, V()),
-                new(2, PathRoomType.Assault, Around(35, mainY, 25, 23), PathRoomShape.GrandArena, true, 2, V()),
-                new(3, PathRoomType.Elite, Around(31, 68, 33, 17), PathRoomShape.Maze, true, 3, V()),
-                new(4, PathRoomType.Boss, Around(bossX, mainY, 33, 33), PathRoomShape.GrandArena, true, 4, V()),
-            },
-            PathLayoutStyle.GrandCircuit => new List<PathRoomBlueprint>
-            {
-                new(0, PathRoomType.Start, Around(8, mainY, 13, 13), PathRoomShape.Sanctuary, true, 0, V()),
-                new(1, PathRoomType.Skirmish, Around(25, mainY, 19, 19), PathRoomShape.Crossroads, true, 1, V()),
-                new(2, PathRoomType.Assault, Around(41, 14, 25, 19), PathRoomShape.Ring, true, 2, V()),
-                new(3, PathRoomType.Elite, Around(40, 68, 27, 17), PathRoomShape.Maze, true, 3, V()),
-                new(4, PathRoomType.Boss, Around(bossX, mainY, 33, 33), PathRoomShape.GrandArena, true, 4, V()),
-            },
-            PathLayoutStyle.Procession => new List<PathRoomBlueprint>
-            {
-                new(0, PathRoomType.Start, Around(8, mainY, 13, 13), PathRoomShape.Sanctuary, true, 0, V()),
-                new(1, PathRoomType.Skirmish, Around(28, mainY, 31, 9), PathRoomShape.LongHall, true, 1, V()),
-                new(2, PathRoomType.Assault, Around(43, 14, 19, 21), PathRoomShape.Maze, true, 2, V()),
-                new(3, PathRoomType.Elite, Around(40, 68, 27, 23), PathRoomShape.GrandArena, true, 3, V()),
-                new(4, PathRoomType.Boss, Around(bossX, mainY, 33, 33), PathRoomShape.GrandArena, true, 4, V()),
-            },
-            _ => new List<PathRoomBlueprint>
-            {
-                new(0, PathRoomType.Start, Around(8, mainY, 13, 13), PathRoomShape.Sanctuary, true, 0, V()),
-                new(1, PathRoomType.Skirmish, Around(25, 17, 21, 19), PathRoomShape.Crossroads, true, 1, V()),
-                new(2, PathRoomType.Assault, Around(30, 65, 9, 29), PathRoomShape.LongHall, true, 2, V()),
-                new(3, PathRoomType.Elite, Around(43, mainY, 21, 21), PathRoomShape.Ring, true, 3, V()),
-                new(4, PathRoomType.Boss, Around(bossX, mainY, 33, 33), PathRoomShape.GrandArena, true, 4, V()),
-            },
+            new(
+                0,
+                PathRoomType.Start,
+                Around(7, mainY, 11, 11),
+                PathRoomShape.Sanctuary,
+                true,
+                0,
+                V()),
         };
 
-        // Treasure branches use a chained 50% roll: zero or one is common,
-        // while two and three become increasingly rare. The larger footprints
-        // leave enough room for their guardian-strength encounter rather than
-        // presenting the chest inside the old 11x11 closet.
+        Point[] sockets = MainRouteSockets(style);
+        PathRoomShape[] modules = ShuffledModules(rng);
+        for (int index = 0; index < RequiredPreBossRoomCount; index++)
+        {
+            int variant = V();
+            PathRoomShape shape = modules[index];
+            (int width, int height) = ModuleDimensions(shape, variant);
+            Point socket = sockets[index];
+            rooms.Add(new PathRoomBlueprint(
+                index + 1,
+                EncounterCadence[index],
+                Around(socket.X, socket.Y, width, height),
+                shape,
+                true,
+                index + 1,
+                variant));
+        }
+
+        rooms.Add(new PathRoomBlueprint(
+            RequiredPreBossRoomCount + 1,
+            PathRoomType.Boss,
+            Around(bossX, mainY, 33, 33),
+            PathRoomShape.GrandArena,
+            true,
+            RequiredPreBossRoomCount + 1,
+            V()));
+
+        // Optional reward wings occupy the otherwise unused far side of the
+        // centered boss chamber. Their stable sockets never consume or
+        // shortcut one of the seven mandatory room modules.
         int treasureCount = treasureRoomCount.HasValue
             ? Math.Clamp(treasureRoomCount.Value, 0, 3)
             : PathFloorGenerator.RollTreasureRoomCount(rng);
-        IReadOnlyList<PathRoomBlueprint> treasureCandidates = style switch
-        {
-            PathLayoutStyle.Switchback =>
-            [
-                new(5, PathRoomType.Treasure, Around(53, 12, 23, 23), PathRoomShape.Diamond, false, 2, V()),
-                new(6, PathRoomType.Treasure, Around(12, 68, 23, 23), PathRoomShape.Ruin, false, 3, V()),
-                new(7, PathRoomType.Treasure, Around(112, 14, 23, 23), PathRoomShape.Ring, false, 1, V()),
-            ],
-            PathLayoutStyle.GrandCircuit =>
-            [
-                new(5, PathRoomType.Treasure, Around(13, 68, 23, 23), PathRoomShape.Ruin, false, 3, V()),
-                new(6, PathRoomType.Treasure, Around(112, 13, 23, 23), PathRoomShape.Diamond, false, 2, V()),
-                new(7, PathRoomType.Treasure, Around(112, 68, 23, 23), PathRoomShape.Ring, false, 1, V()),
-            ],
-            PathLayoutStyle.Procession =>
-            [
-                new(5, PathRoomType.Treasure, Around(13, 68, 23, 23), PathRoomShape.Diamond, false, 3, V()),
-                new(6, PathRoomType.Treasure, Around(112, 13, 23, 23), PathRoomShape.Ruin, false, 2, V()),
-                new(7, PathRoomType.Treasure, Around(112, 68, 23, 23), PathRoomShape.Ring, false, 1, V()),
-            ],
-            _ =>
-            [
-                new(5, PathRoomType.Treasure, Around(53, 12, 23, 23), PathRoomShape.Ruin, false, 2, V()),
-                new(6, PathRoomType.Treasure, Around(13, 68, 23, 23), PathRoomShape.Diamond, false, 3, V()),
-                new(7, PathRoomType.Treasure, Around(112, 68, 23, 23), PathRoomShape.Ring, false, 2, V()),
-            ],
-        };
+        PathRoomBlueprint[] treasureCandidates =
+        [
+            new(9, PathRoomType.Treasure,
+                Around(101, 13, 23, 23), PathRoomShape.Diamond, false, 4, V()),
+            new(10, PathRoomType.Treasure,
+                Around(128, 38, 21, 19), PathRoomShape.Ruin, false, 5, V()),
+            new(11, PathRoomType.Treasure,
+                Around(101, 70, 21, 19), PathRoomShape.Ring, false, 6, V()),
+        ];
         rooms.AddRange(treasureCandidates.Take(treasureCount));
 
         if (floorNumber >= 2 && rng.NextDouble() < .68)
         {
-            PathRoomBlueprint challenge = style switch
-            {
-                PathLayoutStyle.Switchback => new(8, PathRoomType.Challenge,
-                    Around(53, 69, 11, 13), PathRoomShape.Ring, false, 3, V()),
-                PathLayoutStyle.GrandCircuit => new(8, PathRoomType.Challenge,
-                    Around(9, 55, 13, 11), PathRoomShape.LongHall, false, 2, V()),
-                PathLayoutStyle.Procession => new(8, PathRoomType.Challenge,
-                    Around(8, 55, 13, 11), PathRoomShape.Ruin, false, 2, V()),
-                _ => new(8, PathRoomType.Challenge,
-                    Around(49, 70, 13, 13), PathRoomShape.Maze, false, 3, V()),
-            };
-            rooms.Add(challenge);
+            Point challengeSocket = style is PathLayoutStyle.Switchback
+                or PathLayoutStyle.Procession
+                ? new Point(70, 72)
+                : new Point(70, 8);
+            rooms.Add(new PathRoomBlueprint(
+                12,
+                PathRoomType.Challenge,
+                Around(challengeSocket.X, challengeSocket.Y, 13, 13),
+                style is PathLayoutStyle.Procession or PathLayoutStyle.Floodplain
+                    ? PathRoomShape.Maze
+                    : PathRoomShape.Crossroads,
+                false,
+                6,
+                V()));
         }
 
         return rooms;
+    }
+
+    private static PathRoomShape[] ShuffledModules(Random rng)
+    {
+        var result = (PathRoomShape[])ModuleDeck.Clone();
+        for (int index = result.Length - 1; index > 0; index--)
+        {
+            int swap = rng.Next(index + 1);
+            (result[index], result[swap]) = (result[swap], result[index]);
+        }
+        return result;
+    }
+
+    private static (int Width, int Height) ModuleDimensions(
+        PathRoomShape shape,
+        int variant) => shape switch
+    {
+        PathRoomShape.LongHall when variant % 2 == 0 => (17, 9),
+        PathRoomShape.LongHall => (9, 17),
+        _ => (15, 15),
+    };
+
+    private static Point[] MainRouteSockets(PathLayoutStyle style)
+    {
+        // The upper and lower circuits are mirror-safe. Small style-specific
+        // offsets change the route silhouette without allowing modules to
+        // overlap each other or the centered 33x33 boss arena.
+        return style switch
+        {
+            PathLayoutStyle.Switchback =>
+            [
+                new(15, 13), new(33, 10), new(51, 15), new(44, 35),
+                new(22, 30), new(17, 65), new(42, 68),
+            ],
+            PathLayoutStyle.Procession =>
+            [
+                new(15, 12), new(34, 10), new(51, 15), new(43, 35),
+                new(22, 29), new(17, 64), new(42, 68),
+            ],
+            PathLayoutStyle.GrandCircuit =>
+            [
+                new(15, 67), new(33, 70), new(51, 65), new(44, 45),
+                new(22, 50), new(17, 16), new(42, 13),
+            ],
+            _ =>
+            [
+                new(15, 68), new(34, 70), new(51, 65), new(43, 45),
+                new(22, 51), new(17, 17), new(42, 13),
+            ],
+        };
     }
 }

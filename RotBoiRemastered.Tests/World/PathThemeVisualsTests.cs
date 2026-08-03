@@ -37,7 +37,7 @@ public sealed class PathThemeVisualsTests
             decoration.Layer == PathDecorationLayer.Ambient && decoration.Kind == ambientKind);
         Assert.Contains(decorations, decoration => decoration.RoomId == layout.StartRoom.Id);
         Assert.Contains(decorations, decoration => decoration.RoomId == layout.BossRoom.Id);
-        Assert.InRange(decorations.Count, 25, 225);
+        Assert.InRange(decorations.Count, 75, 420);
     }
 
     [Theory]
@@ -179,5 +179,62 @@ public sealed class PathThemeVisualsTests
             Assert.True(decorations.Count(decoration =>
                 decoration.Layer == PathDecorationLayer.Ambient) >= 5);
         }
+    }
+
+    [Theory]
+    [InlineData("touch")]
+    [InlineData("sight")]
+    [InlineData("sound")]
+    [InlineData("phantasia")]
+    [InlineData("chemesthesis")]
+    public void MandatoryModules_HaveCompleteThemeSpecificDressing(string senseKey)
+    {
+        var layout = PathFloorGenerator.Generate(senseKey, 7, new Random(744));
+
+        foreach (PathRoom room in layout.RequiredRoomsBeforeBoss)
+        {
+            PathDecoration[] roomDecorations = layout.Decorations
+                .Where(decoration => decoration.RoomId == room.Id)
+                .ToArray();
+            Assert.True(roomDecorations.Length >= 10);
+            Assert.Contains(roomDecorations, decoration =>
+                decoration.Layer is PathDecorationLayer.Floor or PathDecorationLayer.Low);
+            Assert.Contains(roomDecorations, decoration =>
+                decoration.Layer == PathDecorationLayer.Raised);
+            Assert.Contains(roomDecorations, decoration =>
+                decoration.Layer == PathDecorationLayer.Ambient);
+        }
+    }
+
+    [Theory]
+    [InlineData("touch")]
+    [InlineData("sight")]
+    [InlineData("sound")]
+    [InlineData("phantasia")]
+    [InlineData("chemesthesis")]
+    public void Battleground_CachesDisjointPerFrameDecorationPartitions(string senseKey)
+    {
+        var battleground = PathFloorGenerator.Generate(
+            senseKey,
+            10,
+            new Random(1441)).Battleground;
+
+        Assert.All(battleground.AnimatedFloorPathDecorations, decoration =>
+            Assert.True(decoration.Layer is PathDecorationLayer.Floor or PathDecorationLayer.Low));
+        Assert.All(battleground.RaisedPathDecorations, decoration =>
+            Assert.Equal(PathDecorationLayer.Raised, decoration.Layer));
+        Assert.All(battleground.AmbientPathDecorations, decoration =>
+            Assert.Equal(PathDecorationLayer.Ambient, decoration.Layer));
+        Assert.Equal(
+            battleground.PathDecorations.Count,
+            battleground.AnimatedFloorPathDecorations.Count
+            + battleground.RaisedPathDecorations.Count
+            + battleground.AmbientPathDecorations.Count);
+
+        // More rooms must not translate into an unbounded live draw set.
+        // Static floor marks are baked; only these bounded partitions are
+        // considered by their respective per-frame passes before culling.
+        Assert.InRange(battleground.PathDecorations.Count, 100, 420);
+        Assert.InRange(battleground.AmbientPathDecorations.Count, 1, 52);
     }
 }

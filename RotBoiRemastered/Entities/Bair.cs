@@ -19,7 +19,14 @@ public sealed class Bair : PlagueTouchBoss
     {
         BossName = "BAIR", Subtitle = "THE FIRST LOCK", OwnerPrefix = "bair_touch",
         PhaseLabels = new[] { "INTAKE", "QUARTERING", "MOVING CELL", "RELEASE", "SOLITARY" },
-        MovementModes = new[] { "chase", "path", "static", "static", "path" },
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 15f, .58f, .58f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 14f, .62f, .62f, -1),
+        },
         MovementSpeed = .10, BodyScale = 2.15, CooldownSeconds = 2.05,
         ShotSpeed = .46, ShotDamage = 300, ShotScale = .38, ShotRangeTiles = 22,
         MidHealth = 110000, MidContactDamage = 380, MidRewardExperience = 420,

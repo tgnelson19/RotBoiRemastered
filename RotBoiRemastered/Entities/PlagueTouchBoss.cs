@@ -95,7 +95,9 @@ public class PlagueTouchBoss : PathChaseBoss
 {
     public static readonly PathChaseBossConfig BaseConfig = PathChaseBossConfig.Default with
     {
-        ArenaShape = "square", ArenaScale = 9.4, MovementModes = Array.Empty<string>(),
+        ArenaShape = "square", ArenaScale = 9.4,
+        MotionTheme = BossMotionTheme.Touch,
+        MovementPhases = Array.Empty<BossMovementPhaseProfile>(),
     };
 
     protected readonly PlagueSigilConfig SigilConfig;
@@ -104,7 +106,6 @@ public class PlagueTouchBoss : PathChaseBoss
     public int PortalIndex { get; set; }
     public int PatternRotation { get; set; }
     public double PhaseAnnouncementTimer { get; set; } = 3.0;
-    private float _pathAngle;
     private readonly List<PendingPortalVolley> _pendingPortalVolleys = new();
     private sealed record PendingPortalVolley(
         TouchPortal Portal, Vector2 Target, double Remaining);
@@ -282,28 +283,6 @@ public class PlagueTouchBoss : PathChaseBoss
         // Base PlagueTouchBoss has no attack pattern of its own -- Bair/Sting override this.
     }
 
-    private void MovementStep(float playerX, float playerY, Battleground battleground)
-    {
-        string mode = Config.MovementModes[Phase - 1];
-        if (mode == "static")
-            return;
-        Vector2 target;
-        if (mode == "path")
-        {
-            _pathAngle += .005f * (float)Simulation.GetFrameScale();
-            target = ArenaCenter + new Vector2(MathF.Cos(_pathAngle), MathF.Sin(_pathAngle)) * ArenaRadius * .48f;
-        }
-        else
-        {
-            target = new Vector2(playerX, playerY);
-        }
-        var center = Center();
-        float distance = Math.Max(1f, Vector2.Distance(target, center));
-        float step = Speed * (float)Simulation.GetFrameScale();
-        TryAxisMove((target.X - center.X) / distance * step, "x", battleground);
-        TryAxisMove((target.Y - center.Y) / distance * step, "y", battleground);
-    }
-
     private void UpdateTouchPortals(float playerX, float playerY, List<EnemyProjectile> sink, double dt)
     {
         foreach (var portal in TouchPortals)
@@ -377,9 +356,7 @@ public class PlagueTouchBoss : PathChaseBoss
         PhaseElapsed += dt;
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         UpdatePhase();
-        AdvanceAge();
-        MovementStep(context.PlayerWorldX, context.PlayerWorldY, context.Battleground);
-        FinishMovementTracking();
+        UpdateLocomotion(context);
         UpdateTouchPortals(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (EntranceRemaining <= 0 && AttackCooldown <= 0)
@@ -393,7 +370,7 @@ public class PlagueTouchBoss : PathChaseBoss
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        float walkRoll = Moved ? MathF.Sin(Age * .045f) * Size * .018f : 0f;
+        float walkRoll = Moved ? BossAnimation.Sine(VisualAgeSeconds, 3.4f) * Size * .012f : 0f;
         var center = screenPosition + new Vector2(Size / 2f, Size / 2f + walkRoll);
         if (Dying)
         {
@@ -401,26 +378,53 @@ public class PlagueTouchBoss : PathChaseBoss
             return;
         }
 
-        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI) : 0f;
+        float attack = VisualAttackPulse;
         float detach = VisualSurvivalActive ? 1.5f : 1f;
         Color mud = new(105, 70, 43);
         Color orange = new(211, 116, 46);
         Color red = new(157, 55, 39);
-        BossVisuals.Cube(spriteBatch, center + new Vector2(0, attack * Size * .05f), Size * .64f, mud, orange, Age * .0018f);
+        float settle = BossAnimation.CosinePulse(VisualAgeSeconds,
+            PresentationProfile.IdlePeriodSeconds) * .035f;
+        float compression = Math.Clamp(attack * .12f + settle, 0f, .18f);
+        Vector2 coreCenter = center + new Vector2(0, attack * Size * .035f);
+        BossVisuals.Cuboid(spriteBatch, coreCenter, Size * .62f,
+            Size * (.72f - compression), mud, orange, 0f);
+        float plateOffset = Size * (.43f * detach - attack * .025f);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            BossVisuals.HingedPlate(spriteBatch,
+                coreCenter + new Vector2(side * plateOffset, 0),
+                Size * .54f, Size * .17f,
+                side < 0 ? new Color(91, 63, 43) : new Color(121, 75, 42),
+                PhaseAccent, MathF.PI / 2f);
+        }
+        for (int groove = -1; groove <= 1; groove++)
+        {
+            float y = coreCenter.Y + groove * Size * .12f;
+            Primitives2D.Line(spriteBatch,
+                new Vector2(coreCenter.X - Size * .24f, y),
+                new Vector2(coreCenter.X + Size * .24f, y),
+                groove == 0 ? PhaseAccent : Color.Lerp(mud, UiTheme.Cream, .2f),
+                groove == 0 ? 3 : 2);
+        }
 
         int blobCount = Config.FinalBoss ? 13 : 9;
         for (int index = 0; index < blobCount; index++)
         {
-            float cycle = (Age * (.006f + attack * .01f) + index * .173f) % 1f;
+            float cycle = BossAnimation.LoopPhase(VisualAgeSeconds,
+                Math.Max(.9f, 1.38f - attack * .55f), index * .173f);
+            float seamFade = BossAnimation.SeamFade(cycle, .13f);
             float angle = index * 2.399f + Age * .0016f;
-            float radius = Size * (.16f + cycle * .66f) * detach;
-            float roll = MathF.Sin(cycle * MathF.PI) * Size * .42f;
-            var point = center + new Vector2(MathF.Cos(angle) * radius, -Size * .5f + cycle * Size * 1.05f - roll * .28f);
-            float blob = Size * (.065f + .045f * (1f - cycle));
-            Color color = index % 3 == 0 ? red : index % 2 == 0 ? orange : new Color(132, 82, 43);
-            Primitives2D.FillCircle(spriteBatch, point + new Vector2(3, 4), blob + 3, UiTheme.Shadow);
+            float radius = Size * (.24f + cycle * .48f) * detach;
+            float roll = MathF.Sin(cycle * MathF.PI) * Size * .32f;
+            var point = center + new Vector2(MathF.Cos(angle) * radius,
+                -Size * .44f + cycle * Size * .9f - roll * .24f);
+            float blob = Size * (.055f + .038f * (1f - cycle)) * seamFade;
+            Color color = (index % 3 == 0 ? red : index % 2 == 0 ? orange : new Color(132, 82, 43)) * seamFade;
+            Primitives2D.FillCircle(spriteBatch, point + new Vector2(3, 4), blob + 3 * seamFade, UiTheme.Shadow * seamFade);
             Primitives2D.FillCircle(spriteBatch, point, blob, color);
-            Primitives2D.CircleOutline(spriteBatch, point, blob, UiTheme.Ink, Math.Max(2, (int)(blob * .18f)), 18);
+            if (blob >= 2)
+                Primitives2D.CircleOutline(spriteBatch, point, blob, UiTheme.Ink * seamFade, Math.Max(1, (int)(blob * .18f)), 18);
         }
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .72f), (int)(Size * .92f), 6));
     }

@@ -12,7 +12,19 @@ public sealed class Sting : PlagueTouchBoss
         BossName = "STING", Subtitle = "THE THING THE PRISON KEPT", FinalBoss = true,
         OwnerPrefix = "sting_touch",
         PhaseLabels = new[] { "BLOOD", "FROGS", "GNATS", "FLIES", "PESTILENCE", "BOILS", "HAIL", "LOCUSTS", "DARKNESS", "FIRSTBORN" },
-        MovementModes = new[] { "chase", "path", "static", "path", "static", "chase", "static", "path", "static", "chase" },
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 16f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 15f, direction: -1),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 14f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Chase(),
+        },
         MovementSpeed = .075, FinalCooldownSeconds = 1.7, FinalBodyScale = 2.65,
     };
 

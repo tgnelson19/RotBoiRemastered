@@ -48,7 +48,37 @@ public sealed class Player
     {
         WorldX = worldX;
         WorldY = worldY;
+        _lastVisualPosition = new Vector2(worldX, worldY);
+        _visualMoved = false;
     }
+
+    /// <summary>
+    /// Presentation-aware movement for post-collision constraints and scripted
+    /// portal travel. Unlike <see cref="SetPosition"/>, this preserves the
+    /// previous visual sample so the next presentation tick reads the actual
+    /// on-screen displacement rather than snapping or animating a teleport.
+    /// </summary>
+    internal void SetAnimatedPosition(float worldX, float worldY)
+    {
+        WorldX = worldX;
+        WorldY = worldY;
+    }
+
+    internal void AdvanceVisuals(double seconds)
+    {
+        float visualSeconds = (float)Math.Clamp(seconds, 0.0, .05);
+        _visualAge += visualSeconds;
+        _fireRecoil = Math.Max(0, _fireRecoil - visualSeconds * 8f);
+        Vector2 current = new(WorldX, WorldY);
+        Vector2 visualDelta = current - _lastVisualPosition;
+        _visualMoved = visualDelta.LengthSquared() > .0004f;
+        if (_visualMoved)
+            _visualMotionDirection = Vector2.Normalize(visualDelta);
+        _lastVisualPosition = current;
+    }
+
+    internal float PresentationTime => _visualAge;
+    internal bool VisualMoved => _visualMoved;
 
     public Rectangle WorldRect(RunState state) => new((int)WorldX, (int)WorldY, (int)state.PlayerSize, (int)state.PlayerSize);
 
@@ -152,15 +182,6 @@ public sealed class Player
         else
             state.DY = 0;
 
-        float visualSeconds = (float)seconds;
-        _visualAge += visualSeconds;
-        _fireRecoil = Math.Max(0, _fireRecoil - visualSeconds * 8f);
-        Vector2 current = new(WorldX, WorldY);
-        Vector2 visualDelta = current - _lastVisualPosition;
-        _visualMoved = visualDelta.LengthSquared() > .0004f;
-        if (_visualMoved)
-            _visualMotionDirection = Vector2.Normalize(visualDelta);
-        _lastVisualPosition = current;
     }
 
     private static bool HitsObstacle(
@@ -196,7 +217,7 @@ public sealed class Player
         float drawSize = state.PlayerSize * sizeScale;
         DrawCoreForgeRings(
             spriteBatch, state, camera.Lock, drawSize,
-            (float)state.RunTimeSeconds);
+            _visualAge);
 
         int half = (int)Math.Round(drawSize / 2f);
         float step = _visualMoved
@@ -225,7 +246,7 @@ public sealed class Player
             + axisY * (y * rect.Height * .5f);
         PlayerRegaliaRenderer.DrawRear(
             spriteBatch, state, bodyCenter, axisX, axisY,
-            drawSize, (float)state.RunTimeSeconds, intensity);
+            drawSize, _visualAge, intensity);
         if (state.Dashing && intensity > 0)
         {
             int ghosts = Math.Max(1, (int)MathF.Ceiling(3 * intensity));
@@ -259,7 +280,7 @@ public sealed class Player
         }, UiTheme.Lighten(color, 45));
         PlayerRegaliaRenderer.DrawFront(
             spriteBatch, state, bodyCenter, axisX, axisY,
-            drawSize, (float)state.RunTimeSeconds);
+            drawSize, _visualAge);
 
         if (_fireRecoil > 0)
         {

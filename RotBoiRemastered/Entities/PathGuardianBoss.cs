@@ -13,7 +13,8 @@ public sealed record PathGuardianPhaseProfile(
     float CadenceSeconds,
     float PreferredDistanceTiles,
     float OrbitScale,
-    float MovementScale);
+    float MovementScale,
+    BossMovementPhaseProfile Movement);
 
 public sealed record PathGuardianSenseProfile(
     string BossName,
@@ -49,9 +50,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 new Color(110, 167, 207),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("FOOTFALL", "The floor remembers where you waited.", 2.02f, 4.8f, .52f, 1f),
-                    new PathGuardianPhaseProfile("COUNTERBEAT", "The remembered path answers from the edge.", 1.72f, 4.5f, .64f, 1.05f),
-                    new PathGuardianPhaseProfile("RESONANT PURSUIT", "Silence moves; the echoes do not forget.", 1.42f, 4.15f, .78f, 1.12f),
+                    new PathGuardianPhaseProfile("FOOTFALL", "The floor remembers where you waited.", 2.02f, 4.8f, .52f, 1f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 11f)),
+                    new PathGuardianPhaseProfile("COUNTERBEAT", "The remembered path answers from the edge.", 1.72f, 4.5f, .64f, 1.05f,
+                        BossMovementPhaseProfile.Chase()),
+                    new PathGuardianPhaseProfile("RESONANT PURSUIT", "Silence moves; the echoes do not forget.", 1.42f, 4.15f, .78f, 1.12f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 10f, .62f, .46f)),
                 }),
             ["touch"] = new(
                 "PRESSURE ENGINE", "WARDEN OF THE WEIGHT BELOW",
@@ -59,9 +63,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 new Color(166, 146, 76),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("NEAR / FAR", "Cross the pressure band before it returns.", 2.48f, 3.7f, .13f, .78f),
-                    new PathGuardianPhaseProfile("COMPRESSION", "The distance you favor begins to close.", 2.12f, 3.25f, .18f, .84f),
-                    new PathGuardianPhaseProfile("PULSE LOCK", "Every band demands a committed crossing.", 1.78f, 2.9f, .23f, .9f),
+                    new PathGuardianPhaseProfile("NEAR / FAR", "Cross the pressure band before it returns.", 2.48f, 3.7f, .13f, .78f,
+                        BossMovementPhaseProfile.Chase()),
+                    new PathGuardianPhaseProfile("COMPRESSION", "The distance you favor begins to close.", 2.12f, 3.25f, .18f, .84f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Square, 17f)),
+                    new PathGuardianPhaseProfile("PULSE LOCK", "Every band demands a committed crossing.", 1.78f, 2.9f, .23f, .9f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Square, 15f, direction: -1)),
                 }),
             ["sight"] = new(
                 "DROWNED OCULUS", "LENS AT THE QUICKENED HORIZON",
@@ -69,9 +76,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 new Color(228, 142, 63),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("REFRACTION", "The first lens divides one threat into two.", 1.88f, 6.4f, .7f, 1.16f),
-                    new PathGuardianPhaseProfile("LENS MAZE", "Every sector turns the glass against you.", 1.56f, 6.0f, .82f, 1.22f),
-                    new PathGuardianPhaseProfile("WHITE GEOMETRY", "The complete path exists only between rays.", 1.28f, 5.5f, .94f, 1.3f),
+                    new PathGuardianPhaseProfile("REFRACTION", "The first lens divides one threat into two.", 1.88f, 6.4f, .7f, 1.16f,
+                        BossMovementPhaseProfile.Chase()),
+                    new PathGuardianPhaseProfile("LENS MAZE", "Every sector turns the glass against you.", 1.56f, 6.0f, .82f, 1.22f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 6f)),
+                    new PathGuardianPhaseProfile("WHITE GEOMETRY", "The complete path exists only between rays.", 1.28f, 5.5f, .94f, 1.3f,
+                        BossMovementPhaseProfile.Chase(1.15f)),
                 }),
             ["chemesthesis"] = new(
                 "CINDER PLAGUE", "CARRIER OF THE BURNING FIELD",
@@ -79,9 +89,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 new Color(116, 132, 50),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("CARRIER", "Each impact wakes a dormant node.", 2.36f, 5.6f, .22f, .92f),
-                    new PathGuardianPhaseProfile("PROPAGATION", "Infection travels farther than its carrier.", 2.02f, 5.35f, .28f, .96f),
-                    new PathGuardianPhaseProfile("CHAIN BLOOM", "Sever the route before every node answers.", 1.68f, 5.0f, .34f, 1.02f),
+                    new PathGuardianPhaseProfile("CARRIER", "Each impact wakes a dormant node.", 2.36f, 5.6f, .22f, .92f,
+                        BossMovementPhaseProfile.Chase()),
+                    new PathGuardianPhaseProfile("PROPAGATION", "Infection travels farther than its carrier.", 2.02f, 5.35f, .28f, .96f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 11f, .6f, .52f)),
+                    new PathGuardianPhaseProfile("CHAIN BLOOM", "Sever the route before every node answers.", 1.68f, 5.0f, .34f, 1.02f,
+                        BossMovementPhaseProfile.Chase(1.16f)),
                 }),
             ["phantasia"] = new(
                 "DREAMING PRISM", "WARDEN OF THE ORNATE DREAM",
@@ -89,9 +102,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 new Color(225, 128, 190),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("TRUTH PETAL", "The marked light reveals what will become real.", 2.18f, 4.8f, .44f, 1f),
-                    new PathGuardianPhaseProfile("LUCID PASSAGE", "The honest corridor moves through false walls.", 1.86f, 4.55f, .55f, 1.05f),
-                    new PathGuardianPhaseProfile("FALSE AWAKENING", "Cross the truth before the dream solidifies.", 1.54f, 4.25f, .68f, 1.12f),
+                    new PathGuardianPhaseProfile("TRUTH PETAL", "The marked light reveals what will become real.", 2.18f, 4.8f, .44f, 1f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 11f, .58f, .4f)),
+                    new PathGuardianPhaseProfile("LUCID PASSAGE", "The honest corridor moves through false walls.", 1.86f, 4.55f, .55f, 1.05f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 10f, .62f, .46f)),
+                    new PathGuardianPhaseProfile("FALSE AWAKENING", "Cross the truth before the dream solidifies.", 1.54f, 4.25f, .68f, 1.12f,
+                        BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 9f, .66f, .44f, -1)),
                 }),
         };
 
@@ -106,6 +122,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     private double _gateTransitionDelay;
     private bool _forceRarePattern;
     private readonly BossAttackDirector _attackDirector = new();
+    private readonly BossLocomotionController _locomotion;
     private readonly List<Vector2> _playerTrail = new(8);
     private double _trailSampleCooldown;
     private double _distanceBandDwell;
@@ -127,6 +144,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         : _profile.Phases[Math.Clamp(Phase - 1, 0, _profile.Phases.Count - 1)].Flavor;
     public Color PhaseAccent => GamePaths.PathsByKey[SenseKey].Accent;
     public Color SecondaryAccent => _profile.SecondaryAccent;
+    public BossPresentationProfile PresentationProfile { get; }
     public double EntranceRemaining { get; private set; } = 1.15;
     public double TransitionRemaining => _transitionRemaining;
     public double PhaseAnnouncementRemaining { get; private set; } = 2.4;
@@ -186,7 +204,22 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         TransitionCleanupOwner = _owner;
         ArenaCenter = new Vector2(worldX + Size / 2f, worldY + Size / 2f);
         ArenaRadius = arenaRadius ?? Simulation.TileSize * 5.2f;
+        BossMotionTheme theme = senseKey switch
+        {
+            "touch" => BossMotionTheme.Touch,
+            "sight" => BossMotionTheme.Sight,
+            "chemesthesis" => BossMotionTheme.Chemesthesis,
+            "phantasia" => BossMotionTheme.Phantasia,
+            _ => BossMotionTheme.Sound,
+        };
+        PresentationProfile = BossPresentationProfile.For(theme, BossVisualTier.Guardian);
+        float[] movementSeed = Enumerable.Range(0, 28)
+            .Select(index => MathF.Sin(index * 3.17f + floorNumber * 1.31f) * .14f)
+            .ToArray();
+        _locomotion = new BossLocomotionController(theme, movementSeed);
     }
+
+    public override bool ReceivesKnockback => false;
 
     private double Seconds() => Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
 
@@ -455,27 +488,18 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         }
 
         float centerX = WorldX + Size / 2f, centerY = WorldY + Size / 2f;
-        float dx = context.PlayerWorldX - centerX, dy = context.PlayerWorldY - centerY;
+        var phaseProfile = _profile.Phases[Phase - 1];
+        BossLocomotionFrame movement = _locomotion.Update(
+            Phase, phaseProfile.Movement, new Vector2(centerX, centerY),
+            new Vector2(context.PlayerWorldX, context.PlayerWorldY), ArenaCenter,
+            ArenaRadius, Speed, seconds);
+        float dx = movement.Target.X - centerX, dy = movement.Target.Y - centerY;
         float distance = Math.Max(1f, MathF.Sqrt(dx * dx + dy * dy));
         float directionX = dx / distance, directionY = dy / distance;
-
-        // A slow sideways orbit keeps the body active without obscuring the
-        // sense-specific projectile lesson.
-        var phaseProfile = _profile.Phases[Phase - 1];
-        float orbitScale = phaseProfile.OrbitScale;
-        if (SenseKey == "phantasia")
-            orbitScale += .1f * MathF.Sin(Age * .011f);
-        float preferredDistance = phaseProfile.PreferredDistanceTiles;
-        float orbit = MathF.Sin(Age * .025f + Phase) * (orbitScale + Phase * .035f);
-        float approach = distance > Simulation.TileSize * (preferredDistance + 1f)
-            ? 1f
-            : distance < Simulation.TileSize * (preferredDistance - 1f)
-                ? -.45f
-                : .1f;
-        float step = Speed * phaseProfile.MovementScale *
-            (.22f + Phase * .025f) * (float)Simulation.GetFrameScale();
-        TryAxisMove((directionX * approach - directionY * orbit) * step, "x", context.Battleground);
-        TryAxisMove((directionY * approach + directionX * orbit) * step, "y", context.Battleground);
+        float step = movement.SpeedPerReferenceTick * phaseProfile.MovementScale
+            * (float)Simulation.GetFrameScale();
+        TryAxisMove(directionX * step, "x", context.Battleground);
+        TryAxisMove(directionY * step, "y", context.Battleground);
         EnsureCollisionSafePosition(context.Battleground);
 
         AttackCooldown = Math.Max(0, (AttackCooldown ?? 0) - (float)Simulation.GetTimerStep());
@@ -1341,8 +1365,16 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     {
         DrawArenaState(spriteBatch, camera, playerWorldPosition, screenShake);
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        int bob = (int)(Math.Abs(MathF.Sin(Age * .06f)) * Size * .04f);
-        var body = new Rectangle((int)screen.X, (int)(screen.Y - bob), (int)Size, (int)Size);
+        float seconds = VisualAgeSeconds;
+        float visualOffset = SenseKey switch
+        {
+            "touch" => 0f,
+            "sound" => -BossAnimation.CosinePulse(seconds, 1f) * Size * .012f,
+            "sight" => BossAnimation.Sine(seconds, 1.8f) * Size * .018f,
+            "chemesthesis" => BossAnimation.Sine(seconds, 2.7f) * Size * .026f,
+            _ => BossAnimation.Sine(seconds, 3.8f) * Size * .045f,
+        };
+        var body = new Rectangle((int)screen.X, (int)(screen.Y + visualOffset), (int)Size, (int)Size);
         Color accent = PhaseAccent;
         Color bodyColor = Color.Lerp(UiTheme.Ink, accent, .52f);
         var center = body.Center.ToVector2();
@@ -1356,6 +1388,10 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             return;
         }
 
+        float attackPulse = VisualAttackPulse;
+        BossPoseState pose = BossPresentation.ResolvePose(Dying,
+            EntranceRemaining > 0, _transitionRemaining > 0, TrialActive,
+            false, AttackAnticipation, attackPulse);
         if (AttackAnticipation > 0)
         {
             int warningRadius = (int)(Size * (.58f + AttackAnticipation * .18f));
@@ -1364,18 +1400,9 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 Math.Max(2, (int)(Size * .035f)), 28);
         }
 
-        // Offset slabs and a hard shadow retain the game's block-built 2.5D silhouette.
-        Primitives2D.FillRect(spriteBatch,
-            new Rectangle(body.X + 8, body.Y + 10, body.Width, body.Height), UiTheme.Shadow);
-        Primitives2D.FillRect(spriteBatch, body, bodyColor);
-        Primitives2D.RectOutline(spriteBatch, body, UiTheme.Ink, Math.Max(5, (int)(Size * .075f)));
-        var topSlab = new Rectangle(body.X + 8, body.Y + 7, body.Width - 16, Math.Max(8, body.Height / 5));
-        Primitives2D.FillRect(spriteBatch, topSlab, UiTheme.Lighten(bodyColor, 28));
-        Primitives2D.Line(spriteBatch, new Vector2(topSlab.Left, topSlab.Bottom),
-            new Vector2(topSlab.Right, topSlab.Bottom), accent, 3);
-
         int radius = Math.Max(9, body.Width / 5);
-        DrawSenseArchitecture(spriteBatch, body, center, radius);
+        DrawSenseArchitecture(spriteBatch, body, center, radius, bodyColor,
+            Math.Max(AttackAnticipation, attackPulse), pose);
         DrawSenseSigil(spriteBatch, center, radius, accent);
         for (int index = 0; index < Phase; index++)
         {
@@ -1384,10 +1411,26 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         }
         if (Invulnerable)
         {
-            var shield = body;
-            shield.Inflate(10, 10);
-            Primitives2D.RectOutline(spriteBatch, shield,
-                TrialActive ? SecondaryAccent : UiTheme.Cream, 4);
+            Color shieldColor = TrialActive ? SecondaryAccent : UiTheme.Cream;
+            if (SenseKey == "touch")
+            {
+                var shield = body;
+                shield.Inflate(10, 10);
+                Primitives2D.RectOutline(spriteBatch, shield, shieldColor, 4);
+            }
+            else if (SenseKey == "sight")
+            {
+                Primitives2D.PolygonOutline(spriteBatch, new[]
+                {
+                    center + new Vector2(0, -Size * .63f),
+                    center + new Vector2(Size * .63f, 0),
+                    center + new Vector2(0, Size * .63f),
+                    center + new Vector2(-Size * .63f, 0),
+                }, shieldColor, 4);
+            }
+            else
+                Primitives2D.CircleOutline(spriteBatch, center, Size * .64f,
+                    shieldColor, 4, 40);
         }
 
         if (IsMiniGuardian && Hp < MaxHp)
@@ -1474,71 +1517,117 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         SpriteBatch spriteBatch,
         Rectangle body,
         Vector2 center,
-        int radius)
+        int radius,
+        Color bodyColor,
+        float attack,
+        BossPoseState pose)
     {
+        float seconds = VisualAgeSeconds;
         int stroke = Math.Max(2, body.Width / 28);
         switch (SenseKey)
         {
             case "sound":
+            {
+                float beat = BossAnimation.CosinePulse(seconds, .5f);
+                float compression = Math.Clamp(beat * .28f + attack * .72f, 0f, 1f);
+                BossVisuals.Resonator(spriteBatch, center, body.Width * .84f,
+                    bodyColor, SecondaryAccent, compression, Math.Min(3, Phase));
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    var speaker = new Rectangle(
-                        (int)(center.X + side * body.Width * .44f - radius * .42f),
-                        (int)(center.Y - radius * .58f),
-                        (int)(radius * .84f), (int)(radius * 1.16f));
-                    Primitives2D.Arc(spriteBatch, speaker,
-                        side < 0 ? MathF.PI / 2f : -MathF.PI / 2f,
-                        side < 0 ? MathF.PI * 1.5f : MathF.PI / 2f,
-                        SecondaryAccent, stroke, 18);
+                    float shutterX = center.X + side * body.Width * (.43f - compression * .035f);
+                    BossVisuals.HingedPlate(spriteBatch,
+                        new Vector2(shutterX, center.Y), body.Width * .18f,
+                        body.Height * .5f, Color.Lerp(bodyColor, UiTheme.Ink, .18f),
+                        SecondaryAccent, MathF.PI / 2f);
                 }
                 break;
+            }
             case "touch":
-                Primitives2D.FillRect(spriteBatch,
-                    new Rectangle(body.Left - stroke * 2, body.Top + body.Height / 5,
-                        stroke * 3, body.Height * 3 / 5), SecondaryAccent);
-                Primitives2D.FillRect(spriteBatch,
-                    new Rectangle(body.Right - stroke, body.Top + body.Height / 5,
-                        stroke * 3, body.Height * 3 / 5), SecondaryAccent);
-                Primitives2D.CircleOutline(spriteBatch,
-                    center + new Vector2(0, radius * .95f), radius / 2,
-                    UiTheme.Cream, stroke, 16);
+            {
+                float settle = BossAnimation.CosinePulse(seconds, 5.8f) * .04f;
+                float compression = Math.Clamp(attack * .12f + settle, 0f, .16f);
+                Vector2 pressCenter = center + new Vector2(0, body.Height * compression * .22f);
+                BossVisuals.Cuboid(spriteBatch, pressCenter, body.Width * .72f,
+                    body.Height * (.78f - compression), bodyColor, SecondaryAccent, 0f);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector2 plate = center + new Vector2(side * body.Width * (.44f - attack * .025f), 0);
+                    BossVisuals.HingedPlate(spriteBatch, plate, body.Height * .58f,
+                        body.Width * .17f, Color.Lerp(bodyColor, UiTheme.Void, .12f),
+                        SecondaryAccent, MathF.PI / 2f);
+                }
+                var foundation = new Rectangle(body.X + body.Width / 7,
+                    body.Bottom - body.Height / 7, body.Width * 5 / 7, body.Height / 7);
+                Primitives2D.FillRect(spriteBatch, foundation, UiTheme.Ink);
+                Primitives2D.Line(spriteBatch, new Vector2(foundation.Left, foundation.Top),
+                    new Vector2(foundation.Right, foundation.Top), SecondaryAccent, stroke);
                 break;
+            }
             case "sight":
-                Primitives2D.PolygonOutline(spriteBatch, new[]
+            {
+                float opening = .72f - attack * .5f;
+                float rotation = seconds * MathF.Tau / 3.6f;
+                for (int index = 0; index < 3; index++)
                 {
-                    center + new Vector2(0, -radius * 1.55f),
-                    center + new Vector2(radius * 1.7f, 0),
-                    center + new Vector2(0, radius * 1.55f),
-                    center + new Vector2(-radius * 1.7f, 0),
-                }, SecondaryAccent, stroke);
+                    float angle = rotation * .18f + index * MathF.Tau / 3f;
+                    Vector2 fin = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                        * body.Width * (.43f + attack * .04f);
+                    BossVisuals.PrismPetal(spriteBatch, fin, body.Width * .35f,
+                        body.Width * .13f, Color.Lerp(bodyColor, UiTheme.Ink, .08f),
+                        SecondaryAccent, angle);
+                }
+                BossVisuals.Aperture(spriteBatch, center, body.Width * .42f,
+                    bodyColor, SecondaryAccent, opening, rotation, 6);
                 break;
+            }
             case "chemesthesis":
+            {
+                Vector2 jittered = center + new Vector2(
+                    BossAnimation.Sine(seconds, 1.9f) * body.Width * .025f
+                        + BossAnimation.Sine(seconds, .73f) * body.Width * .012f,
+                    BossAnimation.Sine(seconds, 1.37f, .31f) * body.Height * .022f);
+                BossVisuals.RotatingCube3D(spriteBatch, jittered, body.Width * .25f,
+                    bodyColor, SecondaryAccent, PhaseAccent,
+                    seconds * 1.31f, .48f + BossAnimation.Sine(seconds, 2.3f) * .38f,
+                    BossAnimation.Sine(seconds, 1.7f, .2f) * .22f);
                 for (int index = 0; index < 4; index++)
                 {
-                    float angle = index * MathF.PI / 2f + MathF.PI / 4f;
-                    Primitives2D.FillCircle(spriteBatch,
-                        center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
-                        * radius * 1.35f,
-                        Math.Max(3, radius / 4),
+                    float angle = index * MathF.PI / 2f + MathF.PI / 4f
+                        + BossAnimation.Sine(seconds, 2.2f + index * .37f, index * .19f) * .22f;
+                    float distance = radius * (1.22f + index * .11f
+                        + BossAnimation.Sine(seconds, 1.3f + index * .41f) * .12f);
+                    Vector2 chamber = jittered + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
+                    Primitives2D.Line(spriteBatch, jittered, chamber,
+                        index % 2 == 0 ? SecondaryAccent : PhaseAccent, stroke);
+                    float chamberSize = Math.Max(4, radius * (.22f + index * .035f + attack * .04f));
+                    Primitives2D.FillCircle(spriteBatch, chamber + new Vector2(3, 4), chamberSize + 2, UiTheme.Shadow);
+                    Primitives2D.FillCircle(spriteBatch, chamber, chamberSize,
                         index % 2 == 0 ? SecondaryAccent : PhaseAccent);
+                    Primitives2D.CircleOutline(spriteBatch, chamber, chamberSize,
+                        UiTheme.Ink, stroke, 16);
                 }
                 break;
+            }
             case "phantasia":
-                for (int index = 0; index < 4; index++)
+            {
+                float flow = seconds * MathF.Tau / 4.8f;
+                int petals = 4 + Phase * 2;
+                BossVisuals.RotatingCube3D(spriteBatch, center, body.Width * .2f,
+                    bodyColor, SecondaryAccent, PhaseAccent,
+                    flow * .42f, .62f + BossAnimation.Sine(seconds, 5.1f) * .26f,
+                    BossAnimation.Sine(seconds, 6.4f) * .16f);
+                for (int index = 0; index < petals; index++)
                 {
-                    float angle = Age * .015f + index * MathF.PI / 2f;
+                    float angle = flow + index * MathF.Tau / petals;
                     Vector2 prism = center
-                        + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
-                        * radius * 1.45f;
-                    Primitives2D.PolygonOutline(spriteBatch, new[]
-                    {
-                        prism + new Vector2(0, -5),
-                        prism + new Vector2(5, 0),
-                        prism + new Vector2(0, 5),
-                        prism + new Vector2(-5, 0),
-                    }, index % 2 == 0 ? SecondaryAccent : PhaseAccent, stroke);
+                        + new Vector2(MathF.Cos(angle) * radius * (1.55f + attack * .18f),
+                            MathF.Sin(angle) * radius * (.92f + attack * .1f));
+                    BossVisuals.PrismPetal(spriteBatch, prism, radius * .9f,
+                        radius * .34f, index % 2 == 0 ? SecondaryAccent : PhaseAccent,
+                        UiTheme.Cream, angle);
                 }
                 break;
+            }
         }
     }
 

@@ -17,6 +17,7 @@ public enum WorldDepthDrawKind
     Encounter,
     Enemy,
     LootCrate,
+    LightPost,
     Portal,
     Player,
     EnemyProjectile,
@@ -73,7 +74,7 @@ public sealed class ArenaRenderer
     private Battleground? _bakedFor;
     private RenderTarget2D? _bakedGround;
     private List<(int X, int Y, int Biome)> _decorations = new();
-    private List<PathDecoration> _pathRaisedDecorations = new();
+    private IReadOnlyList<PathDecoration> _pathRaisedDecorations = Array.Empty<PathDecoration>();
     private readonly List<(float ScreenY, int Kind, int X, int Y, TileType Tile, int Biome, PathDecoration? PathDecoration)>
         _visibleItemScratch = new();
     private readonly List<DepthSceneItem> _depthSceneScratch = new();
@@ -85,9 +86,7 @@ public sealed class ArenaRenderer
             return;
 
         _decorations = ComputeGenericRaisedDecorations(battleground);
-        _pathRaisedDecorations = battleground.PathDecorations
-            .Where(decoration => decoration.Layer == PathDecorationLayer.Raised)
-            .ToList();
+        _pathRaisedDecorations = battleground.RaisedPathDecorations;
 
         var previousTargets = graphicsDevice.GetRenderTargets();
         var target = new RenderTarget2D(graphicsDevice, battleground.Width * Battleground.TileSize, battleground.Height * Battleground.TileSize);
@@ -606,10 +605,10 @@ public sealed class ArenaRenderer
 
         Rectangle visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 2, Battleground.TileSize * 2);
-        foreach (PathDecoration decoration in battleground.PathDecorations)
+        // Layer partitions are built once with the immutable battleground;
+        // the animated pass never scans baked static or raised scenery.
+        foreach (PathDecoration decoration in battleground.AnimatedFloorPathDecorations)
         {
-            if (decoration.Layer is not (PathDecorationLayer.Floor or PathDecorationLayer.Low))
-                continue;
             Vector2 center = camera.WorldToScreen(
                 decoration.WorldPosition, playerWorldPosition, screenShake);
             if (!visibility.Contains(center.ToPoint()))
@@ -661,7 +660,8 @@ public sealed class ArenaRenderer
                     float x = center.X + (phase - .5f) * 34f * scale;
                     Primitives2D.FillRect(spriteBatch,
                         new Rectangle(Pixel(x) - 3, Pixel(center.Y) - 2 + index * 2, 7, 3),
-                        palette.Accent * (.35f + roomEnergy * .4f));
+                        palette.Accent * ((.35f + roomEnergy * .4f)
+                            * VisualAnimation.SeamFade(phase)));
                 }
                 break;
 
@@ -675,7 +675,7 @@ public sealed class ArenaRenderer
                         (phase - .5f) * 7f * scale);
                     int radius = Math.Max(2, Pixel((2f + phase * 2f) * scale));
                     Primitives2D.CircleOutline(spriteBatch, bubble, radius,
-                        palette.Detail * ((1f - phase) * .72f), 1, 12);
+                        palette.Detail * (VisualAnimation.SeamFade(phase) * .72f), 1, 12);
                 }
                 break;
 
@@ -688,7 +688,7 @@ public sealed class ArenaRenderer
                     Primitives2D.EllipseOutline(spriteBatch,
                         new Rectangle(Pixel(center.X) - width, Pixel(center.Y) - height,
                             width * 2, height * 2),
-                        palette.Detail * ((1f - phase) * .56f), 1, 20);
+                        palette.Detail * (VisualAnimation.SeamFade(phase) * .56f), 1, 20);
                 }
                 break;
 
@@ -702,7 +702,8 @@ public sealed class ArenaRenderer
                     Primitives2D.Line(spriteBatch,
                         new Vector2(Pixel(x - 5f * scale), Pixel(y + 2)),
                         new Vector2(Pixel(x + 5f * scale), Pixel(y - 2)),
-                        palette.Accent * (.32f + roomEnergy * .38f), 2);
+                        palette.Accent * ((.32f + roomEnergy * .38f)
+                            * VisualAnimation.SeamFade(phase)), 2);
                 }
                 break;
 
@@ -715,7 +716,7 @@ public sealed class ArenaRenderer
                         MathF.Sin(time * .7f + seed + index) * 3f);
                     Primitives2D.FillRect(spriteBatch,
                         new Rectangle(Pixel(puff.X), Pixel(puff.Y), 5 + index * 2, 2),
-                        palette.Detail * .28f);
+                        palette.Detail * (.28f * VisualAnimation.SeamFade(phase)));
                 }
                 break;
 
@@ -769,7 +770,8 @@ public sealed class ArenaRenderer
                         MathF.Sin(phase * MathF.Tau) * 7f * scale);
                     Primitives2D.FillRect(spriteBatch,
                         new Rectangle(Pixel(spark.X) - 2, Pixel(spark.Y) - 2, 5, 5),
-                        palette.Detail * (.45f + roomEnergy * .5f));
+                        palette.Detail * ((.45f + roomEnergy * .5f)
+                            * VisualAnimation.SeamFade(phase)));
                     break;
                 }
 
@@ -797,7 +799,7 @@ public sealed class ArenaRenderer
                     Primitives2D.FillRect(spriteBatch,
                         new Rectangle(Pixel(ember.X), Pixel(ember.Y), 3, 3),
                         (index % 2 == 0 ? palette.Accent : palette.Detail)
-                        * ((1f - phase) * .72f));
+                        * (VisualAnimation.SeamFade(phase) * .72f));
                 }
                 break;
 
@@ -954,7 +956,8 @@ public sealed class ArenaRenderer
         {
             var palette = _bakedFor.Palettes[item.Biome];
             if (item.Kind == 0)
-                DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Tile, palette);
+                DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition,
+                    screenShake, item.X, item.Y, item.Tile, palette);
             else if (item.Kind == 1)
                 DrawRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Biome, palette);
             else if (item.PathDecoration is not null)
@@ -1182,7 +1185,9 @@ public sealed class ArenaRenderer
 
             var palette = _bakedFor.Palettes[item.Biome];
             if (item.Kind == 0)
-                DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Tile, palette);
+                DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition,
+                    screenShake, item.X, item.Y, item.Tile, palette,
+                    visualTime, visualIntensity);
             else if (item.Kind == 1)
                 DrawRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Biome, palette);
             else if (item.PathDecoration is not null)
@@ -1268,7 +1273,17 @@ public sealed class ArenaRenderer
     }
 
     /// <summary>Ported from _draw_camera_facing_wall's drawing half (see VisibleWallFaces for the culling/sort logic).</summary>
-    private void DrawCameraFacingWall(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake, int tileX, int tileY, TileType tile, BiomePalette palette)
+    private void DrawCameraFacingWall(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        int tileX,
+        int tileY,
+        TileType tile,
+        BiomePalette palette,
+        float visualTime = 0f,
+        float visualIntensity = 1f)
     {
         int height = _bakedFor!.WallHeight + (tile == TileType.ArenaWall ? 2 : 0);
         int size = Battleground.TileSize;
@@ -1320,7 +1335,7 @@ public sealed class ArenaRenderer
             int start = visibleEdges[index];
             int end = (start + 1) % 4;
             DrawWallFace(spriteBatch, cap[start], cap[end], ground[end], ground[start],
-                tileX, tileY, palette);
+                tileX, tileY, palette, visualTime, visualIntensity);
         }
 
         Primitives2D.FillQuad(spriteBatch, cap[0], cap[1], cap[2], cap[3], palette.WallTop);
@@ -1367,7 +1382,9 @@ public sealed class ArenaRenderer
         Vector2 bottomLeft,
         int tileX,
         int tileY,
-        BiomePalette palette)
+        BiomePalette palette,
+        float visualTime,
+        float visualIntensity)
     {
         Primitives2D.FillQuad(
             spriteBatch, topLeft, topRight, bottomRight, bottomLeft, palette.WallFace);
@@ -1379,7 +1396,8 @@ public sealed class ArenaRenderer
         Primitives2D.Line(spriteBatch, accentLeft, accentRight, palette.Accent, 2);
         DrawPathWallMaterial(
             spriteBatch, topLeft, topRight, bottomRight, bottomLeft,
-            tileX, tileY, _bakedFor!.VisualThemeKey, palette);
+            tileX, tileY, _bakedFor!.VisualThemeKey, palette,
+            visualTime, visualIntensity);
     }
 
     private static void DrawPathWallMaterial(
@@ -1391,7 +1409,9 @@ public sealed class ArenaRenderer
         int tileX,
         int tileY,
         string? themeKey,
-        BiomePalette palette)
+        BiomePalette palette,
+        float visualTime,
+        float visualIntensity)
     {
         if (themeKey is null)
             return;
@@ -1403,6 +1423,7 @@ public sealed class ArenaRenderer
                 Vector2.Lerp(topRight, bottomRight, depth), amount);
         int hash = Math.Abs(tileX * 47 + tileY * 83);
         Color line = palette.Detail * .38f;
+        float activity = Math.Clamp(visualIntensity, 0f, 1f);
 
         switch (themeKey)
         {
@@ -1440,6 +1461,57 @@ public sealed class ArenaRenderer
                 Primitives2D.Line(spriteBatch, crackStart, crackMidA, line, 1);
                 Primitives2D.Line(spriteBatch, crackMidA, crackMidB, line, 1);
                 Primitives2D.Line(spriteBatch, crackMidB, crackEnd, line, 1);
+                break;
+        }
+
+        if (activity <= 0 || hash % 4 != 0)
+            return;
+
+        float seed = tileX * .73f + tileY * 1.19f;
+        float pulse = WorldLighting.Flicker(visualTime, seed);
+        Vector2 window = Across(.5f, .45f);
+        Color emissive = Color.Lerp(palette.Accent, palette.Detail, .55f)
+            * ((.35f + pulse * .45f) * activity);
+        switch (themeKey)
+        {
+            case "touch":
+                {
+                    float drip = VisualAnimation.LoopPhase(
+                        visualTime, 2.4f, hash * .013f);
+                    Vector2 point = Vector2.Lerp(Top(.5f), Bottom(.5f), drip);
+                    Primitives2D.FillRect(spriteBatch,
+                        new Rectangle((int)point.X - 1, (int)point.Y - 1, 3, 4),
+                        emissive * VisualAnimation.SeamFade(drip));
+                    break;
+                }
+            case "sight":
+                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                {
+                    window - new Vector2(0, 5), window + new Vector2(6, 0),
+                    window + new Vector2(0, 5), window - new Vector2(6, 0),
+                }, emissive);
+                break;
+            case "sound":
+                for (int bar = -1; bar <= 1; bar++)
+                {
+                    float wave = .5f + .5f * MathF.Sin(
+                        visualTime * 2.7f + seed + bar);
+                    Vector2 basePoint = Across(.5f + bar * .12f, .62f);
+                    Primitives2D.Line(spriteBatch, basePoint,
+                        basePoint - new Vector2(0, 3 + wave * 7),
+                        emissive, 2);
+                }
+                break;
+            case "phantasia":
+                Primitives2D.FillCircle(spriteBatch, window,
+                    2f + pulse * 2f, emissive);
+                Primitives2D.Line(spriteBatch, window - new Vector2(6, 0),
+                    window + new Vector2(6, 0), emissive * .6f, 1);
+                break;
+            case "chemesthesis":
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)window.X - 2, (int)window.Y - 2, 5, 5),
+                    emissive);
                 break;
         }
     }
@@ -1846,7 +1918,7 @@ public sealed class ArenaRenderer
                     int size = S(2 + phase * 3);
                     Primitives2D.FillRect(spriteBatch,
                         new Rectangle((int)vapor.X, (int)vapor.Y, size, size),
-                        palette.Detail * ((1f - phase) * .48f));
+                        palette.Detail * (VisualAnimation.SeamFade(phase) * .48f));
                 }
                 break;
             case PathDecorationKind.MirrorArch:
@@ -1854,9 +1926,11 @@ public sealed class ArenaRenderer
                     float phase = (visualTime * .35f + seed) % 1f;
                     Vector2 glint = P(-7 + phase * 14, -32 + phase * 22);
                     Primitives2D.Line(spriteBatch, glint - new Vector2(S(4), 0),
-                        glint + new Vector2(S(4), 0), palette.Detail * .75f, S(2));
+                        glint + new Vector2(S(4), 0),
+                        palette.Detail * (.75f * VisualAnimation.SeamFade(phase)), S(2));
                     Primitives2D.Line(spriteBatch, glint - new Vector2(0, S(4)),
-                        glint + new Vector2(0, S(4)), palette.Detail * .75f, S(2));
+                        glint + new Vector2(0, S(4)),
+                        palette.Detail * (.75f * VisualAnimation.SeamFade(phase)), S(2));
                     break;
                 }
             case PathDecorationKind.EchoPylon:
@@ -1867,7 +1941,7 @@ public sealed class ArenaRenderer
                         new Rectangle((int)cx - radius, (int)floorY - S(32) - radius / 2,
                             radius * 2, radius),
                         MathF.PI, MathF.Tau,
-                        palette.Accent * ((1f - pulse) * .42f), S(2), 18);
+                        palette.Accent * (VisualAnimation.SeamFade(pulse) * .42f), S(2), 18);
                     break;
                 }
             case PathDecorationKind.Chime:
@@ -1927,7 +2001,7 @@ public sealed class ArenaRenderer
                         -42 + phase * 38);
                     Primitives2D.FillRect(spriteBatch,
                         new Rectangle((int)point.X, (int)point.Y, S(2), S(2)),
-                        palette.Detail * ((1f - phase) * .46f));
+                        palette.Detail * (VisualAnimation.SeamFade(phase) * .46f));
                 }
                 break;
             case PathDecorationKind.FurnaceIdol:

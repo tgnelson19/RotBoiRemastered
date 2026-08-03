@@ -35,6 +35,8 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class Beaudis : Enemy
 {
+    public BossPresentationProfile PresentationProfile { get; } =
+        BossPresentationProfile.For(BossMotionTheme.Sound, BossVisualTier.Midpoint);
     public const string BossName = "BEAUDIS";
     public const string Subtitle = "THE ECHO THAT FOLLOWS";
     public const int MinimumDamagePhaseDeclarations = 2;
@@ -56,6 +58,15 @@ public sealed class Beaudis : Enemy
             [5] = ("SONIC BOOM", "Motion and echo collapse into one pursuit.", UiTheme.Red),
         };
 
+    public static readonly IReadOnlyList<BossMovementPhaseProfile> MovementPhases =
+    [
+        BossMovementPhaseProfile.Chase(),
+        BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 11f, .58f, .58f),
+        BossMovementPhaseProfile.Stationary(),
+        BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 10f, .64f, .64f, -1),
+        BossMovementPhaseProfile.Chase(1.12f),
+    ];
+
     private readonly List<ProjectilePortal> _projectilePortals = new();
 
     private int _portalIndex;
@@ -67,6 +78,7 @@ public sealed class Beaudis : Enemy
     private double _staggerRemaining;
     private float _previousPlayerDistance;
     private float _radialTrend;
+    private readonly BossLocomotionController _locomotion;
 
     public int Phase { get; private set; } = 1;
     public string PhaseLabel { get; private set; }
@@ -104,8 +116,12 @@ public sealed class Beaudis : Enemy
     public Beaudis(float worldX, float worldY, float awarenessRange, Random? rng = null)
         : base(worldX, worldY, .68f, Simulation.TileSize * 1.55f, UiTheme.Purple, 220, 50000, 240, 3.2, awarenessRange, "beaudis")
     {
+        _locomotion = new BossLocomotionController(BossMotionTheme.Sound,
+            Enumerable.Range(0, 16).Select(index => MathF.Sin(index * 2.71f) * .08f).ToArray());
         (PhaseLabel, PhaseFlavor, PhaseAccent) = PhaseMetadata[1];
     }
+
+    public override bool ReceivesKnockback => false;
 
     private static double Seconds() => Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
 
@@ -269,28 +285,21 @@ public sealed class Beaudis : Enemy
     private void Move(float playerX, float playerY, Battleground battleground)
     {
         var center = Center();
-        float dx = playerX - center.X, dy = playerY - center.Y;
+        Vector2 arenaCenter = new(
+            battleground.Width * Simulation.TileSize / 2f,
+            battleground.Height * Simulation.TileSize / 2f);
+        float arenaRadius = Math.Min(battleground.Width, battleground.Height)
+            * Simulation.TileSize * .34f;
+        BossLocomotionFrame frame = _locomotion.Update(
+            Phase, MovementPhases[Phase - 1], center,
+            new Vector2(playerX, playerY), arenaCenter, arenaRadius, Speed, Seconds());
+        if (frame.Stationary)
+            return;
+        float dx = frame.Target.X - center.X, dy = frame.Target.Y - center.Y;
         float distance = Math.Max(1.0f, MathF.Sqrt(dx * dx + dy * dy));
-        float moveX, moveY;
-        if (distance > Simulation.TileSize * 6.5f)
-        {
-            moveX = dx / distance;
-            moveY = dy / distance;
-        }
-        else if (distance < Simulation.TileSize * 3.5f)
-        {
-            moveX = -dx / distance * .7f;
-            moveY = -dy / distance * .7f;
-        }
-        else
-        {
-            float direction = Phase % 2 != 0 ? 1f : -1f;
-            moveX = -dy / distance * direction * .45f;
-            moveY = dx / distance * direction * .45f;
-        }
-        float step = Speed * (float)Simulation.GetFrameScale();
-        TryAxisMove(moveX * step, "x", battleground);
-        TryAxisMove(moveY * step, "y", battleground);
+        float step = frame.SpeedPerReferenceTick * (float)Simulation.GetFrameScale();
+        TryAxisMove(dx / distance * step, "x", battleground);
+        TryAxisMove(dy / distance * step, "y", battleground);
     }
 
     private void UpdateDamagePhase(float playerX, float playerY, List<EnemyProjectile> sink, double dt, Battleground battleground)
@@ -347,6 +356,7 @@ public sealed class Beaudis : Enemy
                 _attackCooldown = 1.85;
                 break;
         }
+        MarkAttack(.44f);
         _attackPattern += 1;
         _phaseDeclarations += 1;
     }
@@ -367,6 +377,7 @@ public sealed class Beaudis : Enemy
         {
             var portal = _projectilePortals[_portalIndex % _projectilePortals.Count];
             portal.FireToward(sink, new Vector2(playerX, playerY), 2, .22f, .72f, 1.0f, PhaseAccent, "survival");
+            MarkAttack(.28f);
             _portalIndex += 1;
             SurvivalCooldown = .85;
         }
@@ -401,11 +412,13 @@ public sealed class Beaudis : Enemy
             DeathRemaining = Math.Max(0.0, DeathRemaining - dt);
             if (DeathRemaining <= 0)
                 Hp = 0;
+            FinishMovementTracking();
             return;
         }
         if (EntranceRemaining > 0)
         {
             EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+            FinishMovementTracking();
             return;
         }
         if (IsStaggered)
@@ -416,6 +429,7 @@ public sealed class Beaudis : Enemy
                 IsStaggered = false;
                 Stagger = 0.0;
             }
+            FinishMovementTracking();
             return;
         }
         if (SurvivalActive)
@@ -434,6 +448,7 @@ public sealed class Beaudis : Enemy
             }
             UpdateDamagePhase(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt, context.Battleground);
         }
+        FinishMovementTracking();
     }
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -445,21 +460,42 @@ public sealed class Beaudis : Enemy
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
         Color color = (IsStaggered ? UiTheme.Cream : PhaseAccent) * fade;
+        Vector2 center = rect.Center.ToVector2();
+        float attack = VisualAttackPulse;
+        float beat = BossAnimation.CosinePulse(VisualAgeSeconds, .5f);
+        float compression = Math.Clamp(attack * .78f + beat * .22f, 0f, 1f);
+        Color chassis = Color.Lerp(new Color(43, 37, 69), color, .46f) * fade;
+        BossVisuals.Resonator(spriteBatch, center, Size * .9f, chassis,
+            color, compression, Math.Min(3, Math.Max(1, Phase - 1)));
+        for (int side = -1; side <= 1; side += 2)
+        {
+            var shutter = center + new Vector2(side * Size * (.47f - compression * .035f), 0);
+            BossVisuals.HingedPlate(spriteBatch, shutter, Size * .18f,
+                Size * .54f, Color.Lerp(chassis, UiTheme.Ink, .18f), color,
+                MathF.PI / 2f);
+        }
 
-        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 5, rect.Y + 6, rect.Width, rect.Height), UiTheme.Shadow * fade);
-        Primitives2D.FillRect(spriteBatch, rect, color);
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink * fade, Math.Max(3, (int)(Size * .06f)));
-
-        var inner = rect;
-        inner.Inflate(-(int)(Size * .42f), -(int)(Size * .42f));
-        Primitives2D.FillRect(spriteBatch, inner, UiTheme.Void * fade);
-        Primitives2D.RectOutline(spriteBatch, inner, color, Math.Max(4, (int)(Size * .045f)));
+        if (attack > .04f)
+        {
+            for (int wave = 0; wave < 2; wave++)
+            {
+                float radius = Size * (.28f + wave * .14f + attack * .18f);
+                Primitives2D.CircleOutline(spriteBatch, center, radius,
+                    (wave == 0 ? color : UiTheme.Cream) * (fade * attack * .6f),
+                    Math.Max(1, 3 - wave), 28);
+            }
+        }
 
         int pipSize = Math.Max(4, (int)(Size * .07f));
         for (int index = 0; index < Math.Min(Phase, 4); index++)
         {
-            var pipRect = new Rectangle(rect.X + 8 + index * (pipSize + 3), rect.Bottom - pipSize - 8, pipSize, pipSize);
-            Primitives2D.FillRect(spriteBatch, pipRect, UiTheme.Cream * fade);
+            float barPulse = .55f + .45f * BossAnimation.CosinePulse(
+                VisualAgeSeconds, .5f, index * .125f);
+            int barHeight = Math.Max(pipSize, (int)(pipSize * (1f + barPulse)));
+            var pipRect = new Rectangle(rect.X + 8 + index * (pipSize + 3),
+                rect.Bottom - barHeight - 8, pipSize, barHeight);
+            Primitives2D.FillRect(spriteBatch, pipRect,
+                (index == Phase - 1 ? UiTheme.Cream : color) * fade);
         }
 
         if (Dying)

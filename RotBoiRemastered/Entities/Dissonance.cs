@@ -64,6 +64,8 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class Dissonance : Enemy
 {
+    public BossPresentationProfile PresentationProfile { get; } =
+        BossPresentationProfile.For(BossMotionTheme.Sound, BossVisualTier.Finale);
     public const string BossName = "DISSONANCE";
     public const string Subtitle = "KEEPER OF THE FIRST CHORD";
     public const int OrbitingCubeCount = 4;
@@ -131,12 +133,19 @@ public sealed class Dissonance : Enemy
     private static readonly IReadOnlySet<int> SurvivalPhaseSet = new HashSet<int> { 3, 6, 9 };
     private static readonly IReadOnlySet<int> DamagePhaseSet = new HashSet<int> { 1, 2, 4, 5, 7, 8 };
 
-    public static readonly IReadOnlyDictionary<int, string> PhaseMovement = new Dictionary<int, string>
-    {
-        [1] = "hearth_tornado", [2] = "road_anchor", [3] = "torch_tornado",
-        [4] = "hail_chase", [5] = "yew_anchor", [6] = "sun_revolution",
-        [7] = "spear_intercept", [8] = "day_anchor", [9] = "harvest_chase",
-    };
+    public static readonly IReadOnlyDictionary<int, BossMovementPhaseProfile> PhaseMovement =
+        new Dictionary<int, BossMovementPhaseProfile>
+        {
+            [1] = BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 11f, .68f, .68f),
+            [2] = BossMovementPhaseProfile.Stationary(),
+            [3] = BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 10f, .62f, .62f, -1),
+            [4] = BossMovementPhaseProfile.Chase(),
+            [5] = BossMovementPhaseProfile.Stationary(),
+            [6] = BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 11f, .72f, .48f),
+            [7] = BossMovementPhaseProfile.Chase(1.05f),
+            [8] = BossMovementPhaseProfile.Stationary(),
+            [9] = BossMovementPhaseProfile.Chase(1.12f),
+        };
 
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
@@ -182,6 +191,7 @@ public sealed class Dissonance : Enemy
     }
 
     private readonly Random _rng;
+    private readonly BossLocomotionController _locomotion;
     private readonly Vector2[] _arenaMaskVertices = new Vector2[64];
     private readonly Vector3[] _drawCubeVertices = new Vector3[8];
     private readonly int[] _drawCubeFaceOrder = new int[6];
@@ -314,6 +324,8 @@ public sealed class Dissonance : Enemy
         : base(worldX, worldY, .72f, Simulation.TileSize * 1.9f, UiTheme.Purple, 550, 150000, 900, 5, awarenessRange, "dissonance")
     {
         _rng = rng ?? Random.Shared;
+        _locomotion = new BossLocomotionController(BossMotionTheme.Sound,
+            Enumerable.Range(0, 20).Select(index => MathF.Sin(index * 2.31f) * .08f).ToArray());
         ArenaCenter = new Vector2(battleground.Width * Simulation.TileSize / 2f, battleground.Height * Simulation.TileSize / 2f);
         DeployPhaseOnePortals();
         foreach (var portal in ProjectilePortals)
@@ -326,6 +338,8 @@ public sealed class Dissonance : Enemy
     private static double Seconds() => Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
 
     private Vector2 Center() => new(WorldX + Size / 2f, WorldY + Size / 2f);
+
+    public override bool ReceivesKnockback => false;
 
     private void BurstParticles(float worldX, float worldY, Color color, int count, float speed = 2.0f)
     {
@@ -588,7 +602,9 @@ public sealed class Dissonance : Enemy
             ClearField();
             ClearPortals();
             _transitionStart = (WorldX, WorldY);
-            TransitionTarget = (ArenaCenter.X - Size / 2f, ArenaCenter.Y - Size / 2f);
+            // Locomotion begins after the presentation beat; the beat itself
+            // never recenters a phase that is authored as stationary.
+            TransitionTarget = (WorldX, WorldY);
         }
         var center = Center();
         BurstParticles(center.X, center.Y, PhaseAccent, 24, 2.8f);
@@ -964,55 +980,12 @@ public sealed class Dissonance : Enemy
     /// <summary>Give every rune a readable locomotion identity within its act.</summary>
     private void PhaseMovementStep(float playerX, float playerY, double dt, Battleground battleground)
     {
-        float tile = Simulation.TileSize;
-        string mode = PhaseMovement[Phase];
-        switch (mode)
-        {
-            case "harvest_chase":
-            {
-                float side = MathF.Sin((float)PhaseElapsed * 1.35f) * tile * 3.2f;
-                float angle = MathF.Atan2(playerY - ArenaCenter.Y, playerX - ArenaCenter.X) + MathF.PI / 2f;
-                MoveToward(playerX + MathF.Cos(angle) * side, playerY + MathF.Sin(angle) * side, battleground, .72f);
-                break;
-            }
-            case "road_anchor":
-                MoveToward(ArenaCenter.X, ArenaCenter.Y, battleground, .75f);
-                break;
-            case "day_anchor":
-                MoveToward(ArenaCenter.X, ArenaCenter.Y, battleground, 1.05f);
-                break;
-            case "torch_tornado":
-            case "hearth_tornado":
-            {
-                float speed = mode == "torch_tornado" ? .72f : 1.05f;
-                float radius = tile * (7.0f + 2.2f * MathF.Sin((float)PhaseElapsed * .62f));
-                float angle = (float)PhaseElapsed * speed;
-                MoveToward(ArenaCenter.X + MathF.Cos(angle) * radius, ArenaCenter.Y + MathF.Sin(angle) * radius, battleground, 1.35f);
-                break;
-            }
-            case "hail_chase":
-            {
-                var center = Center();
-                float diagonal = (MathF.PI / 4f) * MathF.Round(MathF.Atan2(playerY - center.Y, playerX - center.X) / (MathF.PI / 4f));
-                MoveToward(playerX + MathF.Cos(diagonal) * tile, playerY + MathF.Sin(diagonal) * tile, battleground, .48f);
-                break;
-            }
-            case "yew_anchor":
-                MoveToward(ArenaCenter.X, ArenaCenter.Y, battleground, .38f);
-                break;
-            case "sun_revolution":
-                MoveToward(ArenaCenter.X + MathF.Sin((float)PhaseElapsed * .82f) * tile * 9,
-                    ArenaCenter.Y + MathF.Sin((float)PhaseElapsed * 1.64f) * tile * 4.5f, battleground, 1.15f);
-                break;
-            case "spear_intercept":
-            {
-                float lead = tile * 4.5f;
-                var center = Center();
-                float angle = MathF.Atan2(playerY - center.Y, playerX - center.X);
-                MoveToward(playerX + MathF.Cos(angle) * lead, playerY + MathF.Sin(angle) * lead, battleground, .92f);
-                break;
-            }
-        }
+        BossLocomotionFrame frame = _locomotion.Update(
+            Phase, PhaseMovement[Phase], Center(), new Vector2(playerX, playerY),
+            ArenaCenter, ArenaRadius, Speed, dt);
+        if (!frame.Stationary)
+            MoveToward(frame.Target.X, frame.Target.Y, battleground,
+                frame.SpeedPerReferenceTick / Math.Max(.001f, Speed));
     }
 
     private void FireProjectile(List<EnemyProjectile> sink, float direction, float speed, float damage, float size, Action<EnemyProjectile>? configure = null)
@@ -1612,11 +1585,13 @@ public sealed class Dissonance : Enemy
                 var center = Center();
                 BurstParticles(center.X, center.Y, PhaseAccent, 8, 2.5f);
             }
+            FinishMovementTracking();
             return;
         }
         if (EntranceRemaining > 0)
         {
             EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
+            FinishMovementTracking();
             return;
         }
         if (TransitionRemaining > 0)
@@ -1639,15 +1614,20 @@ public sealed class Dissonance : Enemy
                 }
             }
             PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
+            FinishMovementTracking();
             return;
         }
         if (IsStaggered)
+        {
+            FinishMovementTracking();
             return;
+        }
         if (StaggerRecoveryRemaining > 0)
         {
             double progress = 1 - StaggerRecoveryRemaining;
             for (int index = 0; index < ProjectilePortals.Count; index++)
                 ProjectilePortals[index].ShowTether = index < (int)(progress * ProjectilePortals.Count) + 1;
+            FinishMovementTracking();
             return;
         }
         foreach (var portal in ProjectilePortals)
@@ -1674,7 +1654,10 @@ public sealed class Dissonance : Enemy
             }
         }
         if (TransitionRemaining > 0)
+        {
+            FinishMovementTracking();
             return;
+        }
 
         if (SurvivalActive)
         {
@@ -1686,14 +1669,19 @@ public sealed class Dissonance : Enemy
                 {
                     NextSurvivalPhase = Phase == 3 ? 6 : 9;
                     SetPhase(ChooseDamagePhase());
+                    FinishMovementTracking();
                     return;
                 }
                 BeginDeath();
+                FinishMovementTracking();
                 return;
             }
         }
         if (RuneSilenceRemaining > 0)
+        {
+            FinishMovementTracking();
             return;
+        }
 
         if (SurvivalActive)
         {
@@ -1710,6 +1698,7 @@ public sealed class Dissonance : Enemy
             SurvivalBarrage(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt);
             UpdateSpecialAttacks(context.PlayerWorldX, context.PlayerWorldY, stagedThreats, dt);
             CommitStagedThreats(context.ProjectileSink, stagedThreats);
+            FinishMovementTracking();
             return;
         }
 
@@ -1734,6 +1723,7 @@ public sealed class Dissonance : Enemy
             PhaseDeclarations += 1;
             _declarationCooldown = .9;
         }
+        FinishMovementTracking();
     }
 
     public override IReadOnlyList<(string Part, Rectangle Rect)> GetScreenHitboxes(Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -2148,7 +2138,8 @@ public sealed class Dissonance : Enemy
             }
         }
 
-        float bob = MathF.Sin(Age * .055f) * (JumpWindup <= 0 ? 3 : 8);
+        float bob = BossAnimation.Sine(VisualAgeSeconds, 8.5f)
+            * (JumpWindup <= 0 ? 3 : 8);
         var screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)(screenPosition.Y + bob), (int)Size, (int)Size);
         DrawDeathSpectacle(spriteBatch, rect.Center.ToVector2());
@@ -2184,6 +2175,7 @@ public sealed class Dissonance : Enemy
         // Four gently depth-scaled satellites make the oldest core feel composed:
         // its power is ordered around it rather than sprayed outward as debris.
         float orbitSpread = SurvivalActive ? 1.35f : 1f;
+        DrawSatelliteChord(spriteBatch, rectCenter, orbitSpread);
         BossVisuals.OrbitingCubes(spriteBatch, rectCenter, Age, OrbitingCubeCount, Size * .78f, Size * .16f,
             new Color(105, 75, 196), new Color(64, 142, 214), orbitSpread, .28f, frontLayer: false);
         PopulateCubeGeometry(
@@ -2278,6 +2270,36 @@ public sealed class Dissonance : Enemy
             DrawActTransition(spriteBatch);
         if (PerfectBreakFlash > 0)
             DrawPerfectBreak(spriteBatch);
+    }
+
+    private void DrawSatelliteChord(SpriteBatch spriteBatch, Vector2 center,
+        float spread)
+    {
+        Span<Vector2> satellites = stackalloc Vector2[OrbitingCubeCount];
+        float phase = Age * .006f * .28f;
+        for (int index = 0; index < satellites.Length; index++)
+        {
+            float angle = index * MathF.Tau / satellites.Length + phase;
+            float radius = Size * .78f * spread
+                * (1f + .08f * MathF.Sin(Age * .017f + index * 1.7f));
+            satellites[index] = center + new Vector2(MathF.Cos(angle) * radius,
+                MathF.Sin(angle) * radius * .56f);
+        }
+        float beat = BossAnimation.CosinePulse(VisualAgeSeconds, 2f, Phase * .07f);
+        int interval = Phase switch
+        {
+            3 or 6 or 9 => 2,
+            4 or 7 => 3,
+            _ => 1,
+        };
+        for (int index = 0; index < satellites.Length; index++)
+        {
+            int next = (index + interval) % satellites.Length;
+            if (interval == 2 && next < index)
+                continue;
+            Primitives2D.Line(spriteBatch, satellites[index], satellites[next],
+                PhaseAccent * (.18f + beat * .12f), beat > .72f ? 2 : 1);
+        }
     }
 
     private void DrawPerfectBreak(SpriteBatch spriteBatch)

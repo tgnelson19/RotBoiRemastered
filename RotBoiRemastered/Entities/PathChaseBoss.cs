@@ -46,7 +46,8 @@ public sealed record PathChaseBossConfig(
     double ShotRangeTiles,
     string ArenaShape,
     double ArenaScale,
-    IReadOnlyList<string> MovementModes,
+    BossMotionTheme MotionTheme,
+    IReadOnlyList<BossMovementPhaseProfile> MovementPhases,
     int MidHealth = 29000,
     int FinalHealth = 240000,
     int MidContactDamage = 270,
@@ -66,7 +67,13 @@ public sealed record PathChaseBossConfig(
         ShotSpeed: .68, FinalShotSpeed: .82, ShotDamage: 275, FinalShotDamage: 360,
         ShotScale: .30, FinalShotScale: .34, ShotRangeTiles: 18,
         ArenaShape: "circle", ArenaScale: 10.4,
-        MovementModes: new[] { "chase", "static", "path" });
+        MotionTheme: BossMotionTheme.Touch,
+        MovementPhases: new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 12f),
+        });
 }
 
 /// <summary>
@@ -102,6 +109,7 @@ public class PathChaseBoss : Enemy, IBossArenaController
     public string PhaseFlavor { get; protected set; }
     public Color PhaseAccent { get; protected set; }
     public string BossDisplayName => Config.BossName;
+    public BossPresentationProfile PresentationProfile { get; }
     public double EntranceRemaining { get; set; } = .9;
     public bool DebugPhaseLocked { get; set; }
     public double PhaseElapsed { get; set; }
@@ -110,6 +118,7 @@ public class PathChaseBoss : Enemy, IBossArenaController
     private readonly Vector2[] _arenaWorldVertices;
     private readonly Vector2[] _arenaScreenVertices;
     private readonly EnemyUpdateContext _movementUpdateContext;
+    private readonly BossLocomotionController _locomotion;
     private float _arenaVerticesAge = float.NaN;
     public bool Dying { get; protected set; }
     public double DeathRemaining { get; protected set; }
@@ -138,6 +147,8 @@ public class PathChaseBoss : Enemy, IBossArenaController
             float.PositiveInfinity, $"{config.OwnerPrefix}_boss", "hard")
     {
         Config = config;
+        PresentationProfile = BossPresentationProfile.For(config.MotionTheme,
+            config.FinalBoss ? BossVisualTier.Finale : BossVisualTier.Midpoint);
         Rng = rng ?? Random.Shared;
         ArenaCenter = new Vector2(battleground.Width * Simulation.TileSize / 2f, battleground.Height * Simulation.TileSize / 2f);
         PhaseLabel = config.PhaseLabels[0];
@@ -150,6 +161,7 @@ public class PathChaseBoss : Enemy, IBossArenaController
         DeathDuration = config.FinalBoss ? 10.0 : 2.8;
         FinaleDuration = config.FinaleDuration;
         ArenaSeed = Enumerable.Range(0, 28).Select(_ => (float)(Rng.NextDouble() * .3 - .15)).ToArray();
+        _locomotion = new BossLocomotionController(config.MotionTheme, ArenaSeed);
         int arenaVertexCount = config.ArenaShape switch
         {
             "square" => 4,
@@ -174,11 +186,17 @@ public class PathChaseBoss : Enemy, IBossArenaController
 
     protected Vector2 Center() => new(WorldX + Size / 2f, WorldY + Size / 2f);
 
+    public BossMovementPhaseProfile MovementProfile =>
+        Config.MovementPhases[(Phase - 1) % Config.MovementPhases.Count];
+
+    public override bool ReceivesKnockback => false;
+
     protected bool UpdateDeathSpectacle()
     {
         if (!Dying)
             return false;
         AdvanceAge();
+        FinishMovementTracking();
         DeathRemaining = Math.Max(0.0, DeathRemaining - Seconds());
         if (DeathRemaining <= 0)
             Hp = 0;
@@ -458,13 +476,6 @@ public class PathChaseBoss : Enemy, IBossArenaController
     }
 
     /// <summary>
-    /// Path movement normally reuses its authored waypoint as the pattern target.
-    /// Bosses whose attacks explicitly declare a route around the player's current
-    /// position can opt out without changing how their body follows that path.
-    /// </summary>
-    protected virtual bool TargetRealPlayerDuringPathMovement => false;
-
-    /// <summary>
     /// Invokes <see cref="Enemy.Update"/> directly, bypassing this class's own
     /// movement-mode dispatch. Ported from SinChemesthesisBoss.updateEnemy's call to
     /// `Enemy.updateEnemy(self, ...)` -- Python calls its grandparent method directly,
@@ -496,6 +507,35 @@ public class PathChaseBoss : Enemy, IBossArenaController
         return _movementUpdateContext;
     }
 
+    /// <summary>
+    /// Advances the shared locomotion controller and applies its target through
+    /// Enemy's existing collision-safe axis movement. Stationary and burrow
+    /// profiles advance visual time only, so their world position is exact.
+    /// </summary>
+    protected void UpdateLocomotion(EnemyUpdateContext context)
+    {
+        BossLocomotionFrame frame = _locomotion.Update(
+            Phase,
+            MovementProfile,
+            Center(),
+            new Vector2(context.PlayerWorldX, context.PlayerWorldY),
+            ArenaCenter,
+            ArenaRadius,
+            Speed,
+            Seconds());
+        if (frame.Stationary)
+        {
+            AdvanceAge();
+            FinishMovementTracking();
+            return;
+        }
+
+        float originalSpeed = Speed;
+        Speed = frame.SpeedPerReferenceTick;
+        ChaseUpdate(MovementContext(context, frame.Target.X, frame.Target.Y));
+        Speed = originalSpeed;
+    }
+
     public override void Update(EnemyUpdateContext context)
     {
         if (UpdateDeathSpectacle())
@@ -507,29 +547,11 @@ public class PathChaseBoss : Enemy, IBossArenaController
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
         UpdatePhase();
-        string mode = Config.MovementModes[(Phase - 1) % Config.MovementModes.Count];
-        float originalSpeed = Speed;
-        float effectivePlayerX = context.PlayerWorldX, effectivePlayerY = context.PlayerWorldY;
-        if (mode == "static")
-        {
-            Speed = 0;
-        }
-        else if (mode == "path")
-        {
-            effectivePlayerX = ArenaCenter.X + MathF.Cos((float)PhaseElapsed * .8f) * ArenaRadius * .55f;
-            effectivePlayerY = ArenaCenter.Y + MathF.Sin((float)PhaseElapsed * .8f) * ArenaRadius * .55f;
-        }
-        var effectiveContext = mode == "chase"
-            ? context
-            : MovementContext(context, effectivePlayerX, effectivePlayerY);
-        base.Update(effectiveContext);
-        Speed = originalSpeed;
+        UpdateLocomotion(context);
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (EntranceRemaining <= 0 && AttackCooldown <= 0)
         {
-            float patternTargetX = TargetRealPlayerDuringPathMovement ? context.PlayerWorldX : effectivePlayerX;
-            float patternTargetY = TargetRealPlayerDuringPathMovement ? context.PlayerWorldY : effectivePlayerY;
-            FirePattern(patternTargetX, patternTargetY, context.ProjectileSink);
+            FirePattern(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink);
             double rate = 1.0 - .11 * (Phase - 1);
             AttackCooldownMax ??= Simulation.FrameRate * (float)(Config.FinalBoss ? Config.FinalCooldownSeconds : Config.CooldownSeconds);
             AttackCooldown = AttackCooldownMax.Value * (float)(rate * (.9 + Rng.NextDouble() * .22));
@@ -583,7 +605,7 @@ public class PathChaseBoss : Enemy, IBossArenaController
             BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size, new Color(67, 157, 211), new Color(244, 142, 50));
             return;
         }
-        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .42f), 0f, 1f) * MathF.PI) : 0f;
+        float attack = VisualAttackPulse;
         float detach = VisualSurvivalActive ? 1.55f : 1f;
         float coreSize = Size * (.58f + attack * .09f);
         BossVisuals.OrbitingCubes(spriteBatch, center, Age, Config.FinalBoss ? 8 : 6, Size * .58f, Size * .18f,

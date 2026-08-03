@@ -296,9 +296,39 @@ containment contract to player movement:
   atomic ellipses.
 
 The illuminated portion of each boundary counts down against the current phase timer.
-Each path also rotates between chase, static, and scripted-path locomotion. Touch moves
-slowly along the square, Sight changes direction quickly, Chemesthesis uses irregular
-offset paths, and Phantasia traces smooth ellipses and figure-eights.
+Boss locomotion is now authored with typed stationary, chase, fixed-path, and Rot-only
+burrow profiles. Stationary phases lock the gameplay position exactly, including against
+contact knockback; their procedural body animation continues without changing collision.
+Fixed paths are arena-relative and arc-length normalized so they cover the court without
+snapping or accelerating at a loop seam. Touch follows slow square routes, Sight commits
+to rapid triangle routes and predictive pursuit, Sound changes direction on deliberate
+half-second beats, Chemesthesis follows seeded irregular curves, and Phantasia traces
+fluid ellipses and figure-eights. Movement targets are separate from attack targets, so
+scripted locomotion never causes a declaration to aim at an empty waypoint.
+
+This movement contract covers the ten naturally encountered named bosses and all five
+recurring sense guardians. Debug-only Sting, roaming Arsenal mini-bosses, and ordinary
+elites retain their existing scope.
+
+The same roster now exposes a typed, presentation-only visual contract. Each Guardian,
+midpoint, and finale shares its sense's silhouette grammar while scaling ornament and
+cosmetic budget by encounter tier: Sound uses resonators, Touch uses presses and hinged
+plates, Sight uses apertures and fins, Chemesthesis uses unstable reactors, and Phantasia
+uses prisms and petals. The presentation contract cannot alter hitboxes, locomotion,
+attack cadence, damage, or health gates. Lifecycle poses distinguish entrance,
+anticipation, commitment, recovery, survival, transition, stagger, and death without
+moving the gameplay root during stationary phases.
+
+The five Guardians no longer place small sense accessories on one shared square chassis.
+Their complete bodies now use the appropriate family construction. Beaudis is a primitive
+mechanical resonator; Bair is a compressed lock with heavy side plates; Ishe is a fast
+aperture-dart with short geometric afterimages; Kage is an unstable seven-reagent
+crucible; and Hypno is an ornate mask suspended among truth-coded prism petals. Their
+paired finales retain their established silhouettes but gain restrained refinements:
+Dissonance forms chord intervals between its satellites, Rot leaves cube impressions in
+its Burial strata, Chronos sheds parallax histories and visibly fractures, Ache's three
+arms assume phase-specific contradictory poses, and Malady interpolates between body
+constellations rather than snapping when a new idea is declared.
 
 Containment resolves all edges violated by one movement attempt before returning the
 player position. Pressing diagonally into a corner therefore produces one stable inset
@@ -329,16 +359,19 @@ conventional bullet volleys. Their clean corridor turns with geological inertia 
 few deposits instead of snapping to the player. Attack geometry always uses the real
 player position even while Rot's body follows its extremely slow authored path.
 
-Rot's second-oldest status is expressed through inertia instead of ornament. The other
-ancients made it a guardian because moving it would risk a battle, so none of its major
-motions should look hurried: the puddle, room, and projectiles move while the burden stays.
+Rot's second-oldest status is expressed through inertia instead of ornament. Its damage
+movements alternate exact stillness with slow square traversal. Miasma adds a deliberate
+burrow after every second committed declaration: Rot sinks for 0.7 seconds, remains
+untargetable beneath the floor for 1.0 second while a harmless destination mud pool grows,
+then rises for 0.7 seconds. Attacks pause while submerged and existing threats continue.
 
 Rot has 330,000 visible health, one body hitbox, no breakable appendages, no stagger
-damage multiplier, and no alternate weak point. Its body is one enormous brown-green
-cubic slab drawn behind a foreground pool so the lower half is visibly submerged.
-Brown, red, and green cubes appear above it, fall, shrink, and vanish at the waterline;
-absorption ripples and colored cracks imply that discarded matter feeds the ancient.
-There is deliberately no bright core that reads as a weak point.
+damage multiplier, and no alternate weak point. Its body is a slowly rotating perspective
+cube with stable brown and dark-green faces, drawn between the back and foreground halves
+of a mud pool. Independent yaw, pitch, and roll plus a seamless vertical bob repeatedly
+lower the cube through the floor plane without moving its gameplay hitbox. Muted droplets,
+bubbles, and ripples replace the old falling absorption cubes and cracked slab; there is
+deliberately no bright core that reads as a weak point.
 
 Poison-floor pools render beneath bosses, projectiles, and the player. They telegraph
 for at least 1.65 seconds and occupy inner rings or settle along the square banks while

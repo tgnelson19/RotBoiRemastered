@@ -142,7 +142,8 @@ public class LootCrate
             Primitives2D.FillRect(spriteBatch,
                 new Rectangle((int)glint.X - glintSize / 2,
                     (int)glint.Y - glintSize / 2, glintSize, glintSize),
-                UiTheme.Cream * (.35f + activity * .5f));
+                UiTheme.Cream * ((.35f + activity * .5f)
+                    * VisualAnimation.SeamFade(phase)));
         }
     }
 

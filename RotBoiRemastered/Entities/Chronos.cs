@@ -43,7 +43,16 @@ public sealed class Chronos : Ishe
         FinalBodyScale = 1.75, FinalCooldownSeconds = 2.0,
         FinalShotSpeed = .42, FinalShotDamage = 760, FinalShotScale = .22,
         MovementSpeed = .12, ArenaScale = 11.8,
-        MovementModes = new[] { "path", "static", "path", "static", "path", "static", "static" },
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 8f, .58f, .58f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 8f, .62f, .62f, -1),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 8f, .64f, .64f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Stationary(),
+        },
         FinalHealth = 310000, FinalContactDamage = 880, FinalRewardExperience = 860,
         FinaleDuration = 35.0,
     };
@@ -73,7 +82,6 @@ public sealed class Chronos : Ishe
     public int PhaseDeclarations => _phaseDeclarations;
 
     protected override bool UsesIsheEncounter => false;
-    protected override bool TargetRealPlayerDuringPathMovement => true;
 
     public Chronos(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, ChronosConfig, rng)
@@ -590,6 +598,7 @@ public sealed class Chronos : Ishe
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
             ApplyPhase(5);
         }
+        FinishMovementTracking();
     }
 
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -616,21 +625,41 @@ public sealed class Chronos : Ishe
         float auraScale = survival ? 1.42f : 1f;
         Color sky = new(103, 197, 231);
         Color ice = new(194, 235, 248);
+        float seconds = VisualAgeSeconds;
+        int histories = survival ? 4 : 2;
+        for (int history = histories; history >= 1; history--)
+        {
+            float phase = BossAnimation.LoopPhase(seconds, 7.2f, history * .17f);
+            float fade = (1f - phase) * (.08f + history * .025f);
+            float offset = Size * (.08f + phase * .42f);
+            Vector2 echo = center + new Vector2(-offset, offset * .34f);
+            float half = Size * (.25f + phase * .12f);
+            Primitives2D.PolygonOutline(spriteBatch, new[]
+            {
+                echo + new Vector2(0, -half), echo + new Vector2(half, 0),
+                echo + new Vector2(0, half), echo + new Vector2(-half, 0),
+            }, sky * fade, Math.Max(1, 3 - history / 2));
+        }
         for (int index = 0; index < (FinaleActive ? FinaleMoteCount : AmbientMoteCount); index++)
         {
-            float angle = index * 2.399963f + Age * (index % 2 == 0 ? .006f : -.0045f);
+            float angle = index * 2.399963f + seconds * (index % 2 == 0 ? .36f : -.27f);
             float radius = Size * (.54f + (index % 5) * .14f) * auraScale;
-            float pulse = .55f + .45f * MathF.Sin(Age * .023f + index * 1.3f);
+            float pulse = .55f + .45f * MathF.Sin(seconds * 1.38f + index * 1.3f);
             var mote = center + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius * .58f);
             int moteSize = 2 + index % 3;
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)mote.X - moteSize, (int)mote.Y - moteSize,
                 moteSize * 2, moteSize * 2), Color.Lerp(sky, UiTheme.Cream, pulse));
         }
 
-        float yaw = Age * .012f;
-        float pitch = .58f + MathF.Sin(Age * .009f) * .42f;
-        float roll = MathF.Sin(Age * .0065f) * .24f;
+        float yaw = seconds * .72f;
+        float pitch = .58f + MathF.Sin(seconds * .54f) * .42f;
+        float roll = MathF.Sin(seconds * .39f) * .24f;
         BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll);
+        float sweep = BossAnimation.EaseInOutSine(BossAnimation.LoopPhase(seconds, 3.8f));
+        Vector2 sweepStart = center + new Vector2(-Size * .23f, Size * (.16f - sweep * .32f));
+        Primitives2D.Line(spriteBatch, sweepStart,
+            sweepStart + new Vector2(Size * .46f, -Size * .08f),
+            UiTheme.Cream * BossAnimation.SeamFade(BossAnimation.LoopPhase(seconds, 3.8f), .18f), 2);
         for (int index = 0; index < TemporalInsightNeeded; index++)
         {
             float angle = -MathF.PI / 2f + index * MathF.Tau / TemporalInsightNeeded;
@@ -641,11 +670,15 @@ public sealed class Chronos : Ishe
         }
         if (TemporalFractureActive)
         {
-            float pulse = .5f + .5f * MathF.Sin(Age * .12f);
+            float pulse = .5f + .5f * MathF.Sin(seconds * 7.2f);
             Primitives2D.CircleOutline(spriteBatch, center, Size * (.43f + pulse * .05f),
                 UiTheme.Cream * (.55f + pulse * .35f), 3, 32);
             Primitives2D.CircleOutline(spriteBatch, center, Size * (.52f + pulse * .07f),
                 PhaseAccent * (.28f + pulse * .22f), 2, 32);
+            Primitives2D.Line(spriteBatch, center - new Vector2(Size * .18f, Size * .22f),
+                center + new Vector2(Size * .04f, Size * .03f), UiTheme.Void, 4);
+            Primitives2D.Line(spriteBatch, center + new Vector2(Size * .04f, Size * .03f),
+                center + new Vector2(Size * .2f, Size * .16f), UiTheme.Cream, 3);
         }
         float inset = Size * (.065f + .01f * MathF.Sin(Age * .037f));
         var playerLikeCore = new Rectangle((int)(center.X - inset), (int)(center.Y - inset),

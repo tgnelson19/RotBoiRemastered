@@ -206,6 +206,7 @@ public static class PathThemeVisuals
                     rng.Next(4), room.Id));
             }
             AddArchitectureAssembly(decorations, senseKey, room, tiles, deteriorated);
+            AddRoomModuleComposition(decorations, senseKey, room, tiles, deteriorated);
             AddEntranceComposition(decorations, senseKey, room, tiles, profile, deteriorated);
             AddGrandArenaComposition(decorations, senseKey, room, tiles, profile, deteriorated);
 
@@ -351,6 +352,112 @@ public static class PathThemeVisuals
                 TileCenter(tile),
                 deteriorated ? 1.18f : 1.02f,
                 variant++ % 4,
+                room.Id));
+        }
+    }
+
+    /// <summary>
+    /// Gives every shuffled room module a recognizable authored arrangement.
+    /// These six-or-fewer semantic marks sit on top of the randomized scatter:
+    /// halls read as processional aisles, crossroads as four-way machinery,
+    /// rings as ritual circuits, and ruins as intentionally broken clusters.
+    /// The vocabulary remains path-specific and collision-free.
+    /// </summary>
+    private static void AddRoomModuleComposition(
+        List<PathDecoration> output,
+        string senseKey,
+        PathRoom room,
+        TileType[,]? tiles,
+        bool deteriorated)
+    {
+        if (room.Type is PathRoomType.Start or PathRoomType.Boss
+            || room.Shape == PathRoomShape.GrandArena)
+        {
+            return;
+        }
+
+        PathDecorationKind floorAccent = senseKey switch
+        {
+            "touch" => PathDecorationKind.BrickRunes,
+            "sight" => PathDecorationKind.MosaicLens,
+            "sound" => PathDecorationKind.ResonanceTiles,
+            "phantasia" => PathDecorationKind.DreamGlyph,
+            _ => PathDecorationKind.CinderPlate,
+        };
+        (PathDecorationKind Primary, PathDecorationKind Secondary) props = senseKey switch
+        {
+            "touch" => (PathDecorationKind.Valve, PathDecorationKind.PipeStack),
+            "sight" => (PathDecorationKind.LensBuoy, PathDecorationKind.BrokenColumn),
+            "sound" => (PathDecorationKind.EchoPylon, PathDecorationKind.Chime),
+            "phantasia" => (PathDecorationKind.PrismObelisk, PathDecorationKind.Asteroid),
+            _ => (PathDecorationKind.RuinSlab, PathDecorationKind.DeadTree),
+        };
+
+        bool horizontalHall = room.TileBounds.Width >= room.TileBounds.Height;
+        Point[] floorOffsets = room.Shape switch
+        {
+            PathRoomShape.LongHall when horizontalHall =>
+                [new(-5, 0), new(-2, 0), new(2, 0), new(5, 0)],
+            PathRoomShape.LongHall =>
+                [new(0, -5), new(0, -2), new(0, 2), new(0, 5)],
+            PathRoomShape.Crossroads =>
+                [new(-4, 0), new(0, -4), new(4, 0), new(0, 4)],
+            PathRoomShape.Diamond =>
+                [new(-3, -3), new(3, -3), new(3, 3), new(-3, 3)],
+            PathRoomShape.Ring =>
+                [new(-4, 0), new(0, -4), new(4, 0), new(0, 4)],
+            PathRoomShape.Maze =>
+                [new(-4, -4), new(4, -4), new(4, 4), new(-4, 4)],
+            PathRoomShape.Ruin =>
+                [new(-4, -2), new(-1, 4), new(3, -3), new(4, 2)],
+            _ =>
+                [new(-3, -3), new(3, -3), new(3, 3), new(-3, 3)],
+        };
+        Point[] raisedOffsets = room.Shape switch
+        {
+            PathRoomShape.LongHall when horizontalHall =>
+                [new(-4, -2), new(4, 2)],
+            PathRoomShape.LongHall =>
+                [new(-2, -4), new(2, 4)],
+            PathRoomShape.Crossroads =>
+                [new(-3, -3), new(3, 3)],
+            PathRoomShape.Diamond =>
+                [new(-4, 0), new(4, 0)],
+            PathRoomShape.Ring =>
+                [new(-3, -3), new(3, 3)],
+            PathRoomShape.Maze =>
+                [new(-4, 0), new(4, 0)],
+            PathRoomShape.Ruin =>
+                [new(-3, 3), new(4, -3)],
+            _ =>
+                [new(-4, 0), new(4, 0)],
+        };
+
+        Point center = room.InteriorTileBounds.Center;
+        for (int index = 0; index < floorOffsets.Length; index++)
+        {
+            Point tile = center + floorOffsets[index];
+            if (!OpenDecorationTile(room, tile, tiles))
+                continue;
+            output.Add(new PathDecoration(
+                floorAccent,
+                LayerFor(floorAccent),
+                TileCenter(tile),
+                (deteriorated ? 1.28f : 1.08f) + index % 2 * .08f,
+                (room.Variant + index) % 4,
+                room.Id));
+        }
+        for (int index = 0; index < raisedOffsets.Length; index++)
+        {
+            Point tile = center + raisedOffsets[index];
+            if (!OpenDecorationTile(room, tile, tiles) || !FarFromDoors(room, tile))
+                continue;
+            output.Add(new PathDecoration(
+                index == 0 ? props.Primary : props.Secondary,
+                PathDecorationLayer.Raised,
+                TileCenter(tile),
+                deteriorated ? 1.12f : .96f,
+                (room.Variant + index + 1) % 4,
                 room.Id));
         }
     }

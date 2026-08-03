@@ -6,6 +6,14 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Entities;
 
+public enum RotBurrowState
+{
+    Surface,
+    Sinking,
+    Submerged,
+    Rising,
+}
+
 /// <summary>
 /// Touch's second-oldest ancient: placid, burdensome, and vastly stronger than
 /// its half-buried silhouette suggests. Rot does not rush the player; it makes
@@ -41,7 +49,17 @@ public sealed class Rot : PathChaseBoss
         FinalBodyScale = 2.85, FinalCooldownSeconds = 2.05,
         FinalShotSpeed = .30, FinalShotDamage = 590, FinalShotScale = .32,
         MovementSpeed = .045, ArenaShape = "square", ArenaScale = 10.2,
-        MovementModes = new[] { "static", "path", "static", "static", "path", "static", "static" },
+        MotionTheme = BossMotionTheme.Touch,
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 18f, .58f, .58f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Square, 16f, .64f, .64f, -1),
+            BossMovementPhaseProfile.Burrow(),
+            BossMovementPhaseProfile.Stationary(),
+        },
         FinalHealth = 330000, FinalContactDamage = 980, FinalRewardExperience = 900,
         FinaleDuration = 35.0,
     };
@@ -64,9 +82,18 @@ public sealed class Rot : PathChaseBoss
     private double _survivalCooldown;
     private bool _corridorInitialized;
     private readonly int _corridorTurnSign;
+    private static readonly IReadOnlyList<(string Part, Rectangle Rect)> NoHitboxes =
+        Array.Empty<(string Part, Rectangle Rect)>();
+    private int _lastBurrowDeclaration;
+    private Vector2 _burrowDestination;
+    private double _burrowRemaining;
+
+    public RotBurrowState BurrowState { get; private set; }
+    public Vector2 BurrowMudCenter => _burrowDestination;
+    public double BurrowRemaining => _burrowRemaining;
+    public bool BurrowUntargetable => BurrowState == RotBurrowState.Submerged;
 
     protected override bool VisualSurvivalActive => MidpointSurvivalActive || FinaleActive || base.VisualSurvivalActive;
-    protected override bool TargetRealPlayerDuringPathMovement => true;
 
     public Rot(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, RotConfig, rng)
@@ -82,6 +109,9 @@ public sealed class Rot : PathChaseBoss
         (PhaseLabel, PhaseFlavor, PhaseAccent) = PhaseMetadata[Phase];
         PhaseElapsed = 0.0;
         PhaseDeclarations = 0;
+        _lastBurrowDeclaration = 0;
+        BurrowState = RotBurrowState.Surface;
+        _burrowRemaining = 0;
         VisualTransitionRemaining = 1.5;
         AttackCooldown = Math.Min(AttackCooldown ?? 0f, Simulation.FrameRate * .7f);
         // Rot is accumulation made animate. Minor damage movements retain the
@@ -149,7 +179,7 @@ public sealed class Rot : PathChaseBoss
 
     public override HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
-        if (MidpointSurvivalActive || FinaleActive || Dying)
+        if (MidpointSurvivalActive || FinaleActive || Dying || BurrowUntargetable)
             return new HitResult(false, false, 0, true);
 
         if (MidpointSurvivalCleared && Phase == 6 &&
@@ -480,9 +510,18 @@ public sealed class Rot : PathChaseBoss
     {
         double dt = Seconds();
         ReliefPulseRemaining = Math.Max(0.0, ReliefPulseRemaining - dt);
+        if (BurrowState != RotBurrowState.Surface)
+        {
+            UpdateBurrow(dt);
+            return;
+        }
         if (!MidpointSurvivalActive)
         {
             base.Update(context);
+            if (Phase == 6 && !FinaleActive && !Dying && EntranceRemaining <= 0
+                && PhaseDeclarations >= 2 && PhaseDeclarations % 2 == 0
+                && PhaseDeclarations != _lastBurrowDeclaration)
+                BeginBurrow(context);
             return;
         }
 
@@ -520,13 +559,96 @@ public sealed class Rot : PathChaseBoss
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
             ApplyPhase(5);
         }
+        FinishMovementTracking();
     }
+
+    private void BeginBurrow(EnemyUpdateContext context)
+    {
+        _lastBurrowDeclaration = PhaseDeclarations;
+        _burrowDestination = ChooseBurrowDestination(context);
+        BurrowState = RotBurrowState.Sinking;
+        _burrowRemaining = .7;
+        MarkAttack(.7f);
+    }
+
+    private Vector2 ChooseBurrowDestination(EnemyUpdateContext context)
+    {
+        Vector2 current = Center();
+        Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
+        int first = PatternRotation % 8;
+        for (int offset = 0; offset < 8; offset++)
+        {
+            int anchor = (first + offset * 3) % 8;
+            float angle = anchor * MathF.Tau / 8f;
+            Vector2 desired = ArenaCenter
+                + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ArenaRadius * .55f;
+            if (Vector2.Distance(desired, player) < Simulation.TileSize * 2f
+                || Vector2.Distance(desired, current) < ArenaRadius * .35f)
+                continue;
+            var requested = new Rectangle(
+                (int)(desired.X - Size / 2f), (int)(desired.Y - Size / 2f),
+                (int)Size, (int)Size);
+            Rectangle open = context.Battleground.FindNearestOpenRect(requested);
+            Vector2 resolved = open.Center.ToVector2();
+            if (Vector2.Distance(resolved, ArenaCenter) <= ArenaRadius * .72f)
+                return resolved;
+        }
+
+        Vector2 fromCenter = current - ArenaCenter;
+        if (fromCenter.LengthSquared() < 1f)
+            fromCenter = Vector2.UnitX;
+        Vector2 opposite = ArenaCenter - Vector2.Normalize(fromCenter)
+            * ArenaRadius * .55f;
+        var fallback = new Rectangle(
+            (int)(opposite.X - Size / 2f), (int)(opposite.Y - Size / 2f),
+            (int)Size, (int)Size);
+        return context.Battleground.FindNearestOpenRect(fallback).Center.ToVector2();
+    }
+
+    private void UpdateBurrow(double dt)
+    {
+        AdvanceAge();
+        FinishMovementTracking();
+        PhaseElapsed += dt;
+        VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
+        _burrowRemaining = Math.Max(0.0, _burrowRemaining - dt);
+        if (_burrowRemaining > 0)
+            return;
+
+        switch (BurrowState)
+        {
+            case RotBurrowState.Sinking:
+                BurrowState = RotBurrowState.Submerged;
+                _burrowRemaining = 1.0;
+                break;
+            case RotBurrowState.Submerged:
+                WorldX = _burrowDestination.X - Size / 2f;
+                WorldY = _burrowDestination.Y - Size / 2f;
+                BurrowState = RotBurrowState.Rising;
+                _burrowRemaining = .7;
+                break;
+            case RotBurrowState.Rising:
+                BurrowState = RotBurrowState.Surface;
+                _burrowRemaining = 0;
+                break;
+        }
+    }
+
+    public override IReadOnlyList<(string Part, Rectangle Rect)> GetWorldHitboxes() =>
+        BurrowUntargetable ? NoHitboxes : base.GetWorldHitboxes();
+
+    public override IReadOnlyList<(string Part, Rectangle Rect)> GetScreenHitboxes(
+        Camera camera, Vector2 playerWorldPosition, Vector2 screenShake) =>
+        BurrowUntargetable
+            ? NoHitboxes
+            : base.GetScreenHitboxes(camera, playerWorldPosition, screenShake);
 
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         Vector2 center = screen + new Vector2(Size / 2f, Size / 2f);
         DrawBurialStrata(spriteBatch, camera, playerWorldPosition, screenShake);
+        DrawBurrowMud(spriteBatch, camera, playerWorldPosition, screenShake);
         if (Dying)
         {
             for (int ring = 0; ring < 5; ring++)
@@ -543,11 +665,35 @@ public sealed class Rot : PathChaseBoss
             return;
         }
 
-        float sink = Size * (.1f + .018f * MathF.Sin(Age * .009f));
+        float seconds = VisualAgeSeconds;
+        float sink = Size * (.18f + .12f * (.5f + .5f
+            * BossAnimation.Sine(seconds, 5.8f)));
+        if (FinaleActive)
+            sink += Size * (float)FinaleProgress * .38f;
+        if (BurrowState == RotBurrowState.Sinking)
+            sink += Size * .82f * BossAnimation.SmoothStep(
+                (float)(1 - _burrowRemaining / .7));
+        else if (BurrowState == RotBurrowState.Rising)
+            sink += Size * .82f * BossAnimation.SmoothStep(
+                (float)(_burrowRemaining / .7));
         var poolBack = new Rectangle((int)(center.X - Size * .88f), (int)(center.Y + Size * .08f),
             (int)(Size * 1.76f), (int)(Size * .58f));
         Primitives2D.FillEllipse(spriteBatch, new Rectangle(poolBack.X + 8, poolBack.Y + 9, poolBack.Width, poolBack.Height), UiTheme.Shadow);
         Primitives2D.FillEllipse(spriteBatch, poolBack, new Color(68, 64, 35));
+        for (int bubble = 0; bubble < 5; bubble++)
+        {
+            float cycle = BossAnimation.LoopPhase(seconds,
+                3.2f + bubble * .37f, bubble * .21f);
+            float fade = BossAnimation.SeamFade(cycle, .18f);
+            Vector2 bubbleCenter = center + new Vector2(
+                MathF.Sin(bubble * 4.3f) * Size * .62f,
+                Size * (.27f - cycle * .23f));
+            float bubbleRadius = Size * (.018f + bubble % 3 * .008f)
+                * (1f + cycle) * fade;
+            Primitives2D.CircleOutline(spriteBatch, bubbleCenter,
+                Math.Max(1, bubbleRadius), new Color(151, 132, 72) * (fade * .68f),
+                Math.Max(1, bubble % 2 + 1), 12);
+        }
         if (ReliefPulseRemaining > 0)
         {
             float relief = (float)(1.0 - ReliefPulseRemaining / 1.2);
@@ -560,44 +706,74 @@ public sealed class Rot : PathChaseBoss
             }
         }
 
-        int cubes = FinaleActive ? FinaleAbsorptionParticleCount : AbsorptionParticleCount;
-        for (int index = 0; index < cubes; index++)
+        int droplets = FinaleActive ? FinaleAbsorptionParticleCount : AbsorptionParticleCount;
+        for (int index = 0; index < droplets; index++)
         {
-            float fall = (Age * (.0042f + index % 4 * .00035f) + index * .137f) % 1f;
-            float x = MathF.Sin(index * 4.17f + Age * .0012f) * Size * (.22f + index % 5 * .075f);
-            var point = center + new Vector2(x, -Size * .92f + fall * Size * 1.18f + sink);
-            float cube = Size * (.055f + (index % 3) * .018f) * (1f - fall * .32f);
+            float fall = BossAnimation.LoopPhase(seconds,
+                3.8f + index % 4 * .31f, index * .137f);
+            float fade = BossAnimation.SeamFade(fall, .16f);
+            float x = MathF.Sin(index * 4.17f + seconds * .24f) * Size
+                * (.22f + index % 5 * .075f);
+            var point = center + new Vector2(x,
+                -Size * .72f + fall * Size * .98f + sink);
+            float droplet = Size * (.025f + (index % 3) * .009f) * fade;
             Color particle = (index % 3) switch
             {
                 0 => new Color(116, 79, 43),
-                1 => new Color(126, 55, 39),
+                1 => new Color(76, 91, 43),
                 _ => new Color(92, 126, 55),
             };
-            BossVisuals.Cube(spriteBatch, point, cube, particle, PhaseAccent, index * .7f + Age * .002f);
+            Primitives2D.FillCircle(spriteBatch, point,
+                Math.Max(1, droplet), particle * fade);
         }
 
-        Vector2 slabCenter = center + new Vector2(0, sink + Size * .1f);
-        BossVisuals.Cuboid(spriteBatch, slabCenter, Size * 1.18f, Size * .8f,
-            new Color(82, 59, 39), new Color(113, 143, 61), Age * .0008f);
-        for (int crack = 0; crack < 5; crack++)
+        if (!BurrowUntargetable)
         {
-            float x = slabCenter.X + Size * (-.42f + crack * .21f);
-            var points = new[]
-            {
-                new Vector2(x, slabCenter.Y - Size * .25f),
-                new Vector2(x + MathF.Sin(crack * 2.1f) * Size * .055f, slabCenter.Y - Size * .03f),
-                new Vector2(x - MathF.Cos(crack * 1.7f) * Size * .04f, slabCenter.Y + Size * .13f),
-            };
-            Primitives2D.Polyline(spriteBatch, points, false, crack % 2 == 0 ? new Color(105, 132, 58) : new Color(128, 61, 39), 3);
+            Vector2 cubeCenter = center + new Vector2(0, sink - Size * .08f);
+            BossVisuals.RotatingCube3D(spriteBatch, cubeCenter, Size * .36f,
+                new Color(91, 61, 37), new Color(48, 76, 42),
+                Color.Lerp(new Color(73, 101, 48), PhaseAccent, .25f),
+                seconds * MathF.Tau / 13.5f,
+                .48f + BossAnimation.Sine(seconds, 18f) * .32f,
+                BossAnimation.Sine(seconds, 22f, .2f) * .24f);
         }
 
-        // The foreground pool hides the slab's lower half and visibly absorbs
-        // every falling cube, which sells Rot's weight better than a floating body.
+        // The foreground pool masks the cube at the floor plane; the visual
+        // bob never changes Rot's collision footprint.
         var poolFront = new Rectangle((int)(center.X - Size * .78f), (int)(center.Y + Size * .24f),
             (int)(Size * 1.56f), (int)(Size * .42f));
         Primitives2D.FillEllipse(spriteBatch, poolFront, new Color(74, 67, 36));
         Primitives2D.EllipseOutline(spriteBatch, poolFront, new Color(112, 132, 57), 3);
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .7f), (int)(Size * .92f), 6));
+    }
+
+    private void DrawBurrowMud(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        if (BurrowState is RotBurrowState.Surface or RotBurrowState.Sinking)
+            return;
+        Vector2 mud = camera.WorldToScreen(_burrowDestination,
+            playerWorldPosition, screenShake);
+        float progress = BurrowState == RotBurrowState.Submerged
+            ? (float)(1 - _burrowRemaining)
+            : 1f;
+        float fade = BurrowState == RotBurrowState.Rising
+            ? (float)Math.Clamp(_burrowRemaining / .7, 0, 1)
+            : 1f;
+        float radius = Size * (.35f + BossAnimation.SmoothStep(progress) * .48f);
+        var pool = new Rectangle((int)(mud.X - radius),
+            (int)(mud.Y - radius * .34f), (int)(radius * 2f),
+            (int)(radius * .68f));
+        Primitives2D.FillEllipse(spriteBatch, pool, new Color(68, 61, 34) * fade);
+        Primitives2D.EllipseOutline(spriteBatch, pool,
+            new Color(103, 126, 54) * fade, 4);
+        for (int ring = 0; ring < 2; ring++)
+        {
+            var ripple = pool;
+            ripple.Inflate(ring * 10 + (int)(progress * 8), ring * 4);
+            Primitives2D.EllipseOutline(spriteBatch, ripple,
+                new Color(139, 111, 58) * (fade * (.48f - ring * .14f)), 2);
+        }
     }
 
     private void DrawBurialStrata(SpriteBatch spriteBatch, Camera camera,
@@ -609,6 +785,7 @@ public sealed class Rot : PathChaseBoss
         Vector2 arena = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
         float progress = (float)FinaleProgress;
         int layers = BurialLayerCount;
+        Span<Vector2> imprintCenters = stackalloc Vector2[4];
         for (int layer = 0; layer < layers; layer++)
         {
             float delay = layer * .11f;
@@ -625,6 +802,20 @@ public sealed class Rot : PathChaseBoss
             Primitives2D.RectOutline(spriteBatch, stratum,
                 layerColor * (.34f + collapse * .36f), 4);
 
+            float imprintSize = Math.Max(8f, extent * .055f);
+            imprintCenters[0] = new(arena.X - extent * .56f, arena.Y - extent);
+            imprintCenters[1] = new(arena.X + extent, arena.Y - extent * .42f);
+            imprintCenters[2] = new(arena.X + extent * .38f, arena.Y + extent);
+            imprintCenters[3] = new(arena.X - extent, arena.Y + extent * .48f);
+            foreach (Vector2 imprint in imprintCenters)
+            {
+                var mark = new Rectangle((int)(imprint.X - imprintSize * .5f),
+                    (int)(imprint.Y - imprintSize * .5f), (int)imprintSize,
+                    (int)imprintSize);
+                Primitives2D.RectOutline(spriteBatch, mark,
+                    layerColor * (.18f + collapse * .22f), 2);
+            }
+
             float crack = Math.Max(18f, extent * .13f);
             foreach (var corner in new[]
                      {
@@ -640,20 +831,22 @@ public sealed class Rot : PathChaseBoss
             }
         }
 
-        // A curtain of absorbed cubes falls through the contracting strata.
-        // It is intentionally translucent and behind the slab so current
+        // A curtain of mud falls through the contracting strata. It is
+        // intentionally translucent and behind the body so current
         // ground telegraphs retain visual priority.
         for (int index = 0; index < 18; index++)
         {
-            float fall = (Age * (.0034f + index % 4 * .0003f) + index * .091f) % 1f;
+            float fall = BossAnimation.LoopPhase(VisualAgeSeconds,
+                4.8f + index % 4 * .35f, index * .091f);
+            float fade = BossAnimation.SeamFade(fall, .14f);
             float x = arena.X + MathF.Sin(index * 3.71f) * ArenaRadius * .82f;
             float y = arena.Y - ArenaRadius + fall * ArenaRadius * 1.72f;
-            float cube = Simulation.TileSize * (.22f + index % 3 * .055f);
+            float drop = Simulation.TileSize * (.08f + index % 3 * .02f) * fade;
             Color color = index % 2 == 0
                 ? new Color(112, 132, 57) * .58f
                 : new Color(143, 80, 47) * .55f;
-            BossVisuals.Cube(spriteBatch, new Vector2(x, y), cube, color,
-                Color.Lerp(color, UiTheme.Cream, .22f), index * .41f + Age * .001f);
+            Primitives2D.FillCircle(spriteBatch, new Vector2(x, y),
+                Math.Max(1, drop), color * fade);
         }
     }
 }

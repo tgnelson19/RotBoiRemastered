@@ -66,6 +66,9 @@ public sealed class GameSession
     // Survives ResetAll -- it re-bakes lazily against the new Battleground
     // reference on the next DrawBackground call, no explicit reset needed.
     private readonly ArenaRenderer _arenaRenderer = new();
+    private readonly WorldLighting _worldLighting = new();
+    private readonly List<ArenaLightPost> _arenaLightPosts = new();
+    private readonly List<WorldLightSource> _worldLightSources = new();
     private readonly BitVfxSystem _visualEffects = new();
     private readonly List<WorldDepthDrawItem> _worldDepthItemScratch = new();
     private readonly HashSet<int> _drawnEncounterIdScratch = new();
@@ -153,6 +156,8 @@ public sealed class GameSession
     public bool DungeonBossInstanceActive => _dungeonBossInstance is not null;
     public bool PreferControllerPrompts => _controllerPromptRemaining > 0;
     public VisualDensity CurrentVisualDensity => _visualDensity;
+    internal IReadOnlyList<ArenaLightPost> ArenaLightPosts =>
+        _arenaLightPosts;
 
     public Vector2 PlayerWorldCenter => new(
         Player.WorldX + (float)State.PlayerSize / 2f,
@@ -190,6 +195,7 @@ public sealed class GameSession
         InformationSheet = new InformationSheet(screenWidth, screenHeight);
         Camera.Lock = new Vector2(InformationSheet.ArenaWidth / 2f, screenHeight / 2f);
         Camera.ConfigureViewport(screenWidth, screenHeight, GameProfile.Profile.CameraZoom, resetZoom: true);
+        RefreshLightingFixtures();
         LoadCarriedItems();
     }
 
@@ -220,6 +226,7 @@ public sealed class GameSession
         _controllerPromptRemaining = 0;
         _debugVisualGallery = false;
         _dungeonBossInstance = null;
+        RefreshLightingFixtures();
         LoadCarriedItems();
     }
 
@@ -258,6 +265,7 @@ public sealed class GameSession
         _controllerPromptRemaining = 0;
         _debugVisualGallery = false;
         _dungeonBossInstance = null;
+        RefreshLightingFixtures();
         State.CurrentStage = 1;
         LoadCarriedItems();
     }
@@ -282,6 +290,7 @@ public sealed class GameSession
         GamePaths.SetActive(PathRun.CurrentSenseKey);
         _dungeonBossInstance = null;
         Battleground = PathRun.Layout.Battleground;
+        RefreshLightingFixtures();
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
         PathFog = PathRun.TakeInstalledPreparedFog()
             ?? new PathFogOfWar(Battleground);
@@ -373,6 +382,52 @@ public sealed class GameSession
             new Rectangle(0, 0, ScreenWidth, ScreenHeight));
     }
 
+    private string ActiveLightingPathKey =>
+        PathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
+
+    private void RefreshLightingFixtures()
+    {
+        _arenaLightPosts.Clear();
+        _worldLightSources.Clear();
+        string pathKey = ActiveLightingPathKey;
+        bool standaloneOrInstancedArena =
+            PathRun is null || _dungeonBossInstance is not null;
+        if (standaloneOrInstancedArena)
+        {
+            _arenaLightPosts.AddRange(
+                WorldLighting.BuildArenaLightPosts(Battleground));
+            LightingTheme theme = WorldLighting.ThemeFor(pathKey);
+            foreach (ArenaLightPost post in _arenaLightPosts)
+            {
+                _worldLightSources.Add(
+                    WorldLighting.SourceFor(post, theme));
+            }
+            return;
+        }
+
+        _worldLightSources.AddRange(
+            WorldLighting.BuildPathLightSources(Battleground, pathKey));
+    }
+
+    /// <summary>
+    /// Darkens only the combat viewport and restores path-colored local light.
+    /// Called after world drawing and before fog so hidden tiles remain hidden.
+    /// </summary>
+    public void DrawAtmosphericLighting(
+        SpriteBatch spriteBatch,
+        GraphicsDevice graphicsDevice) =>
+        _worldLighting.DrawAtmosphere(
+            spriteBatch,
+            graphicsDevice,
+            new Rectangle(0, 0, InformationSheet.ArenaWidth, ScreenHeight),
+            Camera,
+            PlayerWorldCenter,
+            ScreenShake,
+            ActiveLightingPathKey,
+            (float)State.RunTimeSeconds,
+            _worldLightSources,
+            ActiveVisibilityFog);
+
     // ----- Player movement/combat -----
 
     /// <summary>Ported from character.py's movePlayer().</summary>
@@ -393,12 +448,12 @@ public sealed class GameSession
             Vector2 constrained = arenaController.ConstrainPlayer(
                 new Vector2(Player.WorldX, Player.WorldY),
                 (float)State.PlayerSize);
-            Player.SetPosition(constrained.X, constrained.Y);
+            Player.SetAnimatedPosition(constrained.X, constrained.Y);
         }
         else if (State.ActiveBoss is PathChaseBoss pathBoss)
         {
             var constrained = pathBoss.ConstrainPlayerPosition(Player.WorldX, Player.WorldY, (float)State.PlayerSize);
-            Player.SetPosition(constrained.X, constrained.Y);
+            Player.SetAnimatedPosition(constrained.X, constrained.Y);
         }
         else if (State.ActiveBoss is Dissonance dissonance)
         {
@@ -408,11 +463,13 @@ public sealed class GameSession
             float limit = dissonance.ArenaRadius - (float)State.PlayerSize * .7f;
             if (distance > limit)
             {
-                Player.SetPosition(
+                Player.SetAnimatedPosition(
                     dissonance.ArenaCenter.X + deltaX / distance * limit - (float)State.PlayerSize / 2f,
                     dissonance.ArenaCenter.Y + deltaY / distance * limit - (float)State.PlayerSize / 2f);
             }
         }
+        Player.AdvanceVisuals(
+            Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate));
         double traveled = Vector2.Distance(before, new Vector2(Player.WorldX, Player.WorldY));
         if (!wasDashing && State.Dashing)
         {
@@ -464,6 +521,9 @@ public sealed class GameSession
         IsPathFogActive ? PathFog : null;
 
     public void DrawPlayer(SpriteBatch spriteBatch, float sizeScale = 1f) => Player.Draw(spriteBatch, State, Camera, sizeScale);
+
+    public void AdvancePlayerVisuals(double seconds) =>
+        Player.AdvanceVisuals(seconds);
 
     public void UpdateVisualEffects(double seconds)
     {
@@ -1308,8 +1368,26 @@ public sealed class GameSession
         _worldDepthItemScratch.EnsureCapacity(
             State.BulletHolster.Count + State.EnemyHolster.Count
             + (bossProjectileOverlay ? 0 : State.EnemyProjectileHolster.Count)
-            + State.LootCrateList.Count + 8);
+            + State.LootCrateList.Count + _arenaLightPosts.Count + 8);
         int stableOrder = 0;
+
+        foreach (ArenaLightPost post in _arenaLightPosts)
+        {
+            var bounds = new Rectangle(
+                (int)post.WorldPosition.X - Simulation.TileSize / 2,
+                (int)post.WorldPosition.Y - Simulation.TileSize,
+                Simulation.TileSize,
+                Simulation.TileSize * 2);
+            if (!IsWorldAreaNearViewport(
+                    Camera, PlayerWorldCenter, ScreenShake,
+                    viewport, bounds))
+            {
+                continue;
+            }
+            _worldDepthItemScratch.Add(new WorldDepthDrawItem(
+                post.WorldPosition, 22, stableOrder++,
+                WorldDepthDrawKind.LightPost, post));
+        }
 
         foreach (var bullet in State.BulletHolster)
         {
@@ -1503,6 +1581,16 @@ public sealed class GameSession
                     Camera,
                     PlayerWorldCenter,
                     ScreenShake,
+                    (float)State.RunTimeSeconds);
+                break;
+            case WorldDepthDrawKind.LightPost:
+                WorldLighting.DrawLightPost(
+                    spriteBatch,
+                    Camera,
+                    PlayerWorldCenter,
+                    ScreenShake,
+                    (ArenaLightPost)item.Drawable,
+                    ActiveLightingPathKey,
                     (float)State.RunTimeSeconds);
                 break;
             case WorldDepthDrawKind.Portal:
@@ -2319,6 +2407,7 @@ public sealed class GameSession
         State.CurrEnemyCount = 0;
 
         Battleground = arena;
+        RefreshLightingFixtures();
         PathFog = null;
         _pathFogActive = false;
         _enemyCollisionGrid.Reset();
@@ -3251,6 +3340,7 @@ public sealed class GameSession
             {
                 float seed = emitter.Variant * 17.3f + emitter.RoomId * 9.7f + index * 23.1f;
                 float phase = (time * (.28f + index * .025f) + seed) % 1f;
+                float seamFade = VisualAnimation.SeamFade(phase);
                 switch (emitter.Kind)
                 {
                     case PathDecorationKind.DripEmitter:
@@ -3259,9 +3349,11 @@ public sealed class GameSession
                             MathF.Sin(seed) * 44f * emitter.Scale,
                             (phase * 100f - 50f) * emitter.Scale);
                         Vector2 p = Camera.WorldToScreen(world, PlayerWorldCenter, ScreenShake);
-                        Primitives2D.Line(spriteBatch, p, p + new Vector2(0, 8 * emitter.Scale), accent * (.42f + phase * .3f), 2);
+                        Primitives2D.Line(spriteBatch, p, p + new Vector2(0, 8 * emitter.Scale),
+                            accent * ((.42f + phase * .3f) * seamFade), 2);
                         if (phase > .92f)
-                            Primitives2D.Line(spriteBatch, p + new Vector2(-5, 8), p + new Vector2(5, 8), accent * .45f, 1);
+                            Primitives2D.Line(spriteBatch, p + new Vector2(-5, 8),
+                                p + new Vector2(5, 8), accent * (.45f * seamFade), 1);
                         break;
                     }
                     case PathDecorationKind.RippleEmitter:
@@ -3272,15 +3364,20 @@ public sealed class GameSession
                             (int)(emitterScreen.Y - radius * .42f),
                             (int)(radius * 2),
                             Math.Max(3, (int)(radius * .84f)));
-                        Primitives2D.EllipseOutline(spriteBatch, rect, accent * ((1f - phase) * .46f), 1, 24);
+                        Primitives2D.EllipseOutline(spriteBatch, rect,
+                            accent * (seamFade * .46f), 1, 24);
                         break;
                     }
                     case PathDecorationKind.WindEmitter:
                     {
                         float travel = (phase * 150f - 75f) * emitter.Scale;
                         Vector2 p = emitterScreen + new Vector2(travel, MathF.Sin(seed) * 34f);
-                        Primitives2D.Line(spriteBatch, p, p + new Vector2(22 * emitter.Scale, -5), accent * .32f, 2);
-                        Primitives2D.FillRect(spriteBatch, new Rectangle((int)p.X + 22, (int)p.Y - 7, 4, 3), accent * .42f);
+                        Primitives2D.Line(spriteBatch, p,
+                            p + new Vector2(22 * emitter.Scale, -5),
+                            accent * (.32f * seamFade), 2);
+                        Primitives2D.FillRect(spriteBatch,
+                            new Rectangle((int)p.X + 22, (int)p.Y - 7, 4, 3),
+                            accent * (.42f * seamFade));
                         break;
                     }
                     case PathDecorationKind.StarEmitter:
@@ -3298,7 +3395,9 @@ public sealed class GameSession
                             MathF.Sin(seed + phase * 4f) * 55f * emitter.Scale,
                             (phase * 115f - 58f) * emitter.Scale);
                         Color ash = index % 4 == 0 ? accent : new Color(126, 112, 98);
-                        Primitives2D.FillRect(spriteBatch, new Rectangle((int)p.X, (int)p.Y, 3, 3), ash * .52f);
+                        Primitives2D.FillRect(spriteBatch,
+                            new Rectangle((int)p.X, (int)p.Y, 3, 3),
+                            ash * (.52f * seamFade));
                         break;
                     }
                 }
@@ -3361,7 +3460,7 @@ public sealed class GameSession
                 + index * .137f) % 1f;
             float angle = -Camera.AngleRadians
                 + index * MathF.Tau / motes
-                + MathF.Floor(time * 2f) * .035f;
+                + time * .07f;
             float radius = size * (1.7f + phase * .7f);
             Vector2 point = center + new Vector2(
                 MathF.Cos(angle) * radius,
@@ -3373,7 +3472,8 @@ public sealed class GameSession
                     (int)point.Y - moteSize / 2,
                     moteSize, moteSize),
                 (index % 4 == 0 ? UiTheme.Cream : profile.Accent)
-                    * (.18f + phase * .22f));
+                    * ((.18f + phase * .22f)
+                        * VisualAnimation.SeamFade(phase)));
         }
     }
 

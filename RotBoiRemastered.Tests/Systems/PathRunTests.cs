@@ -35,8 +35,8 @@ public sealed class PathRunTests
     public void CombatRooms_CanOverlapAndCompleteIndependentlyWhileRushing()
     {
         var run = new PathRun(new Random(3));
-        var skirmish = run.Layout.Rooms.Single(value => value.Type == PathRoomType.Skirmish);
-        var assault = run.Layout.Rooms.Single(value => value.Type == PathRoomType.Assault);
+        var skirmish = run.Layout.Rooms.First(value => value.Type == PathRoomType.Skirmish);
+        var assault = run.Layout.Rooms.First(value => value.Type == PathRoomType.Assault);
 
         Assert.Same(skirmish, run.TryActivateRoom(skirmish.WorldCenter));
         Assert.Same(assault, run.TryActivateRoom(assault.WorldCenter));
@@ -71,6 +71,23 @@ public sealed class PathRunTests
         Assert.False(run.ExitPortalOpen);
         Assert.Equal(42.5, run.FloorStartedAtRunSeconds);
         Assert.True(run.Layout.StartRoom.IsCleared);
+    }
+
+    [Fact]
+    public void BossRoom_CannotActivateUntilAllSevenRouteRoomsAreCleared()
+    {
+        var run = new PathRun(new Random(18));
+
+        Assert.Null(run.TryActivateRoom(run.Layout.BossRoom.WorldCenter));
+        Assert.False(run.Layout.BossRoom.IsActivated);
+
+        foreach (PathRoom room in run.Layout.RequiredRoomsBeforeBoss)
+            room.IsCleared = true;
+
+        Assert.Same(
+            run.Layout.BossRoom,
+            run.TryActivateRoom(run.Layout.BossRoom.WorldCenter));
+        Assert.True(run.Layout.BossRoom.IsActivated);
     }
 
     [Fact]
@@ -118,7 +135,8 @@ public sealed class PathRunTests
         Assert.Same(room, run.TryActivateRoom(room.WorldCenter, 12.0));
         Assert.Same(room, run.LastEnteredRoom);
         Assert.Contains(room.Type.ToString().ToUpperInvariant(), room.EntryBanner);
-        Assert.Contains(room.ShapeDisplayName.ToUpperInvariant(), room.EntryBanner);
+        Assert.Contains(room.DungeonDisplayName.ToUpperInvariant(), room.EntryBanner);
+        Assert.Equal(run.CurrentSenseKey, room.ThemeKey);
         Assert.True(run.RoomBannerVisible(12.0));
         Assert.False(run.RoomBannerVisible(12.0 + PathRun.RoomBannerSeconds + .01));
     }

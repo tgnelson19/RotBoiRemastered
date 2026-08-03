@@ -433,13 +433,16 @@ public class ProjectilePortal
             Primitives2D.Line(spriteBatch, innerCenter2, tetherEnd, UiTheme.Muted, 2);
             for (int index = 0; index < 3; index++)
             {
-                float progress = (Angle * .18f + index / 3f) % 1f;
+                float progress = VisualAnimation.LoopPhase(
+                    Angle * .18f, 1f, index / 3f);
                 var packetCenter = new Vector2(
                     innerCenter2.X + (tetherEnd.X - innerCenter2.X) * progress,
                     innerCenter2.Y + (tetherEnd.Y - innerCenter2.Y) * progress);
                 var packet = new Rectangle((int)packetCenter.X - 2, (int)packetCenter.Y - 2, 4, 4);
-                Primitives2D.FillRect(spriteBatch, InflateF(packet, 2, 2), UiTheme.Ink);
-                Primitives2D.FillRect(spriteBatch, packet, Color);
+                float fade = VisualAnimation.SeamFade(progress);
+                Primitives2D.FillRect(spriteBatch, InflateF(packet, 2, 2),
+                    UiTheme.Ink * fade);
+                Primitives2D.FillRect(spriteBatch, packet, Color * fade);
             }
         }
 

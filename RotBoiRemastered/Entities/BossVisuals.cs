@@ -68,6 +68,7 @@ internal static class BossVisuals
         Color secondary, Color accent, float yaw, float pitch, float roll = 0f)
     {
         Span<Vector3> vertices = stackalloc Vector3[8];
+        Span<Vector3> rotatedVertices = stackalloc Vector3[8];
         float cosYaw = MathF.Cos(yaw);
         float sinYaw = MathF.Sin(yaw);
         float cosPitch = MathF.Cos(pitch);
@@ -85,26 +86,50 @@ internal static class BossVisuals
             float pitchZ = y * sinPitch + yawZ * cosPitch;
             float rollX = yawX * cosRoll - pitchY * sinRoll;
             float rollY = yawX * sinRoll + pitchY * cosRoll;
+            rotatedVertices[index] = new Vector3(rollX, rollY, pitchZ);
             float perspective = 4.2f / Math.Max(1.7f, 4.2f - pitchZ);
             vertices[index] = new Vector3(center.X + rollX * extent * perspective,
                 center.Y + rollY * extent * perspective, pitchZ);
         }
 
-        Span<int> faceOrder = stackalloc int[6] { 0, 1, 2, 3, 4, 5 };
+        Span<int> faceOrder = stackalloc int[6];
         static float FaceDepth(ReadOnlySpan<Vector3> cubeVertices, int faceIndex)
         {
             var face = CubeFaces[faceIndex];
             return (cubeVertices[face[0]].Z + cubeVertices[face[1]].Z +
                 cubeVertices[face[2]].Z + cubeVertices[face[3]].Z) * .25f;
         }
-        for (int index = 1; index < faceOrder.Length; index++)
+        int visibleFaces = 0;
+        var camera = new Vector3(0, 0, 4.2f);
+        for (int faceIndex = 0; faceIndex < CubeFaces.Length; faceIndex++)
+        {
+            var face = CubeFaces[faceIndex];
+            Vector3 first = rotatedVertices[face[0]];
+            Vector3 second = rotatedVertices[face[1]];
+            Vector3 third = rotatedVertices[face[2]];
+            Vector3 faceCenter = (rotatedVertices[face[0]] + rotatedVertices[face[1]]
+                + rotatedVertices[face[2]] + rotatedVertices[face[3]]) * .25f;
+            Vector3 normal = Vector3.Cross(second - first, third - first);
+            if (Vector3.Dot(normal, faceCenter) < 0)
+                normal = -normal;
+            if (Vector3.Dot(normal, camera - faceCenter) > 0)
+                faceOrder[visibleFaces++] = faceIndex;
+        }
+
+        for (int index = 1; index < visibleFaces; index++)
         {
             int candidate = faceOrder[index];
             float candidateDepth = FaceDepth(vertices, candidate);
             int insertion = index - 1;
-            while (insertion >= 0 &&
-                FaceDepth(vertices, faceOrder[insertion]) > candidateDepth)
+            while (insertion >= 0)
             {
+                int existing = faceOrder[insertion];
+                float existingDepth = FaceDepth(vertices, existing);
+                bool after = existingDepth > candidateDepth + .0001f
+                    || (MathF.Abs(existingDepth - candidateDepth) <= .0001f
+                        && existing > candidate);
+                if (!after)
+                    break;
                 faceOrder[insertion + 1] = faceOrder[insertion];
                 insertion--;
             }
@@ -112,7 +137,7 @@ internal static class BossVisuals
         }
 
         Span<Vector2> projected = stackalloc Vector2[24];
-        for (int orderedIndex = 0; orderedIndex < faceOrder.Length; orderedIndex++)
+        for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
         {
             var face = CubeFaces[faceOrder[orderedIndex]];
             int offset = orderedIndex * 4;
@@ -121,23 +146,34 @@ internal static class BossVisuals
         }
         var shadowOffset = new Vector2(5, 7);
         Span<Vector2> shadow = stackalloc Vector2[4];
-        for (int orderedIndex = 0; orderedIndex < faceOrder.Length; orderedIndex++)
+        for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
         {
             var points = projected.Slice(orderedIndex * 4, 4);
             for (int vertex = 0; vertex < points.Length; vertex++)
                 shadow[vertex] = points[vertex] + shadowOffset;
             Primitives2D.FillPolygonSpan(batch, shadow, UiTheme.Shadow);
         }
-        for (int orderedIndex = 0; orderedIndex < faceOrder.Length; orderedIndex++)
+        for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
         {
             var points = projected.Slice(orderedIndex * 4, 4);
-            Color face = orderedIndex % 2 == 0 ? primary : secondary;
-            face = Color.Lerp(face, accent, .05f + orderedIndex * .045f);
+            int physicalFace = faceOrder[orderedIndex];
+            Color face = PhysicalCubeFaceColor(physicalFace, primary, secondary, accent);
             Primitives2D.FillPolygonSpan(batch, points, face);
             Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink, Math.Max(2, (int)(extent * .095f)));
             Primitives2D.Line(batch, points[0], points[1], UiTheme.Lighten(accent, 34), Math.Max(1, (int)(extent * .035f)));
         }
     }
+
+    internal static Color PhysicalCubeFaceColor(int faceIndex, Color primary,
+        Color secondary, Color accent) => faceIndex switch
+    {
+        0 => primary,
+        1 => secondary,
+        2 => UiTheme.Lighten(primary, 24),
+        3 => Color.Lerp(primary, UiTheme.Ink, .24f),
+        4 => Color.Lerp(secondary, accent, .18f),
+        _ => Color.Lerp(primary, accent, .28f),
+    };
 
     /// <summary>Draw a tall or wide cubic prism, used for pillars and half-buried slabs.</summary>
     public static void Cuboid(SpriteBatch batch, Vector2 center, float width, float height, Color front,
@@ -220,5 +256,107 @@ internal static class BossVisuals
         }
         float ringRadius = size * (.45f + eased * 1.45f);
         Primitives2D.CircleOutline(batch, center, ringRadius, second * (1f - progress * .65f), Math.Max(2, (int)(size * .035f)));
+    }
+
+    /// <summary>Block-built speaker chamber used by the Sound family.</summary>
+    public static void Resonator(SpriteBatch batch, Vector2 center, float size,
+        Color body, Color accent, float compression, int chambers = 2)
+    {
+        size = Math.Max(8f, size);
+        compression = Math.Clamp(compression, 0f, 1f);
+        float width = size * (1f + compression * .08f);
+        float height = size * (1f - compression * .1f);
+        Cuboid(batch, center, width, height, body, accent, compression * .35f);
+        float cavity = size * (.18f + compression * .025f);
+        Primitives2D.FillCircle(batch, center, cavity + 5, UiTheme.Ink);
+        Primitives2D.FillCircle(batch, center, cavity, UiTheme.Void);
+        Primitives2D.CircleOutline(batch, center, cavity * (.72f + compression * .12f), accent,
+            Math.Max(2, (int)(size * .035f)), 24);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            for (int chamber = 0; chamber < chambers; chamber++)
+            {
+                float radius = size * (.28f + chamber * .12f + compression * .035f);
+                var bounds = new Rectangle((int)(center.X - radius), (int)(center.Y - radius),
+                    Math.Max(2, (int)(radius * 2)), Math.Max(2, (int)(radius * 2)));
+                Primitives2D.Arc(batch, bounds,
+                    side < 0 ? MathF.PI * .62f : -MathF.PI * .38f,
+                    side < 0 ? MathF.PI * 1.38f : MathF.PI * .38f,
+                    chamber == 0 ? accent : UiTheme.Cream * .65f,
+                    Math.Max(2, (int)(size * .025f)), 16);
+            }
+        }
+    }
+
+    /// <summary>Heavy side plate with a hinge line, shared by Touch constructions.</summary>
+    public static void HingedPlate(SpriteBatch batch, Vector2 center, float width,
+        float height, Color body, Color accent, float angle)
+    {
+        Vector2 axis = new(MathF.Cos(angle), MathF.Sin(angle));
+        Vector2 normal = new(-axis.Y, axis.X);
+        float halfWidth = width * .5f;
+        float halfHeight = height * .5f;
+        Span<Vector2> points = stackalloc Vector2[4]
+        {
+            center - axis * halfWidth - normal * halfHeight,
+            center + axis * halfWidth - normal * halfHeight,
+            center + axis * halfWidth + normal * halfHeight,
+            center - axis * halfWidth + normal * halfHeight,
+        };
+        Span<Vector2> shadow = stackalloc Vector2[4];
+        for (int index = 0; index < 4; index++)
+            shadow[index] = points[index] + new Vector2(4, 6);
+        Primitives2D.FillPolygonSpan(batch, shadow, UiTheme.Shadow);
+        Primitives2D.FillPolygonSpan(batch, points, body);
+        Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink,
+            Math.Max(2, (int)(Math.Min(width, height) * .08f)));
+        Primitives2D.Line(batch, points[0], points[1], accent,
+            Math.Max(2, (int)(height * .08f)));
+        Vector2 hinge = center - axis * width * .32f;
+        Primitives2D.FillCircle(batch, hinge, Math.Max(2, height * .12f), UiTheme.Cream);
+    }
+
+    /// <summary>Geometric iris whose opening is presentation-only.</summary>
+    public static void Aperture(SpriteBatch batch, Vector2 center, float radius,
+        Color body, Color accent, float opening, float rotation = 0f, int blades = 6)
+    {
+        radius = Math.Max(5f, radius);
+        opening = Math.Clamp(opening, .08f, 1f);
+        Span<Vector2> points = stackalloc Vector2[4];
+        for (int blade = 0; blade < blades; blade++)
+        {
+            float angle = rotation + blade * MathF.Tau / blades;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Vector2 tangent = new(-direction.Y, direction.X);
+            Vector2 outer = center + direction * radius;
+            Vector2 inner = center + direction * radius * (.18f + opening * .28f);
+            points[0] = inner - tangent * radius * .12f;
+            points[1] = outer - tangent * radius * .28f;
+            points[2] = outer + tangent * radius * .08f;
+            points[3] = inner + tangent * radius * .08f;
+            Primitives2D.FillPolygonSpan(batch, points, blade % 2 == 0 ? body : Color.Lerp(body, UiTheme.Ink, .18f));
+            Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink, Math.Max(1, (int)(radius * .045f)));
+        }
+        Primitives2D.FillCircle(batch, center, radius * (.12f + opening * .13f), UiTheme.Void);
+        Primitives2D.CircleOutline(batch, center, radius * (.15f + opening * .14f), accent,
+            Math.Max(2, (int)(radius * .07f)), 24);
+    }
+
+    /// <summary>Translucency-free hard-edged prism/petal used by Phantasia.</summary>
+    public static void PrismPetal(SpriteBatch batch, Vector2 center, float length,
+        float width, Color body, Color accent, float angle)
+    {
+        Vector2 axis = new(MathF.Cos(angle), MathF.Sin(angle));
+        Vector2 normal = new(-axis.Y, axis.X);
+        Span<Vector2> points = stackalloc Vector2[4]
+        {
+            center + axis * length * .55f,
+            center + normal * width * .5f,
+            center - axis * length * .45f,
+            center - normal * width * .5f,
+        };
+        Primitives2D.FillPolygonSpan(batch, points, body);
+        Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink, Math.Max(2, (int)(width * .1f)));
+        Primitives2D.Line(batch, points[0], points[1], accent, Math.Max(1, (int)(width * .07f)));
     }
 }

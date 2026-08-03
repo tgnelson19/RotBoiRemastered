@@ -904,7 +904,7 @@ public sealed class EnemyProjectile
                 Primitives2D.FillRect(spriteBatch,
                     new Rectangle((int)packet.X - packetSize / 2,
                         (int)packet.Y - packetSize / 2, packetSize, packetSize),
-                    coreColor * .75f);
+                    coreColor * (.75f * VisualAnimation.SeamFade(phase)));
             }
             if (TruthMarked)
                 Primitives2D.FillCircle(spriteBatch, start, Math.Max(3, width / 3), UiTheme.Cream);

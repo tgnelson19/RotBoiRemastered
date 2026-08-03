@@ -41,7 +41,14 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     public static readonly PathChaseBossConfig BaseConfig = PathChaseBossConfig.Default with
     {
-        ArenaShape = "jagged", ArenaScale = 10.1, MovementModes = new[] { "chase", "static", "path" },
+        ArenaShape = "jagged", ArenaScale = 10.1,
+        MotionTheme = BossMotionTheme.Chemesthesis,
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 10f, .6f, .52f),
+            BossMovementPhaseProfile.Stationary(),
+        },
     };
 
     public int PatternRotation { get; protected set; }
@@ -282,6 +289,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         if (EntranceRemaining > 0 || ActTransitionTimer > 0)
         {
             AdvanceAge();
+            FinishMovementTracking();
             return;
         }
         if (IsStaggered)
@@ -293,6 +301,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
                 Stagger = 0.0;
             }
             AdvanceAge();
+            FinishMovementTracking();
             return;
         }
         if (Stagger > 0 && StaggerDecayPerSecond > 0)
@@ -302,24 +311,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
                 Stagger = Math.Max(0.0, Stagger - StaggerDecayPerSecond * dt);
         }
 
-        string mode = Config.MovementModes[(Phase - 1) % Config.MovementModes.Count];
-        float originalSpeed = Speed;
-        float effectivePlayerX = context.PlayerWorldX, effectivePlayerY = context.PlayerWorldY;
-        if (mode == "static")
-        {
-            Speed = 0;
-        }
-        else if (mode == "path")
-        {
-            float jitter = ArenaSeed[(Phase + PatternRotation) % ArenaSeed.Length];
-            effectivePlayerX = ArenaCenter.X + MathF.Cos((float)PhaseElapsed * (.45f + jitter)) * ArenaRadius * .5f;
-            effectivePlayerY = ArenaCenter.Y + MathF.Sin((float)PhaseElapsed * (.7f - jitter)) * ArenaRadius * .42f;
-        }
-        var effectiveContext = mode == "chase"
-            ? context
-            : MovementContext(context, effectivePlayerX, effectivePlayerY);
-        ChaseUpdate(effectiveContext);
-        Speed = originalSpeed;
+        UpdateLocomotion(context);
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (AttackCooldown <= 0)
         {
@@ -348,9 +340,13 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         {
             float angle = index * 2.399f + Age * .003f;
             float radius = tile * (1.2f + (index % 4) * 1.1f);
-            float yOffset = (Age * .04f + index * 13) % tile;
+            float fall = BossAnimation.LoopPhase(VisualAgeSeconds, 10.4f,
+                index * .26f);
+            float seamFade = BossAnimation.SeamFade(fall, .12f);
+            float yOffset = fall * tile;
             var point = center + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius - yOffset);
-            Primitives2D.FillCircle(spriteBatch, point, 2 + index % 3, bright);
+            Primitives2D.FillCircle(spriteBatch, point,
+                (2 + index % 3) * seamFade, bright * seamFade);
         }
 
         DrawPersistentTerrain(spriteBatch, camera, playerWorldPosition, screenShake);
@@ -368,28 +364,53 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             return;
         }
 
-        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .58f), 0f, 1f) * MathF.PI) : 0f;
+        float seconds = VisualAgeSeconds;
+        float attack = VisualAttackPulse;
         float cubeSize = Simulation.TileSize * (1f + attack * .16f);
-        float jitterX = MathF.Sin(Age * .17f) * 3.5f + MathF.Sin(Age * .071f) * 2f;
-        float jitterY = MathF.Sin(Age * .133f + 1.2f) * 3f;
+        float jitterX = BossAnimation.Sine(seconds, .62f) * 3.5f
+            + BossAnimation.Sine(seconds, 1.47f) * 2f;
+        float jitterY = BossAnimation.Sine(seconds, .79f, .19f) * 3f;
         var jittered = center + new Vector2(jitterX, jitterY);
         Color purple = new(157, 69, 214);
         Color orange = new(232, 116, 34);
-        int sparks = Config.FinalBoss ? 18 : 13;
         float spread = VisualSurvivalActive ? 1.65f : 1f;
-        for (int index = 0; index < sparks; index++)
+        int reagents = 7;
+        for (int index = 0; index < reagents; index++)
         {
-            float angle = index * 2.399f + Age * (.018f + index % 3 * .004f);
-            float radius = cubeSize * (.62f + (index % 5) * .15f) * spread;
-            var point = jittered + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle * 1.17f) * radius * .68f);
-            int sparkSize = 2 + index % 3;
-            Primitives2D.FillRect(spriteBatch, new Rectangle((int)point.X - sparkSize, (int)point.Y - sparkSize, sparkSize * 2, sparkSize * 2),
-                index % 4 == 0 ? UiTheme.Cream : purple);
+            float direction = index % 3 == 1 ? -1f : 1f;
+            float angle = index * 2.399f
+                + seconds * (.66f + index % 3 * .13f) * direction
+                + BossAnimation.Sine(seconds, 1.7f + index * .23f, index * .11f) * .24f;
+            float radius = cubeSize * (.56f + (index % 4) * .16f
+                + BossAnimation.Sine(seconds, 1.1f + index * .31f) * .09f) * spread;
+            if (IsStaggered)
+                radius *= 1.32f;
+            var point = jittered + new Vector2(MathF.Cos(angle) * radius,
+                MathF.Sin(angle) * radius * .68f + (IsStaggered ? Size * .12f : 0f));
+            Color reagent = (index % 3) switch
+            {
+                0 => orange,
+                1 => purple,
+                _ => PhaseAccent,
+            };
+            Primitives2D.Line(spriteBatch, jittered, point,
+                reagent * .55f, Math.Max(1, (int)(Size * .018f)));
+            BossVisuals.PrismPetal(spriteBatch, point,
+                cubeSize * (.24f + index % 3 * .035f), cubeSize * .12f,
+                reagent, UiTheme.Cream, angle);
         }
-        BossVisuals.Cube(spriteBatch, jittered, cubeSize, orange, purple, Age * .035f);
+        BossVisuals.RotatingCube3D(spriteBatch, jittered, cubeSize * .45f,
+            orange, purple, PhaseAccent, seconds * 2.1f,
+            .55f + BossAnimation.Sine(seconds, 1.9f) * .36f,
+            BossAnimation.Sine(seconds, 1.3f, .2f) * .24f);
         var inner = new Rectangle((int)(jittered.X - cubeSize * .13f), (int)(jittered.Y - cubeSize * .13f), (int)(cubeSize * .26f), (int)(cubeSize * .26f));
-        Primitives2D.FillRect(spriteBatch, inner, purple);
-        Primitives2D.RectOutline(spriteBatch, inner, UiTheme.Cream, 2);
+        Primitives2D.FillRect(spriteBatch, inner, UiTheme.Void);
+        Primitives2D.RectOutline(spriteBatch, inner,
+            IsStaggered ? UiTheme.Cream : purple, IsStaggered ? 4 : 2);
+        float reaction = BossAnimation.CosinePulse(seconds, 1.1f);
+        Primitives2D.FillCircle(spriteBatch, jittered,
+            cubeSize * (.045f + reaction * .018f),
+            Color.Lerp(orange, UiTheme.Cream, reaction));
 
         if (ConsumedCrystalPulse > 0)
         {

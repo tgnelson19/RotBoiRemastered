@@ -105,15 +105,16 @@ public class DissonanceTests
     }
 
     [Fact]
-    public void PhaseMovement_CoversEveryPhaseWithADistinctIdentity()
+    public void PhaseMovement_CoversEveryPhaseWithAuthoredTypedProfiles()
     {
         var expected = new[]
         {
-            "hearth_tornado", "road_anchor", "torch_tornado", "hail_chase", "yew_anchor",
-            "sun_revolution", "spear_intercept", "day_anchor", "harvest_chase",
+            BossMovementMode.FixedPath, BossMovementMode.Stationary, BossMovementMode.FixedPath,
+            BossMovementMode.Chase, BossMovementMode.Stationary, BossMovementMode.FixedPath,
+            BossMovementMode.Chase, BossMovementMode.Stationary, BossMovementMode.Chase,
         };
         for (int phase = 1; phase <= 9; phase++)
-            Assert.Equal(expected[phase - 1], Dissonance.PhaseMovement[phase]);
+            Assert.Equal(expected[phase - 1], Dissonance.PhaseMovement[phase].Mode);
     }
 
     [Fact]

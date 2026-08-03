@@ -229,3 +229,55 @@ The five previously ranked items are now implemented:
 - All ordinary player and hostile projectiles render at a minimum of twelve
   physical screen pixels at every zoom. Collision rectangles, damage, cadence,
   travel, and authored large-area hazards are unchanged.
+
+## Typed locomotion and Rot presentation pass
+
+### Implemented
+
+- The ten named path bosses and five recurring sense guardians now consume
+  typed per-phase locomotion profiles. Stationary phases reject locomotion and
+  knockback, while arc-length-normalized fixed paths cover the arena using the
+  sense's square, triangle, jagged, ellipse, circle, or figure-eight grammar.
+- Chase steering is path-specific: Touch carries inertia, Phantasia curves,
+  Sound commits on half-second beats, Chemesthesis varies continuously from a
+  seed, and Sight predicts and intercepts. Locomotion targets never replace the
+  real player target used by attacks.
+- Rot is now a slow brown/dark-green rotating perspective cube bobbing through
+  a masked mud floor. Miasma burrows after every second declaration with a
+  0.7-second sink, 1.0-second harmless destination-pool warning, and 0.7-second
+  rise; only the fully submerged interval suppresses hitboxes and damage.
+- Perspective cube colors are assigned to physical faces before stable depth
+  sorting, and visible modulo-driven particles fade to zero before wrapping.
+  This removes the Chemesthesis face popping and particle-cycle hitches without
+  smoothing away its deliberately erratic motion.
+
+Attack damage, cadence, health gates, projectile budgets, and survival durations
+remain unchanged. Debug-only Sting, Arsenal mini-bosses, and ordinary elites are
+outside this pass.
+
+## Sense-family visual polish pass
+
+### Implemented
+
+- Added typed Guardian/midpoint/finale presentation profiles with five procedural
+  silhouette grammars, lifecycle pose resolution, per-tier cosmetic budgets, and
+  presentation-only timing. No visual field participates in combat simulation.
+- Added seamless cosine pulses, eased pose curves, attack envelopes, resonator chambers,
+  hinged pressure plates, geometric apertures, and prism petals to the shared procedural
+  rendering library.
+- Rebuilt all five Guardian bodies around their sense identity instead of decorating one
+  shared square chassis. Invulnerability treatments now follow the body's geometry.
+- Refined all ten named encounters: Beaudis gained mechanical sound anticipation;
+  Dissonance gained stable satellite chords; Bair gained a heavy lock construction; Rot
+  gained mud bubbles and Burial impressions; Ishe gained fins and geometric afterimages;
+  Chronos gained parallax histories and fracture lines; Kage gained an unstable
+  seven-reagent crucible; Ache gained phase-specific arm disagreement; Hypno gained a
+  truth-responsive mask and puppet construction; and Malady now blends constellation
+  layouts over time.
+- Converted the touched presentation cycles to elapsed-second helpers and retained
+  invisible seams for all wrapping effects. Tests cover roster profiles, lifecycle pose
+  priority, curve continuity, Malady constellation blending, locomotion, and stationary
+  locks.
+
+Attack logic, projectile counts, hazard geometry, world coordinates, collision geometry,
+health gates, and encounter timing remain unchanged.

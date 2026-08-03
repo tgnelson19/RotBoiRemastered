@@ -118,6 +118,7 @@ public class Enemy
     public string DifficultyTier { get; }
     public int TierRank { get; }
     public float Age { get; private set; }
+    public float VisualAgeSeconds => Age / Math.Max(1, Simulation.FrameRate);
     public string AwarenessState { get; set; } = "wandering";
     public float AwarenessRange { get; set; }
     public float DisengageRange { get; set; }
@@ -149,6 +150,7 @@ public class Enemy
     public bool AtomicSpawnGroup { get; set; }
     public float? AttackCooldownMax { get; set; }
     public float? AttackCooldown { get; set; }
+    public virtual bool ReceivesKnockback => true;
     public Dictionary<string, StatusEffectState> StatusEffects { get; } = new();
     public double StatusDotBuffer { get; set; }
     public double StatusControlResistance { get; set; }
@@ -171,6 +173,7 @@ public class Enemy
 
     private Vector2 _lastVisualWorld;
     private Vector2 _visualFacing = Vector2.UnitX;
+    private float _visualAttackDuration = Simulation.FrameRate * .22f;
     private readonly Random _rng;
     private Vector2 _lastCollisionSafePosition;
     private float _lastCollisionSafeCameraAngle;
@@ -208,7 +211,34 @@ public class Enemy
         _lastVisualWorld = new Vector2(worldX, worldY);
     }
 
-    public void MarkAttack(float duration = .22f) => VisualAttackTimer = Math.Max(VisualAttackTimer, Simulation.FrameRate * duration);
+    public void MarkAttack(float duration = .22f)
+    {
+        float durationFrames = Math.Max(1f, Simulation.FrameRate * duration);
+        if (durationFrames >= VisualAttackTimer)
+        {
+            VisualAttackTimer = durationFrames;
+            _visualAttackDuration = durationFrames;
+        }
+    }
+
+    /// <summary>
+    /// A complete zero-to-one-to-zero attack curve keyed to the duration of
+    /// the gameplay event that most recently called <see cref="MarkAttack"/>.
+    /// Renderers use this instead of guessing a family-specific duration.
+    /// </summary>
+    public float VisualAttackPulse
+    {
+        get
+        {
+            if (VisualAttackTimer <= 0)
+                return 0f;
+            float progress = 1f - Math.Clamp(
+                VisualAttackTimer / Math.Max(1f, _visualAttackDuration),
+                0f,
+                1f);
+            return MathF.Sin(progress * MathF.PI);
+        }
+    }
     public void MarkVisualHit(float duration = .1f) =>
         VisualHitTimer = Math.Max(VisualHitTimer, Simulation.FrameRate * duration);
 
@@ -514,6 +544,8 @@ public class Enemy
 
     public void ApplyKnockback(float deltaX, float deltaY, Battleground battleground)
     {
+        if (!ReceivesKnockback)
+            return;
         TryAxisMove(deltaX, "x", battleground);
         TryAxisMove(deltaY, "y", battleground);
     }
@@ -555,13 +587,8 @@ public class Enemy
         float walk = Moved ? MathF.Sin(Age * (.16f + TierRank * .018f)) : 0f;
         int bob = (int)(Math.Abs(walk) * Math.Min(4f, Size * .055f));
         float squash = Moved ? Math.Abs(walk) * .045f : 0f;
-        float attackPulse = 0f;
-        if (VisualAttackTimer > 0)
-        {
-            float attackProgress = VisualAttackTimer / Math.Max(1f, Simulation.FrameRate * .22f);
-            attackPulse = MathF.Sin(Math.Min(1f, attackProgress) * MathF.PI);
-            squash -= attackPulse * .12f;
-        }
+        float attackPulse = VisualAttackPulse;
+        squash -= attackPulse * .12f;
 
         int width = (int)(Size * (1 + squash)), height = (int)(Size * (1 - squash));
         float midBottomX = screenPosition.X + Size / 2f, midBottomY = screenPosition.Y + Size - bob;

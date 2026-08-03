@@ -51,7 +51,19 @@ public sealed class Malady : PhantasiaBoss
         FinalBodyColor = new Color(67, 42, 119), FinalAccentColor = new Color(213, 103, 231),
         FinalBodyScale = 2.55, FinalCooldownSeconds = 1.25,
         MovementSpeed = .15, ArenaScale = 13.5,
-        MovementModes = new[] { "path", "path", "static", "path", "path", "static", "path", "static", "path", "static" },
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 11f, .58f, .38f),
+            BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 10f, .62f, .45f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 10f, .64f, .42f, -1),
+            BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 9.5f, .66f, .48f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 9f, .68f, .46f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 9f, .70f, .52f, -1),
+            BossMovementPhaseProfile.Stationary(),
+        },
         FinalHealth = 320000, FinalContactDamage = 900, FinalRewardExperience = 880,
         FinaleDuration = 30.0,
     };
@@ -88,6 +100,9 @@ public sealed class Malady : PhantasiaBoss
     private float _pillarMotionStrength;
     private bool _patternAdmissionOpen = true;
     private bool _patternDeclaredThisFrame;
+    private int _visualPreviousConstellationPhase = 1;
+    private int _visualConstellationPhase = 1;
+    private float _visualConstellationBlend = 1f;
 
     public bool SurvivalActive { get; private set; }
     public double SurvivalRemaining { get; private set; }
@@ -103,6 +118,8 @@ public sealed class Malady : PhantasiaBoss
         ? Math.Min(FinaleBodyCubeCount, InitialApotheosisCrownPetals +
             (int)(FinaleProgress * (FinaleBodyCubeCount - InitialApotheosisCrownPetals + 1)))
         : 0;
+    internal int VisualConstellationPhase => _visualConstellationPhase;
+    internal float VisualConstellationBlend => _visualConstellationBlend;
 
     public Malady(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, MaladyConfig, MaladySigilConfig, rng)
@@ -410,6 +427,25 @@ public sealed class Malady : PhantasiaBoss
         else
         {
             AttackAnticipation = 0f;
+        }
+        UpdateVisualConstellation((float)dt);
+    }
+
+    private void UpdateVisualConstellation(float dt)
+    {
+        int target = FinaleActive
+            ? (PatternRotation % 3) switch { 0 => 2, 1 => 5, _ => 8 }
+            : Phase;
+        if (target != _visualConstellationPhase)
+        {
+            _visualPreviousConstellationPhase = _visualConstellationPhase;
+            _visualConstellationPhase = target;
+            _visualConstellationBlend = 0f;
+        }
+        else
+        {
+            _visualConstellationBlend = Math.Min(1f,
+                _visualConstellationBlend + dt / .82f);
         }
     }
 
@@ -801,8 +837,7 @@ public sealed class Malady : PhantasiaBoss
     /// </summary>
     private void DrawLegacyPuppetBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        float attackProgress = Math.Min(1.0f, VisualAttackTimer / Math.Max(1f, Simulation.FrameRate * (float)AttackAnimationDuration));
-        float attackAmount = Math.Max(MathF.Sin(attackProgress * MathF.PI), AttackAnticipation * .62f);
+        float attackAmount = Math.Max(VisualAttackPulse, AttackAnticipation * .62f);
         float stillness = 1.0f - Math.Min(1.0f, _pillarMotionStrength);
         float bob = MathF.Sin(Age * .025f) * Size * .035f * (.45f + stillness * .55f);
         float leanX = _pillarMotion[0] * Size * .07f * _pillarMotionStrength;
@@ -1029,15 +1064,15 @@ public sealed class Malady : PhantasiaBoss
     protected override void DrawDreamBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        float bob = MathF.Sin(Age * .018f) * Size * .035f;
+        float seconds = VisualAgeSeconds;
+        float bob = BossAnimation.Sine(seconds, 5.8f) * Size * .035f;
         Vector2 core = screen + new Vector2(Size / 2f - _pillarMotion[0] * Size * .045f * _pillarMotionStrength,
             Size * .45f + bob - _pillarMotion[1] * Size * .025f * _pillarMotionStrength);
         Color indigo = new(62, 39, 116);
         Color violet = new(105, 59, 164);
         Color luminous = Color.Lerp(new Color(218, 104, 232), PhaseAccent, .36f);
         float spectacle = FinaleActive ? 1.58f : SurvivalActive ? 1.3f : 1f;
-        float attack = Math.Max(AttackAnticipation,
-            VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .72f), 0f, 1f) * MathF.PI) : 0f);
+        float attack = Math.Max(AttackAnticipation, VisualAttackPulse);
 
         if (Dying)
         {
@@ -1056,12 +1091,18 @@ public sealed class Malady : PhantasiaBoss
         DrawApotheosisMandala(spriteBatch, core, luminous);
 
         int cubeCount = FinaleActive ? ApotheosisCrownPetalCount : SurvivalActive ? 14 : IdleBodyCubeCount;
-        int constellationPhase = FinaleActive
-            ? (PatternRotation % 3) switch { 0 => 2, 1 => 5, _ => 8 }
-            : Phase;
+        float constellationBlend = BossAnimation.EaseInOutSine(
+            _visualConstellationBlend);
         for (int index = 0; index < cubeCount; index++)
         {
-            var composition = ConstellationPoint(constellationPhase, index, cubeCount, spectacle, attack);
+            var previous = ConstellationPoint(_visualPreviousConstellationPhase,
+                index, cubeCount, spectacle, attack);
+            var current = ConstellationPoint(_visualConstellationPhase,
+                index, cubeCount, spectacle, attack);
+            var composition = (
+                Offset: Vector2.Lerp(previous.Offset, current.Offset, constellationBlend),
+                Angle: MathHelper.Lerp(previous.Angle, current.Angle, constellationBlend),
+                Depth: MathHelper.Lerp(previous.Depth, current.Depth, constellationBlend));
             _floatingCubeScratch[index] = (
                 core + composition.Offset,
                 composition.Angle,
@@ -1088,11 +1129,11 @@ public sealed class Malady : PhantasiaBoss
         {
             var cube = _floatingCubeScratch[cubeIndex];
             BossVisuals.RotatingCube3D(spriteBatch, cube.Center, cube.Extent, indigo, violet, luminous,
-                cube.Angle, cube.Angle * .53f, Age * .006f);
+                cube.Angle, cube.Angle * .53f, seconds * .36f);
         }
 
         BossVisuals.Cuboid(spriteBatch, core, Size * .5f, Size * 1.02f, indigo, luminous,
-            MathF.Sin(Age * .005f) * .65f);
+            BossAnimation.Sine(seconds, 12f) * .65f);
         var inspirationSlit = new Rectangle((int)(core.X - Size * .055f), (int)(core.Y - Size * .35f),
             Math.Max(4, (int)(Size * .11f)), Math.Max(8, (int)(Size * .7f)));
         Primitives2D.FillRect(spriteBatch, inspirationSlit, UiTheme.Ink);
@@ -1102,7 +1143,8 @@ public sealed class Malady : PhantasiaBoss
         for (int node = 0; node < 3; node++)
         {
             float y = core.Y - Size * .48f + node * Size * .48f;
-            float nodePulse = Size * (.04f + .008f * MathF.Sin(Age * .05f + node));
+            float nodePulse = Size * (.04f + .008f
+                * BossAnimation.Sine(seconds, 2.1f, node * .21f));
             Primitives2D.FillCircle(spriteBatch, new Vector2(core.X, y), Math.Max(3, (int)nodePulse + 4), UiTheme.Ink);
             Primitives2D.FillCircle(spriteBatch, new Vector2(core.X, y), Math.Max(2, (int)nodePulse), UiTheme.Cream);
         }
@@ -1111,7 +1153,7 @@ public sealed class Malady : PhantasiaBoss
         {
             var cube = _floatingCubeScratch[cubeIndex];
             BossVisuals.RotatingCube3D(spriteBatch, cube.Center, cube.Extent, indigo, violet, luminous,
-                cube.Angle, cube.Angle * .53f, Age * .006f);
+                cube.Angle, cube.Angle * .53f, seconds * .36f);
         }
 
         DrawBossHealth(spriteBatch, new Rectangle((int)(core.X - Size * .46f), (int)(core.Y - Size * .75f),

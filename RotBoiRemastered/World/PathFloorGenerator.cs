@@ -71,6 +71,7 @@ public sealed class PathRoom
     public int Variant { get; }
     public bool IsMainPath { get; }
     public int Depth { get; }
+    public string ThemeKey { get; }
     public List<Rectangle> DoorWorldRects { get; } = new();
     public bool IsActivated { get; set; }
     public bool IsCleared { get; set; }
@@ -90,7 +91,61 @@ public sealed class PathRoom
         PathRoomShape.Crossroads => "Crossroads",
         _ => Shape.ToString(),
     };
-    public string EntryBanner => $"{Type.ToString().ToUpperInvariant()} // {ShapeDisplayName.ToUpperInvariant()}";
+    public string DungeonDisplayName => (ThemeKey, Shape) switch
+    {
+        ("touch", PathRoomShape.Sanctuary) => "Drylock Gate",
+        ("touch", PathRoomShape.Chamber) => "Sump Chamber",
+        ("touch", PathRoomShape.LongHall) => "Pressure Conduit",
+        ("touch", PathRoomShape.GrandArena) => "Flood Cistern",
+        ("touch", PathRoomShape.Maze) => "Pipeworks",
+        ("touch", PathRoomShape.Crossroads) => "Valve Junction",
+        ("touch", PathRoomShape.Diamond) => "Drain Seal",
+        ("touch", PathRoomShape.Ring) => "Overflow Loop",
+        ("touch", PathRoomShape.Ruin) => "Collapsed Sewer",
+
+        ("sight", PathRoomShape.Sanctuary) => "Lens Gate",
+        ("sight", PathRoomShape.Chamber) => "Drowned Gallery",
+        ("sight", PathRoomShape.LongHall) => "Refraction Walk",
+        ("sight", PathRoomShape.GrandArena) => "Tidal Rotunda",
+        ("sight", PathRoomShape.Maze) => "Sunken Archive",
+        ("sight", PathRoomShape.Crossroads) => "Caustic Crossing",
+        ("sight", PathRoomShape.Diamond) => "Prism Vault",
+        ("sight", PathRoomShape.Ring) => "Mirror Basin",
+        ("sight", PathRoomShape.Ruin) => "Shattered Observatory",
+
+        ("sound", PathRoomShape.Sanctuary) => "Quiet Gate",
+        ("sound", PathRoomShape.Chamber) => "Echo Chamber",
+        ("sound", PathRoomShape.LongHall) => "Resonance Hall",
+        ("sound", PathRoomShape.GrandArena) => "Storm Amphitheater",
+        ("sound", PathRoomShape.Maze) => "Whisper Maze",
+        ("sound", PathRoomShape.Crossroads) => "Chime Junction",
+        ("sound", PathRoomShape.Diamond) => "Thunder Seal",
+        ("sound", PathRoomShape.Ring) => "Resonance Circuit",
+        ("sound", PathRoomShape.Ruin) => "Broken Belfry",
+
+        ("phantasia", PathRoomShape.Sanctuary) => "Dream Gate",
+        ("phantasia", PathRoomShape.Chamber) => "Astral Cell",
+        ("phantasia", PathRoomShape.LongHall) => "Starwalk",
+        ("phantasia", PathRoomShape.GrandArena) => "Void Court",
+        ("phantasia", PathRoomShape.Maze) => "Impossible Maze",
+        ("phantasia", PathRoomShape.Crossroads) => "Crossed Reverie",
+        ("phantasia", PathRoomShape.Diamond) => "Prism Reliquary",
+        ("phantasia", PathRoomShape.Ring) => "Orbit Chapel",
+        ("phantasia", PathRoomShape.Ruin) => "Fallen Constellation",
+
+        ("chemesthesis", PathRoomShape.Sanctuary) => "Quarantine Gate",
+        ("chemesthesis", PathRoomShape.Chamber) => "Cinder Vault",
+        ("chemesthesis", PathRoomShape.LongHall) => "Rupture Hall",
+        ("chemesthesis", PathRoomShape.GrandArena) => "Furnace Court",
+        ("chemesthesis", PathRoomShape.Maze) => "Blight Maze",
+        ("chemesthesis", PathRoomShape.Crossroads) => "Scorched Crossing",
+        ("chemesthesis", PathRoomShape.Diamond) => "Cleansing Seal",
+        ("chemesthesis", PathRoomShape.Ring) => "Ashen Circuit",
+        ("chemesthesis", PathRoomShape.Ruin) => "Rotting Ruin",
+        _ => ShapeDisplayName,
+    };
+    public string EntryBanner =>
+        $"{Type.ToString().ToUpperInvariant()} {Depth:00} // {DungeonDisplayName.ToUpperInvariant()}";
     public Rectangle InteriorTileBounds => new(
         TileBounds.X + 1, TileBounds.Y + 1,
         Math.Max(1, TileBounds.Width - 2), Math.Max(1, TileBounds.Height - 2));
@@ -110,7 +165,8 @@ public sealed class PathRoom
         bool isMainPath,
         int depth,
         PathRoomShape shape = PathRoomShape.Chamber,
-        int variant = 0)
+        int variant = 0,
+        string themeKey = "sound")
     {
         Id = id;
         Type = type;
@@ -119,6 +175,7 @@ public sealed class PathRoom
         Variant = variant;
         IsMainPath = isMainPath;
         Depth = depth;
+        ThemeKey = themeKey;
         IsActivated = type == PathRoomType.Start;
         IsCleared = type == PathRoomType.Start;
         IsRevealed = type != PathRoomType.Treasure;
@@ -210,6 +267,9 @@ public sealed class PathFloorLayout
     public PathRoom StartRoom { get; }
     public PathRoom BossRoom { get; }
     public IReadOnlyList<PathRoom> TreasureRooms { get; }
+    public IReadOnlyList<PathRoom> MainRouteRooms { get; }
+    public IReadOnlyList<PathRoom> RequiredRoomsBeforeBoss { get; }
+    public bool BossRouteUnlocked => RequiredRoomsBeforeBoss.All(room => room.IsCleared);
     public IReadOnlyList<PathDecoration> Decorations => Battleground.PathDecorations;
 
     public PathFloorLayout(Battleground battleground, IReadOnlyList<PathRoom> rooms,
@@ -240,6 +300,20 @@ public sealed class PathFloorLayout
         BossRoom = bossRoom
             ?? throw new ArgumentException("Path layouts require a boss room.", nameof(rooms));
         TreasureRooms = treasureRooms.ToArray();
+        MainRouteRooms = rooms
+            .Where(room => room.IsMainPath)
+            .OrderBy(room => room.Depth)
+            .ToArray();
+        RequiredRoomsBeforeBoss = MainRouteRooms
+            .Where(room => room.Type is not (PathRoomType.Start or PathRoomType.Boss))
+            .ToArray();
+        if (RequiredRoomsBeforeBoss.Count < PathFloorBlueprints.RequiredPreBossRoomCount)
+        {
+            throw new ArgumentException(
+                $"Path layouts require at least {PathFloorBlueprints.RequiredPreBossRoomCount} "
+                + "complete rooms before the boss.",
+                nameof(rooms));
+        }
     }
 
     public PathRoom? RoomAt(Vector2 worldPosition)
@@ -432,7 +506,8 @@ public static class PathFloorGenerator
                 blueprint.IsMainPath,
                 blueprint.Depth,
                 blueprint.Shape,
-                blueprint.Variant))
+                blueprint.Variant,
+                senseKey))
             .ToList();
 
         foreach (var room in rooms)
@@ -992,6 +1067,20 @@ public static class PathFloorGenerator
     {
         Rectangle inner = room.InteriorTileBounds;
         int centerX = inner.Center.X, centerY = inner.Center.Y;
+        void AddPillar(int offsetX, int offsetY)
+        {
+            int x = centerX + offsetX;
+            int y = centerY + offsetY;
+            if (!room.ContainsInteriorTile(x, y)
+                || Math.Abs(offsetX) <= 1
+                || Math.Abs(offsetY) <= 1
+                || tiles[y, x].IsSolid())
+            {
+                return;
+            }
+            tiles[y, x] = TileType.BuildingWall;
+        }
+
         if (room.Shape == PathRoomShape.Maze)
         {
             bool vertical = inner.Width >= inner.Height;
@@ -1040,6 +1129,48 @@ public static class PathFloorGenerator
                         tiles[y, x] = TileType.BuildingWall;
                     }
                 }
+            }
+        }
+        else if (room.Shape is PathRoomShape.Chamber or PathRoomShape.Crossroads)
+        {
+            // Four compact corner supports make the otherwise rectilinear
+            // modules read as actual vaulted dungeon rooms while leaving the
+            // cardinal movement/aiming cross untouched.
+            AddPillar(-3, -3);
+            AddPillar(3, -3);
+            AddPillar(-3, 3);
+            AddPillar(3, 3);
+        }
+        else if (room.Shape == PathRoomShape.Diamond)
+        {
+            AddPillar(-3, -2);
+            AddPillar(3, -2);
+            AddPillar(-3, 2);
+            AddPillar(3, 2);
+        }
+        else if (room.Shape == PathRoomShape.Ruin)
+        {
+            Point[] rubble = room.Variant % 2 == 0
+                ? [new(-4, -3), new(3, -4), new(4, 2), new(-2, 4)]
+                : [new(-3, -4), new(4, -2), new(2, 4), new(-4, 3)];
+            foreach (Point point in rubble)
+                AddPillar(point.X, point.Y);
+        }
+        else if (room.Shape == PathRoomShape.LongHall)
+        {
+            if (inner.Width >= inner.Height)
+            {
+                AddPillar(-4, -2);
+                AddPillar(4, -2);
+                AddPillar(-4, 2);
+                AddPillar(4, 2);
+            }
+            else
+            {
+                AddPillar(-2, -4);
+                AddPillar(2, -4);
+                AddPillar(-2, 4);
+                AddPillar(2, 4);
             }
         }
     }
@@ -1112,6 +1243,15 @@ public static class PathFloorGenerator
         int topDetour = Math.Clamp(Math.Min(start.Y, end.Y) - 12, 2, Height - 3);
         int bottomDetour = Math.Clamp(Math.Max(start.Y, end.Y) + 12, 2, Height - 3);
         var unrelated = allRooms.Where(room => room.Id != from.Id && room.Id != to.Id).ToList();
+        var occupiedCorridorTiles = new HashSet<Point>();
+        for (int connectionIndex = 0; connectionIndex < connections.Count; connectionIndex++)
+        {
+            IReadOnlyList<Point>? existingRoute = connections[connectionIndex].Route;
+            if (existingRoute is null)
+                continue;
+            for (int pointIndex = 0; pointIndex < existingRoute.Count; pointIndex++)
+                occupiedCorridorTiles.Add(existingRoute[pointIndex]);
+        }
         var candidates = new List<List<Point>>
         {
             BuildOrthogonalRoute(start, new Point(end.X, start.Y), end),
@@ -1139,8 +1279,33 @@ public static class PathFloorGenerator
                 start, new Point(start.X, aroundBottom), new Point(end.X, aroundBottom), end));
         }
         var route = candidates
-            .OrderBy(candidate => CorridorRouteScore(candidate, unrelated, tiles) + rng.NextDouble() * .25)
+            .OrderBy(candidate => CorridorRouteScore(
+                    candidate,
+                    unrelated,
+                    occupiedCorridorTiles,
+                    from,
+                    to,
+                    tiles)
+                + rng.NextDouble() * .25)
             .First();
+        if (RouteViolatesRoomGraph(
+                route,
+                unrelated,
+                occupiedCorridorTiles,
+                from,
+                to))
+        {
+            route = BuildAvoidanceRoute(
+                    start,
+                    end,
+                    unrelated,
+                    occupiedCorridorTiles,
+                    from,
+                    to,
+                    width,
+                    rng)
+                ?? route;
+        }
         CarveCorridorRoute(tiles, route, width, style);
         bool hidden = to.Type == PathRoomType.Treasure;
         Point? clueTile = null;
@@ -1222,6 +1387,9 @@ public static class PathFloorGenerator
     private static double CorridorRouteScore(
         IReadOnlyList<Point> route,
         IReadOnlyList<PathRoom> unrelatedRooms,
+        IReadOnlySet<Point> occupiedCorridorTiles,
+        PathRoom from,
+        PathRoom to,
         TileType[,] tiles)
     {
         double score = route.Count * .05;
@@ -1234,10 +1402,140 @@ public static class PathFloorGenerator
                 if (avoidance.Contains(point))
                     score += 120;
             }
+            if (occupiedCorridorTiles.Contains(point)
+                && !from.TileBounds.Contains(point)
+                && !to.TileBounds.Contains(point))
+            {
+                // Crossing two independently authored passages makes a
+                // physical shortcut that no longer matches the serial room
+                // graph. A large but finite cost still lets generation
+                // recover if every candidate shares a one-tile landing.
+                score += 90;
+            }
             if (tiles[point.Y, point.X].IsRaised())
                 score += 2;
         }
         return score;
+    }
+
+    private static bool RouteViolatesRoomGraph(
+        IReadOnlyList<Point> route,
+        IReadOnlyList<PathRoom> unrelatedRooms,
+        IReadOnlySet<Point> occupiedCorridorTiles,
+        PathRoom from,
+        PathRoom to)
+    {
+        for (int index = 0; index < route.Count; index++)
+        {
+            Point point = route[index];
+            for (int roomIndex = 0; roomIndex < unrelatedRooms.Count; roomIndex++)
+            {
+                if (unrelatedRooms[roomIndex].ContainsInteriorTile(point.X, point.Y))
+                    return true;
+            }
+            if (occupiedCorridorTiles.Contains(point)
+                && !from.TileBounds.Contains(point)
+                && !to.TileBounds.Contains(point))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Fallback router for the few module/branch combinations that cannot be
+    /// represented by one of the inexpensive authored dog-legs. It operates
+    /// only during floor generation, keeps corridor width away from unrelated
+    /// rooms, and treats existing route centerlines as occupied so the tile
+    /// map cannot gain a shortcut absent from the semantic room graph.
+    /// </summary>
+    private static List<Point>? BuildAvoidanceRoute(
+        Point start,
+        Point end,
+        IReadOnlyList<PathRoom> unrelatedRooms,
+        IReadOnlySet<Point> occupiedCorridorTiles,
+        PathRoom from,
+        PathRoom to,
+        int width,
+        Random rng)
+    {
+        var visited = new bool[Height, Width];
+        var parent = new Point[Height, Width];
+        var queue = new Queue<Point>();
+        queue.Enqueue(start);
+        visited[start.Y, start.X] = true;
+
+        Point[] directions =
+        [
+            new(1, 0),
+            new(0, 1),
+            new(-1, 0),
+            new(0, -1),
+        ];
+        int directionOffset = rng.Next(directions.Length);
+        // One centerline tile of clearance is enough here because the route
+        // is widened only after it clears room walls; a larger inflation can
+        // make the compact optional-wing sockets form an artificial solid
+        // barrier even though a readable corridor still fits between them.
+        const int clearance = 1;
+
+        bool Blocked(Point point)
+        {
+            if (point.X < 2 || point.X >= Width - 2
+                || point.Y < 2 || point.Y >= Height - 2)
+            {
+                return true;
+            }
+            if (from.TileBounds.Contains(point) || to.TileBounds.Contains(point))
+                return false;
+            // Existing passages are soft obstacles here. The authored route
+            // scorer strongly prefers not to cross them; permitting a single
+            // shared landing keeps optional wings routable on the compact
+            // map when unrelated room footprints form a complete barrier.
+            for (int roomIndex = 0; roomIndex < unrelatedRooms.Count; roomIndex++)
+            {
+                Rectangle avoidance = unrelatedRooms[roomIndex].TileBounds;
+                avoidance.Inflate(clearance, clearance);
+                if (avoidance.Contains(point))
+                    return true;
+            }
+            return false;
+        }
+
+        while (queue.Count > 0)
+        {
+            Point point = queue.Dequeue();
+            if (point == end)
+            {
+                var result = new List<Point>();
+                Point cursor = end;
+                result.Add(cursor);
+                while (cursor != start)
+                {
+                    cursor = parent[cursor.Y, cursor.X];
+                    result.Add(cursor);
+                }
+                result.Reverse();
+                return result;
+            }
+
+            for (int directionIndex = 0; directionIndex < directions.Length; directionIndex++)
+            {
+                Point direction = directions[(directionIndex + directionOffset) % directions.Length];
+                Point next = point + direction;
+                if (next.X < 0 || next.X >= Width || next.Y < 0 || next.Y >= Height
+                    || visited[next.Y, next.X]
+                    || Blocked(next))
+                {
+                    continue;
+                }
+                visited[next.Y, next.X] = true;
+                parent[next.Y, next.X] = point;
+                queue.Enqueue(next);
+            }
+        }
+        return null;
     }
 
     private static void CarveCorridorRoute(

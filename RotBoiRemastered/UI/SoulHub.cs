@@ -190,7 +190,7 @@ public sealed class SoulHub
             return;
         var center = Vector2.Lerp(_portalTravelStart, target, eased);
         float half = (float)session.State.PlayerSize / 2f;
-        session.Player.SetPosition(center.X - half, center.Y - half);
+        session.Player.SetAnimatedPosition(center.X - half, center.Y - half);
     }
 
     /// <summary>True while the carried-loadout sidebar (right side, same style/drag as gameplay) should be visible -- free-roam or the Vault open, not while browsing the other three stations.</summary>

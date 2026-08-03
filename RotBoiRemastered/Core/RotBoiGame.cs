@@ -548,6 +548,7 @@ public class RotBoiGame : Game
     private void UpdateSoul(GameTime gameTime)
     {
         var session = _session!;
+        bool ordinaryMovementAdvancedVisuals = !_soulHub.IsEnteringPortal;
         // Once a portal's pull-in animation is running, SoulHub.UpdatePortalTravel
         // drives the player's world position directly -- ordinary WASD input would
         // just fight that interpolation every frame.
@@ -583,6 +584,8 @@ public class RotBoiGame : Game
         // Always ticks, even mid-overlay/confirm/animation, so the portal
         // pull/fade clock (both keyed off SoulHub's own _seconds) never stalls.
         _soulHub.Update(session, gameTime.ElapsedGameTime.TotalSeconds);
+        if (!ordinaryMovementAdvancedVisuals)
+            session.AdvancePlayerVisuals(gameTime.ElapsedGameTime.TotalSeconds);
     }
 
     // ----- Draw -----
@@ -649,6 +652,7 @@ public class RotBoiGame : Game
         session.DrawExperience(_spriteBatch);
         session.DrawVisualEffects(_spriteBatch, BitVfxLayer.Overlay);
         _spriteBatch.End();
+        session.DrawAtmosphericLighting(_spriteBatch, GraphicsDevice);
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawPathFogOfWar(_spriteBatch);
         _spriteBatch.End();

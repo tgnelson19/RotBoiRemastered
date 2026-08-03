@@ -137,7 +137,16 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
     public static readonly PathChaseBossConfig BaseConfig = PathChaseBossConfig.Default with
     {
-        ArenaShape = "atomic", ArenaScale = 10.8, MovementModes = new[] { "chase", "path", "static" },
+        ArenaShape = "atomic", ArenaScale = 10.8,
+        MotionTheme = BossMotionTheme.Phantasia,
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 10f, .58f, .38f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 9.5f, .62f, .46f),
+        },
     };
 
     protected PhantasiaSigilConfig SigilConfig { get; }
@@ -381,26 +390,11 @@ public abstract class PhantasiaBoss : PathChaseBoss
         if (EntranceRemaining > 0 || ActTransitionTimer > 0)
         {
             AdvanceAge();
+            FinishMovementTracking();
             return;
         }
 
-        string mode = Config.MovementModes[(Phase - 1) % Config.MovementModes.Count];
-        float originalSpeed = Speed;
-        float effectivePlayerX = context.PlayerWorldX, effectivePlayerY = context.PlayerWorldY;
-        if (mode == "static")
-        {
-            Speed = 0;
-        }
-        else if (mode == "path")
-        {
-            effectivePlayerX = ArenaCenter.X + MathF.Sin((float)PhaseElapsed * .62f) * ArenaRadius * .58f;
-            effectivePlayerY = ArenaCenter.Y + MathF.Sin((float)PhaseElapsed * 1.24f) * ArenaRadius * .32f;
-        }
-        var effectiveContext = mode == "chase"
-            ? context
-            : MovementContext(context, effectivePlayerX, effectivePlayerY);
-        ChaseUpdate(effectiveContext);
-        Speed = originalSpeed;
+        UpdateLocomotion(context);
         AttackCooldown -= (float)Simulation.GetTimerStep();
         if (RestActive)
             return;
@@ -463,12 +457,13 @@ public abstract class PhantasiaBoss : PathChaseBoss
     protected virtual void DrawDreamCourt(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         var center = camera.WorldToScreen(Center(), playerWorldPosition, screenShake);
+        float seconds = VisualAgeSeconds;
         float tile = Simulation.TileSize;
         Color moteColor = Color.Lerp(PhaseAccent, UiTheme.Void, .67f);
         int moteCount = (Config.FinalBoss ? 8 : 4) + (int)(CurrentBelief * .5);
         for (int index = 0; index < moteCount; index++)
         {
-            float angle = index * 2.399f + Age * .0025f;
+            float angle = index * 2.399f + seconds * .15f;
             float radius = tile * (1.7f + index % 5);
             var point = center + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
             float size = 5 + index % 4;
@@ -517,7 +512,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        float walkSway = Moved ? MathF.Sin(Age * .055f) * Size * .035f : 0f;
+        float seconds = VisualAgeSeconds;
+        float walkSway = Moved ? BossAnimation.Sine(seconds, 2.1f) * Size * .035f : 0f;
         var center = screenPosition + new Vector2(Size / 2f + walkSway, Size / 2f);
         if (Dying)
         {
@@ -525,30 +521,63 @@ public abstract class PhantasiaBoss : PathChaseBoss
             return;
         }
 
-        float attack = VisualAttackTimer > 0 ? MathF.Sin(Math.Clamp(VisualAttackTimer / (Simulation.FrameRate * .62f), 0f, 1f) * MathF.PI) : 0f;
+        float attack = VisualAttackPulse;
         float separation = VisualSurvivalActive ? 1.65f : 1f;
-        float turn = Age * .0032f;
+        float turn = seconds * .32f;
         Color baseColor = Color.Lerp(Config.FinalBoss ? Config.FinalBodyColor : Config.BodyColor, PhaseAccent, .16f);
         Color bright = UiTheme.Lighten(baseColor, 44);
 
-        var baseCenter = center + new Vector2(0, Size * .31f * separation);
-        BossVisuals.Cube(spriteBatch, baseCenter, Size * .58f, baseColor, bright, -turn);
-        var pillarCenter = center - new Vector2(0, Size * .18f * separation + attack * Size * .08f);
-        BossVisuals.Cube(spriteBatch, pillarCenter, Size * .48f, UiTheme.Lighten(baseColor, 18), PhaseAccent, turn);
-        var pillar = new Rectangle((int)(pillarCenter.X - Size * .16f), (int)(pillarCenter.Y - Size * .43f), (int)(Size * .32f), (int)(Size * .64f));
-        Primitives2D.FillRect(spriteBatch, pillar, baseColor);
-        Primitives2D.RectOutline(spriteBatch, pillar, UiTheme.Ink, Math.Max(2, (int)(Size * .035f)));
-        Primitives2D.Line(spriteBatch, new Vector2(pillar.Left + 3, pillar.Top + 3), new Vector2(pillar.Right - 3, pillar.Top + 3), bright, 2);
+        float flow = VisualSurvivalActive ? Phase * .37f : turn;
+        int petalCount = 6 + Math.Min(4, Phase);
+        for (int index = 0; index < petalCount; index++)
+        {
+            float angle = flow + index * MathF.Tau / petalCount;
+            Vector2 petal = center + new Vector2(MathF.Cos(angle) * Size * .66f * separation,
+                MathF.Sin(angle) * Size * .38f * separation);
+            BossVisuals.PrismPetal(spriteBatch, petal, Size * .24f,
+                Size * .08f, index % 2 == 0 ? PhaseAccent : bright,
+                UiTheme.Cream, angle);
+        }
 
-        BossVisuals.OrbitingCubes(spriteBatch, center, Age, Config.FinalBoss ? 14 : 10, Size * .72f, Size * .1f,
-            PhaseAccent, UiTheme.Cream, separation, .5f);
+        Vector2 maskCenter = center - new Vector2(0, attack * Size * .07f);
+        var mask = new Rectangle((int)(maskCenter.X - Size * .3f),
+            (int)(maskCenter.Y - Size * .4f), (int)(Size * .6f), (int)(Size * .8f));
+        var maskShadow = mask;
+        maskShadow.Offset(6, 8);
+        Primitives2D.FillEllipse(spriteBatch, maskShadow, UiTheme.Shadow);
+        Primitives2D.FillEllipse(spriteBatch, mask, UiTheme.Cream);
+        Primitives2D.EllipseOutline(spriteBatch, mask, UiTheme.Ink,
+            Math.Max(3, (int)(Size * .045f)));
+        Primitives2D.Arc(spriteBatch, mask, MathF.PI, MathF.Tau,
+            PhaseAccent, Math.Max(3, (int)(Size * .05f)), 24);
+        float eyeY = maskCenter.Y - Size * .08f;
         for (int side = -1; side <= 1; side += 2)
         {
-            float armAngle = turn * .7f + side * MathF.PI * .5f;
-            var arm = center + new Vector2(side * Size * .68f * separation, MathF.Sin(armAngle) * Size * (.18f + attack * .12f));
-            BossVisuals.Cube(spriteBatch, arm, Size * .3f, PhaseAccent, UiTheme.Cream, armAngle);
+            Vector2 eye = new(maskCenter.X + side * Size * .12f, eyeY);
+            if (UsesDreamRules && !RuleTruth)
+                Primitives2D.Line(spriteBatch, eye - new Vector2(Size * .055f, 0),
+                    eye + new Vector2(Size * .055f, 0), UiTheme.Ink, 4);
+            else
+            {
+                Primitives2D.FillCircle(spriteBatch, eye, Size * .036f, UiTheme.Ink);
+                Primitives2D.FillCircle(spriteBatch, eye, Size * .015f, PhaseAccent);
+            }
         }
-        DrawCommandmentSigil(spriteBatch, pillarCenter, Size * .19f, 1.0, null, 220, -turn * .4f);
+
+        for (int side = -1; side <= 1; side += 2)
+        {
+            float armAngle = side * MathF.PI * .5f
+                + BossAnimation.Sine(seconds, 3.8f, side < 0 ? 0f : .5f) * .16f;
+            var arm = center + new Vector2(side * Size * .54f * separation,
+                BossAnimation.Sine(seconds, 3.8f, side < 0 ? 0f : .5f)
+                * Size * (.12f + attack * .1f));
+            Primitives2D.Line(spriteBatch, maskCenter, arm, UiTheme.Ink,
+                Math.Max(3, (int)(Size * .045f)));
+            BossVisuals.PrismPetal(spriteBatch, arm, Size * .34f,
+                Size * .13f, PhaseAccent, UiTheme.Cream, armAngle);
+        }
+        DrawCommandmentSigil(spriteBatch, maskCenter, Size * .2f,
+            1.0, null, 220, -turn * .4f);
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .83f), (int)(Size * .92f), 6));
     }
 
@@ -583,10 +612,11 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        float seconds = VisualAgeSeconds;
         int ghostCount = (int)(CurrentBelief / 2);
         for (int index = 0; index < ghostCount; index++)
         {
-            float angle = Age * (.006f + index * .001f) + index * 2.1f;
+            float angle = seconds * (.36f + index * .06f) + index * 2.1f;
             float offset = Size * (1.0f + index * .22f);
             var ghostCenter = new Vector2(rect.Center.X + MathF.Cos(angle) * offset, rect.Center.Y + MathF.Sin(angle) * offset * .55f);
             var ghost = new Rectangle((int)(ghostCenter.X - Size * .21f), (int)(ghostCenter.Y - Size * .29f), (int)(Size * .42f), (int)(Size * .58f));
@@ -594,6 +624,17 @@ public abstract class PhantasiaBoss : PathChaseBoss
             ghostOuter.Inflate(5, 5);
             Primitives2D.EllipseOutline(spriteBatch, ghostOuter, UiTheme.Ink, 3);
             Primitives2D.EllipseOutline(spriteBatch, ghost, UiTheme.Muted, 2);
+            Primitives2D.PolygonOutline(spriteBatch, new[]
+            {
+                ghostCenter + new Vector2(0, -Size * .12f),
+                ghostCenter + new Vector2(Size * .1f, 0),
+                ghostCenter + new Vector2(0, Size * .12f),
+                ghostCenter + new Vector2(-Size * .1f, 0),
+            }, PhaseAccent * .34f, 2);
+            Primitives2D.Line(spriteBatch,
+                ghostCenter - new Vector2(Size * .08f, Size * .04f),
+                ghostCenter + new Vector2(Size * .08f, Size * .04f),
+                UiTheme.Muted * .65f, 2);
         }
 
         var viewport = spriteBatch.GraphicsDevice.Viewport;

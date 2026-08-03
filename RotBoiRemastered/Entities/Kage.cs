@@ -33,7 +33,14 @@ public class Kage : SinChemesthesisBoss
         BodyColor = new Color(169, 65, 36), AccentColor = new Color(106, 132, 52),
         MovementSpeed = .055, BodyScale = 2.05, CooldownSeconds = 1.8,
         ShotSpeed = .30, ShotScale = .34, ShotRangeTiles = 34,
-        MovementModes = new[] { "chase", "path", "static", "path", "path" },
+        MovementPhases = new[]
+        {
+            BossMovementPhaseProfile.Chase(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 11f, .58f, .50f),
+            BossMovementPhaseProfile.Stationary(),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 9f, .62f, .54f),
+            BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 8f, .66f, .58f, -1),
+        },
         MidHealth = 93000, MidContactDamage = 340, MidRewardExperience = 390,
     };
 

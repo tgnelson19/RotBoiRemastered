@@ -42,6 +42,8 @@ public sealed class Battleground
     public string? VisualThemeKey { get; }
     public int PathFloorNumber { get; }
     public IReadOnlyList<PathDecoration> PathDecorations { get; }
+    public IReadOnlyList<PathDecoration> AnimatedFloorPathDecorations { get; }
+    public IReadOnlyList<PathDecoration> RaisedPathDecorations { get; }
     public IReadOnlyList<PathDecoration> AmbientPathDecorations { get; }
 
     private (int X, int Y)[]? _openTiles;
@@ -75,17 +77,34 @@ public sealed class Battleground
         PathDecorations = pathDecorations ?? Array.Empty<PathDecoration>();
         if (PathDecorations.Count == 0)
         {
+            AnimatedFloorPathDecorations = Array.Empty<PathDecoration>();
+            RaisedPathDecorations = Array.Empty<PathDecoration>();
             AmbientPathDecorations = Array.Empty<PathDecoration>();
         }
         else
         {
+            var animatedFloor = new List<PathDecoration>();
+            var raised = new List<PathDecoration>();
             var ambient = new List<PathDecoration>();
             for (int index = 0; index < PathDecorations.Count; index++)
             {
                 PathDecoration decoration = PathDecorations[index];
-                if (decoration.Layer == PathDecorationLayer.Ambient)
-                    ambient.Add(decoration);
+                switch (decoration.Layer)
+                {
+                    case PathDecorationLayer.Floor:
+                    case PathDecorationLayer.Low:
+                        animatedFloor.Add(decoration);
+                        break;
+                    case PathDecorationLayer.Raised:
+                        raised.Add(decoration);
+                        break;
+                    case PathDecorationLayer.Ambient:
+                        ambient.Add(decoration);
+                        break;
+                }
             }
+            AnimatedFloorPathDecorations = animatedFloor.ToArray();
+            RaisedPathDecorations = raised.ToArray();
             AmbientPathDecorations = ambient.ToArray();
         }
         _biomeMap = biomeMap;
