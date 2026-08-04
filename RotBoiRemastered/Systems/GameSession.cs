@@ -105,6 +105,8 @@ public sealed class GameSession
     private readonly List<PendingPathWave> _pendingPathWaves = new();
     private readonly HashSet<string> _pendingPathEncounterKeys =
         new(StringComparer.Ordinal);
+    private readonly HashSet<string> _preloadedPathEncounterKeys =
+        new(StringComparer.Ordinal);
     private const int PathWaveSpawnBudgetPerFrame = 3;
     private int _pathWaveSpawnBudgetRemaining;
     private VisualDensity _visualDensity = new(1, 1, 1, 1, 1);
@@ -251,6 +253,7 @@ public sealed class GameSession
         LastRunRewardSummary = null;
         _pendingPathWaves.Clear();
         _pendingPathEncounterKeys.Clear();
+        _preloadedPathEncounterKeys.Clear();
         State.Reset();
         State.SetNewGamePlusLevel(NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey));
         Battleground = pathRun.Layout.Battleground;
@@ -310,6 +313,7 @@ public sealed class GameSession
         _playerBuildSnapshot = null;
         _pendingPathWaves.Clear();
         _pendingPathEncounterKeys.Clear();
+        _preloadedPathEncounterKeys.Clear();
         GamePaths.SetActive(PathRun.CurrentSenseKey);
         _dungeonBossInstance = null;
         Battleground = PathRun.Layout.Battleground;
@@ -1103,6 +1107,11 @@ public sealed class GameSession
         _ungroupedEnemyScratch.Sort(_enemyDistanceComparison);
         foreach (var enemy in _ungroupedEnemyScratch)
         {
+            if (IsDormantPathEnemy(enemy))
+            {
+                enemy.EngagementAllowed = false;
+                continue;
+            }
             double cost = enemy.ThreatCost;
             bool isBoss = ReferenceEquals(enemy, State.ActiveBoss);
             enemy.EngagementAllowed = isBoss || pressureUsed + cost <= State.EnemyThreatCap;
@@ -1128,6 +1137,8 @@ public sealed class GameSession
         var context = _enemyUpdateContext;
         foreach (var enemy in State.EnemyHolster)
         {
+            if (IsDormantPathEnemy(enemy))
+                continue;
             enemy.SetCollisionCamera(Camera);
             enemy.EnsureCollisionSafePosition(Battleground);
             int projectileStart = State.EnemyProjectileHolster.Count;
@@ -2091,25 +2102,73 @@ public sealed class GameSession
             return;
         }
 
-        var room = run.TryActivateRoom(PlayerWorldCenter, State.RunTimeSeconds);
-        if (room is null)
-            return;
-        switch (room.Type)
+        PathRoom? occupiedRoom = run.Layout.RoomAt(PlayerWorldCenter);
+        PathRoom? room = run.TryActivateRoom(PlayerWorldCenter, State.RunTimeSeconds);
+        if (room is not null)
         {
-            case PathRoomType.Skirmish:
-            case PathRoomType.Assault:
-            case PathRoomType.Elite:
-            case PathRoomType.Challenge:
-                SpawnPathRoomWave(room, rng);
-                break;
-            case PathRoomType.Treasure:
-                SpawnPathTreasureEncounter(room, rng);
-                break;
-            case PathRoomType.Boss:
-                if (run.FloorNumber is not (5 or 10))
-                    SpawnPathFloorBoss(room, rng);
-                break;
+            PreloadPathRoomEncounter(room, rng);
+            if (room.Type == PathRoomType.Boss
+                && run.FloorNumber is not (5 or 10))
+            {
+                SpawnPathFloorBoss(room, rng);
+            }
         }
+
+        if (occupiedRoom is not null && occupiedRoom.Type != PathRoomType.Boss)
+            PreloadAdjacentPathRoomEncounters(occupiedRoom, rng);
+    }
+
+    /// <summary>
+    /// Populates revealed neighboring combat rooms before the player crosses
+    /// their threshold. Preloaded enemies remain dormant until their room is
+    /// activated, so they are already distributed when they first become
+    /// visible without attacking through a wall.
+    /// </summary>
+    private void PreloadAdjacentPathRoomEncounters(PathRoom occupiedRoom, Random rng)
+    {
+        PathFloorLayout layout = PathRun!.Layout;
+        foreach (PathConnection connection in layout.Connections)
+        {
+            if (!connection.IsRevealed)
+                continue;
+            int adjacentId;
+            if (connection.FromRoomId == occupiedRoom.Id)
+                adjacentId = connection.ToRoomId;
+            else if (connection.ToRoomId == occupiedRoom.Id)
+                adjacentId = connection.FromRoomId;
+            else
+                continue;
+
+            PathRoom adjacent = layout.Rooms.First(value => value.Id == adjacentId);
+            if (adjacent.IsRevealed)
+                PreloadPathRoomEncounter(adjacent, rng);
+        }
+    }
+
+    private void PreloadPathRoomEncounter(PathRoom room, Random rng)
+    {
+        if (!room.IsCombatRoom)
+            return;
+        bool encounterStillExists = _pendingPathEncounterKeys.Contains(room.EncounterKey)
+            || State.EnemyHolster.Any(enemy => enemy.EncounterKey == room.EncounterKey);
+        if (_preloadedPathEncounterKeys.Contains(room.EncounterKey)
+            && encounterStillExists)
+            return;
+        _preloadedPathEncounterKeys.Add(room.EncounterKey);
+
+        if (room.Type == PathRoomType.Treasure)
+            SpawnPathTreasureEncounter(room, rng);
+        else
+            SpawnPathRoomWave(room, rng);
+    }
+
+    private bool IsDormantPathEnemy(Enemy enemy)
+    {
+        if (PathRun is null || enemy.EncounterKey is not string encounterKey)
+            return false;
+        PathRoom? room = PathRun.Layout.Rooms.FirstOrDefault(
+            candidate => candidate.EncounterKey == encounterKey);
+        return room is not null && !room.IsActivated;
     }
 
     private void SpawnPathRoomWave(PathRoom room, Random rng, bool guardianStrength = false)
@@ -2431,6 +2490,7 @@ public sealed class GameSession
 
         _pendingPathWaves.Clear();
         _pendingPathEncounterKeys.Clear();
+        _preloadedPathEncounterKeys.Clear();
         State.EnemyHolster.Clear();
         State.EnemyProjectileHolster.Clear();
         State.BulletHolster.Clear();
@@ -3159,7 +3219,6 @@ public sealed class GameSession
     {
         DrawPathMinimap(spriteBatch);
         DrawPathTitleBanner(spriteBatch);
-        DrawPathRoomBanner(spriteBatch);
         DrawBossHealthBar(spriteBatch);
         DrawLowHealthWarning(spriteBatch);
         DrawRunCompleteBanner(spriteBatch);
@@ -3845,43 +3904,13 @@ public sealed class GameSession
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(ScreenWidth * .72f, 780 * scale);
         var rect = new Rectangle((ScreenWidth - width) / 2,
-            (int)(28 * scale), width, (int)(76 * scale));
+            (int)(28 * scale), width, (int)(54 * scale));
         UiTheme.DrawLivingPanel(
             spriteBatch, rect, PathRun.CurrentSenseKey,
             (float)State.RunTimeSeconds,
             UiTheme.PanelRaised, PathRun.CurrentSense.Accent,
             shadow: 7);
         UiTheme.DrawText(spriteBatch, PathRun.TitleBanner, 24 * scale, UiTheme.Text,
-            new Vector2(rect.Center.X, rect.Y + 10 * scale), "midtop");
-        string act = PathRun.IsSecondAct ? "DESCENT II // HARDENED" : "DESCENT I";
-        const int totalFloors = global::RotBoiRemastered.Systems.PathRun.TotalFloors;
-        UiTheme.DrawText(spriteBatch, $"FLOOR {PathRun.FloorNumber:D2} / {totalFloors:D2} // {act}",
-            10 * scale, PathRun.CurrentSense.Accent,
-            new Vector2(rect.Center.X, rect.Bottom - 11 * scale), "midbottom");
-    }
-
-    private void DrawPathRoomBanner(SpriteBatch spriteBatch)
-    {
-        if (PathRun?.LastEnteredRoom is not { } room
-            || !PathRun.RoomBannerVisible(State.RunTimeSeconds)
-            || PathRun.TitleBannerVisible(State.RunTimeSeconds))
-        {
-            return;
-        }
-
-        float scale = UiTheme.DisplayScale(spriteBatch);
-        int width = (int)Math.Min(ScreenWidth * .48f, 520 * scale);
-        var rect = new Rectangle(
-            (ScreenWidth - width) / 2,
-            (int)(34 * scale),
-            width,
-            (int)(48 * scale));
-        Color accent = room.Type == PathRoomType.Challenge ? UiTheme.Gold : PathRun.CurrentSense.Accent;
-        UiTheme.DrawLivingPanel(
-            spriteBatch, rect, PathRun.CurrentSenseKey,
-            (float)State.RunTimeSeconds,
-            UiTheme.PanelRaised, accent, shadow: 5);
-        UiTheme.DrawText(spriteBatch, room.EntryBanner, 15 * scale, UiTheme.Text,
             rect.Center.ToVector2(), "center");
     }
 
@@ -3915,63 +3944,38 @@ public sealed class GameSession
             || (ActiveVisibilityFog is { } fog
                 && !fog.IsWorldAreaVisible(boss.WorldRect())))
             return;
-        var phase = State.ActiveBoss switch
+        var presentation = State.ActiveBoss switch
         {
-            Beaudis b => (b.Phase, b.PhaseLabel, b.PhaseAccent, b.EntranceRemaining),
-            Dissonance d => (d.Phase, d.PhaseLabel, d.PhaseAccent, d.EntranceRemaining),
-            PathChaseBoss p => (p.Phase, p.PhaseLabel, p.PhaseAccent, p.EntranceRemaining),
-            PathGuardianBoss g => (g.Phase, g.PhaseLabel,
-                g.TrialActive ? g.SecondaryAccent : g.PhaseAccent,
-                g.EntranceRemaining),
-            _ => (1, "ENGAGED", UiTheme.Red, 0.0),
+            Beaudis b => (Accent: b.PhaseAccent, Entrance: b.EntranceRemaining),
+            Dissonance d => (Accent: d.PhaseAccent, Entrance: d.EntranceRemaining),
+            PathChaseBoss p => (Accent: p.PhaseAccent, Entrance: p.EntranceRemaining),
+            PathGuardianBoss g => (
+                Accent: g.TrialActive ? g.SecondaryAccent : g.PhaseAccent,
+                Entrance: g.EntranceRemaining),
+            _ => (Accent: UiTheme.Red, Entrance: 0.0),
         };
-        if (phase.Item4 > 1.0)
+        if (presentation.Entrance > 1.0)
             return;
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(ScreenWidth * .62f, 720 * scale);
-        var rect = new Rectangle((ScreenWidth - width) / 2, (int)(16 * scale), width, (int)(70 * scale));
+        var rect = new Rectangle((ScreenWidth - width) / 2, (int)(16 * scale), width, (int)(58 * scale));
         UiTheme.DrawLivingPanel(
             spriteBatch, rect,
             PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
             (float)State.RunTimeSeconds,
-            UiTheme.PanelRaised, phase.Item3, shadow: 6);
+            UiTheme.PanelRaised, presentation.Accent, shadow: 6);
         string name = boss is PathGuardianBoss guardian
             ? guardian.BossDisplayName
             : (_activeBossKey ?? BossKeyFor(boss) ?? boss.Family)
                 .Replace('_', ' ').ToUpperInvariant();
         UiTheme.DrawText(spriteBatch, name, 20 * scale, UiTheme.Text, new Vector2(rect.X + 14 * scale, rect.Y + 8 * scale));
-        UiTheme.DrawText(spriteBatch,
-            BossPhaseIndicatorText(boss),
-            10 * scale, phase.Item3,
-            new Vector2(rect.Right - 14 * scale, rect.Y + 13 * scale), "topright");
-        var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + 43 * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
+        var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + 34 * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
         float progress = boss is PathGuardianBoss { TrialActive: true } trial
             ? Math.Clamp((float)(trial.TrialRemaining /
                 Math.Max(.01, trial.TrialDuration)), 0f, 1f)
             : Math.Clamp((float)boss.Hp / Math.Max(1, boss.MaxHp), 0f, 1f);
-        UiTheme.DrawProgress(spriteBatch, hpRect, progress, phase.Item3, 18);
+        UiTheme.DrawProgress(spriteBatch, hpRect, progress, presentation.Accent, 18);
     }
-
-    /// <summary>
-    /// The top boss HUD is the authoritative phase indicator. Transient
-    /// presentation states belong in attack/transition visuals, not in this
-    /// label; substituting them here made one active phase appear to flicker
-    /// between several nonexistent phases during ordinary attacks.
-    /// </summary>
-    internal static string BossPhaseIndicatorText(Enemy boss) => boss switch
-    {
-        PathGuardianBoss { TrialActive: true } guardian =>
-            $"TRIAL // {guardian.PhaseLabel}",
-        PathGuardianBoss guardian =>
-            $"PHASE {guardian.Phase} // {guardian.PhaseLabel}",
-        Beaudis beaudis =>
-            $"PHASE {beaudis.Phase} // {beaudis.PhaseLabel}",
-        Dissonance dissonance =>
-            $"PHASE {dissonance.Phase} // {dissonance.PhaseLabel}",
-        PathChaseBoss pathBoss =>
-            $"PHASE {pathBoss.Phase} // {pathBoss.PhaseLabel}",
-        _ => "PHASE 1 // ENGAGED",
-    };
 
     private void DrawLowHealthWarning(SpriteBatch spriteBatch)
     {

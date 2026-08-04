@@ -1171,16 +1171,5 @@ public sealed class Malady : PhantasiaBoss
         if (!Dying)
             foreach (var portal in ProjectilePortals)
                 portal.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        if (SurvivalActive || FinaleActive)
-        {
-            var viewport = spriteBatch.GraphicsDevice.Viewport;
-            int width = Math.Min((int)(viewport.Width * .42f), 520);
-            var banner = new Rectangle(viewport.Width / 2 - width / 2, (int)(viewport.Height * .21f), width, 54);
-            UiTheme.DrawPanel(spriteBatch, banner, UiTheme.PanelRaised, PhaseAccent, shadow: 5);
-            double remaining = FinaleActive ? FinaleRemaining : SurvivalRemaining;
-            UiTheme.DrawText(spriteBatch, $"SURVIVE  {remaining:00.0}", 16, UiTheme.Cream, new Vector2(banner.Center.X, banner.Y + 16), "center");
-            UiTheme.DrawText(spriteBatch, FinaleActive ? "APOTHEOSIS // VITALITY SEALED" : "INTERMISSION // VITALITY SEALED",
-                9, PhaseAccent, new Vector2(banner.Center.X, banner.Bottom - 11), "center");
-        }
     }
 }

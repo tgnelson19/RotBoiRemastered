@@ -24,7 +24,7 @@ public class PhantasiaBossTests
     {
         var hypno = new Hypno(1000, 1000, MakeBattleground(), new Random(1));
         Assert.Equal("LAW OF MOTION", hypno.PhaseLabel);
-        Assert.Equal("The truth sigil decides whether motion is obedience.", hypno.PhaseFlavor);
+        Assert.Equal("The sigil blinks, and motion forgets its meaning.", hypno.PhaseFlavor);
         Assert.Equal(new Microsoft.Xna.Framework.Color(214, 89, 188), hypno.PhaseAccent);
     }
 

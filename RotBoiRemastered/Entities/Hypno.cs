@@ -37,9 +37,9 @@ public sealed class Hypno : PhantasiaBoss
     public static readonly PhantasiaSigilConfig HypnoSigilConfig = new(
         PhaseFlavors: new[]
         {
-            "The truth sigil decides whether motion is obedience.", "Near and far exchange meaning when the law is qualified.",
-            "Shape, not color, identifies the dangerous inheritance.", "Two laws are spoken; the truth inverts one.",
-            "A solved law clears the penalty. A failed law empowers one phrase.",
+            "The sigil blinks, and motion forgets its meaning.", "Nearness loosens its hold on the dream.",
+            "Color drains away; only silhouettes remain.", "Two laws whisper over one another.",
+            "The dream recoils, then hardens.",
         },
         PhaseColors: new[]
         {

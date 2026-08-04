@@ -128,17 +128,14 @@ public sealed class PathRunTests
     }
 
     [Fact]
-    public void RoomEntry_ExposesShortShapeAwareAnnouncement()
+    public void RoomEntry_TracksPresentationTimingWithoutRequiringAnOverlay()
     {
         var run = new PathRun(new Random(22));
         var room = run.Layout.Rooms.First(value => value.IsCombatRoom);
 
         Assert.Same(room, run.TryActivateRoom(room.WorldCenter, 12.0));
         Assert.Same(room, run.LastEnteredRoom);
-        Assert.Contains(room.Type.ToString().ToUpperInvariant(), room.EntryBanner);
-        Assert.Contains(room.DungeonDisplayName.ToUpperInvariant(), room.EntryBanner);
         Assert.Equal(run.CurrentSenseKey, room.ThemeKey);
-        Assert.True(run.RoomBannerVisible(12.0));
-        Assert.False(run.RoomBannerVisible(12.0 + PathRun.RoomBannerSeconds + .01));
+        Assert.Equal(12.0, run.RoomEnteredAtRunSeconds);
     }
 }

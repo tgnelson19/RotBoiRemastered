@@ -91,7 +91,7 @@ public sealed class Ache : Kage
             "Ache answers an attacker that was never there.", "Three arms dispute where the border should be.",
             "The core recoils from a future that never happened.", "No command survives contact with the storm.",
             "Unclaimed ground is punished for trespass.", "Power splits wherever obedience should begin.",
-            "Every warning points toward a different phantom.", "Thirty seconds of power without a master.",
+            "Every warning points toward a different phantom.", "Power gathers around a throne with no master.",
         },
         PhaseColors: new[]
         {

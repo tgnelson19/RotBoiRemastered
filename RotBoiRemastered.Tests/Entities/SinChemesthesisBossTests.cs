@@ -24,7 +24,7 @@ public class SinChemesthesisBossTests
     {
         var kage = new Kage(1000, 1000, MakeBattleground(), new Random(1));
         Assert.Equal("SPARK / FUEL", kage.PhaseLabel);
-        Assert.Equal("Spark finds fuel only where the declarations cross.", kage.PhaseFlavor);
+        Assert.Equal("Spark and hunger find one another in the dark.", kage.PhaseFlavor);
         Assert.Equal(new Microsoft.Xna.Framework.Color(214, 154, 52), kage.PhaseAccent);
     }
 

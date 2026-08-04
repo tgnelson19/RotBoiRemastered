@@ -25,13 +25,13 @@ public sealed class Chronos : Ishe
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("FORK", "Two complete futures are shown; your position commits one.", new Color(102, 198, 230)),
-            [2] = ("REJECTED HOUR", "The future you refused returns as a weaker echo.", new Color(238, 170, 75)),
-            [3] = ("THIRD FUTURE", "Three roads are visible. Only one becomes the present.", new Color(117, 164, 232)),
-            [4] = ("STILL SECOND", "Time stops. Reaction dulls. The declared routes remain.", UiTheme.Cream),
-            [5] = ("PARALLAX", "Stand between the futures the usurper has already shown.", new Color(91, 191, 218)),
-            [6] = ("THORN OF TIME", "Valia fell to one impossible line. It is declared long before it strikes.", new Color(235, 125, 72)),
-            [7] = ("KING'S ATTRITION", "Thirty-five seconds of prediction against a foe who only needs one hit.", new Color(244, 186, 82)),
+            [1] = ("FORK", "Two futures open their eyes at once.", new Color(102, 198, 230)),
+            [2] = ("REJECTED HOUR", "The abandoned hour has not forgotten you.", new Color(238, 170, 75)),
+            [3] = ("THIRD FUTURE", "Another road appears where none should fit.", new Color(117, 164, 232)),
+            [4] = ("STILL SECOND", "The second hand holds its breath.", UiTheme.Cream),
+            [5] = ("PARALLAX", "Old futures drift out of alignment.", new Color(91, 191, 218)),
+            [6] = ("THORN OF TIME", "Valia's last horizon returns.", new Color(235, 125, 72)),
+            [7] = ("KING'S ATTRITION", "The king has all the time you do not.", new Color(244, 186, 82)),
         };
 
     public static readonly PathChaseBossConfig ChronosConfig = IsheConfig with

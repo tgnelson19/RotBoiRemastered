@@ -2367,21 +2367,13 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         float alpha = (float)Math.Min(1.0, Math.Min(progress * 5, (1 - progress) * 5)) * 185f;
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, (int)(viewport.Height * .3f), viewport.Width, (int)(viewport.Height * .4f)), UiTheme.Void * (alpha / 255f));
         int jitter = (int)Age % 4 == 0 ? 2 : 0;
-        UiTheme.DrawText(spriteBatch, ActTitle, 31, UiTheme.Ink, new Vector2(viewport.Width / 2f + 4, viewport.Height * .43f + 5), "center");
-        UiTheme.DrawText(spriteBatch, ActTitle, 31, PhaseAccent, new Vector2(viewport.Width / 2f + jitter, viewport.Height * .43f), "center");
-        string runeName = PhaseRunes[Phase].Name;
-        UiTheme.DrawText(spriteBatch, $"{runeName} AWAKENS", 13, UiTheme.Cream, new Vector2(viewport.Width / 2f, viewport.Height * .51f), "center");
+        UiTheme.DrawText(spriteBatch, PhaseFlavor, 18, UiTheme.Ink, new Vector2(viewport.Width / 2f + 4, viewport.Height * .47f + 5), "center");
+        UiTheme.DrawText(spriteBatch, PhaseFlavor, 18, PhaseAccent, new Vector2(viewport.Width / 2f + jitter, viewport.Height * .47f), "center");
     }
 
     private void DrawPhaseAnnouncement(SpriteBatch spriteBatch, Rectangle bossRect)
     {
         var viewport = spriteBatch.GraphicsDevice.Viewport;
-        string runeName = PhaseRunes[Phase].Name.ToUpperInvariant();
-        var runeFont = UiTheme.Font(13);
-        var phaseFont = UiTheme.Font(13);
-        float labelWidth = runeFont.MeasureString(runeName).X + phaseFont.MeasureString($"  {PhaseLabel}").X;
-        float labelHeight = Math.Max(runeFont.MeasureString(runeName).Y, phaseFont.MeasureString($"  {PhaseLabel}").Y);
-
         var flavorFont = UiTheme.Font(16);
         float maxTextWidth = Math.Min(viewport.Width * .68f, 680f);
         var words = PhaseFlavor.Split(' ');
@@ -2406,8 +2398,8 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         float widestFlavor = lines.Max(line => flavorFont.MeasureString(line).X);
         int lineGap = 2;
         float flavorHeight = lines.Sum(line => flavorFont.MeasureString(line).Y) + lineGap * (lines.Count - 1);
-        float width = Math.Max(labelWidth, widestFlavor) + 28;
-        float height = labelHeight + flavorHeight + 22;
+        float width = widestFlavor + 28;
+        float height = flavorHeight + 18;
         var bubble = new Rectangle(0, 0, (int)width, (int)height);
         bubble.X = bossRect.Center.X - bubble.Width / 2;
         bubble.Y = bossRect.Top - 18 - bubble.Height;
@@ -2417,8 +2409,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         bubble.Y = Math.Clamp(bubble.Y, bounds.Y, Math.Max(bounds.Y, bounds.Bottom - bubble.Height));
 
         UiTheme.DrawPanel(spriteBatch, bubble, UiTheme.PanelRaised, PhaseAccent, shadow: 4);
-        UiTheme.DrawText(spriteBatch, runeName, 13, UiTheme.Cream, new Vector2(bubble.Center.X - phaseFont.MeasureString($"  {PhaseLabel}").X / 2f, bubble.Y + 7), "midtop", bold: true);
-        UiTheme.DrawText(spriteBatch, $"  {PhaseLabel}", 13, UiTheme.Cream, new Vector2(bubble.Center.X + runeFont.MeasureString(runeName).X / 2f, bubble.Y + 7), "midtop");
         float flavorY = bubble.Bottom - 7 - flavorHeight;
         foreach (var line in lines)
         {

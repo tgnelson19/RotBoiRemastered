@@ -500,11 +500,8 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         Primitives2D.FillRect(spriteBatch,
             new Rectangle(0, (int)(viewport.Height * .3f), viewport.Width, (int)(viewport.Height * .4f)),
             UiTheme.Void * (alpha / 255f));
-        UiTheme.DrawText(spriteBatch, ActTitle, 31, PhaseAccent, new Vector2(viewport.Width / 2f, viewport.Height * .43f), "center");
-        UiTheme.DrawText(spriteBatch, $"{PhaseLabel} SPREADS", 13, UiTheme.Cream, new Vector2(viewport.Width / 2f, viewport.Height * .51f), "center");
-        UiTheme.DrawText(spriteBatch, PhaseFlavor, 11, UiTheme.Lighten(PhaseAccent, 45), new Vector2(viewport.Width / 2f, viewport.Height * .56f), "center");
-        string sigilName = DrawSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .64f), 34,
+        UiTheme.DrawText(spriteBatch, PhaseFlavor, 15, UiTheme.Lighten(PhaseAccent, 45), new Vector2(viewport.Width / 2f, viewport.Height * .48f), "center");
+        DrawSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .61f), 34,
             Math.Min(1.0, progress * 2.4), 0, 255, Phase);
-        UiTheme.DrawText(spriteBatch, sigilName, 9, PhaseAccent, new Vector2(viewport.Width / 2f, viewport.Height * .70f), "center");
     }
 }

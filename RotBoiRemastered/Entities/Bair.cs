@@ -36,7 +36,7 @@ public sealed class Bair : PlagueTouchBoss
         PhaseFlavors: new[]
         {
             "Four walls inhale around the court.", "The prison chooses its quarters.",
-            "The only room left alive begins to move.", "Break the lock before it closes again.",
+            "The only room left alive begins to move.", "The lock shudders, then closes its teeth.",
             "No cell remains empty for long.",
         },
         PhaseColors: new[]

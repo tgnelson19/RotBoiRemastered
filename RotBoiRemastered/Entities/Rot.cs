@@ -34,10 +34,10 @@ public sealed class Rot : PathChaseBoss
             [1] = ("CASTOFF", "Every discarded front leaves material behind.", new Color(119, 137, 64)),
             [2] = ("DIGESTION", "The settled burden begins to breathe.", new Color(145, 112, 57)),
             [3] = ("COMPOST", "Old hazards feed the boundary that follows.", new Color(117, 86, 52)),
-            [4] = ("METABOLISM", "Complete the clean route before the cycle accelerates.", new Color(192, 176, 112)),
+            [4] = ("METABOLISM", "A clean vein flickers through quickening decay.", new Color(192, 176, 112)),
             [5] = ("BLOOM", "Discarded matter returns to the guardian that bore it.", new Color(108, 151, 66)),
             [6] = ("MIASMA", "Immense power commands the room without giving chase.", new Color(145, 82, 54)),
-            [7] = ("CLOSED CYCLE", "Every learned material returns before the ancient can collapse.", new Color(177, 104, 50)),
+            [7] = ("CLOSED CYCLE", "Everything buried returns to the surface.", new Color(177, 104, 50)),
         };
 
     public static readonly PathChaseBossConfig RotConfig = PathChaseBossConfig.Default with

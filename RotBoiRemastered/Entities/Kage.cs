@@ -47,9 +47,9 @@ public class Kage : SinChemesthesisBoss
     public static readonly SinSigilConfig KageSinConfig = new(
         PhaseFlavors: new[]
         {
-            "Spark finds fuel only where the declarations cross.", "Pressure wakes every heated seam.",
-            "Solvent clears what crystal would make permanent.", "The second reaction follows the route chosen for the first.",
-            "Every pair remains distinct inside the critical mixture.",
+            "Spark and hunger find one another in the dark.", "The seams glow beneath gathering pressure.",
+            "Crystal memory clouds beneath the solvent.", "One reaction leaves an echo for the next.",
+            "Nothing remains stable inside the crucible.",
         },
         PhaseColors: new[]
         {

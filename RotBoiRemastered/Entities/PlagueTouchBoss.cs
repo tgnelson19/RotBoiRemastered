@@ -454,10 +454,10 @@ public class PlagueTouchBoss : PathChaseBoss
             return;
         var screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        string sigil = DrawPlagueSigil(spriteBatch, rect.Center.ToVector2(), Size * .32f);
+        DrawPlagueSigil(spriteBatch, rect.Center.ToVector2(), Size * .32f);
         if (PhaseAnnouncementTimer > 0)
         {
-            UiTheme.DrawText(spriteBatch, $"{sigil} // {PhaseLabel}", 11, PhaseAccent,
+            UiTheme.DrawText(spriteBatch, PhaseFlavor, 11, PhaseAccent,
                 new Vector2(rect.Center.X, rect.Y - 18), "midbottom");
         }
     }

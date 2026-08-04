@@ -22,7 +22,6 @@ public sealed class PathRun
     public const int TotalFloors = 10;
     public const int FloorsPerAct = 5;
     public const double TitleBannerSeconds = 3.6;
-    public const double RoomBannerSeconds = 2.25;
 
     private readonly List<string> _senseOrder;
     private readonly int[] _floorSeeds;
@@ -181,10 +180,6 @@ public sealed class PathRun
 
     public bool TitleBannerVisible(double runTimeSeconds) =>
         runTimeSeconds - FloorStartedAtRunSeconds < TitleBannerSeconds;
-
-    public bool RoomBannerVisible(double runTimeSeconds) =>
-        LastEnteredRoom is not null
-        && runTimeSeconds - RoomEnteredAtRunSeconds < RoomBannerSeconds;
 
     /// <summary>
     /// Clears every activated non-boss encounter whose tagged enemies are

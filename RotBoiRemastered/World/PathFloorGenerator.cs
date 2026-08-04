@@ -432,6 +432,14 @@ public sealed class PathFloorLayout
                 break;
         }
 
+        // Preserve the room-shape composition while varying the exact pocket
+        // occupied on each run. Encounters stay distributed instead of
+        // resolving into a visibly repeated formation at the threshold.
+        designed.X += rng.Next(-Math.Max(1, inner.Width / 10),
+            Math.Max(1, inner.Width / 10) + 1);
+        designed.Y += rng.Next(-Math.Max(1, inner.Height / 10),
+            Math.Max(1, inner.Height / 10) + 1);
+
         for (int attempt = 0; attempt < 24; attempt++)
         {
             int jitter = attempt == 0 ? 0 : 1 + attempt / 6;

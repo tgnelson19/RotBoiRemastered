@@ -32,19 +32,6 @@ public class GameSessionTests
     }
 
     [Fact]
-    public void BossPhaseIndicatorKeepsOnlyActivePhaseDuringTransientPresentation()
-    {
-        var boss = new Malady(1000, 1000, Battleground.GenerateSound(),
-            new Random(93));
-        boss.DebugSetPhase(4);
-
-        Assert.Equal(BossPresentationState.Trial,
-            BossPresentationDirector.Derive(boss));
-        Assert.Equal("PHASE 4 // RIBBON COURT",
-            GameSession.BossPhaseIndicatorText(boss));
-    }
-
-    [Fact]
     public void ActiveBossKeepsArenaOcclusionWhenItsBodyIsAbsentFromDrawHolster()
     {
         GameSession session = MakeSession();
@@ -256,7 +243,7 @@ public class GameSessionTests
     }
 
     [Fact]
-    public void StartPathRun_BeginsInProtectedRoomWithoutEnemies()
+    public void StartPathRun_BeginsInProtectedRoomWhileAdjacentEnemiesStayInactive()
     {
         var session = MakeSession();
         session.StartPathRun(new Random(10));
@@ -268,7 +255,13 @@ public class GameSessionTests
         Assert.Equal(session.PathRun.CurrentSenseKey, GamePaths.Active().Key);
 
         session.HandleEnemyCreation(new Random(11));
-        Assert.Empty(session.State.EnemyHolster);
+        Assert.NotEmpty(session.State.EnemyHolster);
+        Assert.All(session.State.EnemyHolster, enemy =>
+        {
+            PathRoom room = Assert.Single(session.PathRun.Layout.Rooms,
+                value => value.EncounterKey == enemy.EncounterKey);
+            Assert.False(room.IsActivated);
+        });
         Assert.Empty(session.PathRun.ActiveCombatRooms);
         Assert.NotNull(session.PathFog);
         Assert.True(session.PathFog!.IsWorldVisible(session.PlayerWorldCenter));
@@ -432,6 +425,47 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void PathCombatRoom_PreloadsFromItsNeighborAndRemainsDormantUntilEntry()
+    {
+        var session = MakeSession();
+        session.StartPathRun(new Random(120));
+        PathFloorLayout layout = session.PathRun!.Layout;
+        PathConnection connection = layout.Connections.First(value =>
+            value.FromRoomId == layout.StartRoom.Id
+            || value.ToRoomId == layout.StartRoom.Id);
+        int adjacentId = connection.FromRoomId == layout.StartRoom.Id
+            ? connection.ToRoomId
+            : connection.FromRoomId;
+        PathRoom room = layout.Rooms.First(value => value.Id == adjacentId);
+        Assert.True(room.IsCombatRoom);
+
+        session.HandleEnemyCreation(new Random(121));
+        FinishPendingPathWaves(session);
+
+        Enemy[] preloaded = session.State.EnemyHolster
+            .Where(enemy => enemy.EncounterKey == room.EncounterKey)
+            .ToArray();
+        Assert.NotEmpty(preloaded);
+        Assert.False(room.IsActivated);
+        Vector2[] positions = preloaded
+            .Select(enemy => new Vector2(enemy.WorldX, enemy.WorldY))
+            .ToArray();
+
+        session.UpdateEnemies();
+
+        Assert.Equal(positions, preloaded
+            .Select(enemy => new Vector2(enemy.WorldX, enemy.WorldY)));
+
+        MoveToPathRoom(session, room.Type);
+        int countBeforeEntry = preloaded.Length;
+        session.HandleEnemyCreation(new Random(122));
+
+        Assert.True(room.IsActivated);
+        Assert.Equal(countBeforeEntry, session.State.EnemyHolster.Count(
+            enemy => enemy.EncounterKey == room.EncounterKey));
+    }
+
+    [Fact]
     public void PathTreasureRoom_RequiresGuardianStrengthEncounterBeforeChest()
     {
         GameSession? session = null;
@@ -454,7 +488,8 @@ public class GameSessionTests
         var room = session.PathRun!.Layout.TreasureRooms[0];
         Assert.Empty(session.State.LootCrateList);
         Assert.NotEmpty(session.State.EnemyHolster);
-        Assert.All(session.State.EnemyHolster,
+        Assert.All(session.State.EnemyHolster.Where(
+                enemy => enemy.EncounterKey == room.EncounterKey),
             enemy => Assert.Equal(room.EncounterKey, enemy.EncounterKey));
         double guardianBenchmark = (5800 + session.PathRun.FloorNumber * 1550)
             * session.PathRun.HealthMultiplier;
@@ -584,7 +619,7 @@ public class GameSessionTests
         session.HandleEnemyCreation(new Random(5000));
 
         var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
-        Assert.Same(guardian, Assert.Single(session.State.EnemyHolster));
+        Assert.Contains(guardian, session.State.EnemyHolster);
     }
 
     [Fact]

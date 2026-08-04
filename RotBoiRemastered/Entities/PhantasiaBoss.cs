@@ -660,9 +660,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
             int width = Math.Min((int)(viewport.Width * .56f), 680);
             var banner = new Rectangle(viewport.Width / 2 - width / 2, viewport.Height - 32 - 66, width, 66);
             UiTheme.DrawPanel(spriteBatch, banner, UiTheme.Panel, PhaseAccent, shadow: 6);
-            string sigilName = UsesDreamRules ? CommandmentSigils[SigilConfig.PhaseSigils[Phase - 1]].Name : "PHANTASIA";
-            UiTheme.DrawText(spriteBatch, $"{sigilName} // {PhaseLabel}", 13, PhaseAccent, new Vector2(banner.Center.X, banner.Y + 12), "midtop");
-            UiTheme.DrawText(spriteBatch, PhaseFlavor, 9, UiTheme.Cream, new Vector2(banner.Center.X, banner.Bottom - 12), "midbottom");
+            UiTheme.DrawText(spriteBatch, PhaseFlavor, 11, UiTheme.Cream,
+                new Vector2(banner.Center.X, banner.Center.Y), "center");
         }
 
         if (UsesDreamRules && Config.FinalBoss && Phase == Config.PhaseLabels.Count)

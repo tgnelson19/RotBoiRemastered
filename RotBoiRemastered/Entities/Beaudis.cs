@@ -51,10 +51,10 @@ public sealed class Beaudis : Enemy
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("APPROACH", "Retreat, and the sound arrives faster.", UiTheme.Purple),
+            [1] = ("APPROACH", "The sound leans closer with every step away.", UiTheme.Purple),
             [2] = ("FLYBY", "The wake remains after the body passes.", UiTheme.Blue),
-            [3] = ("INTERFERENCE", "Every crossing returns from the opposite edge.", UiTheme.Cream),
-            [4] = ("REDLINE", "The distant wall begins to answer.", UiTheme.Gold),
+            [3] = ("INTERFERENCE", "The edges answer one another in borrowed voices.", UiTheme.Cream),
+            [4] = ("REDLINE", "The distant wall has begun to sing.", UiTheme.Gold),
             [5] = ("SONIC BOOM", "Motion and echo collapse into one pursuit.", UiTheme.Red),
         };
 
@@ -514,7 +514,7 @@ public sealed class Beaudis : Enemy
         }
         else if (PhaseAnnouncementTimer > 0)
         {
-            UiTheme.DrawText(spriteBatch, $"PHASE {Phase} // {PhaseLabel}", Math.Max(11, Size * .13), PhaseAccent,
+            UiTheme.DrawText(spriteBatch, PhaseFlavor, Math.Max(11, Size * .13), PhaseAccent,
                 new Vector2(rect.Center.X, screenPosition.Y - 10), "midbottom", bold: true);
         }
     }

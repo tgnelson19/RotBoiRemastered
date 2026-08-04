@@ -46,13 +46,13 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         {
             ["sound"] = new(
                 "RESONANT WARDEN", "KEEPER OF THE UNFINISHED CHORD",
-                "THE HELD NOTE", "The chord sustains. Find the silence inside it.", 6.4,
+                "THE HELD NOTE", "The chord sustains beyond the need for breath.", 6.4,
                 new Color(110, 167, 207),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("FOOTFALL", "The floor remembers where you waited.", 2.02f, 4.8f, .52f, 1f,
+                    new PathGuardianPhaseProfile("FOOTFALL", "The floor remembers the weight of waiting.", 2.02f, 4.8f, .52f, 1f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.Circle, 11f)),
-                    new PathGuardianPhaseProfile("COUNTERBEAT", "The remembered path answers from the edge.", 1.72f, 4.5f, .64f, 1.05f,
+                    new PathGuardianPhaseProfile("COUNTERBEAT", "A remembered path answers from the edge.", 1.72f, 4.5f, .64f, 1.05f,
                         BossMovementPhaseProfile.Chase()),
                     new PathGuardianPhaseProfile("RESONANT PURSUIT", "Silence moves; the echoes do not forget.", 1.42f, 4.15f, .78f, 1.12f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 10f, .62f, .46f)),
@@ -63,11 +63,11 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 new Color(166, 146, 76),
                 new[]
                 {
-                    new PathGuardianPhaseProfile("NEAR / FAR", "Cross the pressure band before it returns.", 2.48f, 3.7f, .13f, .78f,
+                    new PathGuardianPhaseProfile("NEAR / FAR", "Pressure gathers where distance once felt safe.", 2.48f, 3.7f, .13f, .78f,
                         BossMovementPhaseProfile.Chase()),
                     new PathGuardianPhaseProfile("COMPRESSION", "The distance you favor begins to close.", 2.12f, 3.25f, .18f, .84f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.Square, 17f)),
-                    new PathGuardianPhaseProfile("PULSE LOCK", "Every band demands a committed crossing.", 1.78f, 2.9f, .23f, .9f,
+                    new PathGuardianPhaseProfile("PULSE LOCK", "The chamber tightens around its own heartbeat.", 1.78f, 2.9f, .23f, .9f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.Square, 15f, direction: -1)),
                 }),
             ["sight"] = new(
@@ -80,12 +80,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                         BossMovementPhaseProfile.Chase()),
                     new PathGuardianPhaseProfile("LENS MAZE", "Every sector turns the glass against you.", 1.56f, 6.0f, .82f, 1.22f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 6f)),
-                    new PathGuardianPhaseProfile("WHITE GEOMETRY", "The complete path exists only between rays.", 1.28f, 5.5f, .94f, 1.3f,
+                    new PathGuardianPhaseProfile("WHITE GEOMETRY", "White geometry consumes the horizon.", 1.28f, 5.5f, .94f, 1.3f,
                         BossMovementPhaseProfile.Chase(1.15f)),
                 }),
             ["chemesthesis"] = new(
                 "CINDER PLAGUE", "CARRIER OF THE BURNING FIELD",
-                "INCUBATION", "The field ripens. Empty ground is the only cure.", 7.0,
+                "INCUBATION", "The field ripens beneath a fevered hush.", 7.0,
                 new Color(116, 132, 50),
                 new[]
                 {
@@ -93,12 +93,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                         BossMovementPhaseProfile.Chase()),
                     new PathGuardianPhaseProfile("PROPAGATION", "Infection travels farther than its carrier.", 2.02f, 5.35f, .28f, .96f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.Jagged, 11f, .6f, .52f)),
-                    new PathGuardianPhaseProfile("CHAIN BLOOM", "Sever the route before every node answers.", 1.68f, 5.0f, .34f, 1.02f,
+                    new PathGuardianPhaseProfile("CHAIN BLOOM", "Every sleeping node begins to answer.", 1.68f, 5.0f, .34f, 1.02f,
                         BossMovementPhaseProfile.Chase(1.16f)),
                 }),
             ["phantasia"] = new(
                 "DREAMING PRISM", "WARDEN OF THE ORNATE DREAM",
-                "FALSE AWAKENING", "Only the marked light belongs to waking.", 6.6,
+                "FALSE AWAKENING", "Waking and dreaming exchange their faces.", 6.6,
                 new Color(225, 128, 190),
                 new[]
                 {
@@ -106,7 +106,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                         BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 11f, .58f, .4f)),
                     new PathGuardianPhaseProfile("LUCID PASSAGE", "The honest corridor moves through false walls.", 1.86f, 4.55f, .55f, 1.05f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.FigureEight, 10f, .62f, .46f)),
-                    new PathGuardianPhaseProfile("FALSE AWAKENING", "Cross the truth before the dream solidifies.", 1.54f, 4.25f, .68f, 1.12f,
+                    new PathGuardianPhaseProfile("FALSE AWAKENING", "The dream hardens around one honest light.", 1.54f, 4.25f, .68f, 1.12f,
                         BossMovementPhaseProfile.Fixed(BossPathShape.Ellipse, 9f, .66f, .44f, -1)),
                 }),
         };
@@ -1460,15 +1460,9 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
 
         if (PhaseAnnouncementRemaining > 0)
         {
-            string heading = TrialActive
-                ? $"TRIAL // {PhaseLabel}"
-                : $"PHASE {Phase} // {PhaseLabel}";
-            UiTheme.DrawText(spriteBatch, heading,
-                Math.Max(10, Size * .115f), TrialActive ? SecondaryAccent : accent,
-                new Vector2(center.X, body.Top - 34), "midbottom");
             UiTheme.DrawText(spriteBatch, PhaseFlavor,
-                Math.Max(8, Size * .075f), UiTheme.Cream,
-                new Vector2(center.X, body.Top - 19), "midbottom");
+                Math.Max(9, Size * .085f), TrialActive ? SecondaryAccent : UiTheme.Cream,
+                new Vector2(center.X, body.Top - 24), "midbottom");
         }
     }
 

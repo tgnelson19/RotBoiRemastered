@@ -18,11 +18,11 @@ public class Ishe : PathChaseBoss
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
         {
-            [1] = ("EXPOSURE", "One frozen frame declares the moving curtain.", new Color(107, 190, 221)),
-            [2] = ("DOUBLE EXPOSURE", "Two captured positions resolve on separate beats.", new Color(235, 142, 59)),
-            [3] = ("SHUTTER", "Motion stops while the next horizon is exposed.", UiTheme.Cream),
-            [4] = ("NEGATIVE", "Your former position develops at the arena edge.", new Color(238, 188, 83)),
-            [5] = ("AFTERIMAGE", "Every captured frame moves at once.", new Color(244, 205, 118)),
+            [1] = ("EXPOSURE", "A frozen horizon opens its pale eye.", new Color(107, 190, 221)),
+            [2] = ("DOUBLE EXPOSURE", "The first image refuses to fade.", new Color(235, 142, 59)),
+            [3] = ("SHUTTER", "Motion catches in the throat of the lens.", UiTheme.Cream),
+            [4] = ("NEGATIVE", "A former self develops in the dark.", new Color(238, 188, 83)),
+            [5] = ("AFTERIMAGE", "Every captured moment wakes together.", new Color(244, 205, 118)),
         };
 
     public static readonly PathChaseBossConfig IsheConfig = PathChaseBossConfig.Default with
