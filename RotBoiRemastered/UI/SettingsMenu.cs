@@ -29,6 +29,7 @@ public sealed class SettingsMenu
     private string? _confirmation;
     private double _scroll;
     private bool _lastInputWasMouse = true;
+    private float _drawScale = 1f;
 
     // Kept non-constant so Menus can retain its old rendering code as a
     // compatibility fallback without creating unreachable-code warnings.
@@ -64,6 +65,7 @@ public sealed class SettingsMenu
             new Color(3, 5, 8, 205));
 
         float scale = Scale(screenWidth, screenHeight);
+        _drawScale = scale;
         int margin = Math.Max(8, (int)(14 * scale));
         int titleHeight = Math.Max(32, (int)(46 * scale));
         var root = new Rectangle(margin, margin, screenWidth - margin * 2,
@@ -148,7 +150,9 @@ public sealed class SettingsMenu
                     : $"{row.Label}  //  {row.Value}";
                 DrawButton(spriteBatch, row.Id, rect, label, mouse, mouseDown,
                     row.Accent, row.Enabled, size: 9 * scale);
-                if (!string.IsNullOrWhiteSpace(row.Description) && rowHeight >= 38)
+                if (row.Id == "setting:TextSize")
+                    DrawTextSizeSlider(spriteBatch, rect, scale);
+                else if (!string.IsNullOrWhiteSpace(row.Description) && rowHeight >= 38)
                     UiTheme.DrawText(spriteBatch, row.Description, 6.8 * scale,
                         row.Enabled ? UiTheme.Muted : UiTheme.Red,
                         new Vector2(rect.X + 8 * scale, rect.Bottom - 3 * scale),
@@ -167,6 +171,41 @@ public sealed class SettingsMenu
             Primitives2D.FillRect(spriteBatch,
                 new Rectangle(track.X, thumbY, track.Width, thumb), UiTheme.Purple);
         }
+    }
+
+    private static Rectangle TextSizeSliderTrack(Rectangle row, float scale)
+    {
+        int inset = Math.Max(8, (int)(12 * scale));
+        int height = Math.Max(3, (int)(4 * scale));
+        return new Rectangle(row.X + inset, row.Bottom - inset,
+            Math.Max(1, row.Width - inset * 2), height);
+    }
+
+    private static void DrawTextSizeSlider(SpriteBatch spriteBatch, Rectangle row,
+        float scale)
+    {
+        Rectangle track = TextSizeSliderTrack(row, scale);
+        double progress = (GameProfile.Profile.TextSize - UiTheme.MinTextScale)
+            / (UiTheme.MaxTextScale - UiTheme.MinTextScale);
+        progress = Math.Clamp(progress, 0, 1);
+        Primitives2D.FillRect(spriteBatch, track, UiTheme.Ink);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(track.X, track.Y, Math.Max(1, (int)(track.Width * progress)), track.Height),
+            UiTheme.Cream);
+        int thumbSize = Math.Max(8, (int)(10 * scale));
+        int thumbX = track.X + (int)(track.Width * progress);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(thumbX - thumbSize / 2, track.Center.Y - thumbSize / 2,
+                thumbSize, thumbSize), UiTheme.Cream);
+    }
+
+    internal static double TextSizeForSliderPosition(int mouseX, Rectangle row,
+        float scale)
+    {
+        Rectangle track = TextSizeSliderTrack(row, scale);
+        double progress = Math.Clamp((mouseX - track.Left) / (double)track.Width, 0, 1);
+        return UiTheme.MinTextScale
+            + progress * (UiTheme.MaxTextScale - UiTheme.MinTextScale);
     }
 
     private sealed record SettingRow(string Id, string Label, string Value,
@@ -359,10 +398,12 @@ public sealed class SettingsMenu
         bool down = InputState.UiDownPressed || keysPressed.Contains(Keys.Down) || keysPressed.Contains(Keys.S);
         bool left = InputState.UiLeftPressed || keysPressed.Contains(Keys.Left) || keysPressed.Contains(Keys.A);
         bool right = InputState.UiRightPressed || keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D);
+        bool adjustingTextSize = (left || right)
+            && _focus.FocusedId == "setting:TextSize";
         if (up) _focus.Move(0, -1);
         if (down) _focus.Move(0, 1);
-        if (left) _focus.Move(-1, 0);
-        if (right) _focus.Move(1, 0);
+        if (left && !adjustingTextSize) _focus.Move(-1, 0);
+        if (right && !adjustingTextSize) _focus.Move(1, 0);
 
         bool confirm = mousePressed || InputState.ControllerConfirmPressed
             || keysPressed.Contains(Keys.Enter) || keysPressed.Contains(Keys.Space);
@@ -393,6 +434,21 @@ public sealed class SettingsMenu
 
         if (InputState.ControllerBackPressed || keysPressed.Contains(Keys.Escape))
             return MenuAction.Resume;
+
+        if (mouseDown && hovered == "setting:TextSize"
+            && _controls.TryGetValue(hovered, out Rectangle textSizeRow))
+        {
+            GameProfile.Profile.TextSize = TextSizeForSliderPosition(
+                mouse.X, textSizeRow, _drawScale);
+            GameProfile.SaveProfile();
+            return MenuAction.None;
+        }
+
+        if (adjustingTextSize)
+        {
+            ChangeSetting("TextSize", right ? 1 : -1);
+            return MenuAction.None;
+        }
         if (activated is null)
             return MenuAction.None;
         if (activated.StartsWith("category:"))

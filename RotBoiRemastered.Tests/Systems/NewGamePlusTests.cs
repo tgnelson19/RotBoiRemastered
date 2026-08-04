@@ -101,6 +101,29 @@ public sealed class NewGamePlusTests : IDisposable
     }
 
     [Fact]
+    public void DungeonRun_CapturesItsOwnSelectedNewGamePlusTier()
+    {
+        GameProfile.Profile.NewGamePlusUnlocked[NewGamePlus.DungeonKey] = 3;
+        GameProfile.Profile.SelectedNewGamePlus[NewGamePlus.DungeonKey] = 2;
+        var session = new GameSession(Battleground.GenerateSound(), 1280, 720,
+            new Random(31));
+
+        session.StartPathRun(new Random(32));
+
+        Assert.True(session.IsPathMode);
+        Assert.Equal(2, session.State.NewGamePlusLevel);
+    }
+
+    [Fact]
+    public void DungeonCompletionUnlocksItsNextTierIndependentlyOfArenaPaths()
+    {
+        NewGamePlus.RecordCompletion(NewGamePlus.DungeonKey, completedLevel: 0);
+
+        Assert.Equal(1, NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey));
+        Assert.Equal(0, NewGamePlus.UnlockedLevel("sound"));
+    }
+
+    [Fact]
     public void GenerateDrops_PassesNewGamePlusThroughRarityGradeAndCorePipelines()
     {
         var normal = Items.GenerateDrops(10_000, new Random(990), hardMode: true, pathKey: "touch",

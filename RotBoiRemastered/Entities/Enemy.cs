@@ -65,6 +65,8 @@ public sealed class EnemyUpdateContext
     public PlayerBuildSnapshot? PlayerBuildSnapshot { get; set; }
     public IReadOnlyList<Bullet> PlayerBullets { get; set; } = Array.Empty<Bullet>();
     public RotBoiRemastered.Systems.DreamState? DreamState { get; set; }
+    public float PlayerMovementSpeed { get; set; } = 2.1f;
+    public float MovementSpeedCap { get; set; } = float.PositiveInfinity;
 }
 
 /// <summary>
@@ -471,7 +473,8 @@ public class Enemy
             if (VisualAttackTimer > 0)
                 lunge += .22f * (TierRank - 1);
         }
-        float step = Speed * lunge * (float)Simulation.GetFrameScale();
+        float movementSpeed = Math.Min(Speed * lunge, context.MovementSpeedCap);
+        float step = movementSpeed * (float)Simulation.GetFrameScale();
 
         // Axis separation is the important behavior change: a blocked perpendicular
         // component is discarded while the wall-parallel component proceeds in full.

@@ -504,6 +504,10 @@ public class PathChaseBoss : Enemy, IBossArenaController
         _movementUpdateContext.PlayerBuildSnapshot = source.PlayerBuildSnapshot;
         _movementUpdateContext.PlayerBullets = source.PlayerBullets;
         _movementUpdateContext.DreamState = source.DreamState;
+        _movementUpdateContext.PlayerMovementSpeed = source.PlayerMovementSpeed;
+        _movementUpdateContext.MovementSpeedCap = MovementProfile.Mode == BossMovementMode.Chase
+            ? source.PlayerMovementSpeed
+            : float.PositiveInfinity;
         return _movementUpdateContext;
     }
 

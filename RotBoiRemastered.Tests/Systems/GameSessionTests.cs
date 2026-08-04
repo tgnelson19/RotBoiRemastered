@@ -242,6 +242,57 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void PlayerLevelCap_IsFortyInDungeonAndTwentyInArena()
+    {
+        var session = MakeSession();
+        session.State.CurrentLevel = Progression.MaxLevel;
+        session.State.ExpCount = session.State.ExpNeededForNextLevel;
+
+        Assert.Equal(20, session.PlayerLevelCap);
+        Assert.False(session.CanPurchaseLevelUp);
+
+        session.StartPathRun(new Random(101));
+        session.State.CurrentLevel = Progression.DungeonMaxLevel - 1;
+        session.State.ExpCount = session.State.ExpNeededForNextLevel;
+
+        Assert.Equal(40, session.PlayerLevelCap);
+        Assert.True(session.TryPurchaseLevelUp());
+        Assert.Equal(40, session.State.CurrentLevel);
+        session.State.ExpCount = session.State.ExpNeededForNextLevel;
+        Assert.False(session.CanPurchaseLevelUp);
+    }
+
+    [Fact]
+    public void AuthoredGuardiansAndBossesReceiveDoubleBaseHealth()
+    {
+        bool originalCasualMode = GameProfile.Profile.CasualMode;
+        try
+        {
+            GameProfile.Profile.CasualMode = false;
+            var session = MakeSession();
+            session.State.SetNewGamePlusLevel(0);
+            var battleground = session.Battleground;
+            var guardian = new PathGuardianBoss(1000, 1000, "sight", 1,
+                float.PositiveInfinity, new Random(102));
+            var boss = new Ishe(1000, 1000, battleground, new Random(103));
+            int guardianBaseHealth = guardian.MaxHp;
+            int bossBaseHealth = boss.MaxHp;
+
+            session.ApplyRunDifficulty(guardian);
+            session.ApplyRunDifficulty(boss);
+
+            Assert.Equal(guardianBaseHealth * 2, guardian.MaxHp);
+            Assert.Equal(bossBaseHealth * 2, boss.MaxHp);
+            Assert.Equal(guardian.MaxHp, guardian.Hp);
+            Assert.Equal(boss.MaxHp, boss.Hp);
+        }
+        finally
+        {
+            GameProfile.Profile.CasualMode = originalCasualMode;
+        }
+    }
+
+    [Fact]
     public void PathFog_RemainsActiveInsideOrdinaryBossArena()
     {
         var session = MakeSession();
@@ -663,7 +714,7 @@ public class GameSessionTests
         session!.HandleEnemyCreation(new Random(170));
 
         var guardian = Assert.IsType<PathGuardianBoss>(session.State.ActiveBoss);
-        int expectedHealth = GameProfile.Profile.CasualMode ? 14_760 : 18_000;
+        int expectedHealth = GameProfile.Profile.CasualMode ? 29_520 : 36_000;
         int expectedDamage = GameProfile.Profile.CasualMode ? 120 : 150;
         Assert.Equal(expectedHealth, guardian.MaxHp);
         Assert.Equal(expectedDamage, guardian.Damage);

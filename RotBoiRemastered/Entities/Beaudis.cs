@@ -282,7 +282,8 @@ public sealed class Beaudis : Enemy
     private int ActiveThreats(List<EnemyProjectile> sink) =>
         sink.Count(projectile => !projectile.RemFlag && projectile.Owner?.StartsWith("beaudis") == true);
 
-    private void Move(float playerX, float playerY, Battleground battleground)
+    private void Move(float playerX, float playerY, float playerSpeed,
+        Battleground battleground)
     {
         var center = Center();
         Vector2 arenaCenter = new(
@@ -297,19 +298,23 @@ public sealed class Beaudis : Enemy
             return;
         float dx = frame.Target.X - center.X, dy = frame.Target.Y - center.Y;
         float distance = Math.Max(1.0f, MathF.Sqrt(dx * dx + dy * dy));
-        float step = frame.SpeedPerReferenceTick * (float)Simulation.GetFrameScale();
+        float movementSpeed = MovementPhases[Phase - 1].Mode == BossMovementMode.Chase
+            ? Math.Min(frame.SpeedPerReferenceTick, playerSpeed)
+            : frame.SpeedPerReferenceTick;
+        float step = movementSpeed * (float)Simulation.GetFrameScale();
         TryAxisMove(dx / distance * step, "x", battleground);
         TryAxisMove(dy / distance * step, "y", battleground);
     }
 
-    private void UpdateDamagePhase(float playerX, float playerY, List<EnemyProjectile> sink, double dt, Battleground battleground)
+    private void UpdateDamagePhase(float playerX, float playerY, float playerSpeed,
+        List<EnemyProjectile> sink, double dt, Battleground battleground)
     {
         float playerDistance = Vector2.Distance(new Vector2(playerX, playerY), Center());
         _radialTrend = _previousPlayerDistance <= 0
             ? 0
             : playerDistance - _previousPlayerDistance;
         _previousPlayerDistance = playerDistance;
-        Move(playerX, playerY, battleground);
+        Move(playerX, playerY, playerSpeed, battleground);
         _attackCooldown -= dt;
         if (_attackCooldown > 0)
             return;
@@ -446,7 +451,8 @@ public sealed class Beaudis : Enemy
                 _attackCooldown = 0;
                 PhaseForcedByTimer = true;
             }
-            UpdateDamagePhase(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt, context.Battleground);
+            UpdateDamagePhase(context.PlayerWorldX, context.PlayerWorldY,
+                context.PlayerMovementSpeed, context.ProjectileSink, dt, context.Battleground);
         }
         FinishMovementTracking();
     }

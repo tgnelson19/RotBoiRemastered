@@ -39,6 +39,7 @@ public sealed class QuickLootLayout
 /// </summary>
 public sealed class FooterHud
 {
+    private int _playerLevelCap = Progression.MaxLevel;
     private static readonly string[] EquipmentOrder =
         ["weapon", "armor", "ring", "accessory_1", "accessory_2"];
     private static readonly string[] EquipmentLabels = ["W", "A", "R", "1", "2"];
@@ -203,6 +204,9 @@ public sealed class FooterHud
     public void Draw(SpriteBatch spriteBatch, RunState state, Point mousePosition, PathRun? pathRun = null,
         bool preferControllerPrompts = false, ItemDrop? draggedItem = null)
     {
+        _playerLevelCap = pathRun is null
+            ? Progression.MaxLevel
+            : Progression.DungeonMaxLevel;
         float scale = UiTheme.DisplayScale(spriteBatch);
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         FooterLayout layout = CalculateLayout(viewport.Width, viewport.Height, scale);
@@ -223,7 +227,7 @@ public sealed class FooterHud
         DrawEquipment(spriteBatch, layout, state, mousePosition, scale);
         DrawResources(spriteBatch, layout, state, scale);
         DrawStats(spriteBatch, layout, state, scale);
-        DrawExperience(spriteBatch, layout, state, scale);
+        DrawExperience(spriteBatch, layout, state, scale, _playerLevelCap);
 
         if (state.NearbyCrate is { Items.Count: > 0 })
             DrawQuickLoot(spriteBatch, layout, state, mousePosition, scale, chromeTime,
@@ -244,6 +248,7 @@ public sealed class FooterHud
 
     public void DrawSoul(SpriteBatch spriteBatch, RunState state, Point mousePosition, float time)
     {
+        _playerLevelCap = Progression.MaxLevel;
         float scale = UiTheme.DisplayScale(spriteBatch);
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         FooterLayout layout = CalculateLayout(viewport.Width, viewport.Height, scale);
@@ -278,7 +283,7 @@ public sealed class FooterHud
     {
         if (!mousePressed)
             return FooterAction.None;
-        bool canLevel = state.CurrentLevel < Progression.MaxLevel
+        bool canLevel = state.CurrentLevel < _playerLevelCap
             && state.ExpCount >= state.ExpNeededForNextLevel;
         if (canLevel && _experienceHit.Contains(mousePosition))
             return FooterAction.OpenLevelUp;
@@ -483,9 +488,10 @@ public sealed class FooterHud
         }
     }
 
-    private static void DrawExperience(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale)
+    private static void DrawExperience(SpriteBatch spriteBatch, FooterLayout layout,
+        RunState state, float scale, int playerLevelCap)
     {
-        bool maximum = state.CurrentLevel >= Progression.MaxLevel;
+        bool maximum = state.CurrentLevel >= playerLevelCap;
         bool ready = !maximum && state.ExpCount >= state.ExpNeededForNextLevel;
         float ratio = maximum ? 1f : (float)(state.ExpCount / Math.Max(1, state.ExpNeededForNextLevel));
         Color color = ready ? UiTheme.Gold : UiTheme.Purple;

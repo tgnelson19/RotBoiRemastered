@@ -138,6 +138,7 @@ public sealed class InformationSheet
     private string _summaryCaution = "No weakness yet";
     private int _summaryTextWidth = -1;
     private double _summaryTextScale;
+    private int _playerLevelCap = Progression.MaxLevel;
     private int _summaryDefense;
     private double _summaryPlayerSpeed;
     private int _summaryBulletDamage;
@@ -313,7 +314,7 @@ public sealed class InformationSheet
         bool levelActivated = mousePressed && _dossierLevelRect.Contains(mousePosition)
             || confirm && _loadoutFocus.IsFocused("dossier:level");
         if (levelActivated
-            && state.CurrentLevel < Progression.MaxLevel
+            && state.CurrentLevel < _playerLevelCap
             && state.ExpCount >= state.ExpNeededForNextLevel)
         {
             return DossierAction.LevelUp;
@@ -687,7 +688,8 @@ public sealed class InformationSheet
         string dashText = state.CurrDashCooldown <= 0 ? "READY" : $"{state.CurrDashCooldown / Simulation.FrameRate:F1} sec";
         Bar(spriteBatch, rect, rect.Y + Px(35), "DASH", dashValue, state.DashCooldownMax, UiTheme.Blue, dashText);
         double percent = state.ExpCount / Math.Max(1, state.ExpNeededForNextLevel) * 100;
-        bool canLevel = state.CurrentLevel < Progression.MaxLevel && state.ExpCount >= state.ExpNeededForNextLevel;
+        bool canLevel = state.CurrentLevel < _playerLevelCap
+            && state.ExpCount >= state.ExpNeededForNextLevel;
         string pickText = canLevel ? "READY" : percent >= 82 ? $"SOON / {percent:F0}%" : $"{percent:F0}%";
         Bar(spriteBatch, rect, rect.Y + Px(63), "STORED EXP", state.ExpCount, state.ExpNeededForNextLevel, UiTheme.Gold,
             pickText);
@@ -708,7 +710,9 @@ public sealed class InformationSheet
             Primitives2D.RoundedRectOutline(spriteBatch, glow, Color.Lerp(UiTheme.Gold, Color.White, (float)(pulse * .45)),
                 Px(2), Px(5));
         }
-        string levelLabel = state.CurrentLevel >= Progression.MaxLevel ? "MAX LEVEL" : $"LEVEL  {Math.Ceiling(state.ExpNeededForNextLevel):0} XP";
+        string levelLabel = state.CurrentLevel >= _playerLevelCap
+            ? "MAX LEVEL"
+            : $"LEVEL  {Math.Ceiling(state.ExpNeededForNextLevel):0} XP";
         UiTheme.DrawButton(spriteBatch, _levelUpButtonRect, levelLabel, mousePosition,
             enabled: canLevel, accentColor: UiTheme.Gold, textSize: Px(8));
         bool hasEquipment = state.Equipment.Values.Any(item => item is not null);
@@ -1226,6 +1230,9 @@ public sealed class InformationSheet
         Point mousePosition,
         PathRun? pathRun = null)
     {
+        _playerLevelCap = pathRun is null
+            ? Progression.MaxLevel
+            : Progression.DungeonMaxLevel;
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         SyncLayout(viewport.Width, viewport.Height);
         _presentationPath = pathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
@@ -1452,12 +1459,12 @@ public sealed class InformationSheet
         DrawSheetText(spriteBatch, detail, Px(8), UiTheme.Muted,
             new Vector2(rect.Center.X, rect.Y + Px(39)), "midtop");
 
-        bool canLevel = state.CurrentLevel < Progression.MaxLevel
+        bool canLevel = state.CurrentLevel < _playerLevelCap
             && state.ExpCount >= state.ExpNeededForNextLevel;
         _dossierLevelRect = new Rectangle(rect.Right - Px(190), rect.Y + Px(18), Px(170), Px(36));
         _loadoutFocus.Register("dossier:level", _dossierLevelRect, canLevel);
         UiTheme.DrawButton(spriteBatch, _dossierLevelRect,
-            state.CurrentLevel >= Progression.MaxLevel ? "MAX LEVEL" : canLevel ? "CHOOSE UPGRADE" : $"{state.ExpCount:0}/{state.ExpNeededForNextLevel:0} XP",
+            state.CurrentLevel >= _playerLevelCap ? "MAX LEVEL" : canLevel ? "CHOOSE UPGRADE" : $"{state.ExpCount:0}/{state.ExpNeededForNextLevel:0} XP",
             mousePosition, enabled: canLevel, accentColor: UiTheme.Gold, textSize: Px(9));
         if (_loadoutFocus.IsFocused("dossier:level") && canLevel)
             Primitives2D.RectOutline(spriteBatch, _dossierLevelRect, UiTheme.Cream, Px(2));
@@ -1643,6 +1650,9 @@ public sealed class InformationSheet
     public void DrawSheet(SpriteBatch spriteBatch, RunState state, Vector2 playerWorldPosition, BountyInfo? currentBounty,
         Point mousePosition, PathRun? pathRun = null)
     {
+        _playerLevelCap = pathRun is null
+            ? Progression.MaxLevel
+            : Progression.DungeonMaxLevel;
         _presentationPath = pathRun?.CurrentSenseKey
             ?? GamePaths.Active().Key;
         _presentationTime = (float)state.RunTimeSeconds;

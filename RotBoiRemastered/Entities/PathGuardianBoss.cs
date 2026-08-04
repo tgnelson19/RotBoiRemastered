@@ -496,8 +496,10 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         float dx = movement.Target.X - centerX, dy = movement.Target.Y - centerY;
         float distance = Math.Max(1f, MathF.Sqrt(dx * dx + dy * dy));
         float directionX = dx / distance, directionY = dy / distance;
-        float step = movement.SpeedPerReferenceTick * phaseProfile.MovementScale
-            * (float)Simulation.GetFrameScale();
+        float movementSpeed = movement.SpeedPerReferenceTick * phaseProfile.MovementScale;
+        if (phaseProfile.Movement.Mode == BossMovementMode.Chase)
+            movementSpeed = Math.Min(movementSpeed, context.PlayerMovementSpeed);
+        float step = movementSpeed * (float)Simulation.GetFrameScale();
         TryAxisMove(directionX * step, "x", context.Battleground);
         TryAxisMove(directionY * step, "y", context.Battleground);
         EnsureCollisionSafePosition(context.Battleground);
@@ -569,6 +571,8 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         PlayerBuildSnapshot = source.PlayerBuildSnapshot,
         PlayerBullets = source.PlayerBullets,
         DreamState = source.DreamState,
+        PlayerMovementSpeed = source.PlayerMovementSpeed,
+        MovementSpeedCap = source.MovementSpeedCap,
     };
 
     private bool TryCommitPattern(EnemyUpdateContext context, bool trial)

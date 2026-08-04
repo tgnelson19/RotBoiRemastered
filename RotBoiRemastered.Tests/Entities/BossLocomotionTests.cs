@@ -141,6 +141,31 @@ public sealed class BossLocomotionTests
     }
 
     [Fact]
+    public void SightGuardianChaseNeverExceedsCurrentPlayerSpeed()
+    {
+        Simulation.ResetForTests();
+        var battleground = Battleground.GenerateSight();
+        var guardian = new PathGuardianBoss(1000, 1000, "sight", 10,
+            float.PositiveInfinity, new Random(22));
+        guardian.DebugSetPhase(3);
+        float startX = guardian.WorldX, startY = guardian.WorldY;
+        const float playerSpeed = .72f;
+        var context = new EnemyUpdateContext
+        {
+            PlayerWorldX = guardian.WorldX + 1200,
+            PlayerWorldY = guardian.WorldY,
+            PlayerMovementSpeed = playerSpeed,
+            Battleground = battleground,
+        };
+
+        guardian.Update(context);
+
+        float distance = Vector2.Distance(new Vector2(startX, startY),
+            new Vector2(guardian.WorldX, guardian.WorldY));
+        Assert.InRange(distance, 0, playerSpeed * (float)Simulation.GetFrameScale() + .001f);
+    }
+
+    [Fact]
     public void ChemesthesisJaggedRoutesAreSeededAndDeterministic()
     {
         float[] seed = [.1f, -.08f, .03f, .12f, -.04f];

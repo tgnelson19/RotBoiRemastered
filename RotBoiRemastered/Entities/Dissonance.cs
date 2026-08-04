@@ -978,14 +978,20 @@ public sealed class Dissonance : Enemy
     }
 
     /// <summary>Give every rune a readable locomotion identity within its act.</summary>
-    private void PhaseMovementStep(float playerX, float playerY, double dt, Battleground battleground)
+    private void PhaseMovementStep(float playerX, float playerY, float playerSpeed,
+        double dt, Battleground battleground)
     {
         BossLocomotionFrame frame = _locomotion.Update(
             Phase, PhaseMovement[Phase], Center(), new Vector2(playerX, playerY),
             ArenaCenter, ArenaRadius, Speed, dt);
         if (!frame.Stationary)
+        {
+            float movementSpeed = PhaseMovement[Phase].Mode == BossMovementMode.Chase
+                ? Math.Min(frame.SpeedPerReferenceTick, playerSpeed)
+                : frame.SpeedPerReferenceTick;
             MoveToward(frame.Target.X, frame.Target.Y, battleground,
-                frame.SpeedPerReferenceTick / Math.Max(.001f, Speed));
+                movementSpeed / Math.Max(.001f, Speed));
+        }
     }
 
     private void FireProjectile(List<EnemyProjectile> sink, float direction, float speed, float damage, float size, Action<EnemyProjectile>? configure = null)
@@ -1685,7 +1691,8 @@ public sealed class Dissonance : Enemy
 
         if (SurvivalActive)
         {
-            PhaseMovementStep(context.PlayerWorldX, context.PlayerWorldY, dt, context.Battleground);
+            PhaseMovementStep(context.PlayerWorldX, context.PlayerWorldY,
+                context.PlayerMovementSpeed, dt, context.Battleground);
             foreach (var portal in ProjectilePortals)
             {
                 portal.Angle += portal.AngularSpeed * (float)dt;
@@ -1702,7 +1709,8 @@ public sealed class Dissonance : Enemy
             return;
         }
 
-        PhaseMovementStep(context.PlayerWorldX, context.PlayerWorldY, dt, context.Battleground);
+        PhaseMovementStep(context.PlayerWorldX, context.PlayerWorldY,
+            context.PlayerMovementSpeed, dt, context.Battleground);
         int queuedThreatCount = stagedThreats.Count;
         switch (Phase)
         {

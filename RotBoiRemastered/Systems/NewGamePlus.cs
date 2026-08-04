@@ -9,6 +9,7 @@ namespace RotBoiRemastered.Systems;
 /// </summary>
 public static class NewGamePlus
 {
+    public const string DungeonKey = "dungeon";
     public const int MaxLevel = 7;
     public const double EnemyScalePerLevel = 1.5;
 

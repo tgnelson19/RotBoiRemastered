@@ -222,11 +222,11 @@ public sealed class SoulHub
                 || (mousePressed && _ngMinusRect.Contains(mouse));
             bool higherTier = keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D)
                 || (mousePressed && _ngPlusRect.Contains(mouse));
-            bool compositePortal = _confirmingPortalKey == CompositePathPortalKey;
-            if (lowerTier && !compositePortal)
-                AdjustNewGamePlus(_confirmingPortalKey, -1);
-            if (higherTier && !compositePortal)
-                AdjustNewGamePlus(_confirmingPortalKey, 1);
+            string newGamePlusKey = NewGamePlusKey(_confirmingPortalKey);
+            if (lowerTier)
+                AdjustNewGamePlus(newGamePlusKey, -1);
+            if (higherTier)
+                AdjustNewGamePlus(newGamePlusKey, 1);
             if (keysPressed.Contains(Keys.F))
             {
                 _enteringPortalKey = _confirmingPortalKey;
@@ -309,6 +309,9 @@ public sealed class SoulHub
 
     public static bool AdjustNewGamePlus(string pathKey, int direction) =>
         NewGamePlus.AdjustSelection(pathKey, direction);
+
+    private static string NewGamePlusKey(string portalKey) =>
+        portalKey == CompositePathPortalKey ? NewGamePlus.DungeonKey : portalKey;
 
     private string? NearbyStation(GameSession session) => _stationWorld
         .Where(station => WithinStationRadius(session.PlayerWorldCenter, station.Value, StationOpenRadiusTiles))
@@ -958,11 +961,12 @@ public sealed class SoulHub
         Vector2 screen = session.Camera.WorldToScreen(
             world, session.PlayerWorldCenter, Vector2.Zero);
         float radius = Simulation.TileSize * 1.36f;
+        int selectedNg = NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey);
         bool committing = _enteringPortalKey == CompositePathPortalKey;
         float pullT = committing
             ? (float)Math.Clamp((_seconds - _portalAnimationStart) / PortalPullSeconds, 0, 1)
             : 0f;
-        float intensity = 1f + pullT * 2.6f;
+        float intensity = 1f + selectedNg * .045f + pullT * 2.6f;
         float pulse = 1f + MathF.Sin(time * 2.35f * intensity) * (.045f + pullT * .08f);
 
         Primitives2D.FillEllipse(spriteBatch,
@@ -1007,7 +1011,14 @@ public sealed class SoulHub
             Color.Lerp(UiTheme.Cream, UiTheme.Gold, .55f + .25f * MathF.Sin(time * 2.1f)));
         UiTheme.DrawText(spriteBatch, "THE FINAL PORTAL", 12, UiTheme.Gold,
             new Vector2(screen.X, screen.Y + radius + 12), "midtop");
-        UiTheme.DrawText(spriteBatch, "RANDOMIZED PATH  //  TEN FLOORS", 8, UiTheme.Cream,
+        int unlockedNg = NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey);
+        string dungeonTier = unlockedNg == 0
+            ? "NORMAL  //  COMPLETE TO UNLOCK NG+"
+            : selectedNg == 0
+                ? $"NORMAL  //  NG+{unlockedNg} UNLOCKED"
+                : $"NG+{selectedNg}  //  MAX {unlockedNg}";
+        UiTheme.DrawText(spriteBatch, $"RANDOMIZED PATH  //  TEN FLOORS  //  {dungeonTier}",
+            8, selectedNg == 0 ? UiTheme.Cream : UiTheme.Gold,
             new Vector2(screen.X, screen.Y + radius + 31), "midtop");
         if (nearbyPortal == CompositePathPortalKey
             && _confirmingPortalKey != CompositePathPortalKey
@@ -1023,7 +1034,7 @@ public sealed class SoulHub
     {
         if (_confirmingPortalKey == CompositePathPortalKey)
         {
-            DrawCompositePortalConfirm(spriteBatch, session);
+            DrawCompositePortalConfirm(spriteBatch, session, mouse, mouseDown);
             return;
         }
         var path = GamePaths.PathsByKey[_confirmingPortalKey!];
@@ -1060,8 +1071,11 @@ public sealed class SoulHub
             new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
     }
 
-    private void DrawCompositePortalConfirm(SpriteBatch spriteBatch, GameSession session)
+    private void DrawCompositePortalConfirm(SpriteBatch spriteBatch,
+        GameSession session, Point mouse, bool mouseDown)
     {
+        int selected = NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey);
+        int unlocked = NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey);
         int width = (int)(session.ScreenWidth * .46f);
         int height = (int)(session.ScreenHeight * .29f);
         var rect = new Rectangle(
@@ -1080,20 +1094,33 @@ public sealed class SoulHub
             "TEN FLOORS  //  ALL FIVE SENSES  //  ORDER RANDOMIZED",
             Fs(11), UiTheme.Cream,
             new Vector2(rect.Center.X, rect.Y + Px(66)), "center");
+        _ngMinusRect = new Rectangle(rect.Center.X - Px(105), rect.Y + Px(82),
+            Px(42), Px(30));
+        _ngPlusRect = new Rectangle(rect.Center.X + Px(63), rect.Y + Px(82),
+            Px(42), Px(30));
+        UiTheme.DrawButton(spriteBatch, _ngMinusRect, "-", mouse, mouseDown,
+            enabled: selected > 0, accentColor: accent, textSize: Fs(16));
+        UiTheme.DrawButton(spriteBatch, _ngPlusRect, "+", mouse, mouseDown,
+            enabled: selected < unlocked, accentColor: accent, textSize: Fs(16));
+        string tier = selected == 0 ? "NORMAL" : $"NG+{selected}";
+        UiTheme.DrawText(spriteBatch, tier, Fs(18),
+            selected == 0 ? UiTheme.Cream : UiTheme.Gold,
+            new Vector2(rect.Center.X, rect.Y + Px(88)), "midtop");
         UiTheme.DrawText(spriteBatch,
-            "THE PATH REFORMS BETWEEN ACTS. YOUR BUILD AND EQUIPMENT CONTINUE.",
+            $"ENEMIES x{NewGamePlus.EnemyMultiplier(selected):0.##}  //  CLEAR REWARD x{NewGamePlus.RewardMultiplier(selected)}  //  UNLOCKED TO NG+{unlocked}",
             Fs(9), UiTheme.Muted,
-            new Vector2(rect.Center.X, rect.Y + Px(101)), "midtop");
-        UiTheme.DrawText(spriteBatch,
-            "MIDPOINT BOSS ON FLOOR 05  //  FINAL BOSS ON FLOOR 10",
-            Fs(9), accent,
-            new Vector2(rect.Center.X, rect.Y + Px(126)), "midtop");
+            new Vector2(rect.Center.X, rect.Y + Px(124)), "midtop");
+        UiTheme.DrawText(spriteBatch, unlocked == 0
+                ? "COMPLETE THE DUNGEON TO UNLOCK NG+1"
+                : "A / D OR ARROWS  //  SELECT TIER",
+            Fs(9), unlocked == 0 ? UiTheme.Red : accent,
+            new Vector2(rect.Center.X, rect.Y + Px(146)), "midtop");
         if (GameProfile.Profile.HardModeEnabled)
         {
             UiTheme.DrawText(spriteBatch,
                 "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS",
                 Fs(9), UiTheme.Red,
-                new Vector2(rect.Center.X, rect.Y + Px(151)), "midtop");
+                new Vector2(rect.Center.X, rect.Y + Px(166)), "midtop");
         }
         UiTheme.DrawText(spriteBatch,
             "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL",

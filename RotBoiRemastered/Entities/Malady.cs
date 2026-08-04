@@ -208,6 +208,8 @@ public sealed class Malady : PhantasiaBoss
         _stagedUpdateContext.PlayerBuildSnapshot = source.PlayerBuildSnapshot;
         _stagedUpdateContext.PlayerBullets = source.PlayerBullets;
         _stagedUpdateContext.DreamState = source.DreamState;
+        _stagedUpdateContext.PlayerMovementSpeed = source.PlayerMovementSpeed;
+        _stagedUpdateContext.MovementSpeedCap = source.MovementSpeedCap;
         return _stagedUpdateContext;
     }
 

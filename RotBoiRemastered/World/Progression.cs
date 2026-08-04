@@ -13,6 +13,7 @@ public static class Progression
     public const int MidBossLevel = 10;
     public const int FinalBossLevel = 20;
     public const int MaxLevel = FinalBossLevel;
+    public const int DungeonMaxLevel = 40;
 
     /// <summary>One world miniboss introduces phase attacks in each half of the run.</summary>
     public static readonly IReadOnlyList<(int Level, string Key)> MinibossGates = new[]

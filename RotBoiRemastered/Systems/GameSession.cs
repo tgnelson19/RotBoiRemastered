@@ -35,6 +35,7 @@ public sealed record BountyInfo(Vector2 World, double Score, string Label, objec
 /// </summary>
 public sealed class GameSession
 {
+    public const double BossHealthMultiplier = 2.0;
     /// <summary>
     /// Emergency safety ceiling, not a pattern-density tool. Boss patterns
     /// are authored to reach the arena boundary and expire naturally before
@@ -251,9 +252,7 @@ public sealed class GameSession
         _pendingPathWaves.Clear();
         _pendingPathEncounterKeys.Clear();
         State.Reset();
-        // Per-sense NG+ selectors belong to the authored arena paths. The
-        // composite mode owns its explicit second-act difficulty curve.
-        State.SetNewGamePlusLevel(0);
+        State.SetNewGamePlusLevel(NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey));
         Battleground = pathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
         PathFog = new PathFogOfWar(Battleground);
@@ -294,7 +293,9 @@ public sealed class GameSession
         if (LastRunRewardSummary is not null)
             return LastRunRewardSummary;
         State.RunOutcome = outcome;
-        string path = PathRun?.CurrentSenseKey ?? GamePaths.Selected().Key;
+        string path = PathRun is not null
+            ? NewGamePlus.DungeonKey
+            : GamePaths.Selected().Key;
         LastRunRewardSummary = MetaProgression.RecordExtraction(State, path, completed);
         MetaProgression.SyncCarriedItems(State);
         GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed);
@@ -1015,7 +1016,7 @@ public sealed class GameSession
     /// classes keep their authored baseline, then receive the shared NG+/Path
     /// run curve exactly once.
     /// </summary>
-    private void ApplyRunDifficulty(Enemy enemy)
+    internal void ApplyRunDifficulty(Enemy enemy)
     {
         if (UsesAuthoredBossBalance(enemy))
             enemy.ContentPath ??= PathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
@@ -1036,6 +1037,12 @@ public sealed class GameSession
                 if (enemy.AttackCooldownMax.HasValue)
                     enemy.AttackCooldownMax *= (float)PathRun.TimingMultiplier;
             }
+        }
+        if (UsesAuthoredBossBalance(enemy))
+        {
+            enemy.MaxHp = Math.Max(1,
+                (int)Math.Round(enemy.MaxHp * BossHealthMultiplier));
+            enemy.Hp = enemy.MaxHp;
         }
         if (UsesAuthoredBossBalance(enemy) && State.HardMode)
         {
@@ -1116,6 +1123,8 @@ public sealed class GameSession
         _enemyUpdateContext.PlayerBuildSnapshot = CurrentPlayerBuildSnapshot();
         _enemyUpdateContext.PlayerBullets = State.BulletHolster;
         _enemyUpdateContext.DreamState = State.DreamState;
+        _enemyUpdateContext.PlayerMovementSpeed = (float)(State.PlayerSpeed
+            * State.BossAfflictions.MovementMultiplier());
         var context = _enemyUpdateContext;
         foreach (var enemy in State.EnemyHolster)
         {
@@ -2487,8 +2496,12 @@ public sealed class GameSession
         return rng.NextDouble() < FragmentDropChance;
     }
 
+    public int PlayerLevelCap => PathRun is null
+        ? Progression.MaxLevel
+        : Progression.DungeonMaxLevel;
+
     public bool CanPurchaseLevelUp =>
-        State.CurrentLevel < Progression.MaxLevel && State.ExpCount >= State.ExpNeededForNextLevel;
+        State.CurrentLevel < PlayerLevelCap && State.ExpCount >= State.ExpNeededForNextLevel;
 
     /// <summary>Consumes one threshold and queues exactly one card draft.</summary>
     public bool TryPurchaseLevelUp()
