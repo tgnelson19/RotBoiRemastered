@@ -73,6 +73,63 @@ public class EnemyProjectileTests
     }
 
     [Fact]
+    public void Laser_LifetimeAndWallCollisionCannotBeOptedOutOf()
+    {
+        var projectile = new EnemyProjectile(
+            100, 100, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 500, lifetime: 30f,
+            ignoreWalls: true);
+
+        Assert.Equal(EnemyProjectile.MaximumLaserLifetime, projectile.Lifetime);
+        Assert.False(projectile.IgnoreWalls);
+    }
+
+    [Fact]
+    public void Laser_StopsAtFirstWallAndCannotHitThroughIt()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        battleground.SetTile(3, 2, RotBoiRemastered.World.TileType.BuildingWall);
+        var projectile = new EnemyProjectile(
+            75, 125, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 500, lifetime: 2f,
+            ignoreWalls: true)
+        {
+            TelegraphDuration = 0f,
+        };
+
+        projectile.Update(battleground, casualMode: false);
+
+        Assert.InRange(projectile.RemainingRange, 69f, 71f);
+        Assert.True(projectile.Collides(new Rectangle(105, 120, 10, 10)));
+        Assert.False(projectile.Collides(new Rectangle(175, 120, 10, 10)));
+    }
+
+    [Fact]
+    public void RemoteOriginTelegraph_FreezesAndDisarmsProjectileUntilWarningEnds()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var projectile = new EnemyProjectile(
+            100, 125, direction: 0f, speed: 4, damage: 10, size: 10,
+            travelRange: 500)
+        {
+            OriginTelegraphDuration = .05f,
+        };
+        float startX = projectile.WorldX;
+
+        projectile.Update(battleground, casualMode: false);
+
+        Assert.Equal(startX, projectile.WorldX);
+        Assert.False(projectile.Collides(new Rectangle(100, 125, 10, 10)));
+
+        for (int tick = 0; tick < 8; tick++)
+            projectile.Update(battleground, casualMode: false);
+
+        Assert.True(projectile.WorldX > startX);
+    }
+
+    [Fact]
     public void Split_SpawnsFannedChildren_AtSplitDistance()
     {
         var battleground = EntityTestFixtures.SmallOpenRoom();

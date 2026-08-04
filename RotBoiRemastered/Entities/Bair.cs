@@ -252,6 +252,7 @@ public sealed class Bair : PlagueTouchBoss
                 lifetime: 6.5f, owner: $"bair_touch_{suffix}", ignoreWalls: true)
             {
                 TelegraphDuration = .88f,
+                OriginTelegraphDuration = .88f,
                 Affliction = "slow",
                 AfflictionDuration = 1.0,
                 AfflictionStrength = .08,

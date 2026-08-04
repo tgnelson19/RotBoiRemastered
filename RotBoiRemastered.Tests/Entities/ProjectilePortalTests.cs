@@ -49,6 +49,8 @@ public class ProjectilePortalTests
         for (int i = 0; i < 50 && sink.Count == 0; i++)
             portal.Update(sink, dt: 0.1f);
         Assert.NotEmpty(sink);
+        Assert.All(sink, projectile =>
+            Assert.True(projectile.OriginTelegraphDuration > 0f));
     }
 
     [Fact]

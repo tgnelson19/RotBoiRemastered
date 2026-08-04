@@ -116,7 +116,7 @@ public class PathChaseBossTests
     }
 
     [Fact]
-    public void GlimpseDeclaresCompleteLinesBeforeAfterimageVolley()
+    public void GlimpseDeclaresOneLocationMarkerBeforeAfterimageVolley()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -129,13 +129,10 @@ public class PathChaseBossTests
 
         var warnings = context.ProjectileSink.Where(projectile =>
             projectile.Owner == "ishe_glimpse_warning").ToList();
-        Assert.Equal(3, warnings.Count);
-        Assert.All(warnings, warning =>
-        {
-            Assert.Equal("laser", warning.Path);
-            Assert.True(warning.Illusory);
-            Assert.True(warning.TelegraphDuration > warning.Lifetime);
-        });
+        var warning = Assert.Single(warnings);
+        Assert.Equal("origin_warning", warning.Path);
+        Assert.True(warning.Illusory);
+        Assert.Equal(0f, warning.Direction);
         Assert.DoesNotContain(context.ProjectileSink,
             projectile => projectile.Owner == "ishe_glimpse_afterimage");
 
@@ -207,7 +204,7 @@ public class PathChaseBossTests
     }
 
     [Fact]
-    public void PathMovementAimsBlinkDeclarationsAtRealPlayer()
+    public void PathMovementUsesDirectionlessBlinkMarkerThenAimsAtRealPlayer()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -219,11 +216,29 @@ public class PathChaseBossTests
         ishe.Update(context);
 
         var warning = Assert.Single(context.ProjectileSink,
-            projectile => projectile.Owner == "ishe_blink_present_warning" &&
-                          projectile.Direction < 0);
-        var origin = new Microsoft.Xna.Framework.Vector2(warning.WorldX, warning.WorldY);
-        float expected = MathF.Atan2(context.PlayerWorldY - origin.Y, context.PlayerWorldX - origin.X);
-        Assert.InRange(MathF.Abs(NormalizeAngle(warning.Direction - expected)), 0f, .15f);
+            projectile => projectile.Owner == "ishe_blink_present_warning");
+        Assert.Equal("origin_warning", warning.Path);
+        Assert.Equal(0f, warning.Direction);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 2 &&
+             !context.ProjectileSink.Any(projectile =>
+                 projectile.Owner == "ishe_blink_present_afterimage"); tick++)
+        {
+            ishe.Update(context);
+        }
+
+        var afterimage = context.ProjectileSink.First(projectile =>
+            projectile.Owner == "ishe_blink_present_afterimage");
+        var origin = new Microsoft.Xna.Framework.Vector2(
+            afterimage.OriginX + afterimage.Size / 2f,
+            afterimage.OriginY + afterimage.Size / 2f);
+        float expected = MathF.Atan2(
+            context.PlayerWorldY - origin.Y,
+            context.PlayerWorldX - origin.X);
+        Assert.InRange(
+            MathF.Abs(NormalizeAngle(afterimage.Direction - expected)),
+            0f,
+            .15f);
     }
 
     [Fact]

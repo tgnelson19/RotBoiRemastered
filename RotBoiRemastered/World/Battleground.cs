@@ -201,6 +201,77 @@ public sealed class Battleground
     }
 
     /// <summary>
+    /// Returns the unobstructed distance from <paramref name="origin"/> to the
+    /// first solid tile along <paramref name="direction"/>. The tile-grid DDA
+    /// keeps beam collision exact and inexpensive even for arena-scale rays.
+    /// Leaving the map is treated as hitting a wall, matching
+    /// <see cref="RectHitsWall"/>.
+    /// </summary>
+    public float RaycastDistanceToWall(
+        Vector2 origin,
+        Vector2 direction,
+        float maximumDistance)
+    {
+        if (maximumDistance <= 0f || direction.LengthSquared() <= .000001f)
+            return 0f;
+
+        direction.Normalize();
+        int tileX = FloorDiv((int)MathF.Floor(origin.X), TileSize);
+        int tileY = FloorDiv((int)MathF.Floor(origin.Y), TileSize);
+        if (tileX < 0 || tileX >= Width || tileY < 0 || tileY >= Height
+            || Tiles[tileY, tileX].IsSolid())
+        {
+            return 0f;
+        }
+
+        int stepX = direction.X > 0f ? 1 : direction.X < 0f ? -1 : 0;
+        int stepY = direction.Y > 0f ? 1 : direction.Y < 0f ? -1 : 0;
+        float deltaX = stepX == 0
+            ? float.PositiveInfinity
+            : MathF.Abs(TileSize / direction.X);
+        float deltaY = stepY == 0
+            ? float.PositiveInfinity
+            : MathF.Abs(TileSize / direction.Y);
+        float nextBoundaryX = stepX > 0
+            ? (tileX + 1) * TileSize
+            : tileX * TileSize;
+        float nextBoundaryY = stepY > 0
+            ? (tileY + 1) * TileSize
+            : tileY * TileSize;
+        float distanceX = stepX == 0
+            ? float.PositiveInfinity
+            : (nextBoundaryX - origin.X) / direction.X;
+        float distanceY = stepY == 0
+            ? float.PositiveInfinity
+            : (nextBoundaryY - origin.Y) / direction.Y;
+
+        while (true)
+        {
+            float distance;
+            if (distanceX < distanceY)
+            {
+                distance = distanceX;
+                tileX += stepX;
+                distanceX += deltaX;
+            }
+            else
+            {
+                distance = distanceY;
+                tileY += stepY;
+                distanceY += deltaY;
+            }
+
+            if (distance >= maximumDistance)
+                return maximumDistance;
+            if (tileX < 0 || tileX >= Width || tileY < 0 || tileY >= Height
+                || Tiles[tileY, tileX].IsSolid())
+            {
+                return Math.Max(0f, distance);
+            }
+        }
+    }
+
+    /// <summary>
     /// Allocation-free collision for the screen-aligned rectangles used by
     /// actors while the camera rotates. The anchor is the world position that
     /// projects to the rectangle's top-left screen corner.

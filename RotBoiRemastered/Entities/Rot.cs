@@ -326,6 +326,7 @@ public sealed class Rot : PathChaseBoss
                 owner: $"rot_touch_{suffix}", ignoreWalls: true)
             {
                 TelegraphDuration = .8f,
+                OriginTelegraphDuration = .8f,
                 Affliction = "slow",
                 AfflictionDuration = 1.3,
                 AfflictionStrength = .12,
@@ -385,6 +386,7 @@ public sealed class Rot : PathChaseBoss
                 lifetime: 6.8f, owner: $"rot_touch_{suffix}", ignoreWalls: true)
             {
                 TelegraphDuration = .96f,
+                OriginTelegraphDuration = .96f,
                 Affliction = "slow",
                 AfflictionDuration = 1.2,
                 AfflictionStrength = .1,

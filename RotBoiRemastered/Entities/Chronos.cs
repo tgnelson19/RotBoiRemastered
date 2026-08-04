@@ -229,6 +229,8 @@ public sealed class Chronos : Ishe
             {
                 TelegraphDuration = telegraph,
             };
+            if (segment > 0)
+                laser.RequireOriginTelegraph(telegraph);
             sink.Add(laser);
             origin += new Vector2(MathF.Cos(direction), MathF.Sin(direction)) * segmentLength;
         }

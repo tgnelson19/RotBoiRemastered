@@ -589,6 +589,15 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             FireRareSensePattern(stagedContext);
         else
             FireSensePattern(stagedContext);
+
+        Vector2 ownerCenter = Center();
+        foreach (var projectile in staged)
+        {
+            projectile.RequireOriginTelegraphIfRemote(
+                ownerCenter,
+                Size * .65f,
+                Math.Max(.55f, projectile.TelegraphDuration));
+        }
         if (staged.Count == 0
             || ActiveThreatCount(context.ProjectileSink) + staged.Count > ActiveThreatSoftCap)
         {

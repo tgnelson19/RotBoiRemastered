@@ -90,6 +90,11 @@ public class ChronosTests
             Assert.True(segment.TelegraphDuration >= 1.5f);
             Assert.True(segment.Lifetime > segment.TelegraphDuration);
         });
+        Assert.All(
+            segments.Where(segment => !segment.Owner!.EndsWith("segment_0")),
+            segment => Assert.Equal(
+                segment.TelegraphDuration,
+                segment.OriginTelegraphDuration));
     }
 
     [Fact]

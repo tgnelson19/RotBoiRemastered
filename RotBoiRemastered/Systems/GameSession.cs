@@ -1150,6 +1150,20 @@ public sealed class GameSession
                 {
                     EnemyProjectile projectile = State.EnemyProjectileHolster[index];
                     projectile.ContentPath ??= pathKey;
+                    if (!projectile.OriginWasPretelegraphed
+                        && projectile.Path != "origin_warning"
+                        && projectile.OriginTelegraphDuration <= 0f)
+                    {
+                        projectile.RequireOriginTelegraphIfRemote(
+                            new Vector2(
+                                enemy.WorldX + enemy.Size / 2f,
+                                enemy.WorldY + enemy.Size / 2f),
+                            enemy.Size * .7f,
+                            Math.Clamp(
+                                projectile.TelegraphDuration,
+                                .45f,
+                                1.25f));
+                    }
                     if (PathRun is not null)
                         projectile.Damage = MathF.Round(
                             projectile.Damage * (float)PathRun.DamageMultiplier);

@@ -257,7 +257,10 @@ public class ProjectilePortal
             sink.Add(new EnemyProjectile(
                 portalX - shotSize / 2f, portalY - shotSize / 2f, direction + offset, speed, damage, shotSize,
                 travelRange: Math.Max(Simulation.TileSize * 72f, distance), color: color ?? Color,
-                shape: "diamond", path: "linear", owner: $"{Owner}_{ownerSuffix}", ignoreWalls: true));
+                shape: "diamond", path: "linear", owner: $"{Owner}_{ownerSuffix}", ignoreWalls: true)
+            {
+                OriginTelegraphDuration = .32f,
+            });
         }
     }
 
@@ -309,7 +312,10 @@ public class ProjectilePortal
             sink.Add(new EnemyProjectile(
                 portalX - shotSize / 2f, portalY - shotSize / 2f, direction + offset, speed, damage, shotSize,
                 travelRange: Math.Max(Simulation.TileSize * 72f, distance), color: color ?? Color,
-                shape: "diamond", path: "linear", owner: $"{Owner}_{ownerSuffix}", ignoreWalls: true));
+                shape: "diamond", path: "linear", owner: $"{Owner}_{ownerSuffix}", ignoreWalls: true)
+            {
+                OriginTelegraphDuration = .28f,
+            });
         }
     }
 
@@ -327,7 +333,10 @@ public class ProjectilePortal
             sink.Add(new EnemyProjectile(
                 portalX - shotSize / 2f, portalY - shotSize / 2f, direction, speeds[index], .85f, shotSize,
                 travelRange: float.PositiveInfinity, color: color ?? Color, shape: "diamond",
-                path: "linear", owner: $"{Owner}_{ownerSuffix}", ignoreWalls: true));
+                path: "linear", owner: $"{Owner}_{ownerSuffix}", ignoreWalls: true)
+            {
+                OriginTelegraphDuration = .28f,
+            });
         }
     }
 

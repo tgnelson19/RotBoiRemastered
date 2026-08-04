@@ -244,14 +244,13 @@ public class Ishe : PathChaseBoss
         return base.TakeDamage(amount, partId, source);
     }
 
-    private void WarningLine(List<EnemyProjectile> sink, Vector2 origin, float direction,
+    private void OriginWarning(List<EnemyProjectile> sink, Vector2 origin,
         float duration, string suffix)
     {
-        var warning = new EnemyProjectile(origin.X, origin.Y, direction, 0f, 0f, Size * .045f,
-            travelRange: ArenaRadius * 2.1f, color: PhaseAccent, shape: "laser", path: "laser",
-            lifetime: duration, owner: $"ishe_{suffix}_warning", ignoreWalls: true)
+        var warning = new EnemyProjectile(origin.X, origin.Y, 0f, 0f, 0f, Size * .16f,
+            color: PhaseAccent, shape: "diamond", path: "origin_warning",
+            lifetime: duration, owner: $"ishe_{suffix}_warning")
         {
-            TelegraphDuration = duration + .1f,
             Illusory = true,
         };
         sink.Add(warning);
@@ -262,11 +261,7 @@ public class Ishe : PathChaseBoss
         bool prismatic = false, bool oscillating = false)
     {
         float aimed = MathF.Atan2(target.Y - origin.Y, target.X - origin.X);
-        for (int index = 0; index < count; index++)
-        {
-            float offset = count == 1 ? 0f : -spread / 2f + spread * index / (count - 1);
-            WarningLine(sink, origin, aimed + offset, (float)delay, suffix);
-        }
+        OriginWarning(sink, origin, (float)delay, suffix);
         _pendingVolleys.Add(new PendingVolley(delay, origin, aimed, count, spread, speed,
             damage, suffix, prismatic, oscillating));
         _lastDeclarationOrigin = origin;
@@ -301,6 +296,7 @@ public class Ishe : PathChaseBoss
                         : 0f,
                     frequency: .047f, owner: $"ishe_{volley.Suffix}_afterimage",
                     ignoreWalls: true);
+                afterimage.OriginWasPretelegraphed = true;
                 if (volley.Prismatic)
                 {
                     afterimage.SplitCount = 3;
@@ -400,6 +396,7 @@ public class Ishe : PathChaseBoss
                 lifetime: 1.52f, owner: $"ishe_flash_horizon_{edgeIndex}_{lane}", ignoreWalls: true)
             {
                 TelegraphDuration = 1.05f,
+                OriginTelegraphDuration = 1.05f,
             };
             sink.Add(laser);
         }

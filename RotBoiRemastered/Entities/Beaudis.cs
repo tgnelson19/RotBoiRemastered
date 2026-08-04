@@ -237,14 +237,17 @@ public sealed class Beaudis : Enemy
         float doppler = Phase is 1 or 5
             ? _radialTrend > .5f ? 1.28f : _radialTrend < -.5f ? .84f : 1f
             : 1f;
-        sink.Add(new EnemyProjectile(
+        var shot = new EnemyProjectile(
             center.X - size / 2f, center.Y - size / 2f, direction, speed * doppler, damage, size,
             travelRange: Simulation.TileSize * 30f, color: color ?? PhaseAccent, shape: "diamond",
             path: path, amplitude: path == "sine" ? Simulation.TileSize * .22f : 0,
             frequency: .04f, owner: owner, ignoreWalls: true)
         {
             TelegraphDuration = Phase >= 4 ? .48f : .62f,
-        });
+        };
+        if (origin.HasValue)
+            shot.RequireOriginTelegraph(shot.TelegraphDuration);
+        sink.Add(shot);
     }
 
     private void FireFan(float playerX, float playerY, List<EnemyProjectile> sink, int count, float spread, float speed = .68f)

@@ -217,6 +217,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
                 lifetime: 2.3f, owner: $"{Config.OwnerPrefix}_{suffix}", ignoreWalls: true)
             {
                 TelegraphDuration = .95f,
+                OriginTelegraphDuration = .95f,
             };
             sink.Add(laser);
         }

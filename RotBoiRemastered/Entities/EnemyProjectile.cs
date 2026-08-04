@@ -28,6 +28,7 @@ public sealed class EnemyProjectile
 {
     private const float HostileSpeedScale = .52f;
     private const float DissonanceDamageScale = 1.3f;
+    public const float MaximumLaserLifetime = 3f;
 
     public float WorldX { get; set; }
     public float WorldY { get; set; }
@@ -64,6 +65,17 @@ public sealed class EnemyProjectile
     public bool IgnoreWalls { get; }
     public Vector2? Target { get; set; }
     public float TelegraphDuration { get; set; } = 1.0f;
+    /// <summary>
+    /// A location-only warning used when a boss projectile originates away
+    /// from its body. While active the projectile is stationary, harmless,
+    /// and hidden behind a directionless warning marker at its spawn point.
+    /// </summary>
+    public float OriginTelegraphDuration { get; set; }
+    /// <summary>
+    /// True when a separate declaration marker has already warned this exact
+    /// spawn point (for example, Ishe's delayed afterimage volleys).
+    /// </summary>
+    public bool OriginWasPretelegraphed { get; set; }
     public float FuseDuration { get; set; } = 3.0f;
     public float BlastRadius { get; set; }
     public int BurstCount { get; set; } = 8;
@@ -81,6 +93,7 @@ public sealed class EnemyProjectile
     public bool RemFlag { get; set; }
     public List<Vector2> Trail { get; } = new(5);
     private bool _difficultyTimingApplied;
+    private readonly float _authoredRange;
 
     public EnemyProjectile(
         float worldX, float worldY, float direction, float speed, float damage, float size,
@@ -106,7 +119,9 @@ public sealed class EnemyProjectile
         Path = path;
         Amplitude = amplitude;
         Frequency = frequency;
-        Lifetime = lifetime;
+        Lifetime = path == "laser"
+            ? Math.Min(lifetime ?? MaximumLaserLifetime, MaximumLaserLifetime)
+            : lifetime;
         SpeedDecay = speedDecay;
         OrbitCenter = orbitCenter;
         OrbitRadius = orbitRadius;
@@ -121,11 +136,33 @@ public sealed class EnemyProjectile
         if (ownerText.Contains("survival") || ownerText.Contains("boundary_inward"))
             RemainingRange = float.PositiveInfinity;
 
-        IgnoreWalls = ignoreWalls;
+        // Lasers are never allowed to opt out of dungeon collision. Their
+        // effective range is clipped to the first wall during Update.
+        IgnoreWalls = path == "laser" ? false : ignoreWalls;
         Target = target;
         BlastRadius = Simulation.TileSize * 1.5f;
         BurstDamage = Damage;
         PersistentHazard = path == "laser";
+        _authoredRange = RemainingRange;
+    }
+
+    public Vector2 OriginPoint => Path is "laser" or "origin_warning"
+        ? new Vector2(OriginX, OriginY)
+        : new Vector2(OriginX + Size / 2f, OriginY + Size / 2f);
+
+    public void RequireOriginTelegraph(float duration) =>
+        OriginTelegraphDuration = Math.Max(OriginTelegraphDuration, duration);
+
+    public void RequireOriginTelegraphIfRemote(
+        Vector2 ownerCenter,
+        float ownerBodyRadius,
+        float duration)
+    {
+        if (Vector2.DistanceSquared(OriginPoint, ownerCenter)
+            > ownerBodyRadius * ownerBodyRadius)
+        {
+            RequireOriginTelegraph(duration);
+        }
     }
 
     public Rectangle WorldRect()
@@ -144,6 +181,8 @@ public sealed class EnemyProjectile
     public bool Collides(Rectangle rect)
     {
         if (Illusory)
+            return false;
+        if (Age < OriginTelegraphDuration)
             return false;
         if (Path is "mine" or "bank" && Age < TelegraphDuration)
             return false;
@@ -185,6 +224,7 @@ public sealed class EnemyProjectile
         {
             float warningScale = casualMode ? 1.25f : hardMode ? .86f : 1f;
             TelegraphDuration *= warningScale;
+            OriginTelegraphDuration *= warningScale;
             if (Path == "bomb")
                 FuseDuration *= warningScale;
             _difficultyTimingApplied = true;
@@ -192,8 +232,16 @@ public sealed class EnemyProjectile
         float seconds = (float)Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         Age += seconds;
 
+        if (Age < OriginTelegraphDuration)
+            return;
+
         switch (Path)
         {
+            case "origin_warning":
+                if (Age >= (Lifetime ?? TelegraphDuration))
+                    RemFlag = true;
+                return;
+
             case "pool":
                 if (Age >= (Lifetime ?? 8.0f))
                     RemFlag = true;
@@ -202,6 +250,15 @@ public sealed class EnemyProjectile
             case "laser":
                 if (Age >= TelegraphDuration && AngularSpeed != 0)
                     Direction += AngularSpeed * seconds;
+                Lifetime = Math.Min(
+                    Lifetime ?? MaximumLaserLifetime,
+                    MaximumLaserLifetime);
+                RemainingRange = Math.Max(0f,
+                    battleground.RaycastDistanceToWall(
+                        new Vector2(WorldX, WorldY),
+                        new Vector2(MathF.Cos(Direction), MathF.Sin(Direction)),
+                        _authoredRange)
+                    - Size * .5f);
                 if (Lifetime is not null && Age >= Lifetime)
                     RemFlag = true;
                 return;
@@ -295,6 +352,28 @@ public sealed class EnemyProjectile
 
     public void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake, bool highContrast)
     {
+        if (Age < OriginTelegraphDuration)
+        {
+            DrawOriginTelegraph(
+                spriteBatch,
+                camera,
+                playerWorldPosition,
+                screenShake,
+                highContrast,
+                OriginTelegraphDuration);
+            return;
+        }
+        if (Path == "origin_warning")
+        {
+            DrawOriginTelegraph(
+                spriteBatch,
+                camera,
+                playerWorldPosition,
+                screenShake,
+                highContrast,
+                Lifetime ?? TelegraphDuration);
+            return;
+        }
         if (Path == "pool")
         {
             DrawPool(spriteBatch, camera, playerWorldPosition, screenShake);
@@ -815,6 +894,84 @@ public sealed class EnemyProjectile
             float progress = Age / Math.Max(.01f, TelegraphDuration);
             var warning = InflateF(visible, 12, 8);
             Primitives2D.Arc(spriteBatch, warning, -MathF.PI / 2, -MathF.PI / 2 + 2 * MathF.PI * progress, UiTheme.Cream, 3);
+        }
+    }
+
+    private void DrawOriginTelegraph(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        bool highContrast,
+        float duration)
+    {
+        Vector2 center = camera.WorldToScreen(
+            OriginPoint,
+            playerWorldPosition,
+            screenShake);
+        float progress = Math.Clamp(
+            Age / Math.Max(.01f, duration),
+            0f,
+            1f);
+        float worldRadius = Math.Max(
+            Simulation.TileSize * .34f,
+            Size * .68f);
+        float radius = Math.Max(
+            8f,
+            camera.WorldVectorToScreen(Vector2.UnitX * worldRadius).Length());
+        radius *= 1.28f - progress * .28f;
+        Color warning = highContrast ? UiTheme.Cream : Color;
+        int stroke = Math.Max(2, (int)(radius * .13f));
+
+        Primitives2D.FillCircle(
+            spriteBatch,
+            center + new Vector2(3, 4),
+            radius * .38f,
+            UiTheme.Shadow);
+        Primitives2D.CircleOutline(
+            spriteBatch,
+            center,
+            radius,
+            UiTheme.Ink,
+            stroke + 3,
+            24);
+        Primitives2D.CircleOutline(
+            spriteBatch,
+            center,
+            radius,
+            warning,
+            stroke,
+            24);
+        Primitives2D.Arc(
+            spriteBatch,
+            new Rectangle(
+                (int)(center.X - radius * .72f),
+                (int)(center.Y - radius * .72f),
+                Math.Max(2, (int)(radius * 1.44f)),
+                Math.Max(2, (int)(radius * 1.44f))),
+            -MathF.PI / 2f,
+            -MathF.PI / 2f + MathF.Tau * progress,
+            UiTheme.Cream,
+            Math.Max(2, stroke - 1),
+            24);
+        Primitives2D.FillCircle(
+            spriteBatch,
+            center,
+            Math.Max(3f, radius * (.15f + .04f * MathF.Sin(Age * 18f))),
+            warning);
+
+        // Four symmetric ticks emphasize the source location without
+        // revealing or implying the projectile's future trajectory.
+        for (int index = 0; index < 4; index++)
+        {
+            float angle = index * MathF.PI / 2f;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Primitives2D.Line(
+                spriteBatch,
+                center + direction * radius * .72f,
+                center + direction * radius * 1.12f,
+                warning,
+                stroke);
         }
     }
 

@@ -261,6 +261,10 @@ public abstract class PhantasiaBoss : PathChaseBoss
         {
             Illusory = illusion, TruthMarked = !illusion, BeliefGain = illusion ? 0.0 : belief, ClarityGain = clarity,
         };
+        shot.RequireOriginTelegraphIfRemote(
+            Center(),
+            Size * .65f,
+            .65f);
         sink.Add(shot);
         return shot;
     }
@@ -291,6 +295,10 @@ public abstract class PhantasiaBoss : PathChaseBoss
         {
             TelegraphDuration = 1.05f, Illusory = illusion, TruthMarked = !illusion, BeliefGain = illusion ? 0.0 : .7,
         };
+        laser.RequireOriginTelegraphIfRemote(
+            Center(),
+            Size * .65f,
+            laser.TelegraphDuration);
         sink.Add(laser);
     }
 

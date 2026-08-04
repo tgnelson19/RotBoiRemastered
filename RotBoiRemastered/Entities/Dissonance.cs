@@ -1106,7 +1106,10 @@ public sealed class Dissonance : Enemy
             float direction = MathF.Atan2(ArenaCenter.Y - portalY, ArenaCenter.X - portalX);
             sink.Add(new EnemyProjectile(portalX - size / 2f, portalY - size / 2f, direction, .9f, 2.5f, size,
                 travelRange: Simulation.TileSize * 18f, lifetime: 18f, speedDecay: .16f, color: UiTheme.Red,
-                shape: "mine", path: "mine", owner: "dissonance_portal_mine", ignoreWalls: true));
+                shape: "mine", path: "mine", owner: "dissonance_portal_mine", ignoreWalls: true)
+            {
+                OriginTelegraphDuration = .65f,
+            });
         }
     }
 
@@ -1120,7 +1123,10 @@ public sealed class Dissonance : Enemy
             float size = Simulation.TileSize * .3f;
             sink.Add(new EnemyProjectile(portalX - size / 2f, portalY - size / 2f, baseDirection + offset, .72f, 1.05f, size,
                 travelRange: Simulation.TileSize * 72f, color: color ?? portal.Color, shape: "diamond", path: "sine",
-                amplitude: Simulation.TileSize * .22f, frequency: .04f, owner: $"{portal.Owner}_sine", ignoreWalls: true));
+                amplitude: Simulation.TileSize * .22f, frequency: .04f, owner: $"{portal.Owner}_sine", ignoreWalls: true)
+            {
+                OriginTelegraphDuration = .55f,
+            });
         }
     }
 
@@ -1307,7 +1313,10 @@ public sealed class Dissonance : Enemy
         for (int index = 0; index < count; index++)
         {
             sink.Add(new EnemyProjectile(origin.X - size / 2f, origin.Y - size / 2f, 2f * MathF.PI * index / count + offset,
-                1.35f, 1.0f, size, travelRange: Simulation.TileSize * 15f, color: color, shape: "diamond", owner: owner));
+                1.35f, 1.0f, size, travelRange: Simulation.TileSize * 15f, color: color, shape: "diamond", owner: owner)
+            {
+                OriginTelegraphDuration = .55f,
+            });
         }
     }
 
@@ -1354,10 +1363,18 @@ public sealed class Dissonance : Enemy
                     float offsetY = MathF.Sin(diamondAngle) * forward + MathF.Cos(diamondAngle) * lateral;
                     float radius = MathF.Sqrt(offsetX * offsetX + offsetY * offsetY);
                     float angle = MathF.Atan2(offsetY, offsetX);
-                    var projectile = new EnemyProjectile(center.X, center.Y, 0, 0, 1.55f, Simulation.TileSize * .34f,
+                    float size = Simulation.TileSize * .34f;
+                    var origin = center + new Vector2(offsetX, offsetY);
+                    var projectile = new EnemyProjectile(
+                        origin.X - size / 2f, origin.Y - size / 2f,
+                        0, 0, 1.55f, size,
                         travelRange: float.PositiveInfinity, lifetime: 90f, color: UiTheme.Blue, shape: "mine", path: "orbit",
                         orbitCenter: center, orbitRadius: radius, orbitAngle: angle, angularSpeed: .12f + diamondIndex * .025f,
-                        owner: "dissonance_field", ignoreWalls: true);
+                        owner: "dissonance_field", ignoreWalls: true)
+                    {
+                        OriginTelegraphDuration = 1.0f,
+                        TelegraphDuration = 1.0f,
+                    };
                     sink.Add(projectile);
                     FieldProjectiles.Add(projectile);
                 }
