@@ -62,7 +62,7 @@ namespace RotBoiRemastered.Entities;
 ///   of exposing raw setters for fields nothing else in the port needs to
 ///   write externally.
 /// </summary>
-public sealed class Dissonance : Enemy
+public sealed class Dissonance : Enemy, IBossArenaOcclusion
 {
     public BossPresentationProfile PresentationProfile { get; } =
         BossPresentationProfile.For(BossMotionTheme.Sound, BossVisualTier.Finale);
@@ -2013,7 +2013,12 @@ public sealed class Dissonance : Enemy
         }
     }
 
-    private void DrawArenaMask(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    private void DrawArenaMask(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle logicalViewport)
     {
         var center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
         for (int index = 0; index < 64; index++)
@@ -2023,12 +2028,30 @@ public sealed class Dissonance : Enemy
                 + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
                 * (ArenaRadius + 8);
         }
-        Rectangle logicalViewport = camera.LogicalViewport(
-            spriteBatch.GraphicsDevice.Viewport.Bounds);
         Primitives2D.DrawOutsideArena(
             spriteBatch,
             _arenaMaskVertices,
             logicalViewport);
+    }
+
+    public void DrawPersistentArena(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle logicalViewport)
+    {
+        DrawArenaMask(
+            spriteBatch,
+            camera,
+            playerWorldPosition,
+            screenShake,
+            logicalViewport);
+        DrawArenaBoundary(
+            spriteBatch,
+            camera,
+            playerWorldPosition,
+            screenShake);
     }
 
     private void DrawDeathSpectacle(SpriteBatch spriteBatch, Vector2 center)
@@ -2130,8 +2153,6 @@ public sealed class Dissonance : Enemy
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        DrawArenaMask(spriteBatch, camera, playerWorldPosition, screenShake);
-        DrawArenaBoundary(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawMotionTrail(spriteBatch, camera, playerWorldPosition, screenShake);
         foreach (var particle in VisualParticles)
         {

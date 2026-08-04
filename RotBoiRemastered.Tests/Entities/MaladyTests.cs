@@ -143,6 +143,7 @@ public class MaladyTests
         Assert.Equal(6, Malady.InitialApotheosisCrownPetals);
         Assert.True(Malady.MaladyConfig.FinalBodyScale > Chronos.ChronosConfig.FinalBodyScale);
         Assert.Equal(10, Malady.MaladyConfig.PhaseLabels.Count);
+        Assert.Equal(1.05, Malady.MaladyConfig.FinalCooldownSeconds, 2);
     }
 
     [Fact]
@@ -304,6 +305,28 @@ public class MaladyTests
         Assert.Equal(6, boss.ProjectilePortals.Count);
         Assert.Equal(boss.ProjectilePortals.Count - 2, lasers.Count); // exactly two adjacent aisles remain open
         Assert.Equal("laser", boss.AttackPose);
+    }
+
+    [Fact]
+    public void LuminousTidePortalShotgunMatchesDissonanceBaselineDensity()
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = new Malady(1000, 1000, battleground, new Random(44));
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(7);
+        var context = Context(boss, battleground);
+
+        ReachDeclarations(boss, context, 1);
+        const string owner = "malady_phantasia_portal_dream_burst";
+        Assert.Equal(3, context.ProjectileSink.Count(shot => shot.Owner == owner));
+
+        foreach (var portal in boss.ProjectilePortals)
+            portal.UpdateBursts(context.ProjectileSink, .13f);
+        foreach (var portal in boss.ProjectilePortals)
+            portal.UpdateBursts(context.ProjectileSink, .13f);
+
+        Assert.Equal(12, context.ProjectileSink.Count(shot => shot.Owner == owner));
     }
 
     [Theory]

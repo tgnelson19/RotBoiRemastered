@@ -49,7 +49,7 @@ public sealed class Malady : PhantasiaBoss
             "INTERMISSION", "LUMINOUS TIDE", "VIOLET CATHEDRAL", "SOUL INCURSION", "APOTHEOSIS",
         },
         FinalBodyColor = new Color(67, 42, 119), FinalAccentColor = new Color(213, 103, 231),
-        FinalBodyScale = 2.55, FinalCooldownSeconds = 1.25,
+        FinalBodyScale = 2.55, FinalCooldownSeconds = 1.05,
         MovementSpeed = .15, ArenaScale = 13.5,
         MovementPhases = new[]
         {
@@ -322,9 +322,12 @@ public sealed class Malady : PhantasiaBoss
         var portal = ProjectilePortals[PatternRotation % ProjectilePortals.Count];
         var waves = new[]
         {
-            new BurstWave(2, .24f, 1.25f, .32f),
-            new BurstWave(3, wide ? .68f : .4f, 1.6f, .25f),
-            new BurstWave(2, .16f, 2.0f, .21f),
+            // Dissonance establishes a 3/5/4 twelve-shot phrase as the
+            // baseline portal barrage. Malady keeps the faster speed ramp,
+            // but now carries the same density instead of the old 2/3/2 lull.
+            new BurstWave(3, .24f, 1.25f, .32f),
+            new BurstWave(5, wide ? .68f : .4f, 1.6f, .25f),
+            new BurstWave(4, .16f, 2.0f, .21f),
         };
         portal.FirePatternBurst(sink, target, waves, waveInterval: .12f, damage: 325, color: PhaseAccent, ownerSuffix: "dream_burst");
     }

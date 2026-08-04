@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
@@ -62,6 +63,32 @@ public sealed class BossEncounterFrameworkTests
             Assert.Equal(TileType.OuterVoid, arena.TileAt(0, 0));
             Assert.False(arena.TileAt(arena.Width / 2, arena.Height / 2).IsSolid());
             Assert.NotEmpty(encounter.Phases);
+        }
+    }
+
+    [Fact]
+    public void EveryBossWithAnAuthoredShapeProvidesPersistentArenaOcclusion()
+    {
+        string[] shapedBosses =
+        [
+            "bair", "ishe", "kage", "hypno",
+            "dissonance", "rot", "chronos", "ache", "malady",
+        ];
+
+        foreach (string key in shapedBosses)
+        {
+            BossEncounterDefinition encounter =
+                BossEncounterCatalog.DefinitionFor(key);
+            Battleground arena = BossArenaFactory.Create(
+                key,
+                encounter.Tier);
+            Enemy boss = BossCatalog.Shared.Spawn(
+                key,
+                arena,
+                float.PositiveInfinity,
+                new Random(91));
+
+            Assert.IsAssignableFrom<IBossArenaOcclusion>(boss);
         }
     }
 

@@ -3730,6 +3730,27 @@ public sealed class GameSession
         }
     }
 
+    internal bool PersistentBossArenaActive =>
+        State.ActiveBoss is IBossArenaOcclusion;
+
+    /// <summary>
+    /// Final world-space arena pass. It runs after depth scenery, projectiles,
+    /// effects, lighting, and fog, and is keyed to ActiveBoss rather than the
+    /// boss sprite's visibility. Nothing rendered earlier can leak through the
+    /// shaped exterior or make the arena vanish when the body is culled.
+    /// </summary>
+    public void DrawBossArenaOcclusion(SpriteBatch spriteBatch)
+    {
+        if (State.ActiveBoss is not IBossArenaOcclusion arena)
+            return;
+        arena.DrawPersistentArena(
+            spriteBatch,
+            Camera,
+            PlayerWorldCenter,
+            ScreenShake,
+            CombatLogicalViewport());
+    }
+
     /// <summary>
     /// Covers unexplored tiles and dims explored tiles outside current line
     /// of sight. This runs after every world object (including loot/portals)
@@ -3919,25 +3940,8 @@ public sealed class GameSession
             : (_activeBossKey ?? BossKeyFor(boss) ?? boss.Family)
                 .Replace('_', ' ').ToUpperInvariant();
         UiTheme.DrawText(spriteBatch, name, 20 * scale, UiTheme.Text, new Vector2(rect.X + 14 * scale, rect.Y + 8 * scale));
-        string phasePrefix = boss is PathGuardianBoss { TrialActive: true }
-            ? "TRIAL"
-            : $"PHASE {phase.Item1}";
-        BossPresentationState presentation =
-            BossPresentationDirector.Derive(boss);
-        string presentationLabel = presentation switch
-        {
-            BossPresentationState.Entrance => "ASSEMBLING",
-            BossPresentationState.Declaration => "DECLARING",
-            BossPresentationState.PhaseGate => "REFORMING",
-            BossPresentationState.Trial => "SURVIVAL",
-            BossPresentationState.Stagger => "STAGGERED",
-            BossPresentationState.Recovery => "RECOVERING",
-            BossPresentationState.ZeroHealthSeal => "SEALED",
-            BossPresentationState.DeathCollapse => "COLLAPSING",
-            _ => phase.Item2,
-        };
         UiTheme.DrawText(spriteBatch,
-            $"{phasePrefix} // {presentationLabel}",
+            BossPhaseIndicatorText(boss),
             10 * scale, phase.Item3,
             new Vector2(rect.Right - 14 * scale, rect.Y + 13 * scale), "topright");
         var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + 43 * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
@@ -3947,6 +3951,27 @@ public sealed class GameSession
             : Math.Clamp((float)boss.Hp / Math.Max(1, boss.MaxHp), 0f, 1f);
         UiTheme.DrawProgress(spriteBatch, hpRect, progress, phase.Item3, 18);
     }
+
+    /// <summary>
+    /// The top boss HUD is the authoritative phase indicator. Transient
+    /// presentation states belong in attack/transition visuals, not in this
+    /// label; substituting them here made one active phase appear to flicker
+    /// between several nonexistent phases during ordinary attacks.
+    /// </summary>
+    internal static string BossPhaseIndicatorText(Enemy boss) => boss switch
+    {
+        PathGuardianBoss { TrialActive: true } guardian =>
+            $"TRIAL // {guardian.PhaseLabel}",
+        PathGuardianBoss guardian =>
+            $"PHASE {guardian.Phase} // {guardian.PhaseLabel}",
+        Beaudis beaudis =>
+            $"PHASE {beaudis.Phase} // {beaudis.PhaseLabel}",
+        Dissonance dissonance =>
+            $"PHASE {dissonance.Phase} // {dissonance.PhaseLabel}",
+        PathChaseBoss pathBoss =>
+            $"PHASE {pathBoss.Phase} // {pathBoss.PhaseLabel}",
+        _ => "PHASE 1 // ENGAGED",
+    };
 
     private void DrawLowHealthWarning(SpriteBatch spriteBatch)
     {

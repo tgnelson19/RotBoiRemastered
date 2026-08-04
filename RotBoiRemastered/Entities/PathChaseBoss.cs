@@ -95,7 +95,7 @@ public sealed record PathChaseBossConfig(
 ///   `_arena_center()` -> cached field) instead of reading a
 ///   `background.py` global from both update- and draw-side methods.
 /// </summary>
-public class PathChaseBoss : Enemy, IBossArenaController
+public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
 {
     protected readonly Random Rng;
     protected PathChaseBossConfig Config { get; }
@@ -562,8 +562,17 @@ public class PathChaseBoss : Enemy, IBossArenaController
         }
     }
 
-    /// <summary>Protected (Python's `_draw_path_arena` was underscore-private in name only -- PhantasiaBoss's custom-body subclasses (Malady) call it directly, skipping the generic ellipse-eyes body this class's own `Draw` layers on top.</summary>
-    protected void DrawPathArena(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    /// <summary>
+    /// Draw the shaped arena after every other world layer. This remains
+    /// independent of boss-body painter order and culling so the exterior
+    /// cannot reveal dungeon scenery during any encounter transition.
+    /// </summary>
+    public void DrawPersistentArena(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle logicalViewport)
     {
         var worldVertices = ArenaVertices();
         for (int index = 0; index < worldVertices.Length; index++)
@@ -576,8 +585,6 @@ public class PathChaseBoss : Enemy, IBossArenaController
         Vector2[] vertices = _arenaScreenVertices;
         if (vertices.Length < 3)
             return;
-        Rectangle logicalViewport = camera.LogicalViewport(
-            spriteBatch.GraphicsDevice.Viewport.Bounds);
         Primitives2D.DrawOutsideArena(
             spriteBatch,
             vertices,
@@ -629,7 +636,6 @@ public class PathChaseBoss : Enemy, IBossArenaController
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
-        DrawPathArena(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawBossBody(spriteBatch, camera, playerWorldPosition, screenShake);
     }
 }

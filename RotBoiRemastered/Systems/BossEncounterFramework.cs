@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Systems;
@@ -162,6 +163,22 @@ public interface IBossArenaController
     float SafeRouteProgress => 0f;
     void CompleteSafeRoute() { }
     Vector2 ConstrainPlayer(Vector2 playerTopLeft, float playerSize);
+}
+
+/// <summary>
+/// A shaped boss arena whose exterior mask and boundary must be rendered as
+/// a persistent final-world pass. Keeping this separate from the boss body's
+/// depth-sorted draw prevents later walls/effects from leaking outside the
+/// arena and prevents camera culling from making the arena disappear.
+/// </summary>
+public interface IBossArenaOcclusion
+{
+    void DrawPersistentArena(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle logicalViewport);
 }
 
 /// <summary>

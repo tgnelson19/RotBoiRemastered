@@ -783,6 +783,7 @@ public class RotBoiGame : Game
         session.DrawAtmosphericLighting(_spriteBatch, GraphicsDevice);
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawPathFogOfWar(_spriteBatch);
+        session.DrawBossArenaOcclusion(_spriteBatch);
         _spriteBatch.End();
 
         _spriteBatch.Begin();

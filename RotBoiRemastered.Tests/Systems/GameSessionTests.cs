@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
@@ -28,6 +29,38 @@ public class GameSessionTests
         var session = new GameSession(GamePaths.ActivateSelected(), 1280, 720, new Random(1));
         session.State.CurrentLevel = level;
         return session;
+    }
+
+    [Fact]
+    public void BossPhaseIndicatorKeepsOnlyActivePhaseDuringTransientPresentation()
+    {
+        var boss = new Malady(1000, 1000, Battleground.GenerateSound(),
+            new Random(93));
+        boss.DebugSetPhase(4);
+
+        Assert.Equal(BossPresentationState.Trial,
+            BossPresentationDirector.Derive(boss));
+        Assert.Equal("PHASE 4 // RIBBON COURT",
+            GameSession.BossPhaseIndicatorText(boss));
+    }
+
+    [Fact]
+    public void ActiveBossKeepsArenaOcclusionWhenItsBodyIsAbsentFromDrawHolster()
+    {
+        GameSession session = MakeSession();
+        var boss = new Dissonance(
+            1000,
+            1000,
+            float.PositiveInfinity,
+            session.Battleground,
+            new Random(92));
+        session.State.ActiveBoss = boss;
+        session.State.EnemyHolster.Clear();
+
+        Assert.True(session.PersistentBossArenaActive);
+
+        session.State.ActiveBoss = null;
+        Assert.False(session.PersistentBossArenaActive);
     }
 
     /// <summary>
