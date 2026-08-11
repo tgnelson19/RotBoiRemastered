@@ -29,7 +29,7 @@ public static class BossVisualRenderer
         int hierarchy = boss switch
         {
             PathGuardianBoss => 1,
-            Dissonance or Rot or Chronos or Ache or Malady => 3,
+            Aphantasia or Dissonance or Rot or Chronos or Ache or Malady => 3,
             _ => 2,
         };
 

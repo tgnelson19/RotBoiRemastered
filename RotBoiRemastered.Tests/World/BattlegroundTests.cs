@@ -184,7 +184,7 @@ public class BattlegroundTests
         int spawnTileX = (int)((soul.SpawnPosition.X + Battleground.TileSize / 2f) / Battleground.TileSize);
         int spawnTileY = (int)((soul.SpawnPosition.Y + Battleground.TileSize / 2f) / Battleground.TileSize);
 
-        Assert.True(spawnTileY > soul.Height * .7);
+        Assert.Equal(SoulLayout.SpawnTile.Y, spawnTileY);
         Assert.False(soul.TileAt(spawnTileX, spawnTileY).IsSolid());
         Assert.Equal(TileType.Road, soul.TileAt(SoulLayout.TunnelSouthTile.X, SoulLayout.TunnelSouthTile.Y));
         Assert.False(soul.TileAt(SoulLayout.NexusTile.X, SoulLayout.NexusTile.Y).IsSolid());
@@ -233,6 +233,131 @@ public class BattlegroundTests
                         + offset.Y * SoulLayout.SelectionAreaScale),
                 portal);
         }
+    }
+
+    [Fact]
+    public void Mind_AuthoredGeometryKeepsEverySurfaceAwayFromTheMapBoundary()
+    {
+        TileType[,] tiles = SoulLayout.BuildTiles(new HashSet<string>());
+
+        for (int y = 0; y < tiles.GetLength(0); y++)
+        {
+            for (int x = 0; x < tiles.GetLength(1); x++)
+            {
+                if (tiles[y, x] == TileType.OuterVoid)
+                    continue;
+                Assert.True(x >= SoulLayout.MinimumBoundaryBufferTiles);
+                Assert.True(y >= SoulLayout.MinimumBoundaryBufferTiles);
+                Assert.True(x < tiles.GetLength(1) - SoulLayout.MinimumBoundaryBufferTiles);
+                Assert.True(y < tiles.GetLength(0) - SoulLayout.MinimumBoundaryBufferTiles);
+            }
+        }
+    }
+
+    [Fact]
+    public void Mind_LockedGateWallsOnlyReplaceAuthoredWalkableCorridorTiles()
+    {
+        TileType[,] open = SoulLayout.BuildTiles(SoulLayout.AllGateKeys);
+        TileType[,] locked = SoulLayout.BuildTiles(new HashSet<string>());
+
+        for (int y = 0; y < locked.GetLength(0); y++)
+        {
+            for (int x = 0; x < locked.GetLength(1); x++)
+            {
+                if (locked[y, x] == open[y, x])
+                    continue;
+                Assert.False(open[y, x].IsSolid());
+                Assert.Equal(TileType.BuildingWall, locked[y, x]);
+            }
+        }
+    }
+
+    [Fact]
+    public void Mind_EachGateIndependentlySealsOnlyItsOwnArenaWing()
+    {
+        foreach (string unlockedSense in SoulLayout.PortalTiles.Keys)
+        {
+            TileType[,] tiles = SoulLayout.BuildTiles(new HashSet<string> { unlockedSense });
+            HashSet<Point> reachable = ReachableTiles(tiles, SoulLayout.SpawnTile);
+
+            Assert.Contains(SoulLayout.NexusTile, reachable);
+            foreach ((string sense, Point portal) in SoulLayout.PortalTiles)
+                Assert.Equal(sense == unlockedSense, reachable.Contains(portal));
+        }
+    }
+
+    [Fact]
+    public void Mind_FogRevealsTheGateButConcealsEveryLockedArenaWing()
+    {
+        foreach (string unlockedSense in SoulLayout.PortalTiles.Keys)
+        {
+            TileType[,] tiles = SoulLayout.BuildTiles(new HashSet<string> { unlockedSense });
+            var battleground = new Battleground(tiles, BiomePalettes.Sound, wallHeight: 14);
+            var fog = new PathFogOfWar(battleground);
+            HashSet<Point> reachable = ReachableTiles(tiles, SoulLayout.SpawnTile);
+
+            // Model a thorough visit to every place the player can physically
+            // reach. A sealed wing must remain completely undiscovered even
+            // after the rest of The Mind has been explored.
+            foreach (Point tile in reachable)
+                fog.Update(SoulLayout.TileWorldCenter(tile));
+
+            foreach ((string sense, Point portal) in SoulLayout.PortalTiles)
+                Assert.Equal(sense == unlockedSense, fog.IsExplored(portal.X, portal.Y));
+        }
+    }
+
+    [Fact]
+    public void Mind_EndgameGatesFormASequentialSightCoreAphantasiaSpine()
+    {
+        Assert.Equal(SoulLayout.PortalTiles["sight"].X, SoulLayout.CorePortalTile.X);
+        Assert.Equal(SoulLayout.CorePortalTile.X, SoulLayout.AphantasiaPortalTile.X);
+        Assert.True(SoulLayout.PortalTiles["sight"].Y > SoulLayout.CorePortalTile.Y);
+        Assert.True(SoulLayout.CorePortalTile.Y > SoulLayout.AphantasiaPortalTile.Y);
+
+        var sensesOnly = SoulLayout.PortalTiles.Keys.ToHashSet();
+        HashSet<Point> beforeCore = ReachableTiles(
+            SoulLayout.BuildTiles(sensesOnly), SoulLayout.SpawnTile);
+        Assert.Contains(SoulLayout.PortalTiles["sight"], beforeCore);
+        Assert.DoesNotContain(SoulLayout.CorePortalTile, beforeCore);
+        Assert.DoesNotContain(SoulLayout.AphantasiaPortalTile, beforeCore);
+
+        sensesOnly.Add("core");
+        HashSet<Point> beforeAphantasia = ReachableTiles(
+            SoulLayout.BuildTiles(sensesOnly), SoulLayout.SpawnTile);
+        Assert.Contains(SoulLayout.CorePortalTile, beforeAphantasia);
+        Assert.DoesNotContain(SoulLayout.AphantasiaPortalTile, beforeAphantasia);
+
+        sensesOnly.Add("aphantasia");
+        HashSet<Point> fullyOpen = ReachableTiles(
+            SoulLayout.BuildTiles(sensesOnly), SoulLayout.SpawnTile);
+        Assert.Contains(SoulLayout.AphantasiaPortalTile, fullyOpen);
+    }
+
+    private static HashSet<Point> ReachableTiles(TileType[,] tiles, Point start)
+    {
+        int height = tiles.GetLength(0);
+        int width = tiles.GetLength(1);
+        var visited = new HashSet<Point> { start };
+        var queue = new Queue<Point>();
+        queue.Enqueue(start);
+        Point[] directions =
+        {
+            new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
+        };
+        while (queue.Count > 0)
+        {
+            Point tile = queue.Dequeue();
+            foreach (Point direction in directions)
+            {
+                Point next = tile + direction;
+                if (next.X < 0 || next.Y < 0 || next.X >= width || next.Y >= height
+                    || tiles[next.Y, next.X].IsSolid() || !visited.Add(next))
+                    continue;
+                queue.Enqueue(next);
+            }
+        }
+        return visited;
     }
 
     private static int ShortestPath(Battleground battleground, Point start, Point destination)

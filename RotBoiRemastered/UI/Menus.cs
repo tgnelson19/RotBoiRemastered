@@ -69,7 +69,8 @@ public sealed class Menus
     {
         _buttons.Clear();
         _resultFocus.BeginFrame();
-        bool success = report.Outcome is "RUN COMPLETE" or "EXTRACTED";
+        bool success = report.Outcome is "RUN COMPLETE" or "EXTRACTED"
+            or "APHANTASIA DEFEATED";
         Color outcomeAccent = success ? UiTheme.Cream : UiTheme.Red;
         float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
         float animation = (float)(_presentationClock.Seconds
@@ -79,7 +80,7 @@ public sealed class Menus
         int margin = Math.Max(8, (int)(14 * scale));
         var root = new Rectangle(margin, margin, screenWidth - margin * 2,
             screenHeight - margin * 2);
-        UiTheme.DrawCompositePanel(spriteBatch, root, animation,
+        UiTheme.DrawFramedPanel(spriteBatch, root,
             UiTheme.Panel, outcomeAccent, 8);
 
         UiTheme.DrawText(spriteBatch, report.Outcome, 24 * scale,
@@ -87,6 +88,7 @@ public sealed class Menus
             "midtop");
         string pathLine = $"{report.PathTitle}  //  "
             + (report.HardMode ? "HARD MODE  //  " : "")
+            + (report.NoExtract ? "NO EXTRACT  //  " : "")
             + (report.NewGamePlusLevel > 0
                 ? $"NG+{report.NewGamePlusLevel}  //  " : "")
             + report.BuildIdentity;
@@ -106,9 +108,9 @@ public sealed class Menus
             contentHeight);
         var gearPanel = new Rectangle(buildPanel.Right + gap, contentTop,
             root.Right - margin - buildPanel.Right - gap, contentHeight);
-        UiTheme.DrawCompositePanel(spriteBatch, buildPanel, animation,
+        UiTheme.DrawFramedPanel(spriteBatch, buildPanel,
             UiTheme.PanelRaised, UiTheme.Border, 3);
-        UiTheme.DrawCompositePanel(spriteBatch, gearPanel, animation,
+        UiTheme.DrawFramedPanel(spriteBatch, gearPanel,
             UiTheme.PanelRaised, UiTheme.Border, 3);
 
         DrawDebriefBuild(spriteBatch, buildPanel, report, outcomeAccent, scale);
@@ -158,7 +160,7 @@ public sealed class Menus
         UiTheme.DrawText(spriteBatch, "REWARDS & PROGRESSION", 10 * scale,
             UiTheme.Cream, new Vector2(panel.X + pad, rewardY));
         UiTheme.DrawText(spriteBatch,
-            $"SOUL TOKENS  +{report.SoulTokenReward}", 9 * scale,
+            $"MIND TOKENS  +{report.SoulTokenReward}", 9 * scale,
             report.SoulTokenReward > 0 ? UiTheme.Gold : UiTheme.Muted,
             new Vector2(panel.X + pad, rewardY + 25 * scale));
         UiTheme.DrawText(spriteBatch,

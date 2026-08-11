@@ -30,6 +30,7 @@ public static class Keybinds
         ("zoom_in", "Zoom Camera In", Keys.P),
         ("autofire", "Toggle Autofire", Keys.I),
         ("interact", "Interact", Keys.F),
+        ("extract", "Extract to The Mind", Keys.R),
         ("hud_toggle", "Toggle HUD Detail", Keys.Tab),
         ("restart", "Restart Run (while paused)", Keys.R),
         ("console_toggle", "DEV: Toggle Console", Keys.OemTilde),

@@ -134,10 +134,17 @@ public sealed class FooterHud
             .Select(index => new Rectangle(slotsX + index * (slotSize + slotGap), slotsY, slotSize, slotSize))
             .ToArray();
 
-        int statGap = Math.Max(2, (int)(4 * scale));
-        int statWidth = Math.Max(1, (stats.Width - statGap * 2) / 3);
-        var statSlots = Enumerable.Range(0, 3)
-            .Select(index => new Rectangle(stats.X + index * (statWidth + statGap), stats.Y, statWidth, stats.Height))
+        const int statColumns = 5;
+        const int statRows = 2;
+        int statGap = Math.Max(1, (int)(3 * scale));
+        int statWidth = Math.Max(1, (stats.Width - statGap * (statColumns - 1)) / statColumns);
+        int statHeight = Math.Max(1, (stats.Height - statGap * (statRows - 1)) / statRows);
+        var statSlots = Enumerable.Range(0, statColumns * statRows)
+            .Select(index => new Rectangle(
+                stats.X + index % statColumns * (statWidth + statGap),
+                stats.Y + index / statColumns * (statHeight + statGap),
+                statWidth,
+                statHeight))
             .ToArray();
 
         return new FooterLayout
@@ -220,7 +227,7 @@ public sealed class FooterHud
 
         float chromeTime = (float)(state.RunTimeSeconds * Math.Clamp(
             GameProfile.Profile.VisualEffectsIntensity, 0, 1));
-        UiTheme.DrawCompositePanel(spriteBatch, layout.Bounds, chromeTime,
+        UiTheme.DrawFramedPanel(spriteBatch, layout.Bounds,
             UiTheme.Void * .96f, UiTheme.Cream, shadow: 7);
 
         DrawHealth(spriteBatch, layout, state, scale);
@@ -259,7 +266,7 @@ public sealed class FooterHud
         _quickLootSlotRects.Clear();
         _quickStashSlotRects.Clear();
         _tooltipItem = null;
-        UiTheme.DrawCompositePanel(spriteBatch, layout.Bounds, time,
+        UiTheme.DrawFramedPanel(spriteBatch, layout.Bounds,
             UiTheme.Void * .96f, UiTheme.Cream, shadow: 7);
         DrawEquipment(spriteBatch, layout, state, mousePosition, scale);
 
@@ -268,7 +275,7 @@ public sealed class FooterHud
             new Vector2(layout.Health.X, layout.Health.Y + 2 * scale));
         UiTheme.DrawText(spriteBatch, $"{stashCount}/{InformationSheet.InventorySlotCount}", 15 * scale, UiTheme.Text,
             new Vector2(layout.Health.X, layout.Health.Center.Y + 2 * scale), "midleft");
-        UiTheme.DrawText(spriteBatch, $"SOUL TOKENS  {GameProfile.Profile.SoulTokens:N0}", 8 * scale, UiTheme.Purple,
+        UiTheme.DrawText(spriteBatch, $"MIND TOKENS  {GameProfile.Profile.MindTokens:N0}", 8 * scale, UiTheme.Purple,
             new Vector2(layout.Resources.X, layout.Resources.Center.Y), "midleft");
         UiTheme.DrawText(spriteBatch,
             $"VAULT  {GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", 8 * scale, UiTheme.Gold,
@@ -283,8 +290,9 @@ public sealed class FooterHud
     {
         if (!mousePressed)
             return FooterAction.None;
-        bool canLevel = state.CurrentLevel < _playerLevelCap
-            && state.ExpCount >= state.ExpNeededForNextLevel;
+        bool canLevel = state.PendingLevelUps > 0
+            || state.CurrentLevel < _playerLevelCap
+                && state.ExpCount >= state.ExpNeededForNextLevel;
         if (canLevel && _experienceHit.Contains(mousePosition))
             return FooterAction.OpenLevelUp;
         if (_equipmentHit.Contains(mousePosition) || _bounds.Contains(mousePosition))
@@ -357,7 +365,7 @@ public sealed class FooterHud
         int lootCount = layout.LootSlots.Count;
         _quickLootSelection = Math.Clamp(_quickLootSelection, 0, Math.Max(0, lootCount - 1));
 
-        UiTheme.DrawCompositePanel(spriteBatch, layout.Bounds, chromeTime,
+        UiTheme.DrawFramedPanel(spriteBatch, layout.Bounds,
             UiTheme.PanelRaised * .98f, UiTheme.Gold, shadow: 4);
         UiTheme.DrawText(spriteBatch, "LOOT", 6.5 * scale, UiTheme.Gold,
             layout.LootLabel.Center.ToVector2(), "center", bold: true);
@@ -476,24 +484,47 @@ public sealed class FooterHud
 
     private static void DrawStats(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale)
     {
-        IReadOnlyList<string> selected = FooterStats.NormalizeSelection(GameProfile.Profile.FooterStats);
-        for (int index = 0; index < FooterStats.SelectionCount; index++)
+        IReadOnlyList<StatDisplayDefinition> definitions = StatDisplay.Definitions.Take(10).ToList();
+        for (int index = 0; index < definitions.Count; index++)
         {
-            FooterStatDefinition definition = FooterStats.ById[selected[index]];
+            StatDisplayDefinition definition = definitions[index];
             Rectangle rect = layout.StatSlots[index];
-            UiTheme.DrawText(spriteBatch, layout.Compact ? definition.ShortLabel : definition.Label,
-                6.5 * scale, UiTheme.Muted, new Vector2(rect.Center.X, rect.Y + 1), "midtop");
-            UiTheme.DrawText(spriteBatch, definition.Value(state), 10 * scale, UiTheme.Text,
-                new Vector2(rect.Center.X, rect.Center.Y + 4 * scale), "center");
+            int radius = Math.Max(2, (int)(3 * scale));
+            Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, radius);
+            Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Border * .72f,
+                Math.Max(1, (int)scale), radius);
+
+            bool showIcon = !layout.Compact && rect.Width >= 72 * scale && rect.Height >= 28 * scale;
+            int textLeft = rect.X + Math.Max(3, (int)(5 * scale));
+            if (showIcon)
+            {
+                int iconSize = Math.Min(rect.Height - Math.Max(4, (int)(6 * scale)),
+                    Math.Max(12, (int)(20 * scale)));
+                var icon = new Rectangle(rect.X + Math.Max(3, (int)(4 * scale)),
+                    rect.Center.Y - iconSize / 2, iconSize, iconSize);
+                StatCards.DrawStatSymbol(spriteBatch, definition.IconKey, icon, UiTheme.Cream);
+                textLeft = icon.Right + Math.Max(2, (int)(4 * scale));
+            }
+
+            double labelSize = (layout.Compact ? 5.2 : 5.7) * scale;
+            double valueSize = (layout.Compact ? 7.2 : 8.2) * scale;
+            UiTheme.DrawText(spriteBatch, definition.Abbreviation, labelSize, UiTheme.Muted,
+                new Vector2(textLeft, rect.Y + Math.Max(1, 2 * scale)));
+            UiTheme.DrawText(spriteBatch, definition.Format(state), valueSize, UiTheme.Text,
+                new Vector2(rect.Right - Math.Max(3, (int)(5 * scale)), rect.Center.Y), "midright");
         }
     }
 
     private static void DrawExperience(SpriteBatch spriteBatch, FooterLayout layout,
         RunState state, float scale, int playerLevelCap)
     {
-        bool maximum = state.CurrentLevel >= playerLevelCap;
-        bool ready = !maximum && state.ExpCount >= state.ExpNeededForNextLevel;
-        float ratio = maximum ? 1f : (float)(state.ExpCount / Math.Max(1, state.ExpNeededForNextLevel));
+        bool queued = state.PendingLevelUps > 0;
+        bool maximum = state.CurrentLevel >= playerLevelCap && !queued;
+        bool ready = queued
+            || !maximum && state.ExpCount >= state.ExpNeededForNextLevel;
+        float ratio = maximum || queued
+            ? 1f
+            : (float)(state.ExpCount / Math.Max(1, state.ExpNeededForNextLevel));
         Color color = ready ? UiTheme.Gold : UiTheme.Purple;
         UiTheme.DrawProgress(spriteBatch, layout.Experience, ratio, color, 16);
         if (ready)
@@ -506,7 +537,9 @@ public sealed class FooterHud
                 Color.Lerp(UiTheme.Gold, UiTheme.Cream, pulse),
                 Math.Max(1, (int)(2 * scale)));
         }
-        string text = maximum
+        string text = queued
+            ? $"LEVEL {state.CurrentLevel:D2}  //  {state.PendingLevelUps} DRAFTS QUEUED"
+            : maximum
             ? $"LEVEL {state.CurrentLevel:D2}  //  MAXIMUM"
             : ready
                 ? $"LEVEL {state.CurrentLevel:D2}  //  LEVEL READY"
@@ -523,7 +556,7 @@ public sealed class FooterHud
         int y = Math.Max(6, mouse.Y - height - (int)(14 * scale));
         var rect = new Rectangle(x, y, width, height);
         Color rarity = UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border);
-        UiTheme.DrawCompositePanel(spriteBatch, rect, 0, UiTheme.PanelRaised, rarity, shadow: 5);
+        UiTheme.DrawFramedPanel(spriteBatch, rect, UiTheme.PanelRaised, rarity, shadow: 5);
         UiTheme.DrawText(spriteBatch, item.DisplayName.ToUpperInvariant(), 10 * scale, UiTheme.Text,
             new Vector2(rect.X + 10 * scale, rect.Y + 9 * scale));
         UiTheme.DrawText(spriteBatch,

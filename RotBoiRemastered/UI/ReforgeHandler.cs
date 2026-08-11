@@ -124,10 +124,10 @@ public sealed class ReforgeHandler
         int frameMargin = Px(18);
         float chromeTime = (float)(state.RunTimeSeconds
             * GameProfile.Profile.VisualEffectsIntensity);
-        UiTheme.DrawCompositePanel(spriteBatch,
+        UiTheme.DrawFramedPanel(spriteBatch,
             new Rectangle(frameMargin, frameMargin,
                 _screenWidth - frameMargin * 2, _screenHeight - frameMargin * 2),
-            chromeTime, UiTheme.Panel, UiTheme.Border, 7);
+            UiTheme.Panel, UiTheme.Border, 7);
 
         UiTheme.DrawButton(spriteBatch, _backRect, "BACK", mousePosition, mouseDown,
             accentColor: UiTheme.Cream, keyHint: "ESC", textSize: Px(12));
@@ -145,7 +145,7 @@ public sealed class ReforgeHandler
             bool selected = slot == _selectedSlot;
             var panel = rect;
             panel.Inflate(Px(8), Px(8));
-            UiTheme.DrawCompositePanel(spriteBatch, panel, chromeTime,
+            UiTheme.DrawFramedPanel(spriteBatch, panel,
                 selected ? UiTheme.PanelHover : UiTheme.Panel,
                 selected ? UiTheme.Gold : UiTheme.Border,
                 shadow: selected ? 8 : 4,
@@ -188,7 +188,7 @@ public sealed class ReforgeHandler
         var rect = new Rectangle((_screenWidth - width) / 2, top, width, Px(225));
         Color rarity = UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border);
         Color grade = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
-        UiTheme.DrawCompositePanel(spriteBatch, rect, 0f,
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, rarity, shadow: 7);
         UiTheme.DrawText(spriteBatch, item.DisplayName.ToUpperInvariant(), Px(24), UiTheme.Text,
             new Vector2(rect.X + Px(20), rect.Y + Px(15)));

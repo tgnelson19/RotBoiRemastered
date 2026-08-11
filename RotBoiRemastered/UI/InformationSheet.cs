@@ -123,6 +123,8 @@ public sealed class InformationSheet
 
     private string? _tooltip;
     private ItemDrop? _tooltipItem;
+    private ItemDrop? _inspectionItem;
+    private string? _inspectionSource;
     private ItemDrop? _draggingItem;
     private DragSource? _draggingSource;
     private readonly Dictionary<string, Rectangle> _equipmentSlotRects = new();
@@ -332,10 +334,8 @@ public sealed class InformationSheet
     private Rectangle Panel(SpriteBatch spriteBatch, int y, int height, Color? accent = null, Color? fill = null)
     {
         var rect = new Rectangle(_posX + _padding, y, _totalLength - _padding * 2, height);
-        UiTheme.DrawLivingPanel(
-            spriteBatch, rect, _presentationPath, _presentationTime,
-            fill ?? UiTheme.PanelRaised, accent ?? UiTheme.Border,
-            shadow: 3);
+        UiTheme.DrawFramedPanel(spriteBatch, rect, fill ?? UiTheme.PanelRaised,
+            accent ?? UiTheme.Border, shadow: 3);
         return rect;
     }
 
@@ -493,7 +493,7 @@ public sealed class InformationSheet
     }
 
     /// <summary>Ported from `_combat_values`. The Python original also computed an expected-DPS value that its only call site immediately discarded (`attacks, _ = self._combat_values()`) -- dropped here since it's dead within this file too.</summary>
-    public static double AttacksPerSecond(RunState state) => Simulation.FrameRate / Math.Max(1, state.AttackCooldownStat);
+    public static double AttacksPerSecond(RunState state) => StatDisplay.AttacksPerSecond(state);
 
     public static string Rating(double value, double baseline, bool inverse = false)
     {
@@ -1239,6 +1239,8 @@ public sealed class InformationSheet
         _presentationTime = (float)state.RunTimeSeconds;
         _tooltip = null;
         _tooltipItem = null;
+        _inspectionItem = null;
+        _inspectionSource = null;
         _equipmentSlotRects.Clear();
         _inventorySlotRects.Clear();
         _lootPanelSlotRects.Clear();
@@ -1248,7 +1250,7 @@ public sealed class InformationSheet
         int margin = Math.Max(Px(12), (int)(viewport.Width * .025f));
         var frame = new Rectangle(margin, margin,
             viewport.Width - margin * 2, viewport.Height - margin * 2);
-        UiTheme.DrawCompositePanel(spriteBatch, frame, _presentationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, frame,
             UiTheme.Void * .98f, UiTheme.Cream, shadow: 9);
 
         int headerHeight = Px(66);
@@ -1287,7 +1289,7 @@ public sealed class InformationSheet
             DrawDossierRunHeader(spriteBatch, runRect, state, currentBounty, playerWorldPosition, mousePosition);
         y = runRect.Bottom + sectionGap;
 
-        int loadoutHeight = Px(state.NearbyCrate is { Items.Count: > 0 } ? 225 : 169);
+        int loadoutHeight = Px(state.NearbyCrate is { Items.Count: > 0 } ? 250 : 194);
         var loadoutRect = new Rectangle(contentLeft, y, contentWidth, loadoutHeight);
         if (loadoutRect.Bottom >= contentTop && loadoutRect.Y <= contentBottom)
             DrawDossierLoadout(spriteBatch, loadoutRect, state, mousePosition);
@@ -1409,6 +1411,18 @@ public sealed class InformationSheet
         if (focusedId is "dossier:level" or "dossier:reforge")
             return false;
 
+        if (!DragInProgress && focusedId.StartsWith("crate:")
+            && int.TryParse(focusedId[6..], out int crateIndex)
+            && state.NearbyCrate is { } nearby
+            && crateIndex >= 0 && crateIndex < nearby.Items.Count)
+        {
+            ItemDrop loot = nearby.Items[crateIndex];
+            string equipmentKey = loot.SlotType == "accessory"
+                ? state.Equipment["accessory_1"] is null ? "accessory_1" : "accessory_2"
+                : loot.SlotType;
+            return QuickEquipLoot(state, crateIndex, equipmentKey);
+        }
+
         UiFocusTarget target = _loadoutFocus.Targets.LastOrDefault(
             candidate => candidate.Id == focusedId);
         if (target.Id is null)
@@ -1444,7 +1458,7 @@ public sealed class InformationSheet
         Vector2 playerWorldPosition,
         Point mousePosition)
     {
-        UiTheme.DrawCompositePanel(spriteBatch, rect, _presentationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, UiTheme.Purple, shadow: 4);
         RefreshSummaryCache(state, rect.Width - Px(32));
         DrawSheetText(spriteBatch, _summaryTitle, Px(16), UiTheme.Purple,
@@ -1474,7 +1488,7 @@ public sealed class InformationSheet
 
     private void DrawDossierLoadout(SpriteBatch spriteBatch, Rectangle rect, RunState state, Point mousePosition)
     {
-        UiTheme.DrawCompositePanel(spriteBatch, rect, _presentationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, UiTheme.Cream, shadow: 4);
         DrawSheetText(spriteBatch, "LOADOUT", Px(12), UiTheme.Text,
             new Vector2(rect.X + Px(14), rect.Y + Px(10)));
@@ -1491,6 +1505,12 @@ public sealed class InformationSheet
             _equipmentSlotRects[keys[index]] = slotRect;
             DrawDossierItem(spriteBatch, $"equipment:{keys[index]}", slotRect, state.Equipment.GetValueOrDefault(keys[index]),
                 _draggingSource is EquipmentDragSource source && source.Key == keys[index], mousePosition);
+            if (state.Equipment.GetValueOrDefault(keys[index]) is null)
+            {
+                Rectangle glyph = slotRect;
+                glyph.Inflate(-Px(10), -Px(10));
+                ItemCards.DrawItemSymbol(spriteBatch, EquipmentSlotTypes[keys[index]], glyph, UiTheme.Muted);
+            }
         }
 
         int stashX = equipmentX + keys.Length * (slot + gap) + Px(32);
@@ -1505,12 +1525,12 @@ public sealed class InformationSheet
                 _draggingSource is InventoryDragSource source && source.Index == index, mousePosition);
         }
 
-        _dossierReforgeRect = new Rectangle(rect.Right - Px(174), rect.Y + Px(48), Px(154), Px(36));
+        _dossierReforgeRect = new Rectangle(rect.Right - Px(240), rect.Bottom - Px(48), Px(112), Px(32));
         bool canReforge = state.Equipment.Values.Any(item => item is not null);
         _loadoutFocus.Register("dossier:reforge", _dossierReforgeRect, canReforge);
         UiTheme.DrawButton(spriteBatch, _dossierReforgeRect, "REFORGE EQUIPMENT", mousePosition,
             enabled: canReforge, accentColor: UiTheme.Purple, textSize: Px(8));
-        _dossierDropRect = new Rectangle(rect.Right - Px(174), rect.Y + Px(94), Px(154), Px(36));
+        _dossierDropRect = new Rectangle(rect.Right - Px(120), rect.Bottom - Px(48), Px(104), Px(32));
         _loadoutFocus.Register("dossier:drop", _dossierDropRect, _draggingItem is not null);
         UiTheme.DrawButton(spriteBatch, _dossierDropRect, "DROP TO GROUND", mousePosition,
             enabled: _draggingItem is not null, accentColor: UiTheme.Red, textSize: Px(8));
@@ -1535,6 +1555,7 @@ public sealed class InformationSheet
                         && ReferenceEquals(source.Crate, crate) && source.Index == index, mousePosition);
             }
         }
+        DrawItemInspection(spriteBatch, rect, state);
     }
 
     private void DrawDossierItem(SpriteBatch spriteBatch, string focusId, Rectangle rect, ItemDrop? item,
@@ -1547,51 +1568,110 @@ public sealed class InformationSheet
             ItemCards.DrawItemCard(spriteBatch, rect, item, hovered, _presentationTime);
             if (hovered)
                 _tooltipItem = item;
+            if (hovered || _loadoutFocus.IsFocused(focusId))
+            {
+                _inspectionItem = item;
+                _inspectionSource = focusId;
+            }
             if (_loadoutFocus.IsFocused(focusId))
                 Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(4));
             return;
         }
         Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, Px(4));
+        bool incompatible = _draggingItem is not null && focusId.StartsWith("equipment:")
+            && EquipmentSlotTypes.GetValueOrDefault(focusId[10..]) != _draggingItem.SlotType;
         Primitives2D.RoundedRectOutline(spriteBatch, rect,
-            rect.Contains(mousePosition) ? UiTheme.Cream : UiTheme.Border, Px(2), Px(4));
+            incompatible ? UiTheme.Shadow : rect.Contains(mousePosition) ? UiTheme.Cream : UiTheme.Border, Px(2), Px(4));
         if (_loadoutFocus.IsFocused(focusId))
             Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(4));
     }
 
+    public static IReadOnlyList<(string Stat, double Delta)> ItemEffectDeltas(
+        ItemDrop candidate, ItemDrop? equipped)
+    {
+        static Dictionary<string, double> Values(ItemDrop? item)
+        {
+            var values = new Dictionary<string, double>();
+            if (item is null) return values;
+            foreach (ItemEffectView effect in Items.Effects(item))
+                values[effect.Stat] = values.GetValueOrDefault(effect.Stat)
+                    + effect.Additive + (effect.Multiplier - 1) * 100;
+            return values;
+        }
+        Dictionary<string, double> next = Values(candidate);
+        Dictionary<string, double> current = Values(equipped);
+        return next.Keys.Concat(current.Keys).Distinct(StringComparer.Ordinal)
+            .Select(stat => (stat, next.GetValueOrDefault(stat) - current.GetValueOrDefault(stat)))
+            .OrderByDescending(entry => Math.Abs(entry.Item2)).ThenBy(entry => entry.Item1, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private void DrawItemInspection(SpriteBatch spriteBatch, Rectangle loadout, RunState state)
+    {
+        ItemDrop? item = _draggingItem ?? _inspectionItem;
+        int width = Px(240);
+        var pane = new Rectangle(loadout.Right - width - Px(16), loadout.Y + Px(10), width, Px(126));
+        Primitives2D.FillRoundedRect(spriteBatch, pane, UiTheme.Ink, Px(4));
+        Primitives2D.RoundedRectOutline(spriteBatch, pane, item is null ? UiTheme.Border : UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border), Px(1), Px(4));
+        if (item is null)
+        {
+            DrawSheetText(spriteBatch, "INSPECT AN ITEM", Px(9), UiTheme.Muted,
+                new Vector2(pane.Center.X, pane.Center.Y), "center");
+            return;
+        }
+
+        DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(9), UiTheme.Text,
+            new Vector2(pane.X + Px(9), pane.Y + Px(8)));
+        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.Grade}  //  {item.Modifier.ToUpperInvariant()}",
+            Px(7), UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Muted),
+            new Vector2(pane.X + Px(9), pane.Y + Px(25)));
+        string targetKey = item.SlotType == "accessory" ? "accessory_1" : item.SlotType;
+        ItemDrop? equipped = _inspectionSource?.StartsWith("equipment:") == true
+            ? null : state.Equipment.GetValueOrDefault(targetKey);
+        var deltas = ItemEffectDeltas(item, equipped).Take(3).ToList();
+        int y = pane.Y + Px(44);
+        foreach (var (stat, delta) in deltas)
+        {
+            string marker = delta > .005 ? "+" : delta < -.005 ? "-" : "=";
+            Color color = delta > .005 ? UiTheme.Green : delta < -.005 ? UiTheme.Red : UiTheme.Muted;
+            DrawSheetText(spriteBatch, $"{marker} {stat.ToUpperInvariant()}  {Math.Abs(delta):0.##}", Px(7.5), color,
+                new Vector2(pane.X + Px(9), y));
+            y += Px(15);
+        }
+        string action = _draggingItem is not null ? "PLACE / SWAP  •  BACK: CANCEL"
+            : _inspectionSource?.StartsWith("crate:") == true ? "CONFIRM: QUICK EQUIP"
+            : _inspectionSource?.StartsWith("inventory:") == true ? "CONFIRM: EQUIP / MOVE"
+            : "CONFIRM: MOVE  •  REFORGE BELOW";
+        DrawSheetText(spriteBatch, action, Px(6.5), UiTheme.Muted,
+            new Vector2(pane.X + Px(9), pane.Bottom - Px(8)), "bottomleft");
+    }
+
     private void DrawDossierBuild(SpriteBatch spriteBatch, Rectangle rect, RunState state, Point mousePosition)
     {
-        UiTheme.DrawCompositePanel(spriteBatch, rect, _presentationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, UiTheme.Blue, shadow: 4);
         DrawSheetText(spriteBatch, "BUILD READOUT", Px(12), UiTheme.Blue,
             new Vector2(rect.X + Px(14), rect.Y + Px(10)));
-        var rows = new (string Symbol, string Label, string Value)[]
-        {
-            ("Bullet Damage", "Damage", $"{state.BulletDamage:N0}"),
-            ("Attack Speed", "Attack rate", $"{AttacksPerSecond(state):0.00}/s"),
-            ("Bullet Count", "Projectiles", $"{state.ProjectileCount:0.##}"),
-            ("Crit Chance", "Critical", $"{state.CritChance * 100:0}% / +{Math.Max(0, state.CritDamage - 1) * 100:0}%"),
-            ("Bullet Pierce", "Pierce", $"{state.BulletPierce:0.##}"),
-            ("Defense", "Defense", $"{state.Defense:N0}"),
-            ("Vitality", "Vitality", $"{state.Vitality:N0}/s"),
-            ("Player Speed", "Move speed", $"{state.PlayerSpeed:0.00}"),
-            ("Bullet Range", "Range", $"{state.BulletRange / Simulation.TileSize:0.0} tiles"),
-        };
-        int columns = 3;
+        IReadOnlyList<StatDisplayDefinition> rows = StatDisplay.Definitions.Take(10).ToList();
+        int columns = 5;
         int cellGap = Px(7);
         int cellWidth = (rect.Width - Px(28) - cellGap * (columns - 1)) / columns;
         int startY = rect.Y + Px(38);
-        for (int index = 0; index < rows.Length; index++)
+        for (int index = 0; index < rows.Count; index++)
         {
             int column = index % columns, row = index / columns;
             var cell = new Rectangle(rect.X + Px(14) + column * (cellWidth + cellGap),
-                startY + row * Px(57), cellWidth, Px(50));
+                startY + row * Px(72), cellWidth, Px(64));
             Primitives2D.FillRoundedRect(spriteBatch, cell, UiTheme.Panel, Px(4));
             var icon = new Rectangle(cell.X + Px(8), cell.Y + Px(9), Px(28), Px(28));
-            StatCards.DrawStatSymbol(spriteBatch, rows[index].Symbol, icon, UiTheme.Cream);
-            DrawSheetText(spriteBatch, rows[index].Label.ToUpperInvariant(), Px(7), UiTheme.Muted,
+            StatDisplayDefinition definition = rows[index];
+            StatCards.DrawStatSymbol(spriteBatch, definition.IconKey, icon, UiTheme.Cream);
+            DrawSheetText(spriteBatch, definition.Abbreviation, Px(8), UiTheme.Muted,
                 new Vector2(icon.Right + Px(7), cell.Y + Px(8)));
-            DrawSheetText(spriteBatch, rows[index].Value, Px(10), UiTheme.Text,
+            DrawSheetText(spriteBatch, definition.Format(state), Px(11), UiTheme.Text,
                 new Vector2(icon.Right + Px(7), cell.Bottom - Px(9)), "bottomleft");
+            if (cell.Contains(mousePosition))
+                _tooltip = $"{definition.Abbreviation} — {definition.Tooltip}";
         }
         IReadOnlyList<(string Category, int Count)> families = FamilyCounts(state);
         string familyText = families.Count == 0
@@ -1609,7 +1689,7 @@ public sealed class InformationSheet
         Vector2 playerWorldPosition,
         IReadOnlyList<QuestDefinition> quests)
     {
-        UiTheme.DrawCompositePanel(spriteBatch, rect, _presentationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, UiTheme.Green, shadow: 4);
         DrawSheetText(spriteBatch, "PROGRESS", Px(12), UiTheme.Green,
             new Vector2(rect.X + Px(14), rect.Y + Px(10)));
@@ -1705,7 +1785,7 @@ public sealed class InformationSheet
     {
         _presentationTime = animationTime;
         _tooltipItem = null;
-        UiTheme.DrawCompositePanel(spriteBatch, panel, animationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, panel,
             UiTheme.PanelRaised, UiTheme.Purple, 4);
         int pad = Math.Max(7, (int)(11 * _uiScale));
         UiTheme.DrawText(spriteBatch, "CARRIED LOADOUT", 13 * _uiScale,
@@ -1758,7 +1838,7 @@ public sealed class InformationSheet
                 mousePosition);
         }
         UiTheme.DrawText(spriteBatch,
-            $"{state.Inventory.Count(item => item is not null)}/{InventorySlotCount} CARRIED  //  {GameProfile.Profile.SoulTokens} SOUL TOKENS",
+            $"{state.Inventory.Count(item => item is not null)}/{InventorySlotCount} CARRIED  //  {GameProfile.Profile.MindTokens} MIND TOKENS",
             7 * _uiScale, UiTheme.Muted,
             new Vector2(panel.X + pad, panel.Bottom - pad), "bottomleft");
 

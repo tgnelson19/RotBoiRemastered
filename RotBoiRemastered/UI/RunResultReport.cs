@@ -22,6 +22,7 @@ public sealed record RunResultReport
     public int Kills { get; init; }
     public double Seconds { get; init; }
     public bool HardMode { get; init; }
+    public bool NoExtract { get; init; }
     public int NewGamePlusLevel { get; init; }
     public int SoulTokenReward { get; init; }
     public int PathMasteryBefore { get; init; }
@@ -73,6 +74,7 @@ public sealed record RunResultReport
             Kills = state.NumOfEnemiesKilled,
             Seconds = state.RunTimeSeconds,
             HardMode = state.HardMode,
+            NoExtract = state.NoExtract,
             NewGamePlusLevel = state.NewGamePlusLevel,
             SoulTokenReward = rewards?.SoulTokenDelta ?? 0,
             PathMasteryBefore = rewards?.PathMasteryBefore ?? mastery,

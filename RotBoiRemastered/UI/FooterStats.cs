@@ -21,22 +21,23 @@ public static class FooterStats
     public static readonly IReadOnlyList<FooterStatDefinition> Definitions =
         new FooterStatDefinition[]
         {
-            new("damage", "DAMAGE", "DMG", "Bullet Damage", state => $"{state.BulletDamage:N0}"),
-            new("attack_rate", "ATTACK RATE", "RATE", "Attack Speed",
-                state => $"{InformationSheet.AttacksPerSecond(state):0.00}/s"),
-            new("projectiles", "PROJECTILES", "SHOTS", "Bullet Count",
-                state => $"{state.ProjectileCount:0.##}"),
-            new("critical", "CRITICAL", "CRIT", "Crit Chance",
-                state => $"{state.CritChance * 100:0}%"),
-            new("pierce", "PIERCE", "PIERCE", "Bullet Pierce",
-                state => $"{state.BulletPierce:0.##}"),
-            new("defense", "DEFENSE", "DEF", "Defense", state => $"{state.Defense:N0}"),
-            new("vitality", "VITALITY", "VIT", "Vitality", state => $"{state.Vitality:N0}/s"),
-            new("move_speed", "MOVE SPEED", "MOVE", "Player Speed",
-                state => $"{state.PlayerSpeed:0.00}"),
-            new("range", "RANGE", "RANGE", "Bullet Range",
-                state => $"{state.BulletRange / Simulation.TileSize:0.0} tiles"),
+            FromStat("damage", "DAMAGE", "damage"),
+            FromStat("attack_rate", "ATTACK RATE", "attack_rate"),
+            FromStat("projectiles", "PROJECTILES", "shots"),
+            FromStat("critical", "CRITICAL", "crit_chance"),
+            FromStat("pierce", "PIERCE", "pierce"),
+            FromStat("defense", "DEFENSE", "defense"),
+            FromStat("vitality", "VITALITY", "vitality"),
+            FromStat("move_speed", "MOVE SPEED", "move_speed"),
+            FromStat("range", "RANGE", "range"),
         };
+
+    private static FooterStatDefinition FromStat(string persistedId, string label, string statId)
+    {
+        StatDisplayDefinition definition = StatDisplay.ById(statId);
+        return new FooterStatDefinition(persistedId, label, definition.Abbreviation,
+            definition.IconKey, definition.Format);
+    }
 
     public static readonly IReadOnlyDictionary<string, FooterStatDefinition> ById =
         Definitions.ToDictionary(definition => definition.Id, StringComparer.Ordinal);

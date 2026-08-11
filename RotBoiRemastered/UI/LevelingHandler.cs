@@ -126,10 +126,9 @@ public sealed class LevelingHandler
     {
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, _screenWidth, _screenHeight), UiTheme.Void);
         int frameMargin = Math.Max(8, (int)(_tileSize * .22f));
-        UiTheme.DrawCompositePanel(spriteBatch,
+        UiTheme.DrawFramedPanel(spriteBatch,
             new Rectangle(frameMargin, frameMargin,
                 _screenWidth - frameMargin * 2, _screenHeight - frameMargin * 2),
-            stats.PresentationTime * (float)GameProfile.Profile.VisualEffectsIntensity,
             UiTheme.Panel, UiTheme.Border, 7);
 
         UiTheme.DrawText(spriteBatch, "LEVEL SECURED", _tileSize * 0.34, UiTheme.Green,
@@ -153,9 +152,7 @@ public sealed class LevelingHandler
             Color accent = UiTheme.RarityColors.TryGetValue(card.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
             bool pressed = hovered && mouseDown;
             var visualRect = new Rectangle(rect.X, rect.Y + (int)(pressed ? Px(2) : hovered ? -Px(7) : 0), rect.Width, rect.Height);
-            UiTheme.DrawCompositePanel(spriteBatch, visualRect,
-                (stats.PresentationTime + index * .23f)
-                    * (float)GameProfile.Profile.VisualEffectsIntensity,
+            UiTheme.DrawFramedPanel(spriteBatch, visualRect,
                 UiTheme.Panel, hovered ? accent : UiTheme.Border,
                 shadow: pressed ? 3 : 7, hovered: hovered);
             Primitives2D.FillRect(spriteBatch, new Rectangle(visualRect.X, visualRect.Y, visualRect.Width, (int)Px(9)), accent);

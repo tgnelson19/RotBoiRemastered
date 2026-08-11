@@ -20,6 +20,7 @@ public sealed class RunResultReportTests
                 NumOfEnemiesKilled = 220,
                 RunTimeSeconds = 321,
             };
+            state.SetNoExtract(true);
             state.RecordUpgrade("Bullet Damage", "Common");
             state.SetEquipment(new Dictionary<string, ItemDrop?>
             {
@@ -39,6 +40,7 @@ public sealed class RunResultReportTests
             Assert.Equal(1, report.PathMasteryBefore);
             Assert.Equal(2, report.PathMasteryAfter);
             Assert.Equal(2, report.NewGamePlusAfter);
+            Assert.True(report.NoExtract);
             Assert.Contains(report.RetainedLoadout,
                 item => item.Name == "Iron Sword");
             Assert.Empty(report.LostLoadout);

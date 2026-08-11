@@ -145,6 +145,19 @@ public class EnemyProjectileTests
     }
 
     [Fact]
+    public void SplitBudgetAndActivationTelegraph_DefaultToLegacyBehavior()
+    {
+        var projectile = new EnemyProjectile(
+            100, 125, direction: 0f, speed: 4, damage: 10, size: 10,
+            travelRange: 5000);
+
+        Assert.Equal(1, projectile.ThreatReservationCost);
+        Assert.Equal(1f, projectile.SplitTelegraphStartRatio);
+        Assert.Equal(1.08f, projectile.SplitSpeedScale);
+        Assert.Null(projectile.SplitChildLifetime);
+    }
+
+    [Fact]
     public void Collides_Default_UsesWorldRectOverlap()
     {
         var projectile = new EnemyProjectile(100, 100, direction: 0f, speed: 0, damage: 10, size: 20);

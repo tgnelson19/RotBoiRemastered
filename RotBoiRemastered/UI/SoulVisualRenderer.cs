@@ -98,7 +98,8 @@ internal static class SoulVisualRenderer
                 "quests" => GameProfile.Profile.CompletedQuests.Count >= MetaProgression.Quests.Count,
                 "skills" => MetaProgression.SkillNodes.All(node =>
                     GameProfile.Profile.SkillLevels.GetValueOrDefault(node.Key) >= node.MaxLevel),
-                "hard_mode" => GameProfile.Profile.HardModeEnabled,
+                "hard_mode" => GameProfile.Profile.NoHealingEnabled,
+                "no_extract" => GameProfile.Profile.NoExtractEnabled,
                 _ => false,
             };
             SoulStationPresentationState state = activeStation == key
@@ -120,10 +121,10 @@ internal static class SoulVisualRenderer
         string? enteringPortal,
         double portalAnimationStart)
     {
-        if (portals.TryGetValue(SoulHub.CompositePathPortalKey, out Vector2 composite))
+        if (portals.TryGetValue(SoulHub.BodyPortalKey, out Vector2 composite))
         {
             SoulPortalPresentationState state = ResolvePortalState(
-                SoulHub.CompositePathPortalKey, nearbyPortal, confirmingPortal, enteringPortal);
+                SoulHub.BodyPortalKey, nearbyPortal, confirmingPortal, enteringPortal);
             float pull = state == SoulPortalPresentationState.Committing
                 ? (float)Math.Clamp((time - portalAnimationStart) / .9, 0, 1)
                 : 0;
@@ -203,8 +204,8 @@ internal static class SoulVisualRenderer
 
     private static void DrawChapel(SpriteBatch spriteBatch, GameSession session, float time, float intensity)
     {
-        Vector2 aisleSouth = Screen(session, SoulLayout.TileWorldCenter(new Point(39, 76)));
-        Vector2 aisleNorth = Screen(session, SoulLayout.TileWorldCenter(new Point(39, 55)));
+        Vector2 aisleSouth = Screen(session, SoulLayout.TileWorldCenter(SoulLayout.AuthoredTile(39, 76)));
+        Vector2 aisleNorth = Screen(session, SoulLayout.TileWorldCenter(SoulLayout.AuthoredTile(39, 55)));
         Primitives2D.Line(spriteBatch, aisleSouth + new Vector2(5, 7), aisleNorth + new Vector2(5, 7),
             UiTheme.Shadow * .65f, 80);
         Primitives2D.Line(spriteBatch, aisleSouth, aisleNorth, new Color(72, 42, 76) * .72f, 58);
@@ -217,8 +218,8 @@ internal static class SoulVisualRenderer
             float y = 62 + row * 4;
             foreach (float x in new[] { 33f, 45f })
             {
-                Vector2 a = Screen(session, SoulLayout.TileWorldCenter(new Point((int)x - 3, (int)y)));
-                Vector2 b = Screen(session, SoulLayout.TileWorldCenter(new Point((int)x, (int)y)));
+                Vector2 a = Screen(session, SoulLayout.TileWorldCenter(SoulLayout.AuthoredTile((int)x - 3, (int)y)));
+                Vector2 b = Screen(session, SoulLayout.TileWorldCenter(SoulLayout.AuthoredTile((int)x, (int)y)));
                 Primitives2D.Line(spriteBatch, a + new Vector2(5, 8), b + new Vector2(5, 8), UiTheme.Shadow * .7f, 16);
                 Primitives2D.Line(spriteBatch, a, b, ChapelStone, 10);
                 Primitives2D.Line(spriteBatch, a - new Vector2(0, 3), b - new Vector2(0, 3), ChapelStoneLight * .65f, 3);
@@ -230,7 +231,7 @@ internal static class SoulVisualRenderer
         {
             float side = pane % 2 == 0 ? -1 : 1;
             float y = 60 + pane / 2 * 6;
-            Vector2 at = Screen(session, SoulLayout.TileWorldCenter(new Point(
+            Vector2 at = Screen(session, SoulLayout.TileWorldCenter(SoulLayout.AuthoredTile(
                 39 + (int)(side * 12), (int)y)));
             float step = MathF.Floor((.5f + .5f * MathF.Sin(time * 1.2f + pane)) * 3f) / 3f;
             Color color = (pane % 3) switch
@@ -261,7 +262,7 @@ internal static class SoulVisualRenderer
         {
             float x = 27f + (dust * 7 % 25);
             float y = 58f + ((dust * 11 + (int)(time * (1 + dust % 2))) % 18);
-            Vector2 at = Screen(session, SoulLayout.TileWorldCenter(new Point((int)x, (int)y)));
+            Vector2 at = Screen(session, SoulLayout.TileWorldCenter(SoulLayout.AuthoredTile((int)x, (int)y)));
             int rise = (int)MathF.Floor((time * (5 + dust % 3) + dust * 13) % 24);
             Primitives2D.FillRect(spriteBatch,
                 new Rectangle((int)at.X - 1, (int)at.Y - rise, 2 + dust % 2, 2 + dust % 2),
@@ -547,7 +548,10 @@ internal static class SoulVisualRenderer
                 DrawVestmentMirror(spriteBatch, at, accent, time, wake);
                 break;
             case "hard_mode":
-                DrawTrialBrazier(spriteBatch, at, accent, time, wake, GameProfile.Profile.HardModeEnabled);
+                DrawTrialBrazier(spriteBatch, at, accent, time, wake, GameProfile.Profile.NoHealingEnabled);
+                break;
+            case "no_extract":
+                DrawTrialBrazier(spriteBatch, at, UiTheme.Purple, time, wake, GameProfile.Profile.NoExtractEnabled);
                 break;
         }
 
@@ -896,7 +900,7 @@ internal static class SoulVisualRenderer
         Primitives2D.FillCircle(spriteBatch, center, corePulse,
             Color.Lerp(UiTheme.Purple, UiTheme.Gold, .45f + completed * .06f));
         Primitives2D.CircleOutline(spriteBatch, center, radius * .32f, UiTheme.Cream * .72f * wake, 3);
-        UiTheme.DrawText(spriteBatch, "THE FINAL PORTAL", 12, UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "THE BODY", 12, UiTheme.Gold,
             new Vector2(center.X, center.Y + radius + 15), "midtop");
         UiTheme.DrawText(spriteBatch, "RANDOMIZED PATH  //  TEN FLOORS", 8, UiTheme.Cream,
             new Vector2(center.X, center.Y + radius + 34), "midtop");
@@ -927,8 +931,10 @@ internal static class SoulVisualRenderer
         "quests" => ("VOW LECTERN", UiTheme.Green),
         "skills" => ("SOUL ROSE", UiTheme.Purple),
         "wardrobe" => ("VESTMENT MIRROR", UiTheme.Blue),
-        "hard_mode" => (GameProfile.Profile.HardModeEnabled ? "TRIAL LIT" : "TRIAL BRAZIER",
-            GameProfile.Profile.HardModeEnabled ? UiTheme.Red : UiTheme.Muted),
+        "hard_mode" => (GameProfile.Profile.NoHealingEnabled ? "NO HEALING LIT" : "NO HEALING BRAZIER",
+            GameProfile.Profile.NoHealingEnabled ? UiTheme.Red : UiTheme.Muted),
+        "no_extract" => (GameProfile.Profile.NoExtractEnabled ? "NO EXTRACT LIT" : "NO EXTRACT BRAZIER",
+            GameProfile.Profile.NoExtractEnabled ? UiTheme.Purple : UiTheme.Muted),
         _ => (key.ToUpperInvariant(), UiTheme.Cream),
     };
 

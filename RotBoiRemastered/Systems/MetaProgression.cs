@@ -9,15 +9,16 @@ public sealed record QuestDefinition(
 
 /// <summary>Exact persisted deltas produced while finalizing a successful run.</summary>
 public sealed record RunRewardSummary(
-    int SoulTokensBefore,
-    int SoulTokensAfter,
+    int MindTokensBefore,
+    int MindTokensAfter,
     int PathMasteryBefore,
     int PathMasteryAfter,
     int NewGamePlusBefore,
     int NewGamePlusAfter,
     bool EquipmentRetained)
 {
-    public int SoulTokenDelta => SoulTokensAfter - SoulTokensBefore;
+    public int MindTokenDelta => MindTokensAfter - MindTokensBefore;
+    public int SoulTokenDelta => MindTokenDelta;
 }
 
 /// <summary>Permanent, UI-independent progression rules shared by the Soul and run startup.</summary>
@@ -81,7 +82,7 @@ public static class MetaProgression
                 || GameProfile.Profile.QuestProgress.GetValueOrDefault(quest.Counter) < quest.Target)
                 continue;
             GameProfile.Profile.CompletedQuests.Add(quest.Key);
-            GameProfile.Profile.SoulTokens += quest.Reward;
+            GameProfile.Profile.MindTokens += quest.Reward;
             changed = true;
         }
         if (changed && save)
@@ -94,9 +95,9 @@ public static class MetaProgression
             return false;
         int level = GameProfile.Profile.SkillLevels.GetValueOrDefault(key);
         int cost = node.BaseCost + level / 2;
-        if (level >= node.MaxLevel || GameProfile.Profile.SoulTokens < cost)
+        if (level >= node.MaxLevel || GameProfile.Profile.MindTokens < cost)
             return false;
-        GameProfile.Profile.SoulTokens -= cost;
+        GameProfile.Profile.MindTokens -= cost;
         GameProfile.Profile.SkillLevels[key] = level + 1;
         GameProfile.SaveProfile();
         return true;
@@ -148,7 +149,7 @@ public static class MetaProgression
 
     public static RunRewardSummary RecordExtraction(RunState state, string path, bool completed)
     {
-        int tokensBefore = GameProfile.Profile.SoulTokens;
+        int tokensBefore = GameProfile.Profile.MindTokens;
         int masteryBefore = GameProfile.Profile.PathMastery.GetValueOrDefault(path);
         int newGamePlusBefore = GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(path);
         var run = new ExtractedRunData
@@ -166,7 +167,7 @@ public static class MetaProgression
         GameProfile.IncrementQuest("runs_extracted");
         if (completed)
         {
-            GameProfile.Profile.SoulTokens += PathCompletionTokenReward
+            GameProfile.Profile.MindTokens += PathCompletionTokenReward
                 * (state.HardMode ? 2 : 1)
                 * NewGamePlus.RewardMultiplier(state.NewGamePlusLevel);
             GameProfile.IncrementQuest("path_clears");
@@ -176,7 +177,7 @@ public static class MetaProgression
         GameProfile.SaveProfile();
         return new RunRewardSummary(
             tokensBefore,
-            GameProfile.Profile.SoulTokens,
+            GameProfile.Profile.MindTokens,
             masteryBefore,
             GameProfile.Profile.PathMastery.GetValueOrDefault(path),
             newGamePlusBefore,

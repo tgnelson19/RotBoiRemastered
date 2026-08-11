@@ -26,7 +26,7 @@ public sealed record BossDefinition(string Key, string DisplayName, BossFactory 
 /// since `gamePaths.py`'s per-path boss-key selection isn't wired), the
 /// Touch path's `bair`/`rot`, the sight-themed `ishe`/`chronos`, the
 /// Chemesthesis path's `kage`/`ache`, and the Phantasia path's
-/// `hypno`/`malady`.
+/// `hypno`/`malady`, and the final Aphantasia encounter.
 /// </summary>
 public sealed class BossCatalog
 {
@@ -66,6 +66,8 @@ public sealed class BossCatalog
         catalog.Register(new BossDefinition("rot", "Rot", (x, y, battleground, _, rng) => new Rot(x, y, battleground, rng)));
         catalog.Register(new BossDefinition("hypno", "Hypno", (x, y, battleground, _, rng) => new Hypno(x, y, battleground, rng)));
         catalog.Register(new BossDefinition("malady", "Malady", (x, y, battleground, _, rng) => new Malady(x, y, battleground, rng)));
+        catalog.Register(new BossDefinition("aphantasia", "Aphantasia, Essence of Darkness",
+            (x, y, battleground, _, rng) => new Aphantasia(x, y, battleground, rng)));
         return catalog;
     }
 }

@@ -22,7 +22,8 @@ public static class StatusEffects
 {
     public static void Apply(Enemy enemy, string kind, double duration, double potency = 0, int stacks = 1)
     {
-        bool isBoss = enemy is Beaudis or Dissonance or PathChaseBoss or SinChemesthesisBoss or PhantasiaBoss or PlagueTouchBoss;
+        bool isBoss = enemy is Aphantasia or Beaudis or Dissonance or PathChaseBoss
+            or SinChemesthesisBoss or PhantasiaBoss or PlagueTouchBoss;
         if (kind == "stun")
         {
             enemy.StatusControlResistance = Math.Min(.8, enemy.StatusControlResistance + (isBoss ? .18 : .08));

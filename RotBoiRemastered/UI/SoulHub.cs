@@ -8,15 +8,19 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
-/// <summary>Safe firing range and tile-based permanent progression sanctuary.</summary>
-public sealed class SoulHub
+/// <summary>Legacy source filename for The Mind's safe firing range and progression sanctuary.</summary>
+public class SoulHub
 {
     /// <summary>
     /// Synthetic portal key returned to RotBoiGame when the convergence
     /// portal finishes its pull animation. It is not a GamePaths sense key:
     /// the caller starts the ten-floor randomized composite Path instead.
     /// </summary>
-    public const string CompositePathPortalKey = "__composite_path";
+    public const string BodyPortalKey = "__body";
+    public const string CorePortalKey = "__core";
+    public const string AphantasiaPortalKey = "__aphantasia";
+    [Obsolete("Use BodyPortalKey.")]
+    public const string CompositePathPortalKey = BodyPortalKey;
     private const float StationOpenRadiusTiles = 1.45f;
     private const float StationCloseRadiusTiles = 1.85f;
     private const float PathPortalInteractRadiusTiles = 1.6f;
@@ -53,6 +57,8 @@ public sealed class SoulHub
     private Rectangle _ngPlusRect;
     private float _playerDrawScale = 1f;
     private float _uiScale = 1f;
+    private PathFogOfWar? _mindFog;
+    private int _devSenseIndex;
     private int Px(float value) => Math.Max(1, (int)MathF.Round(value * _uiScale));
     private double Fs(double value) => value * _uiScale;
     public bool OverlayOpen => _overlay is not null || _confirmingPortalKey is not null;
@@ -63,7 +69,7 @@ public sealed class SoulHub
     /// <summary>World center of the DPS dummy's hit rect -- exposed so callers (and tests) can place bullets on it without duplicating its layout.</summary>
     public Vector2 DummyWorld => _dummyWorld;
     /// <summary>World center of the convergence portal after Enter has authored the current Soul layout.</summary>
-    public Vector2 CompositePortalWorld => _pathPortalWorld.GetValueOrDefault(CompositePathPortalKey);
+    public Vector2 CompositePortalWorld => _pathPortalWorld.GetValueOrDefault(BodyPortalKey);
     internal Vector2 StationWorld(string key) => _stationWorld[key];
     internal Vector2 PortalWorld(string key) => _pathPortalWorld[key];
     public double CurrentDps => _currentDps;
@@ -97,7 +103,10 @@ public sealed class SoulHub
         _pathPortalWorld.Clear();
         foreach (var (key, tile) in SoulLayout.PortalTiles)
             _pathPortalWorld[key] = SoulLayout.TileWorldCenter(tile);
-        _pathPortalWorld[CompositePathPortalKey] = SoulLayout.TileWorldCenter(SoulLayout.NexusTile);
+        Vector2 nexus = SoulLayout.TileWorldCenter(SoulLayout.NexusTile);
+        _pathPortalWorld[BodyPortalKey] = nexus;
+        _pathPortalWorld[CorePortalKey] = SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile);
+        _pathPortalWorld[AphantasiaPortalKey] = SoulLayout.TileWorldCenter(SoulLayout.AphantasiaPortalTile);
         _dummyHits.Clear();
         _seconds = 0;
         _measurementStart = 0;
@@ -110,6 +119,8 @@ public sealed class SoulHub
         _confirmingPortalKey = null;
         _enteringPortalKey = null;
         _playerDrawScale = 1f;
+        _mindFog = new PathFogOfWar(session.Battleground);
+        _mindFog.Update(session.PlayerWorldCenter);
         session.InformationSheet.CancelDrag();
     }
 
@@ -117,6 +128,7 @@ public sealed class SoulHub
     {
         _seconds += Math.Min(.05, elapsedSeconds);
         _dummyHitFlash = Math.Max(0, _dummyHitFlash - elapsedSeconds);
+        _mindFog?.Update(session.PlayerWorldCenter);
         if (_enteringPortalKey is not null)
             UpdatePortalTravel(session);
         var dummyRect = new Rectangle((int)(_dummyWorld.X - 34), (int)(_dummyWorld.Y - 44), 68, 88);
@@ -150,6 +162,12 @@ public sealed class SoulHub
             _lastRecordSave = _seconds;
         }
         session.UpdateDamageTexts();
+    }
+
+    public void DrawMindFog(SpriteBatch spriteBatch, GameSession session)
+    {
+        if (_mindFog is not null)
+            session.DrawFogOfWar(spriteBatch, _mindFog);
     }
 
     /// <summary>Folds a landed hit (direct bullet impact or a status-effect tick) into the DPS window, damage text, and quest counter -- shared by both so bleed/bane ticks show up exactly like a direct hit would.</summary>
@@ -202,6 +220,11 @@ public sealed class SoulHub
     /// </summary>
     public string? HandleInput(GameSession session, IReadOnlySet<Keys> keysPressed, Point mouse, bool mouseDown, bool mousePressed)
     {
+        if (keysPressed.Contains(Keys.F8))
+        {
+            ToggleDevUnlockTesting(session);
+            return null;
+        }
         if (_enteringPortalKey is not null)
         {
             if (_seconds - _portalAnimationStart < PortalPullSeconds + PortalFadeSeconds)
@@ -222,11 +245,12 @@ public sealed class SoulHub
                 || (mousePressed && _ngMinusRect.Contains(mouse));
             bool higherTier = keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D)
                 || (mousePressed && _ngPlusRect.Contains(mouse));
-            string newGamePlusKey = NewGamePlusKey(_confirmingPortalKey);
-            if (lowerTier)
-                AdjustNewGamePlus(newGamePlusKey, -1);
-            if (higherTier)
-                AdjustNewGamePlus(newGamePlusKey, 1);
+            if (_confirmingPortalKey != AphantasiaPortalKey)
+            {
+                string newGamePlusKey = NewGamePlusKey(_confirmingPortalKey);
+                if (lowerTier) AdjustNewGamePlus(newGamePlusKey, -1);
+                if (higherTier) AdjustNewGamePlus(newGamePlusKey, 1);
+            }
             if (keysPressed.Contains(Keys.F))
             {
                 _enteringPortalKey = _confirmingPortalKey;
@@ -273,6 +297,8 @@ public sealed class SoulHub
             {
                 if (nearby == "hard_mode")
                     ToggleHardMode(session);
+                else if (nearby == "no_extract")
+                    ToggleNoExtract(session);
                 else
                     _overlay = nearby;
             }
@@ -294,6 +320,8 @@ public sealed class SoulHub
                 if (parts.Length == 3 && Cosmetics.Select(parts[1], parts[2]))
                     session.State.ApplyCosmetics();
             }
+            else if (key.StartsWith("dev:"))
+                HandleDevAction(session, key[4..]);
             break;
         }
         return null;
@@ -301,17 +329,38 @@ public sealed class SoulHub
 
     public static void ToggleHardMode(GameSession session)
     {
-        bool enabled = !GameProfile.Profile.HardModeEnabled;
-        GameProfile.Profile.HardModeEnabled = enabled;
+        bool enabled = !GameProfile.Profile.NoHealingEnabled;
+        GameProfile.Profile.NoHealingEnabled = enabled;
         session.State.SetHardMode(enabled);
+        GameProfile.SaveProfile();
+    }
+
+    public static void ToggleNoExtract(GameSession session)
+    {
+        bool enabled = !GameProfile.Profile.NoExtractEnabled;
+        GameProfile.Profile.NoExtractEnabled = enabled;
+        session.State.SetNoExtract(enabled);
         GameProfile.SaveProfile();
     }
 
     public static bool AdjustNewGamePlus(string pathKey, int direction) =>
         NewGamePlus.AdjustSelection(pathKey, direction);
 
+    private void ToggleDevUnlockTesting(GameSession session)
+    {
+        GameProfile.Profile.DevUnlockTesting = !GameProfile.Profile.DevUnlockTesting;
+        GameProfile.SaveProfile();
+        RebuildMind(session);
+    }
+
+    private void RebuildMind(GameSession session)
+    {
+        session.ResetAll(Battleground.GenerateMind());
+        Enter(session);
+    }
+
     private static string NewGamePlusKey(string portalKey) =>
-        portalKey == CompositePathPortalKey ? NewGamePlus.DungeonKey : portalKey;
+        portalKey == CorePortalKey ? NewGamePlus.DungeonKey : portalKey;
 
     private string? NearbyStation(GameSession session) => _stationWorld
         .Where(station => WithinStationRadius(session.PlayerWorldCenter, station.Value, StationOpenRadiusTiles))
@@ -320,10 +369,19 @@ public sealed class SoulHub
         .FirstOrDefault();
 
     private string? NearbyPathPortal(GameSession session) => _pathPortalWorld
+        .Where(portal => PortalAvailable(portal.Key))
         .Where(portal => WithinStationRadius(session.PlayerWorldCenter, portal.Value, PathPortalInteractRadiusTiles))
         .OrderBy(portal => Vector2.DistanceSquared(portal.Value, session.PlayerWorldCenter))
         .Select(portal => portal.Key)
         .FirstOrDefault();
+
+    private static bool PortalAvailable(string key) => key switch
+    {
+        BodyPortalKey => true,
+        CorePortalKey => CampaignProgression.PortalUnlocked("core"),
+        AphantasiaPortalKey => CampaignProgression.PortalUnlocked("aphantasia"),
+        _ => CampaignProgression.PortalUnlocked(key),
+    };
 
     public static bool WithinStationRadius(Vector2 player, Vector2 station, float radiusTiles) =>
         Vector2.DistanceSquared(player, station) <= MathF.Pow(Simulation.TileSize * radiusTiles, 2);
@@ -384,6 +442,11 @@ public sealed class SoulHub
             spriteBatch, session, (float)_seconds, _pathPortalWorld,
             NearbyPathPortal(session), _confirmingPortalKey, _enteringPortalKey,
             _portalAnimationStart);
+        DrawCampaignGatePortals(spriteBatch, session, NearbyPathPortal(session),
+            (float)_seconds);
+        // Statues belong to the world layer so unexplored, wall-sealed wings
+        // remain genuinely concealed by The Mind's fog of war.
+        DrawCampaignStatues(spriteBatch, session);
     }
 
     /// <summary>
@@ -836,11 +899,16 @@ public sealed class SoulHub
     public void DrawForeground(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
         _uiScale = UiTheme.DisplayScale(session.ScreenWidth, session.ScreenHeight);
-        UiTheme.DrawText(spriteBatch, "THE SOUL", Fs(27), UiTheme.Text, new Vector2(Px(22), Px(18)));
+        UiTheme.DrawText(spriteBatch, "THE MIND", Fs(27), UiTheme.Text, new Vector2(Px(22), Px(18)));
         UiTheme.DrawText(spriteBatch,
-            $"SAFE GROUND  //  HARD MODE {(GameProfile.Profile.HardModeEnabled ? "ON" : "OFF")}  //  WALK TO A STATION OR PATH PORTAL  //  F INTERACT  //  ESC OPTIONS",
+            $"SAFE GROUND  //  NO HEALING {(GameProfile.Profile.NoHealingEnabled ? "ON" : "OFF")}  //  NO EXTRACT {(GameProfile.Profile.NoExtractEnabled ? "ON" : "OFF")}  //  F INTERACT  //  ESC OPTIONS",
             Fs(9), UiTheme.Muted, new Vector2(Px(24), Px(54)));
         DrawNearbyPrompt(spriteBatch, session);
+        if (GameProfile.Profile.DevUnlockTesting)
+        {
+            DrawDevTestingToggle(spriteBatch, session, mouse, mouseDown);
+            DrawDevUnlockControls(spriteBatch, session, mouse, mouseDown);
+        }
         if (_overlay is not null) DrawOverlay(spriteBatch, session, mouse);
         if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session, mouse, mouseDown);
         if (_overlay is null && _confirmingPortalKey is null)
@@ -856,10 +924,12 @@ public sealed class SoulHub
         {
             ["storage"] = ("VAULT", UiTheme.Gold),
             ["quests"] = ("QUEST ALTAR", UiTheme.Green),
-            ["skills"] = ("SOUL GRID", UiTheme.Purple),
+            ["skills"] = ("MIND GRID", UiTheme.Purple),
             ["wardrobe"] = ("WARDROBE", UiTheme.Blue),
-            ["hard_mode"] = (GameProfile.Profile.HardModeEnabled ? "HARD MODE ON" : "HARD MODE OFF",
-                GameProfile.Profile.HardModeEnabled ? UiTheme.Red : UiTheme.Muted),
+            ["hard_mode"] = (GameProfile.Profile.NoHealingEnabled ? "NO HEALING ON" : "NO HEALING OFF",
+                GameProfile.Profile.NoHealingEnabled ? UiTheme.Red : UiTheme.Muted),
+            ["no_extract"] = (GameProfile.Profile.NoExtractEnabled ? "NO EXTRACT ON" : "NO EXTRACT OFF",
+                GameProfile.Profile.NoExtractEnabled ? UiTheme.Purple : UiTheme.Muted),
         };
         foreach (var (key, world) in _stationWorld)
         {
@@ -867,7 +937,7 @@ public sealed class SoulHub
             var (label, accent) = labels[key];
             int width = key == "hard_mode" ? 88 : 56;
             var baseRect = new Rectangle((int)position.X - width / 2, (int)position.Y - 24, width, 48);
-            if (key == "hard_mode" && GameProfile.Profile.HardModeEnabled)
+            if (key == "hard_mode" && GameProfile.Profile.NoHealingEnabled)
             {
                 var glow = baseRect;
                 glow.Inflate(5, 5);
@@ -887,9 +957,11 @@ public sealed class SoulHub
         var labels = new Dictionary<string, (string Label, Color Accent)>
         {
             ["storage"] = ("VAULT RELIQUARY", UiTheme.Gold), ["quests"] = ("VOW LECTERN", UiTheme.Green),
-            ["skills"] = ("SOUL ROSE", UiTheme.Purple), ["wardrobe"] = ("VESTMENT MIRROR", UiTheme.Blue),
-            ["hard_mode"] = (GameProfile.Profile.HardModeEnabled ? "EXTINGUISH THE TRIAL" : "LIGHT THE TRIAL",
-                GameProfile.Profile.HardModeEnabled ? UiTheme.Red : UiTheme.Gold),
+            ["skills"] = ("MIND ROSE", UiTheme.Purple), ["wardrobe"] = ("VESTMENT MIRROR", UiTheme.Blue),
+            ["hard_mode"] = (GameProfile.Profile.NoHealingEnabled ? "EXTINGUISH NO HEALING" : "LIGHT NO HEALING",
+                GameProfile.Profile.NoHealingEnabled ? UiTheme.Red : UiTheme.Gold),
+            ["no_extract"] = (GameProfile.Profile.NoExtractEnabled ? "EXTINGUISH NO EXTRACT" : "LIGHT NO EXTRACT",
+                GameProfile.Profile.NoExtractEnabled ? UiTheme.Purple : UiTheme.Gold),
         };
         var nearby = NearbyStation(session);
         if (nearby is not null)
@@ -910,6 +982,7 @@ public sealed class SoulHub
         float t = (float)_seconds;
         string? nearbyPortal = NearbyPathPortal(session);
         DrawCompositePathPortal(spriteBatch, session, nearbyPortal, t);
+        DrawCampaignGatePortals(spriteBatch, session, nearbyPortal, t);
         foreach (var path in GamePaths.Paths)
         {
             if (!_pathPortalWorld.TryGetValue(path.Key, out var world)) continue;
@@ -944,8 +1017,234 @@ public sealed class SoulHub
                 new Vector2(screen.X, screen.Y + radius + 25), "midtop");
             // Suppressed while confirming/entering that same portal -- the center
             // confirmation panel (DrawPortalConfirm) already explains the prompt.
-            if (path.Key == nearbyPortal && path.Key != _confirmingPortalKey && _enteringPortalKey is null)
+            bool unlocked = CampaignProgression.PortalUnlocked(path.Key);
+            if (!unlocked)
+                UiTheme.DrawText(spriteBatch, "SEALED", 9, UiTheme.Red,
+                    new Vector2(screen.X, screen.Y + radius + 42), "midtop");
+            else if (path.Key == nearbyPortal && path.Key != _confirmingPortalKey && _enteringPortalKey is null)
                 UiTheme.DrawText(spriteBatch, "F  //  ENTER", 9, UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 42), "midtop");
+        }
+    }
+
+    private void DrawCampaignStatues(SpriteBatch spriteBatch, GameSession session)
+    {
+        foreach (string sense in CampaignProgression.SenseKeys)
+        {
+            if (!_pathPortalWorld.TryGetValue(sense, out Vector2 portal))
+                continue;
+            StatueProgress silver = EffectiveStatue(sense, StatueMaterial.Silver);
+            if (silver.Unlocked)
+                DrawStatue(spriteBatch, session, portal + new Vector2(Simulation.TileSize * 2f, 0),
+                    silver, new Color(175, 184, 196));
+        }
+        if (_pathPortalWorld.TryGetValue(CorePortalKey, out Vector2 core))
+        {
+            for (int index = 0; index < CampaignProgression.SenseKeys.Length; index++)
+            {
+                StatueProgress gold = EffectiveStatue(CampaignProgression.SenseKeys[index], StatueMaterial.Gold);
+                if (!gold.Unlocked)
+                    continue;
+                float angle = index * MathF.Tau / CampaignProgression.SenseKeys.Length;
+                DrawStatue(spriteBatch, session,
+                    core + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * Simulation.TileSize * 3f,
+                    gold, UiTheme.Gold);
+            }
+        }
+    }
+
+    private static StatueProgress EffectiveStatue(string sense, StatueMaterial material)
+    {
+        StatueProgress saved = (material == StatueMaterial.Silver
+            ? CampaignProgression.Data.SilverStatues : CampaignProgression.Data.GoldStatues)[sense];
+        Dictionary<string, ChallengeClear> overrides = material == StatueMaterial.Silver
+            ? CampaignDevOverrides.SilverStatues : CampaignDevOverrides.GoldStatues;
+        return GameProfile.Profile.DevUnlockTesting && overrides.TryGetValue(sense, out ChallengeClear clear)
+            ? new StatueProgress { Unlocked = true, ChallengeClears = clear }
+            : saved;
+    }
+
+    private void DrawStatue(SpriteBatch spriteBatch, GameSession session,
+        Vector2 world, StatueProgress statue, Color material)
+    {
+        Vector2 at = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
+        bool blood = statue.ChallengeClears.HasFlag(ChallengeClear.NoHealing) || statue.Rainbow;
+        bool crack = statue.ChallengeClears.HasFlag(ChallengeClear.NoExtract);
+        if (blood)
+            Primitives2D.FillEllipse(spriteBatch,
+                new Rectangle((int)at.X - 29, (int)at.Y + 15, 58, 18), new Color(94, 8, 18) * .82f);
+        if (statue.Rainbow)
+        {
+            for (int piece = 0; piece < 6; piece++)
+            {
+                int x = (int)at.X - 22 + piece * 8;
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle(x, (int)at.Y + 5 + piece % 2 * 6, 11, 10), material * .72f);
+            }
+            float hover = MathF.Sin((float)_seconds * 1.5f) * 5f;
+            Color rainbow = RainbowColor((float)_seconds * .18f);
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)at.X - 10, (int)(at.Y - 31 + hover), 20, 20), rainbow);
+            Primitives2D.RectOutline(spriteBatch,
+                new Rectangle((int)at.X - 10, (int)(at.Y - 31 + hover), 20, 20), UiTheme.Cream, 2);
+            return;
+        }
+        Primitives2D.FillRect(spriteBatch, new Rectangle((int)at.X - 23, (int)at.Y + 15, 46, 10), material * .68f);
+        Primitives2D.FillRect(spriteBatch, new Rectangle((int)at.X - 12, (int)at.Y - 20, 24, 38), material);
+        Primitives2D.FillCircle(spriteBatch, at + new Vector2(0, -25), 12, material);
+        if (blood)
+        {
+            Primitives2D.FillCircle(spriteBatch, at + new Vector2(-6, -8), 5, new Color(110, 7, 17));
+            Primitives2D.FillCircle(spriteBatch, at + new Vector2(7, 5), 4, new Color(110, 7, 17));
+        }
+        if (crack)
+        {
+            Color rainbow = RainbowColor((float)_seconds * .2f);
+            Primitives2D.Line(spriteBatch, at + new Vector2(-8, -31), at + new Vector2(5, -12), rainbow, 4);
+            Primitives2D.Line(spriteBatch, at + new Vector2(5, -12), at + new Vector2(-4, 15), rainbow, 4);
+        }
+    }
+
+    private static Color RainbowColor(float phase) => new(
+        .5f + .5f * MathF.Sin(phase * MathF.Tau),
+        .5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau / 3f),
+        .5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau * 2f / 3f));
+
+    private void DrawDevTestingToggle(SpriteBatch spriteBatch, GameSession session,
+        Point mouse, bool mouseDown)
+    {
+        int width = Math.Min(230, session.ScreenWidth / 3);
+        var rect = new Rectangle(session.ScreenWidth - width - 16, 18, width, 34);
+        _targets["dev:toggle"] = rect;
+        bool enabled = GameProfile.Profile.DevUnlockTesting;
+        UiTheme.DrawButton(spriteBatch, rect,
+            $"DEV UNLOCKS: {(enabled ? "ON" : "OFF")}  //  F8",
+            mouse, mouseDown, true, enabled ? UiTheme.Gold : UiTheme.Muted,
+            textSize: 8);
+    }
+
+    private void DrawDevUnlockControls(SpriteBatch spriteBatch, GameSession session,
+        Point mouse, bool mouseDown)
+    {
+        int width = Math.Min(270, session.ScreenWidth / 3);
+        int x = session.ScreenWidth - width - 16;
+        int y = 82;
+        var controls = new List<(string Action, string Label, Color Color)>();
+        controls.AddRange(CampaignProgression.SenseKeys.Select(sense =>
+            ($"portal:{sense}", $"{sense.ToUpperInvariant()} ARENA  {DevGateLabel(sense)}",
+                GamePaths.PathsByKey[sense].Accent)));
+        controls.Add(("portal:core", $"CORE GATE  {DevGateLabel("core")}", UiTheme.Gold));
+        string selectedSense = CampaignProgression.SenseKeys[_devSenseIndex];
+        controls.Add(("sense", $"TEST SENSE: {selectedSense.ToUpperInvariant()}  //  NEXT",
+            GamePaths.PathsByKey[selectedSense].Accent));
+        controls.Add(($"silver:{selectedSense}",
+            $"SILVER STATUE  {DevStatueLabel(selectedSense, StatueMaterial.Silver)}",
+            new Color(175, 184, 196)));
+        controls.Add(($"gold:{selectedSense}",
+            $"GOLD STATUE  {DevStatueLabel(selectedSense, StatueMaterial.Gold)}", UiTheme.Gold));
+        controls.Add(("rainbow", "TOGGLE ALL RAINBOW", UiTheme.Purple));
+        controls.Add(("portal:aphantasia", $"APHANTASIA  {DevGateLabel("aphantasia")}", UiTheme.Purple));
+        controls.Add(("reset", "RESET OVERRIDES TO SAVED", UiTheme.Red));
+        UiTheme.DrawText(spriteBatch, "DEV UNLOCK TESTING", 10, UiTheme.Gold,
+            new Vector2(x + width / 2f, y - 18), "center");
+        int rowHeight = Math.Max(23, Math.Min(29,
+            (session.ScreenHeight - y - 18) / controls.Count));
+        for (int index = 0; index < controls.Count; index++)
+        {
+            var control = controls[index];
+            var rect = new Rectangle(x, y + index * rowHeight, width, rowHeight - 3);
+            _targets[$"dev:{control.Action}"] = rect;
+            UiTheme.DrawButton(spriteBatch, rect, control.Label, mouse, mouseDown,
+                true, control.Color, textSize: 7.5);
+        }
+    }
+
+    private static string DevGateLabel(string gate) =>
+        CampaignDevOverrides.PortalUnlocks.Contains(gate) ? "[DEV OPEN]"
+        : SavedGateUnlocked(gate) ? "[SAVED OPEN]" : "[SEALED]";
+
+    private static bool SavedGateUnlocked(string gate) => gate switch
+    {
+        "body" => true,
+        "core" => CampaignProgression.Data.CoreUnlocked,
+        "aphantasia" => CampaignProgression.Data.AphantasiaUnlocked,
+        _ => CampaignProgression.Data.ArenaUnlocks.Contains(gate),
+    };
+
+    private static string DevStatueLabel(string sense, StatueMaterial material)
+    {
+        Dictionary<string, ChallengeClear> values = material == StatueMaterial.Silver
+            ? CampaignDevOverrides.SilverStatues : CampaignDevOverrides.GoldStatues;
+        ChallengeClear state = values.GetValueOrDefault(sense);
+        return state.HasFlag(ChallengeClear.Both) ? "[RAINBOW]"
+            : state == (ChallengeClear.NoHealing | ChallengeClear.NoExtract) ? "[BLOOD + CRACK]"
+            : state.HasFlag(ChallengeClear.NoHealing) ? "[BLOOD]"
+            : state.HasFlag(ChallengeClear.NoExtract) ? "[RAINBOW CRACK]"
+            : values.ContainsKey(sense) ? "[INTACT]"
+            : "[NORMAL/NONE]";
+    }
+
+    internal void HandleDevAction(GameSession session, string action)
+    {
+        if (action == "toggle")
+        {
+            ToggleDevUnlockTesting(session);
+            return;
+        }
+        if (action == "reset")
+        {
+            CampaignDevOverrides.Reset();
+            RebuildMind(session);
+            return;
+        }
+        if (action.StartsWith("portal:"))
+        {
+            CampaignDevOverrides.TogglePortal(action[7..]);
+            RebuildMind(session);
+        }
+        else if (action == "sense")
+            _devSenseIndex = (_devSenseIndex + 1) % CampaignProgression.SenseKeys.Length;
+        else if (action.StartsWith("silver:") || action.StartsWith("gold:"))
+        {
+            bool silver = action.StartsWith("silver:");
+            CampaignDevOverrides.CycleStatue(action[(silver ? 7 : 5)..],
+                silver ? StatueMaterial.Silver : StatueMaterial.Gold);
+        }
+        else if (action == "rainbow")
+            CampaignDevOverrides.ToggleAllRainbow();
+    }
+
+    private void DrawCampaignGatePortals(SpriteBatch spriteBatch,
+        GameSession session, string? nearbyPortal, float time)
+    {
+        var gates = new[]
+        {
+            (CorePortalKey, "THE CORE", UiTheme.Gold, "core"),
+            (AphantasiaPortalKey, "APHANTASIA", new Color(102, 61, 160), "aphantasia"),
+        };
+        foreach (var (key, label, color, gate) in gates)
+        {
+            if (!_pathPortalWorld.TryGetValue(key, out Vector2 world))
+                continue;
+            Vector2 screen = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
+            bool unlocked = CampaignProgression.PortalUnlocked(gate);
+            float radius = Simulation.TileSize * .72f;
+            Primitives2D.FillCircle(spriteBatch, screen, radius * .8f, UiTheme.Ink);
+            Primitives2D.CircleOutline(spriteBatch, screen, radius,
+                unlocked ? color : UiTheme.Muted * .45f, unlocked ? 3 : 5);
+            if (!unlocked)
+            {
+                Primitives2D.Line(spriteBatch, screen + new Vector2(-radius, -radius),
+                    screen + new Vector2(radius, radius), UiTheme.Red * .75f, 4);
+                Primitives2D.Line(spriteBatch, screen + new Vector2(radius, -radius),
+                    screen + new Vector2(-radius, radius), UiTheme.Red * .75f, 4);
+            }
+            UiTheme.DrawText(spriteBatch, unlocked ? label : $"{label} // SEALED", 8,
+                unlocked ? color : UiTheme.Muted,
+                new Vector2(screen.X, screen.Y + radius + 7), "midtop");
+            if (unlocked && nearbyPortal == key && _confirmingPortalKey != key
+                && _enteringPortalKey is null)
+                UiTheme.DrawText(spriteBatch, "F  //  ENTER", 8, UiTheme.Cream,
+                    new Vector2(screen.X, screen.Y + radius + 23), "midtop");
         }
     }
 
@@ -955,14 +1254,14 @@ public sealed class SoulHub
         string? nearbyPortal,
         float time)
     {
-        if (!_pathPortalWorld.TryGetValue(CompositePathPortalKey, out var world))
+        if (!_pathPortalWorld.TryGetValue(BodyPortalKey, out var world))
             return;
 
         Vector2 screen = session.Camera.WorldToScreen(
             world, session.PlayerWorldCenter, Vector2.Zero);
         float radius = Simulation.TileSize * 1.36f;
         int selectedNg = NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey);
-        bool committing = _enteringPortalKey == CompositePathPortalKey;
+        bool committing = _enteringPortalKey == BodyPortalKey;
         float pullT = committing
             ? (float)Math.Clamp((_seconds - _portalAnimationStart) / PortalPullSeconds, 0, 1)
             : 0f;
@@ -1009,7 +1308,7 @@ public sealed class SoulHub
         float coreRadius = radius * (.2f - pullT * .07f);
         Primitives2D.FillCircle(spriteBatch, screen, coreRadius,
             Color.Lerp(UiTheme.Cream, UiTheme.Gold, .55f + .25f * MathF.Sin(time * 2.1f)));
-        UiTheme.DrawText(spriteBatch, "THE FINAL PORTAL", 12, UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "THE BODY", 12, UiTheme.Gold,
             new Vector2(screen.X, screen.Y + radius + 12), "midtop");
         int unlockedNg = NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey);
         string dungeonTier = unlockedNg == 0
@@ -1017,14 +1316,14 @@ public sealed class SoulHub
             : selectedNg == 0
                 ? $"NORMAL  //  NG+{unlockedNg} UNLOCKED"
                 : $"NG+{selectedNg}  //  MAX {unlockedNg}";
-        UiTheme.DrawText(spriteBatch, $"RANDOMIZED PATH  //  TEN FLOORS  //  {dungeonTier}",
+        UiTheme.DrawText(spriteBatch, "A SENSE-NEUTRAL EXPEDITION  //  FIVE SECRETS",
             8, selectedNg == 0 ? UiTheme.Cream : UiTheme.Gold,
             new Vector2(screen.X, screen.Y + radius + 31), "midtop");
-        if (nearbyPortal == CompositePathPortalKey
-            && _confirmingPortalKey != CompositePathPortalKey
+        if (nearbyPortal == BodyPortalKey
+            && _confirmingPortalKey != BodyPortalKey
             && _enteringPortalKey is null)
         {
-            UiTheme.DrawText(spriteBatch, "F  //  TRAVERSE", 10, UiTheme.Gold,
+            UiTheme.DrawText(spriteBatch, "F  //  ENTER", 10, UiTheme.Gold,
                 new Vector2(screen.X, screen.Y + radius + 49), "midtop");
         }
     }
@@ -1032,9 +1331,14 @@ public sealed class SoulHub
     /// <summary>Centered "ENTER {PATH}?" modal shown while _confirmingPortalKey is set -- F commits, walking away or Escape cancels (Escape via OverlayOpen/CloseOverlay in Core/RotBoiGame.cs).</summary>
     private void DrawPortalConfirm(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
-        if (_confirmingPortalKey == CompositePathPortalKey)
+        if (_confirmingPortalKey == BodyPortalKey)
         {
             DrawCompositePortalConfirm(spriteBatch, session, mouse, mouseDown);
+            return;
+        }
+        if (_confirmingPortalKey is CorePortalKey or AphantasiaPortalKey)
+        {
+            DrawCampaignPortalConfirm(spriteBatch, session);
             return;
         }
         var path = GamePaths.PathsByKey[_confirmingPortalKey!];
@@ -1064,9 +1368,27 @@ public sealed class SoulHub
                 : "A / D OR ARROWS  //  SELECT TIER",
             Fs(9), unlocked == 0 ? UiTheme.Red : path.Accent,
             new Vector2(rect.Center.X, rect.Y + Px(138)), "midtop");
-        if (GameProfile.Profile.HardModeEnabled)
+        if (GameProfile.Profile.NoHealingEnabled)
             UiTheme.DrawText(spriteBatch, "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS  //  CORE-FORGED DROPS",
                 Fs(9), UiTheme.Red, new Vector2(rect.Center.X, rect.Y + Px(160)), "midtop");
+        UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", Fs(10), UiTheme.Muted,
+            new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
+    }
+
+    private void DrawCampaignPortalConfirm(SpriteBatch spriteBatch, GameSession session)
+    {
+        string label = _confirmingPortalKey switch
+        {
+            CorePortalKey => "DESCEND INTO THE CORE?",
+            _ => "APPROACH APHANTASIA?",
+        };
+        int width = (int)(session.ScreenWidth * .42f);
+        var rect = new Rectangle(session.ScreenWidth / 2 - width / 2,
+            (int)(session.ScreenHeight * .34f), width, (int)(session.ScreenHeight * .2f));
+        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight), UiTheme.Void * .58f);
+        UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, UiTheme.Gold, shadow: 10);
+        UiTheme.DrawText(spriteBatch, label, Fs(20), UiTheme.Cream,
+            new Vector2(rect.Center.X, rect.Y + Px(30)), "center");
         UiTheme.DrawText(spriteBatch, "F  CONFIRM   //   WALK AWAY OR ESC  CANCEL", Fs(10), UiTheme.Muted,
             new Vector2(rect.Center.X, rect.Bottom - Px(24)), "center");
     }
@@ -1088,10 +1410,10 @@ public sealed class SoulHub
             new Rectangle(0, 0, session.ScreenWidth, session.ScreenHeight),
             UiTheme.Void * .58f);
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.PanelRaised, accent, shadow: 10);
-        UiTheme.DrawText(spriteBatch, "TRAVERSE THE PATH?", Fs(22), UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "ENTER THE BODY?", Fs(22), UiTheme.Gold,
             new Vector2(rect.Center.X, rect.Y + Px(28)), "center");
         UiTheme.DrawText(spriteBatch,
-            "TEN FLOORS  //  ALL FIVE SENSES  //  ORDER RANDOMIZED",
+            "FIVE HIDDEN SECRETS  //  ONE FOR EACH SENSE",
             Fs(11), UiTheme.Cream,
             new Vector2(rect.Center.X, rect.Y + Px(66)), "center");
         _ngMinusRect = new Rectangle(rect.Center.X - Px(105), rect.Y + Px(82),
@@ -1115,7 +1437,7 @@ public sealed class SoulHub
                 : "A / D OR ARROWS  //  SELECT TIER",
             Fs(9), unlocked == 0 ? UiTheme.Red : accent,
             new Vector2(rect.Center.X, rect.Y + Px(146)), "midtop");
-        if (GameProfile.Profile.HardModeEnabled)
+        if (GameProfile.Profile.NoHealingEnabled)
         {
             UiTheme.DrawText(spriteBatch,
                 "HARD MODE  //  NO HEALING  //  2X CLEAR TOKENS",
@@ -1350,8 +1672,8 @@ public sealed class SoulHub
 
     private void DrawSkills(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "THE SOUL ROSE", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
-        UiTheme.DrawText(spriteBatch, $"SOUL TOKENS  {GameProfile.Profile.SoulTokens}  //  AWAKEN ONE PETAL PER RANK", Fs(9), UiTheme.Purple,
+        UiTheme.DrawText(spriteBatch, "THE MIND ROSE", Fs(24), UiTheme.Text, new Vector2(panel.X + Px(24), panel.Y + Px(18)));
+        UiTheme.DrawText(spriteBatch, $"MIND TOKENS  {GameProfile.Profile.MindTokens}  //  AWAKEN ONE PETAL PER RANK", Fs(9), UiTheme.Purple,
             new Vector2(panel.X + Px(26), panel.Y + Px(53)));
         int columns = 4, gap = Px(12), tileWidth = (panel.Width - Px(52) - gap * 3) / 4;
         int tileHeight = (panel.Height - Px(112) - gap * 2) / 3;
@@ -1361,7 +1683,7 @@ public sealed class SoulHub
             int column = index % columns, row = index / columns;
             var rect = new Rectangle(panel.X + Px(26) + column * (tileWidth + gap), panel.Y + Px(80) + row * (tileHeight + gap), tileWidth, tileHeight);
             int level = GameProfile.Profile.SkillLevels.GetValueOrDefault(node.Key), cost = node.BaseCost + level / 2;
-            bool maxed = level >= node.MaxLevel, affordable = GameProfile.Profile.SoulTokens >= cost;
+            bool maxed = level >= node.MaxLevel, affordable = GameProfile.Profile.MindTokens >= cost;
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, level > 0 ? UiTheme.Green : UiTheme.Purple, hovered: rect.Contains(mouse));
             var symbol = new Rectangle(rect.X + Px(12), rect.Y + Px(13), Px(48), Px(48));
             StatCards.DrawStatSymbol(spriteBatch, node.Stat, symbol, level > 0 ? UiTheme.Green : UiTheme.Purple);

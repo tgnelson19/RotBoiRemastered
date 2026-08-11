@@ -35,7 +35,7 @@ public class RotBoiGame : Game
 
     private readonly Menus _menus = new();
     private readonly TitleScreen _titleScreen = new();
-    private readonly SoulHub _soulHub = new();
+    private readonly MindHub _soulHub = new();
     private readonly DevConsole _devConsole = new();
     private GameSession? _session;
     private RunResultReport? _resultReport;
@@ -52,6 +52,7 @@ public class RotBoiGame : Game
     private int _windowedHeight = 720;
     private int _appliedMaxFrameRate;
     private bool _appliedVSync;
+    private double _returnToMindRemaining;
 
     public GameState State { get; set; } = GameState.TitleScreen;
 
@@ -115,6 +116,15 @@ public class RotBoiGame : Game
                 gameTime.ElapsedGameTime.TotalSeconds);
         CollectInput();
 
+        if (_returnToMindRemaining > 0)
+        {
+            _returnToMindRemaining -= Math.Min(.1, gameTime.ElapsedGameTime.TotalSeconds);
+            if (_returnToMindRemaining <= 0)
+                FinishReturnToMind();
+            base.Update(gameTime);
+            return;
+        }
+
         IsMouseVisible = State != GameState.GameRun || _session is null
             || _session.FooterHud.Contains(InputState.MousePosition)
             || _session.InformationSheet.DragInProgress;
@@ -131,10 +141,7 @@ public class RotBoiGame : Game
         var consoleResult = _devConsole.Update(_session, InputState.KeysPressed, gameTime.ElapsedGameTime.TotalSeconds);
         if (consoleResult.Kind == ConsoleActionKind.ExtractRequested && _session is not null)
         {
-            RunRewardSummary rewards = _session.FinalizeSuccessfulRun(
-                "EXTRACTED", completed: false);
-            CaptureRunResult(retained: true, rewards);
-            State = GameState.Results;
+            BeginReturnToMind();
         }
 
         if (_devConsole.IsOpen)
@@ -435,10 +442,10 @@ public class RotBoiGame : Game
         var action = _titleScreen.HandleInput(InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
         switch (action)
         {
-            case TitleAction.EnterSoul:
+            case TitleAction.EnterMind:
             {
                 _resultReport = null;
-                var battleground = Battleground.GenerateSoul();
+                var battleground = Battleground.GenerateMind();
                 if (_session is null)
                     _session = new GameSession(battleground, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
                 else
@@ -462,6 +469,11 @@ public class RotBoiGame : Game
     private void UpdateGameRun(GameTime gameTime)
     {
         var session = _session!;
+        if (Keybinds.Pressed("extract") && !session.State.NoExtract)
+        {
+            BeginReturnToMind();
+            return;
+        }
         session.State.RunTimeSeconds += Math.Min(gameTime.ElapsedGameTime.TotalMilliseconds, 50) / 1000.0;
 
         bool quickLootConsumed = session.HandleQuickLootInput(InputState.MousePosition,
@@ -593,7 +605,7 @@ public class RotBoiGame : Game
     {
         bool soulContext = _pauseReturnState == GameState.Soul;
         bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
-        bool canExtract = _session is not null && !soulContext && _session.State.BeaudisDefeated && !_session.State.GameCompleted;
+        bool canExtract = _session is not null && !soulContext && !_session.State.NoExtract && !_session.State.GameCompleted;
         var action = _menus.HandlePause(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown,
             InputState.MousePressed, canExtract, soulContext, settingsOnly, InputState.ScrollWheelDelta);
         // Menus edits the persisted default; the live run keeps a cached copy.
@@ -632,10 +644,7 @@ public class RotBoiGame : Game
                 break;
             case MenuAction.Extract:
                 if (_session is null) break;
-                RunRewardSummary rewards = _session.FinalizeSuccessfulRun(
-                    "EXTRACTED", completed: false);
-                CaptureRunResult(retained: true, rewards);
-                State = GameState.Results;
+                BeginReturnToMind();
                 break;
             case MenuAction.Quit:
                 GameProfile.SaveProfile();
@@ -661,7 +670,7 @@ public class RotBoiGame : Game
             case MenuAction.EnterSoul:
             {
                 _resultReport = null;
-                var battleground = Battleground.GenerateSoul();
+                var battleground = Battleground.GenerateMind();
                 _session!.ResetAll(battleground);
                 _soulHub.Enter(_session);
                 State = GameState.Soul;
@@ -685,14 +694,23 @@ public class RotBoiGame : Game
         var enteredPathKey = _soulHub.HandleInput(session, InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
         if (enteredPathKey is not null)
         {
-            if (enteredPathKey == SoulHub.CompositePathPortalKey)
+            if (enteredPathKey == SoulHub.BodyPortalKey)
+            {
+                session.StartExpedition(CampaignWorld.Body);
+            }
+            else if (enteredPathKey == SoulHub.CorePortalKey)
             {
                 session.StartPathRun();
             }
+            else if (enteredPathKey == SoulHub.AphantasiaPortalKey)
+            {
+                session.StartAphantasia();
+                State = GameState.Leveling;
+                return;
+            }
             else
             {
-                GamePaths.Select(enteredPathKey);
-                session.ResetAll(GamePaths.ActivateSelected());
+                session.StartArena(enteredPathKey);
             }
             State = GameState.GameRun;
             return;
@@ -752,7 +770,48 @@ public class RotBoiGame : Game
             _spriteBatch.End();
         }
 
+        if (_returnToMindRemaining > 0)
+            DrawReturnToMind();
+
         base.Draw(gameTime);
+    }
+
+    private void BeginReturnToMind(bool ignoreNoExtract = false)
+    {
+        if (_session is null || _returnToMindRemaining > 0
+            || _session.State.NoExtract && !ignoreNoExtract)
+            return;
+        _session.FinalizeSuccessfulRun("EXTRACTED", completed: false);
+        MetaProgression.SyncCarriedItems(_session.State);
+        _returnToMindRemaining = 2.0;
+    }
+
+    private void FinishReturnToMind()
+    {
+        if (_session is null)
+            return;
+        _resultReport = null;
+        _session.ResetAll(Battleground.GenerateMind());
+        _soulHub.Enter(_session);
+        State = GameState.Soul;
+    }
+
+    private void DrawReturnToMind()
+    {
+        float progress = (float)Math.Clamp(1.0 - _returnToMindRemaining / 2.0, 0, 1);
+        float scale = UiTheme.DisplayScale(GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        _spriteBatch.Begin();
+        Primitives2D.FillRect(_spriteBatch,
+            new Rectangle(0, 0, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height),
+            UiTheme.Void * MathHelper.Lerp(.72f, 1f, progress));
+        float pulse = .5f + .5f * MathF.Sin(progress * MathF.PI * 6f);
+        UiTheme.DrawText(_spriteBatch, "RETURNING TO THE MIND", 24 * scale,
+            Color.Lerp(UiTheme.Purple, UiTheme.Cream, pulse),
+            new Vector2(GraphicsDevice.Viewport.Width / 2f, GraphicsDevice.Viewport.Height / 2f), "center");
+        UiTheme.DrawText(_spriteBatch, "YOUR SPOILS HAVE BEEN REMEMBERED", 9 * scale,
+            UiTheme.Muted, new Vector2(GraphicsDevice.Viewport.Width / 2f,
+                GraphicsDevice.Viewport.Height / 2f + 34 * scale), "center");
+        _spriteBatch.End();
     }
 
     /// <summary>
@@ -770,6 +829,7 @@ public class RotBoiGame : Game
 
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawPathAmbience(_spriteBatch);
+        session.DrawExpeditionSecrets(_spriteBatch);
         session.DrawVisualEffects(_spriteBatch, BitVfxLayer.Ground);
         session.DrawGroundEnemyProjectiles(_spriteBatch);
         // Actors, shots, and raised scenery share a camera-relative painter
@@ -791,6 +851,7 @@ public class RotBoiGame : Game
         BountyInfo? bounty = session.SelectBountyTarget();
         session.DrawBountyIndicator(_spriteBatch, bounty);
         session.DrawBossPortalIndicator(_spriteBatch);
+        session.DrawExpeditionHint(_spriteBatch);
         session.DrawFooter(_spriteBatch, InputState.MousePosition);
         session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
         _spriteBatch.End();
@@ -851,7 +912,7 @@ public class RotBoiGame : Game
         _spriteBatch.Begin();
         bool soulContext = _pauseReturnState == GameState.Soul;
         bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
-        bool canExtract = _session is not null && !soulContext && _session.State.BeaudisDefeated && !_session.State.GameCompleted;
+        bool canExtract = _session is not null && !soulContext && !_session.State.NoExtract && !_session.State.GameCompleted;
         _menus.DrawPause(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height,
             InputState.MousePosition, InputState.MouseDown, canExtract, soulContext, settingsOnly);
         _spriteBatch.End();
@@ -875,7 +936,9 @@ public class RotBoiGame : Game
         if (_resultReport is not null)
             return _resultReport;
         GameSession session = _session!;
-        string pathKey = session.PathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
+        string pathKey = session.PathRun?.CurrentSenseKey
+            ?? session.CampaignActivitySense
+            ?? GamePaths.Active().Key;
         _resultReport = RunResultReport.Capture(session.State, pathKey,
             retained, rewards);
         return _resultReport;
@@ -894,6 +957,7 @@ public class RotBoiGame : Game
         _soulHub.DrawWorld(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
         session.DrawPlayer(_spriteBatch, _soulHub.PlayerDrawScale);
         session.DrawDamageTexts(_spriteBatch);
+        _soulHub.DrawMindFog(_spriteBatch, session);
         _spriteBatch.End();
 
         // Soul panels and prompts stay in unzoomed screen space, exactly like

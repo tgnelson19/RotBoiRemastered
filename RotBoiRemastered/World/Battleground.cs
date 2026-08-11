@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using RotBoiRemastered.Systems;
 
 namespace RotBoiRemastered.World;
 
@@ -859,20 +860,26 @@ public sealed class Battleground
     }
 
     /// <summary>
-    /// Authored sanctuary used only by The Soul. The player begins in a
+    /// Authored sanctuary used only by The Mind. The player begins in a
     /// southern chapel, crosses a short northbound transition, and reaches a
-    /// composite dais whose five walled branches each terminate in a Path
-    /// shrine. SoulLayout owns both this geometry and SoulHub's interaction
-    /// anchors so the rendered furnishings cannot drift from collision.
+    /// Body dais whose five walled branches each terminate in a sense arena.
+    /// The central Sight branch continues through separately gated Core and
+    /// Aphantasia chambers. SoulLayout owns both geometry and interaction
+    /// anchors so rendered furnishings cannot drift from collision.
     /// </summary>
-    public static Battleground GenerateSoul()
+    public static Battleground GenerateMind()
     {
         return new Battleground(
-            SoulLayout.BuildTiles(),
+            MindLayout.BuildTiles(),
             BiomePalettes.Soul,
             wallHeight: 24,
             spawnPosition: SoulLayout.SpawnTopLeft);
     }
+
+    [Obsolete("Use GenerateMind; The Soul is now the hostile campaign world.")]
+    public static Battleground GenerateSoul() => new(
+        SoulLayout.BuildTiles(SoulLayout.AllGateKeys),
+        BiomePalettes.Soul, 20, SoulLayout.SpawnTopLeft, "mind");
 
     /// <summary>
     /// Ported from configure_battleground's path->generator dispatch. Unlike

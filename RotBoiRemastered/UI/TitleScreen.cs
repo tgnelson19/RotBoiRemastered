@@ -7,9 +7,17 @@ using RotBoiRemastered.Systems;
 
 namespace RotBoiRemastered.UI;
 
-public enum TitleAction { None, EnterSoul, Settings, Quit }
+public enum TitleAction
+{
+    None,
+    EnterMind,
+    [Obsolete("Use EnterMind; retained for save/test source compatibility.")]
+    EnterSoul = EnterMind,
+    Settings,
+    Quit,
+}
 
-/// <summary>A quiet threshold into the Soul; detailed controls live in Settings.</summary>
+/// <summary>A quiet threshold into The Mind; detailed controls live in Settings.</summary>
 public sealed class TitleScreen
 {
     private readonly PresentationClock _presentationClock = new();
@@ -36,7 +44,7 @@ public sealed class TitleScreen
         int margin = Math.Max(10, (int)(20 * scale));
         var frame = new Rectangle(margin, margin, screenWidth - margin * 2,
             screenHeight - margin * 2);
-        UiTheme.DrawCompositePanel(spriteBatch, frame, animation,
+        UiTheme.DrawFramedPanel(spriteBatch, frame,
             new Color(9, 11, 16), UiTheme.Border, 8);
 
         float min = Math.Min(screenWidth, screenHeight);
@@ -70,7 +78,7 @@ public sealed class TitleScreen
         _focus.Register("soul", _soulButton);
         _focus.Register("settings", _settingsButton);
         _focus.Register("quit", _quitButton);
-        DrawButton(spriteBatch, "soul", _soulButton, "ENTER THE SOUL", mouse,
+        DrawButton(spriteBatch, "soul", _soulButton, "ENTER THE MIND", mouse,
             mouseDown, UiTheme.Purple, "ENTER", 13 * scale);
         DrawButton(spriteBatch, "settings", _settingsButton, "SETTINGS", mouse,
             mouseDown, UiTheme.Blue, null, 10 * scale);
@@ -108,7 +116,7 @@ public sealed class TitleScreen
         int height = Math.Min(frame.Height - 20, Math.Max(130, (int)(165 * scale)));
         var modal = new Rectangle(frame.Center.X - width / 2,
             frame.Center.Y - height / 2, width, height);
-        UiTheme.DrawCompositePanel(spriteBatch, modal, animation,
+        UiTheme.DrawFramedPanel(spriteBatch, modal,
             UiTheme.PanelRaised, UiTheme.Red, 8);
         UiTheme.DrawText(spriteBatch, "QUIT THE GAME?", 16 * scale, UiTheme.Text,
             new Vector2(modal.Center.X, modal.Y + 20 * scale), "midtop");
@@ -167,7 +175,7 @@ public sealed class TitleScreen
             _quitConfirmation = true;
             return TitleAction.None;
         }
-        if (keysPressed.Contains(Keys.F)) return TitleAction.EnterSoul;
+        if (keysPressed.Contains(Keys.F)) return TitleAction.EnterMind;
 
         bool confirm = keysPressed.Contains(Keys.Enter) || keysPressed.Contains(Keys.Space)
             || InputState.ControllerConfirmPressed || mousePressed;
@@ -175,7 +183,7 @@ public sealed class TitleScreen
         string? activated = mousePressed ? hovered : _focus.FocusedId ?? "soul";
         return activated switch
         {
-            "soul" => TitleAction.EnterSoul,
+            "soul" => TitleAction.EnterMind,
             "settings" => TitleAction.Settings,
             "quit" => OpenQuitConfirmation(),
             _ => TitleAction.None,

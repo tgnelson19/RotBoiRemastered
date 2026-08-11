@@ -85,6 +85,24 @@ public sealed class EnemyProjectile
     public int SplitCount { get; set; }
     public float? SplitAt { get; set; }
     public int SplitGeneration { get; set; }
+    /// <summary>Velocity inherited by split children; portals deliberately emit slower children.</summary>
+    public float SplitSpeedScale { get; set; } = 1.08f;
+    /// <summary>Optional authored fan width. Null preserves the ordinary generation-based spread.</summary>
+    public float? SplitSpread { get; set; }
+    /// <summary>Distributes split children around a full circle instead of a forward fan.</summary>
+    public bool SplitRadial { get; set; }
+    /// <summary>Optional lifetime applied to split children; null preserves range-only expiry.</summary>
+    public float? SplitChildLifetime { get; set; }
+    /// <summary>
+    /// Slots reserved against an encounter-owned projectile budget. Ordinary
+    /// shots cost one; a delayed splitter can reserve its complete child wave.
+    /// </summary>
+    public int ThreatReservationCost { get; set; } = 1;
+    /// <summary>
+    /// Travel progress at which a splitting projectile begins visually
+    /// declaring its activation. One disables the additional warning.
+    /// </summary>
+    public float SplitTelegraphStartRatio { get; set; } = 1f;
     /// <summary>Settable: Malady's purple pool (bossTypes.py's _spawn_pool) overrides the path=="laser" default so its hazard lingers instead of being consumed on the player's first hit.</summary>
     public bool PersistentHazard { get; set; }
     public bool Exploded { get; private set; }
@@ -316,20 +334,29 @@ public sealed class EnemyProjectile
                 if (SplitCount > 1 && SplitAt.HasValue && Travelled >= SplitAt.Value && !Exploded)
                 {
                     Exploded = true;
-                    float spread = .8f + .12f * SplitGeneration;
+                    float spread = SplitSpread ?? (.8f + .12f * SplitGeneration);
                     for (int index = 0; index < SplitCount; index++)
                     {
                         float fraction = SplitCount == 1 ? .5f : (float)index / (SplitCount - 1);
+                        float childDirection = SplitRadial
+                            ? Direction + index * MathF.Tau / SplitCount
+                            : Direction - spread / 2f + spread * fraction;
                         var child = new EnemyProjectile(
-                            WorldX, WorldY, Direction - spread / 2f + spread * fraction,
-                            Speed * 1.08f, Damage * .58f, Size * .72f,
+                            WorldX, WorldY, childDirection,
+                            Speed * SplitSpeedScale, Damage * .58f, Size * .72f,
                             travelRange: Math.Max(Simulation.TileSize * 5f, RemainingRange),
-                            color: Color, shape: "diamond", owner: Owner, ignoreWalls: IgnoreWalls);
+                            color: Color, shape: "diamond", lifetime: SplitChildLifetime,
+                            owner: Owner, ignoreWalls: IgnoreWalls);
                         if (SplitGeneration > 0)
                         {
                             child.SplitCount = SplitCount;
                             child.SplitAt = Math.Max(Simulation.TileSize * 2.5f, RemainingRange * .42f);
                             child.SplitGeneration = SplitGeneration - 1;
+                            child.SplitSpeedScale = SplitSpeedScale;
+                            child.SplitSpread = SplitSpread;
+                            child.SplitRadial = SplitRadial;
+                            child.SplitChildLifetime = SplitChildLifetime;
+                            child.SplitTelegraphStartRatio = SplitTelegraphStartRatio;
                         }
                         SpawnedProjectiles.Add(child);
                     }
@@ -458,6 +485,8 @@ public sealed class EnemyProjectile
         else
             DrawSquareShape(spriteBatch, rect, visibleSize);
 
+        DrawSplitTelegraph(spriteBatch, centerScreen, visibleSize, highContrast);
+
         if (highContrast)
             Primitives2D.RectOutline(
                 spriteBatch,
@@ -491,6 +520,33 @@ public sealed class EnemyProjectile
                 Math.Max(3, (int)(visibleSize * .22f)),
                 UiTheme.Muted,
                 2);
+    }
+
+    private void DrawSplitTelegraph(SpriteBatch spriteBatch, Vector2 center,
+        float visibleSize, bool highContrast)
+    {
+        if (Exploded || SplitCount <= 1 || !SplitAt.HasValue || SplitAt.Value <= 0)
+            return;
+        float start = Math.Clamp(SplitTelegraphStartRatio, 0f, 1f);
+        if (start >= 1f)
+            return;
+        float travelRatio = Math.Clamp(Travelled / SplitAt.Value, 0f, 1f);
+        if (travelRatio < start)
+            return;
+        float progress = (travelRatio - start) / Math.Max(.001f, 1f - start);
+        Color warning = highContrast ? UiTheme.Cream : Color.Lerp(Color, UiTheme.Cream, progress);
+        float ring = visibleSize * (.9f - progress * .18f);
+        Primitives2D.CircleOutline(spriteBatch, center, ring, UiTheme.Ink, 6);
+        Primitives2D.CircleOutline(spriteBatch, center, ring, warning, 3);
+        for (int index = 0; index < Math.Min(8, SplitCount); index++)
+        {
+            float angle = Direction + index * MathF.Tau / Math.Min(8, SplitCount);
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Primitives2D.Line(spriteBatch,
+                center + direction * visibleSize * .55f,
+                center + direction * visibleSize * (.68f + progress * .18f),
+                warning, 2);
+        }
     }
 
     private void DrawDangerTrim(

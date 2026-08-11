@@ -52,6 +52,7 @@ public sealed class BossEncounterFrameworkTests
         [
             "beaudis", "bair", "ishe", "kage", "hypno",
             "dissonance", "rot", "chronos", "ache", "malady",
+            "aphantasia",
         ];
 
         Assert.Equal(keys.Order(), BossEncounterCatalog.All.Select(value => value.BossKey).Order());
@@ -73,6 +74,7 @@ public sealed class BossEncounterFrameworkTests
         [
             "bair", "ishe", "kage", "hypno",
             "dissonance", "rot", "chronos", "ache", "malady",
+            "aphantasia",
         ];
 
         foreach (string key in shapedBosses)

@@ -32,6 +32,63 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void CompletedBodyContinuesIntoSoulWithoutResettingTheLiveBuild()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-body-soul-chain-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            CampaignProgression.Normalize(GameProfile.Profile.Campaign);
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+            session.StartExpedition(CampaignWorld.Body, rng: new Random(2));
+            ExpeditionRun body = Assert.IsType<ExpeditionRun>(session.Expedition);
+            foreach (ExpeditionSecret secret in body.Secrets.OrderBy(secret => secret.IsFinale))
+            {
+                Assert.True(body.SolveSecret(secret.SenseKey));
+                Assert.True(body.EnterDungeon(secret.SenseKey, secret.WorldPosition));
+                Assert.True(body.CompleteDungeon());
+            }
+
+            var weapon = new ItemDrop(Items.DefinitionsByName["Iron Dagger"], "Epic");
+            session.State.CurrentLevel = 9;
+            session.State.Fragments = 17;
+            session.State.ExpCount = 321;
+            session.State.HealthPoints = 777;
+            session.State.RunTimeSeconds = 123;
+            session.State.Equipment["weapon"] = weapon;
+            session.State.Inventory[0] = weapon;
+            session.State.SetNoExtract(true);
+
+            session.ContinueCompletedBodyIntoSoul(new Random(3));
+
+            Assert.Equal(CampaignWorld.Soul, session.Expedition!.World);
+            Assert.Equal(CampaignActivity.Soul, session.CampaignActivity);
+            Assert.Equal(session.Expedition.FinaleSense, session.CampaignActivitySense);
+            Assert.Equal(9, session.State.CurrentLevel);
+            Assert.Equal(17, session.State.Fragments);
+            Assert.Equal(321, session.State.ExpCount);
+            Assert.Equal(777, session.State.HealthPoints);
+            Assert.Equal(123, session.State.RunTimeSeconds);
+            Assert.Same(weapon, session.State.Equipment["weapon"]);
+            Assert.Same(weapon, session.State.Inventory[0]);
+            Assert.True(session.State.NoExtract);
+            Assert.True(CampaignProgression.Data.BodyCompleted);
+            Assert.True(CampaignProgression.Data.SoulUnlocked);
+            Assert.DoesNotContain(session.Expedition.FinaleSense,
+                CampaignProgression.Data.ArenaUnlocks);
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ActiveBossKeepsArenaOcclusionWhenItsBodyIsAbsentFromDrawHolster()
     {
         GameSession session = MakeSession();

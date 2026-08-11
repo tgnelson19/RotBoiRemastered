@@ -14,6 +14,30 @@ public readonly record struct BiomePalette(
 
 public static class BiomePalettes
 {
+    /// <summary>
+    /// Aphantasia's deliberately sparse final court. Three nearly identical
+    /// dark wards satisfy Battleground's broad biome split while keeping the
+    /// floor continuous; the moving boss arena supplies its color and motion.
+    /// </summary>
+    public static readonly IReadOnlyList<BiomePalette> Aphantasia = new[]
+    {
+        new BiomePalette(
+            Ground: new Color(12, 18, 34), GroundAlt: new Color(16, 24, 45),
+            Road: new Color(22, 35, 62), Interior: new Color(10, 16, 33),
+            WallTop: new Color(30, 54, 91), WallFace: new Color(15, 29, 56),
+            Accent: new Color(56, 112, 198), Detail: new Color(105, 168, 242)),
+        new BiomePalette(
+            Ground: new Color(14, 20, 38), GroundAlt: new Color(18, 27, 49),
+            Road: new Color(25, 39, 68), Interior: new Color(11, 18, 36),
+            WallTop: new Color(34, 60, 100), WallFace: new Color(17, 32, 61),
+            Accent: new Color(65, 125, 211), Detail: new Color(118, 181, 250)),
+        new BiomePalette(
+            Ground: new Color(11, 17, 34), GroundAlt: new Color(15, 23, 45),
+            Road: new Color(21, 34, 62), Interior: new Color(9, 15, 32),
+            WallTop: new Color(29, 52, 90), WallFace: new Color(14, 28, 55),
+            Accent: new Color(52, 105, 191), Detail: new Color(99, 160, 236)),
+    };
+
     public static readonly IReadOnlyList<BiomePalette> Soul = new[]
     {
         new BiomePalette(

@@ -36,6 +36,8 @@ public sealed class PathRun
         PathFogOfWar Fog);
 
     public int FloorNumber { get; private set; } = 1;
+    public bool IsSecretDungeon { get; private init; }
+    public ExpeditionRun? Expedition { get; private init; }
     public string CurrentSenseKey => _senseOrder[FloorNumber - 1];
     public GamePath CurrentSense => GamePaths.PathsByKey[CurrentSenseKey];
     public bool IsSecondAct => FloorNumber > FloorsPerAct;
@@ -85,6 +87,25 @@ public sealed class PathRun
         Layout = GenerateFloor(FloorNumber);
     }
 
+    public static PathRun CreateSecretDungeon(ExpeditionRun expedition,
+        ExpeditionSecret secret, Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        var run = new PathRun(rng)
+        {
+            IsSecretDungeon = true,
+            Expedition = expedition,
+        };
+        int cleared = expedition.DefeatedGuardians;
+        run.FloorNumber = secret.IsFinale
+            ? expedition.World == CampaignWorld.Body ? 5 : 10
+            : Math.Clamp(cleared + 1, 1, 4);
+        for (int index = 0; index < run._senseOrder.Count; index++)
+            run._senseOrder[index] = secret.SenseKey;
+        run.Layout = run.GenerateFloor(run.FloorNumber);
+        return run;
+    }
+
     private PathFloorLayout GenerateFloor(int floorNumber) =>
         PathFloorGenerator.Generate(
             _senseOrder[floorNumber - 1],
@@ -120,7 +141,7 @@ public sealed class PathRun
     /// </summary>
     internal Task PrepareNextFloorAsync(float playerSize)
     {
-        if (FloorNumber >= TotalFloors)
+        if (IsSecretDungeon || FloorNumber >= TotalFloors)
             return Task.CompletedTask;
         if (_nextFloorPreparation is not null)
             return _nextFloorPreparation;
@@ -248,7 +269,7 @@ public sealed class PathRun
         var bossRoom = Layout.BossRoom;
         bossRoom.IsActivated = true;
         bossRoom.IsCleared = true;
-        if (FloorNumber >= TotalFloors)
+        if (IsSecretDungeon || FloorNumber >= TotalFloors)
             IsComplete = true;
         else
             ExitPortalOpen = true;

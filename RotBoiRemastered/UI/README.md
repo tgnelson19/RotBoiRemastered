@@ -21,11 +21,13 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   is reserved for level purchases and is never consumed here.
 - `SoulHub.cs` includes the northern Hard Mode station. Its persisted toggle
   controls healing, completion rewards, and path-matched Core-Forged drops.
-  Each path portal's confirmation panel also provides mouse or A/D/arrow NG+
+  Each arena portal's confirmation panel also provides mouse or A/D/arrow NG+
   selection, shows enemy and reward multipliers, and disables tiers that have
   not yet been unlocked by clearing the preceding tier on that path. The
-  rebuilt convergence dais now holds a larger five-color final portal; its
-  separate confirmation flow launches the randomized ten-floor composite Path.
+  rebuilt convergence dais now holds the larger five-color Body portal. Body
+  completion flows directly into the hostile Soul expedition with the live
+  build intact. The central Sight branch continues north through separately
+  sealed Core and Aphantasia chambers.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment
@@ -33,9 +35,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   recent-picks table, tooltip). **Done** -- see "InformationSheet.cs" below
   for design notes.
 - `TitleScreen.cs` <- `character.py`'s `runTheTitleScreen()`. **Done** --
-  ROTBOI header, one focused Soul-entry button, the static Field Manual
+  ROTBOI header, one focused Mind-entry button, the static Field Manual
   control-legend panel, and the best-run tag. Individual and randomized run
-  selection both live at physical Soul portals rather than on the main menu.
+  selection lives at physical Mind portals rather than on the main menu.
   Follows
   `Menus.cs`'s `Draw`/`HandleInput` shape (a `TitleAction` enum --
   `None`/`EnterSoul`/`Settings`/`Quit` -- instead of mutating state directly) rather

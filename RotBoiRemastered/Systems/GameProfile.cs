@@ -20,6 +20,8 @@ namespace RotBoiRemastered.Systems;
 /// </summary>
 public sealed class GameProfileData
 {
+    private bool _noHealingEnabled;
+    private int _mindTokens;
     public int BestLevel { get; set; }
     public int BestKills { get; set; }
     public int CompletedRuns { get; set; }
@@ -52,12 +54,19 @@ public sealed class GameProfileData
     public int MaxFrameRate { get; set; } = FramePacing.DefaultFrameRate;
     /// <summary>Synchronize buffer presentation to the active display when supported by the graphics driver.</summary>
     public bool VSync { get; set; } = true;
-    /// <summary>Selected only from the Soul's challenge altar and captured into each new RunState.</summary>
-    public bool HardModeEnabled { get; set; }
+    /// <summary>Legacy No Healing field retained so pre-campaign profiles migrate safely.</summary>
+    public bool HardModeEnabled { get => _noHealingEnabled; set => _noHealingEnabled = value; }
+    public bool NoHealingEnabled { get => _noHealingEnabled; set => _noHealingEnabled = value; }
+    public bool NoExtractEnabled { get; set; }
+    public bool DevUnlockTesting { get; set; }
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();
-    public int SoulTokens { get; set; }
+    /// <summary>Permanent currency, renamed with the safe hub.</summary>
+    public int MindTokens { get => _mindTokens; set => _mindTokens = value; }
+    /// <summary>Legacy JSON migration source. New code always uses MindTokens.</summary>
+    public int SoulTokens { get => _mindTokens; set => _mindTokens = value; }
+    public CampaignProgressData Campaign { get; set; } = new();
     public double BestDummyDps { get; set; }
     public Dictionary<string, int> SkillLevels { get; set; } = new();
     public Dictionary<string, long> QuestProgress { get; set; } = new();
@@ -195,6 +204,8 @@ public static class GameProfile
 
     private static void Normalize(GameProfileData profile)
     {
+        profile.Campaign ??= new CampaignProgressData();
+        CampaignProgression.Normalize(profile.Campaign);
         profile.TextSize = Math.Clamp(profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale);
         profile.GuiScale = SnapToNearest(UiTheme.GuiScaleLevels, profile.GuiScale);
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);

@@ -3,29 +3,39 @@ using Microsoft.Xna.Framework;
 namespace RotBoiRemastered.World;
 
 /// <summary>
-/// Single authored source of truth for The Soul's collision geometry and
-/// interaction anchors. Tile generation and SoulHub interaction placement
+/// Single authored source of truth for The Mind's collision geometry and
+/// interaction anchors. Tile generation and MindHub interaction placement
 /// both consume these values so a visual shrine can never drift away from
 /// the floor or portal tile that supports it.
 /// </summary>
 internal static class SoulLayout
 {
     public const int Width = 79;
-    public const int Height = 81;
+    public const int NorthExpansionTiles = 30;
+    // The authored chapel reaches row 79. The old 81-row map left only one
+    // void tile below it, making the southern alcove visibly touch the finite
+    // map edge. Match the generous top/side breathing room instead.
+    public const int Height = 97 + NorthExpansionTiles;
+    public const int MinimumBoundaryBufferTiles = 12;
     public const int SelectionAreaScale = 2;
-    public static readonly Point SpawnTile = new(39, 65);
-    public static readonly Point NexusTile = new(39, 43);
-    public static readonly Point TunnelSouthTile = new(39, 56);
-    public static readonly Point DummyTile = new(50, 58);
+    public static readonly Point SpawnTile = AuthoredTile(39, 65);
+    public static readonly Point NexusTile = AuthoredTile(39, 43);
+    public static readonly Point TunnelSouthTile = AuthoredTile(39, 56);
+    public static readonly Point DummyTile = AuthoredTile(50, 58);
+    // These two chambers occupy the newly added northern rows rather than
+    // shifting with the legacy chapel.
+    public static readonly Point CorePortalTile = new(39, 31);
+    public static readonly Point AphantasiaPortalTile = new(39, 17);
 
     public static readonly IReadOnlyDictionary<string, Point> StationTiles =
         new Dictionary<string, Point>
         {
-            ["storage"] = new(30, 70),
-            ["quests"] = new(30, 64),
-            ["skills"] = new(39, 75),
-            ["wardrobe"] = new(48, 64),
-            ["hard_mode"] = new(48, 70),
+            ["storage"] = AuthoredTile(30, 70),
+            ["quests"] = AuthoredTile(30, 64),
+            ["skills"] = AuthoredTile(39, 75),
+            ["wardrobe"] = AuthoredTile(48, 64),
+            ["hard_mode"] = AuthoredTile(48, 70),
+            ["no_extract"] = AuthoredTile(47, 73),
         };
 
     /// <summary>
@@ -50,6 +60,11 @@ internal static class SoulLayout
                 NexusTile.X + entry.Value.X * SelectionAreaScale,
                 NexusTile.Y + entry.Value.Y * SelectionAreaScale));
 
+    public static readonly IReadOnlySet<string> AllGateKeys =
+        PortalOffsets.Keys.Concat(["core", "aphantasia"]).ToHashSet();
+
+    public static Point AuthoredTile(int x, int y) => new(x, y + NorthExpansionTiles);
+
     public static Vector2 TileWorldCenter(Point tile) => new(
         (tile.X + .5f) * Battleground.TileSize,
         (tile.Y + .5f) * Battleground.TileSize);
@@ -57,7 +72,7 @@ internal static class SoulLayout
     public static Vector2 SpawnTopLeft =>
         TileWorldCenter(SpawnTile) - new Vector2(Battleground.TileSize * .375f);
 
-    public static TileType[,] BuildTiles()
+    public static TileType[,] BuildTiles(IReadOnlySet<string>? unlockedPaths = null)
     {
         var grid = new TileType[Height, Width];
         for (int y = 0; y < Height; y++)
@@ -65,18 +80,18 @@ internal static class SoulLayout
                 grid[y, x] = TileType.OuterVoid;
 
         // Main chapel nave and its softer apse/alcove silhouette.
-        PaintRect(grid, 26, 58, 52, 75, TileType.BuildingFloor);
-        PaintEllipse(grid, new Point(39, 57), 9, 6, TileType.BuildingFloor);
-        PaintEllipse(grid, new Point(27, 64), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, new Point(27, 70), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, new Point(51, 64), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, new Point(51, 70), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, new Point(39, 75), 6, 4, TileType.BuildingFloor);
+        PaintRect(grid, 26, 58 + NorthExpansionTiles, 52, 75 + NorthExpansionTiles, TileType.BuildingFloor);
+        PaintEllipse(grid, AuthoredTile(39, 57), 9, 6, TileType.BuildingFloor);
+        PaintEllipse(grid, AuthoredTile(27, 64), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, AuthoredTile(27, 70), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, AuthoredTile(51, 64), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, AuthoredTile(51, 70), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, AuthoredTile(39, 75), 6, 4, TileType.BuildingFloor);
         PaintEllipse(grid, DummyTile, 5, 4, TileType.BuildingFloor);
 
         // A quiet processional aisle ties every utility shrine to the apse.
-        PaintRect(grid, 38, 55, 40, 76, TileType.Road);
-        PaintLine(grid, new Point(29, 67), new Point(49, 67), 1, TileType.Road);
+        PaintRect(grid, 38, 55 + NorthExpansionTiles, 40, 76 + NorthExpansionTiles, TileType.Road);
+        PaintLine(grid, AuthoredTile(29, 67), AuthoredTile(49, 67), 1, TileType.Road);
 
         // The short transition remains physically legible at 0% VFX.
         PaintLine(grid, TunnelSouthTile, NexusTile, 3, TileType.Road);
@@ -90,6 +105,16 @@ internal static class SoulLayout
             PaintEllipse(grid, portal, 3, 3, TileType.BuildingFloor);
             PaintRing(grid, portal, 1.55f, 2.55f, TileType.Road);
         }
+
+        // The endgame now forms one northbound spine beyond the central
+        // Sight chamber: Sight -> Core -> Aphantasia.
+        Point sightPortal = PortalTiles["sight"];
+        PaintLine(grid, sightPortal, CorePortalTile, 2, TileType.Road);
+        PaintEllipse(grid, CorePortalTile, 3, 3, TileType.BuildingFloor);
+        PaintRing(grid, CorePortalTile, 1.55f, 2.55f, TileType.Road);
+        PaintLine(grid, CorePortalTile, AphantasiaPortalTile, 2, TileType.Road);
+        PaintEllipse(grid, AphantasiaPortalTile, 3, 3, TileType.BuildingFloor);
+        PaintRing(grid, AphantasiaPortalTile, 1.55f, 2.55f, TileType.Road);
 
         // Grow a one-tile masonry shell around the authored walkable mask.
         // Computing the mask first prevents the shell from recursively
@@ -115,7 +140,47 @@ internal static class SoulLayout
                 if (shell[y, x])
                     grid[y, x] = TileType.BuildingWall;
 
+        if (unlockedPaths is not null)
+        {
+            foreach ((string sense, Point portal) in PortalTiles)
+                if (!unlockedPaths.Contains(sense))
+                    SealBranch(grid, portal);
+            if (!unlockedPaths.Contains("core"))
+                SealCorridor(grid, PortalTiles["sight"], CorePortalTile, .55f);
+            if (!unlockedPaths.Contains("aphantasia"))
+                SealCorridor(grid, CorePortalTile, AphantasiaPortalTile, .55f);
+        }
+
         return grid;
+    }
+
+    private static void SealBranch(TileType[,] grid, Point portal)
+    {
+        SealCorridor(grid, NexusTile, portal, .70f);
+    }
+
+    private static void SealCorridor(TileType[,] grid, Point start, Point end, float amount)
+    {
+        Vector2 direction = end.ToVector2() - start.ToVector2();
+        direction.Normalize();
+        Vector2 perpendicular = new(-direction.Y, direction.X);
+        // Keep the seal inside its own outer branch. Nearer the nexus, the
+        // five wide corridors overlap enough that one locked wing can clip a
+        // neighboring unlocked route.
+        Vector2 gate = Vector2.Lerp(start.ToVector2(), end.ToVector2(), amount);
+        const int extent = 5;
+        for (int y = Math.Max(1, (int)gate.Y - extent);
+             y <= Math.Min(Height - 2, (int)gate.Y + extent); y++)
+            for (int x = Math.Max(1, (int)gate.X - extent);
+                 x <= Math.Min(Width - 2, (int)gate.X + extent); x++)
+            {
+                Vector2 delta = new Vector2(x, y) - gate;
+                float depth = MathF.Abs(Vector2.Dot(delta, direction));
+                float span = MathF.Abs(Vector2.Dot(delta, perpendicular));
+                if (depth <= 1.65f && span <= 3.75f
+                    && grid[y, x] is TileType.BuildingFloor or TileType.Road)
+                    grid[y, x] = TileType.BuildingWall;
+            }
     }
 
     private static void PaintRect(TileType[,] grid, int left, int top, int right, int bottom, TileType tile)

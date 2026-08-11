@@ -280,6 +280,37 @@ public static class UiTheme
         return rect;
     }
 
+    /// <summary>
+    /// Quiet menu chrome: a recessed surface, neutral outline, clipped-corner
+    /// brackets, and one short semantic accent rule. Unlike Living/Composite
+    /// panels it contains no ambient animation or cycling Soul colors.
+    /// </summary>
+    public static Rectangle DrawFramedPanel(SpriteBatch spriteBatch, Rectangle rect,
+        Color? fill = null, Color? accent = null, int shadow = 4, bool hovered = false)
+    {
+        Color accentColor = accent ?? Border;
+        DrawPanel(spriteBatch, rect, fill ?? Panel, Border, shadow, hovered);
+        float scale = DisplayScale(spriteBatch);
+        int inset = Math.Max(3, (int)MathF.Round(4 * scale));
+        int bracket = Math.Max(6, Math.Min(rect.Width, rect.Height) / 12);
+        int width = Math.Max(1, (int)MathF.Round(scale));
+        Color quiet = Lighten(Border, 16);
+
+        Primitives2D.Line(spriteBatch, new(rect.Left + inset, rect.Top + bracket),
+            new(rect.Left + inset, rect.Top + inset), quiet, width);
+        Primitives2D.Line(spriteBatch, new(rect.Left + inset, rect.Top + inset),
+            new(rect.Left + bracket, rect.Top + inset), quiet, width);
+        Primitives2D.Line(spriteBatch, new(rect.Right - bracket, rect.Bottom - inset),
+            new(rect.Right - inset, rect.Bottom - inset), quiet, width);
+        Primitives2D.Line(spriteBatch, new(rect.Right - inset, rect.Bottom - inset),
+            new(rect.Right - inset, rect.Bottom - bracket), quiet, width);
+
+        int ruleWidth = Math.Max(bracket * 2, Math.Min(rect.Width / 4, (int)(110 * scale)));
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(rect.Left + bracket, rect.Top + inset, ruleWidth, width), accentColor);
+        return rect;
+    }
+
     public static Rectangle DrawLivingPanel(
         SpriteBatch spriteBatch,
         Rectangle rect,

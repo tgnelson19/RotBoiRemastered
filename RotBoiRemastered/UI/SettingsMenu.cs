@@ -70,31 +70,31 @@ public sealed class SettingsMenu
         int titleHeight = Math.Max(32, (int)(46 * scale));
         var root = new Rectangle(margin, margin, screenWidth - margin * 2,
             screenHeight - margin * 2);
-        UiTheme.DrawCompositePanel(spriteBatch, root, animationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, root,
             UiTheme.Panel * .98f, UiTheme.Border, 7);
         UiTheme.DrawText(spriteBatch, settingsOnly ? "SETTINGS" : "PAUSED",
             20 * scale, UiTheme.Text, new Vector2(root.X + margin, root.Y + 8 * scale));
         UiTheme.DrawText(spriteBatch,
-            settingsOnly ? "THE SOUL REMEMBERS YOUR PREFERENCES" :
+            settingsOnly ? "THE MIND REMEMBERS YOUR PREFERENCES" :
             soulContext ? "THE SANCTUARY IS WAITING" : "THE RUN IS FROZEN",
             8 * scale, UiTheme.Muted,
             new Vector2(root.Right - margin, root.Y + 14 * scale), "topright");
 
         int railWidth = Math.Clamp((int)(root.Width * .18f), 104, (int)(190 * scale));
-        int actionWidth = Math.Clamp((int)(root.Width * .21f), 124, (int)(235 * scale));
         int gap = Math.Max(6, (int)(9 * scale));
+        int actionHeight = Math.Max(54, (int)(64 * scale));
         var categoryRail = new Rectangle(root.X + margin, root.Y + titleHeight,
-            railWidth, root.Height - titleHeight - margin);
-        var actionRail = new Rectangle(root.Right - margin - actionWidth,
-            categoryRail.Y, actionWidth, categoryRail.Height);
+            railWidth, root.Height - titleHeight - margin - actionHeight - gap);
+        var actionRail = new Rectangle(root.X + margin,
+            categoryRail.Bottom + gap, root.Width - margin * 2, actionHeight);
         var page = new Rectangle(categoryRail.Right + gap, categoryRail.Y,
-            actionRail.Left - gap - (categoryRail.Right + gap), categoryRail.Height);
+            root.Right - margin - (categoryRail.Right + gap), categoryRail.Height);
 
-        UiTheme.DrawCompositePanel(spriteBatch, categoryRail, animationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, categoryRail,
             UiTheme.Ink, UiTheme.Border, 2);
-        UiTheme.DrawCompositePanel(spriteBatch, page, animationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, page,
             UiTheme.Panel, UiTheme.Border, 2);
-        UiTheme.DrawCompositePanel(spriteBatch, actionRail, animationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, actionRail,
             UiTheme.Ink, UiTheme.Border, 2);
 
         int rowGap = Math.Max(4, (int)(6 * scale));
@@ -104,9 +104,16 @@ public sealed class SettingsMenu
         {
             var rect = new Rectangle(categoryRail.X + rowGap, y,
                 categoryRail.Width - rowGap * 2, railRow);
-            DrawButton(spriteBatch, $"category:{id}", rect, label, mouse, mouseDown,
-                _category == id ? UiTheme.Purple : UiTheme.Border,
-                size: 9 * scale);
+            Register($"category:{id}", rect);
+            bool selected = _category == id;
+            if (selected)
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle(rect.X, rect.Y, Math.Max(3, (int)(4 * scale)), rect.Height), UiTheme.Purple);
+            UiTheme.DrawText(spriteBatch, label, 9 * scale,
+                selected ? UiTheme.Text : UiTheme.Muted,
+                new Vector2(rect.X + 10 * scale, rect.Center.Y), "midleft");
+            if (_focus.IsFocused($"category:{id}"))
+                Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, 2);
             y += railRow + rowGap;
         }
 
@@ -146,10 +153,20 @@ public sealed class SettingsMenu
             var rect = new Rectangle(viewport.X, y, viewport.Width, rowHeight);
             if (rect.Top >= viewport.Top && rect.Bottom <= viewport.Bottom)
             {
-                string label = row.Value.Length == 0 ? row.Label
-                    : $"{row.Label}  //  {row.Value}";
-                DrawButton(spriteBatch, row.Id, rect, label, mouse, mouseDown,
-                    row.Accent, row.Enabled, size: 9 * scale);
+                Register(row.Id, rect, row.Enabled);
+                bool hovered = row.Enabled && rect.Contains(mouse);
+                Primitives2D.FillRect(spriteBatch, rect,
+                    hovered ? UiTheme.PanelHover : UiTheme.PanelRaised);
+                Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Bottom - 1),
+                    new Vector2(rect.Right, rect.Bottom - 1), UiTheme.Border, 1);
+                UiTheme.DrawText(spriteBatch, row.Label, 8.5 * scale,
+                    row.Enabled ? UiTheme.Text : UiTheme.Muted,
+                    new Vector2(rect.X + 8 * scale, rect.Y + 7 * scale));
+                if (row.Value.Length > 0)
+                    UiTheme.DrawText(spriteBatch, row.Value, 9 * scale, row.Accent,
+                        new Vector2(rect.Right - 9 * scale, rect.Center.Y), "midright");
+                if (_focus.IsFocused(row.Id) && row.Enabled)
+                    Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, 2);
                 if (row.Id == "setting:TextSize")
                     DrawTextSizeSlider(spriteBatch, rect, scale);
                 else if (!string.IsNullOrWhiteSpace(row.Description) && rowHeight >= 38)
@@ -223,6 +240,7 @@ public sealed class SettingsMenu
                 new("setting:AutoFire", "DEFAULT AUTOFIRE", OnOff(profile.AutoFire), "New runs begin firing automatically", UiTheme.Green),
                 new("setting:TutorialHints", "CONTEXT HINTS", OnOff(profile.TutorialHints), "Short situational reminders", UiTheme.Blue),
                 new("setting:AimGuide", "AIM GUIDE", OnOff(profile.AimGuide), "Show a short aiming line", UiTheme.Blue),
+                new("setting:DevUnlockTesting", "DEV UNLOCK TESTING", OnOff(profile.DevUnlockTesting), "Show reversible campaign gate controls in The Mind", UiTheme.Gold),
             },
             "accessibility" => new List<SettingRow>
             {
@@ -243,8 +261,7 @@ public sealed class SettingsMenu
             },
             "interface" => new List<SettingRow>
             {
-                FooterRow(0), FooterRow(1), FooterRow(2),
-                new("setting:ResetUi", "RESTORE UI DEFAULTS", "", "Reset footer stats, scale, and text sizes", UiTheme.Gold),
+                new("setting:ResetUi", "RESTORE UI DEFAULTS", "", "Reset interface scale and text sizes", UiTheme.Gold),
             },
             _ => ControlsRows(),
         };
@@ -290,32 +307,31 @@ public sealed class SettingsMenu
         float scale)
     {
         int pad = Math.Max(5, (int)(7 * scale));
-        int rowHeight = Math.Max(29, (int)(39 * scale));
-        int y = rail.Y + pad;
+        int rowHeight = rail.Height - pad * 2;
+        var actions = new List<(string Id, string Label, Color Color, bool Enabled, string? Hint)>();
+        actions.Add(("action:resume", settingsOnly ? "BACK" : soulContext ? "RETURN TO SOUL" : "RESUME", UiTheme.Green, true, "ESC"));
+        if (!soulContext && !settingsOnly)
+        {
+            actions.Add(("action:dossier", "DOSSIER", UiTheme.Purple, true, "TAB"));
+            actions.Add(("action:restart", "RESTART", UiTheme.Gold, true, null));
+            actions.Add(("action:extract", canExtract ? "EXTRACT" : "EXTRACT LOCKED", UiTheme.Green, canExtract, null));
+        }
+        if (!settingsOnly)
+            actions.Add(("action:title", "TITLE", UiTheme.Red, true, null));
+        actions.Add(("action:quit", "QUIT", UiTheme.Red, true, null));
+        int gap = pad;
+        int width = Math.Max(70, (rail.Width - pad * 2 - gap * (actions.Count - 1)) / actions.Count);
+        int x = rail.X + pad;
         void Action(string id, string label, Color color, bool enabled = true,
             string? hint = null)
         {
-            var rect = new Rectangle(rail.X + pad, y, rail.Width - pad * 2, rowHeight);
+            var rect = new Rectangle(x, rail.Y + pad, width, rowHeight);
             DrawButton(spriteBatch, id, rect, label, mouse, mouseDown, color,
                 enabled, hint, 8.5 * scale);
-            y += rowHeight + pad;
+            x += width + gap;
         }
-
-        Action("action:resume", settingsOnly ? "BACK" : soulContext ? "RETURN TO SOUL" : "RESUME",
-            UiTheme.Green, hint: "ESC");
-        if (!soulContext && !settingsOnly)
-        {
-            Action("action:dossier", "DOSSIER", UiTheme.Purple, hint: "TAB");
-            Action("action:restart", "RESTART RUN", UiTheme.Gold);
-            Action("action:extract", canExtract ? "EXTRACT" : "EXTRACT LOCKED",
-                UiTheme.Green, canExtract);
-            if (!canExtract)
-                UiTheme.DrawText(spriteBatch, "DEFEAT BEAUDIS TO UNLOCK", 5.8 * scale,
-                    UiTheme.Red, new Vector2(rail.Center.X, y - pad / 2f), "center");
-        }
-        if (!settingsOnly)
-            Action("action:title", "RETURN TO TITLE", UiTheme.Red);
-        Action("action:quit", "QUIT GAME", UiTheme.Red);
+        foreach (var action in actions)
+            Action(action.Id, action.Label, action.Color, action.Enabled, action.Hint);
     }
 
     private void DrawConfirmation(SpriteBatch spriteBatch, Rectangle root,
@@ -326,7 +342,7 @@ public sealed class SettingsMenu
         int height = Math.Min(root.Height - 24, Math.Max(140, (int)(180 * scale)));
         var modal = new Rectangle(root.Center.X - width / 2, root.Center.Y - height / 2,
             width, height);
-        UiTheme.DrawCompositePanel(spriteBatch, modal, animationTime,
+        UiTheme.DrawFramedPanel(spriteBatch, modal,
             UiTheme.PanelRaised, UiTheme.Red, 8);
         UiTheme.DrawText(spriteBatch, ConfirmationTitle(_confirmation!), 15 * scale,
             UiTheme.Text, new Vector2(modal.Center.X, modal.Y + 18 * scale), "midtop");
@@ -478,11 +494,12 @@ public sealed class SettingsMenu
         return MenuAction.None;
     }
 
-    private static void ChangeSetting(string key, int direction)
+    internal static void ChangeSetting(string key, int direction)
     {
         GameProfileData profile = GameProfile.Profile;
         if (key is "CasualMode" or "AutoFire" or "TutorialHints" or "AimGuide"
-            or "DamageNumbers" or "HighContrast" or "Fullscreen" or "VSync")
+            or "DamageNumbers" or "HighContrast" or "Fullscreen" or "VSync"
+            or "DevUnlockTesting")
         {
             GameProfile.Toggle(key);
             return;

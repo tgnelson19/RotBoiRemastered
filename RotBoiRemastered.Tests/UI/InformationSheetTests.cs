@@ -110,6 +110,35 @@ public class InformationSheetTests
     }
 
     [Fact]
+    public void StatDisplay_UsesCompactStableVocabulary()
+    {
+        Assert.Equal(new[] { "DMG", "A.R.", "SHOT", "C.%", "C.D.", "PRC", "DEF", "VIT", "MOV", "RNG" },
+            StatDisplay.Definitions.Take(10).Select(definition => definition.Abbreviation));
+    }
+
+    [Fact]
+    public void ExpectedProjectileAndPierceValues_AreDirectlyReadable()
+    {
+        var state = MakeState();
+
+        Assert.Equal(state.ProjectileCount, StatDisplay.ExpectedProjectiles(state));
+        Assert.Equal(state.BulletPierce + 1, StatDisplay.ExpectedEnemiesHit(state));
+        Assert.Equal("1.00", StatDisplay.ById("shots").Format(state));
+    }
+
+    [Fact]
+    public void ItemEffectDeltas_CompareCandidateAgainstEquippedItem()
+    {
+        var candidate = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Common");
+        var equipped = new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Common");
+
+        var deltas = InformationSheet.ItemEffectDeltas(candidate, equipped);
+
+        Assert.Contains(deltas, delta => delta.Stat == "Bullet Damage" && delta.Delta > 0);
+        Assert.Contains(deltas, delta => delta.Stat == "Bullet Range" && delta.Delta < 0);
+    }
+
+    [Fact]
     public void Pressure_NoEnemiesNoBoss_ReturnsCalm()
     {
         var (label, _, _) = InformationSheet.Pressure(MakeState());

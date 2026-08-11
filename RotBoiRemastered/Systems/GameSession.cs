@@ -59,6 +59,12 @@ public sealed class GameSession
     public FooterHud FooterHud { get; } = new();
     public RunRewardSummary? LastRunRewardSummary { get; private set; }
     public PathRun? PathRun { get; private set; }
+    public ExpeditionRun? Expedition { get; private set; }
+    public CampaignActivity? CampaignActivity { get; private set; }
+    public string? CampaignActivitySense { get; private set; }
+    public bool AphantasiaPrecombatDraftsPending =>
+        CampaignActivity == Systems.CampaignActivity.Aphantasia
+        && State.PendingLevelUps > 0;
     public PathFogOfWar? PathFog { get; private set; }
     public bool IsPathMode => PathRun is not null;
     public bool IsPathFogActive => _pathFogActive && PathFog is not null;
@@ -85,6 +91,9 @@ public sealed class GameSession
     private readonly List<Enemy> _spawnedEnemyScratch = new();
     private readonly HashSet<Enemy> _rejectedOwnerScratch = new(ReferenceEqualityComparer.Instance);
     private readonly List<EnemyProjectile> _spawnedProjectileScratch = new();
+    private readonly HashSet<EnemyProjectile> _campaignTunedProjectiles =
+        new(ReferenceEqualityComparer.Instance);
+    private int _campaignProjectileSequence;
     private readonly HashSet<int> _worldEncounterIdScratch = new();
     private readonly SpatialHash<Enemy> _enemyCollisionGrid =
         new(Math.Max(64, (int)(Simulation.TileSize * 2)));
@@ -161,6 +170,9 @@ public sealed class GameSession
 
     public bool BossTelemetryActive => _bossTelemetry is not null;
     public bool DungeonBossInstanceActive => _dungeonBossInstance is not null;
+    private bool SoulCampaignFinaleActive =>
+        PathRun is { IsSecretDungeon: true, BossTier: PathFloorBossTier.Finale }
+        && Expedition?.World == CampaignWorld.Soul;
     public bool PreferControllerPrompts => _controllerPromptRemaining > 0;
     public VisualDensity CurrentVisualDensity => _visualDensity;
     internal IReadOnlyList<ArenaLightPost> ArenaLightPosts =>
@@ -211,8 +223,13 @@ public sealed class GameSession
     {
         _enemyCollisionGrid.Reset();
         _visualEffects.Clear();
+        _campaignTunedProjectiles.Clear();
+        _campaignProjectileSequence = 0;
         _playerBuildSnapshot = null;
         PathRun = null;
+        Expedition = null;
+        CampaignActivity = null;
+        CampaignActivitySense = null;
         PathFog = null;
         _pathFogActive = false;
         _roomClearedAt.Clear();
@@ -246,16 +263,197 @@ public sealed class GameSession
         _playerBuildSnapshot = null;
         rng ??= Random.Shared;
         var pathRun = new PathRun(rng);
+        InstallPathRun(pathRun, rng);
+        CampaignActivity = Systems.CampaignActivity.Core;
+        CampaignActivitySense = null;
+    }
+
+    public void StartArena(string sense, Random? rng = null)
+    {
+        if (!CampaignProgression.PortalUnlocked(sense))
+            throw new InvalidOperationException($"The {sense} arena is still sealed.");
+        GamePaths.Select(sense);
+        ResetAll(GamePaths.ActivateSelected(), rng);
+        CampaignActivity = Systems.CampaignActivity.Arena;
+        CampaignActivitySense = sense;
+    }
+
+    public void StartAphantasia(Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        // The Mind's braziers are live session settings. Capture them before
+        // ResetAll so tests and callers that changed the RunState directly get
+        // the same immutable entry contract as profile-driven portal travel.
+        bool noHealing = State.NoHealing;
+        bool noExtract = State.NoExtract;
+
+        ResetAll(BossArenaFactory.Create("aphantasia", Progression.FinalBossLevel), rng);
+        State.SetHardMode(noHealing);
+        State.SetNoExtract(noExtract);
+        State.SetNewGamePlusLevel(NewGamePlus.SelectedLevel("phantasia"));
+        CampaignActivity = Systems.CampaignActivity.Aphantasia;
+        CampaignActivitySense = "phantasia";
+        State.CurrentLevel = Progression.MaxLevel;
+        State.PendingLevelUps = Progression.MaxLevel;
+        State.ExpCount = 0;
+        State.FillHealthForMilestone();
+        RefreshLightingFixtures();
+
+        SpawnBoss(
+            (x, y, spawnRng) =>
+            {
+                var boss = new Aphantasia(
+                    x, y, Battleground, spawnRng, noHealing, noExtract)
+                {
+                    ContentPath = "phantasia",
+                };
+                return boss;
+            },
+            rng,
+            bossKey: "aphantasia");
+    }
+
+    public void StartExpedition(CampaignWorld world, string? finaleSense = null,
+        Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        var expedition = new ExpeditionRun(world, rng.Next(), finaleSense);
+        ResetAll(expedition.Battleground, rng);
+        Expedition = expedition;
+        CampaignActivity = world == CampaignWorld.Body
+            ? Systems.CampaignActivity.Body : Systems.CampaignActivity.Soul;
+        CampaignActivitySense = finaleSense;
+        State.EnemySpawningEnabled = true;
+    }
+
+    /// <summary>
+    /// Continues a completed Body expedition directly into its hostile Soul
+    /// layer. Unlike StartExpedition, this deliberately preserves the entire
+    /// live build: level, upgrades, health, equipment, inventory, challenges,
+    /// and elapsed run time all cross the boundary intact.
+    /// </summary>
+    internal void ContinueCompletedBodyIntoSoul(Random? rng = null)
+    {
+        if (Expedition is not { World: CampaignWorld.Body, Complete: true } body)
+            throw new InvalidOperationException("The Body expedition is not complete.");
+
+        CampaignProgression.CompleteBody();
+        rng ??= Random.Shared;
+        string[] lockedSenses = CampaignProgression.SenseKeys
+            .Where(sense => !CampaignProgression.Data.ArenaUnlocks.Contains(sense))
+            .ToArray();
+        string finaleSense = lockedSenses.Contains(body.FinaleSense)
+            ? body.FinaleSense
+            : lockedSenses.Length > 0
+                ? lockedSenses[rng.Next(lockedSenses.Length)]
+                : body.FinaleSense;
+        var soul = new ExpeditionRun(CampaignWorld.Soul, rng.Next(), finaleSense);
+
+        _enemyCollisionGrid.Reset();
+        _visualEffects.Clear();
+        _campaignTunedProjectiles.Clear();
+        _campaignProjectileSequence = 0;
+        PathRun = null;
+        PathFog = null;
+        _pathFogActive = false;
+        _roomClearedAt.Clear();
+        _roomVisualEnergy.Clear();
+        _pendingPathWaves.Clear();
+        _pendingPathEncounterKeys.Clear();
+        _preloadedPathEncounterKeys.Clear();
+        LastRunRewardSummary = null;
+        Expedition = soul;
+        CampaignActivity = Systems.CampaignActivity.Soul;
+        CampaignActivitySense = finaleSense;
+        Battleground = soul.Battleground;
+        Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
+
+        State.ActiveBoss = null;
+        State.EnemyHolster.Clear();
+        State.EnemyProjectileHolster.Clear();
+        State.BulletHolster.Clear();
+        State.DamageTextList.Clear();
+        State.ExperienceList.Clear();
+        State.FragmentList.Clear();
+        State.LootCrateList.Clear();
+        State.NearbyCrate = null;
+        State.CurrEnemyCount = 0;
+        State.GameCompleted = false;
+        State.EnemySpawningEnabled = true;
+        State.CurrentStage = 1;
+
+        Camera.SetAngle(0);
+        ScreenShake = Vector2.Zero;
+        LevelingHandler = new LevelingHandler(ScreenWidth, ScreenHeight, rng);
+        ReforgeHandler = new ReforgeHandler(ScreenWidth, ScreenHeight);
+        InformationSheet = new InformationSheet(ScreenWidth, ScreenHeight);
+        Camera.Lock = new Vector2(ScreenWidth / 2f, ScreenHeight / 2f);
+        Camera.ConfigureViewport(ScreenWidth, ScreenHeight,
+            GameProfile.Profile.CameraZoom, resetZoom: true);
+        _activeBossKey = null;
+        _bossTelemetry = null;
+        _bossTelemetryDeathCueEmitted = false;
+        _controllerPromptRemaining = 0;
+        _debugVisualGallery = false;
+        _dungeonBossInstance = null;
+        RefreshLightingFixtures();
+    }
+
+    public bool TryEnterExpeditionSecretDungeon(Random? rng = null)
+    {
+        if (Expedition is null)
+            return false;
+        float radius = Simulation.TileSize * 1.6f;
+        ExpeditionSecret? secret = Expedition.Secrets
+            .Where(item => item.IsAvailable(Expedition.DefeatedGuardians)
+                && Vector2.DistanceSquared(item.WorldPosition, PlayerWorldCenter) <= radius * radius)
+            .OrderBy(item => Vector2.DistanceSquared(item.WorldPosition, PlayerWorldCenter))
+            .FirstOrDefault();
+        if (secret is null)
+            return false;
+        if (secret.State < SecretState.DungeonOpen)
+        {
+            Expedition.SolveSecret(secret.SenseKey);
+            return true;
+        }
+        if (!Expedition.EnterDungeon(secret.SenseKey, PlayerWorldCenter))
+            return false;
+        rng ??= Random.Shared;
+        InstallPathRun(PathRun.CreateSecretDungeon(Expedition, secret, rng), rng);
+        return true;
+    }
+
+    private void InstallPathRun(PathRun pathRun, Random rng)
+    {
         GamePaths.SetActive(pathRun.CurrentSenseKey);
         PathRun = pathRun;
+        Expedition = pathRun.Expedition;
         _roomClearedAt.Clear();
         _roomVisualEnergy.Clear();
         LastRunRewardSummary = null;
         _pendingPathWaves.Clear();
         _pendingPathEncounterKeys.Clear();
         _preloadedPathEncounterKeys.Clear();
-        State.Reset();
-        State.SetNewGamePlusLevel(NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey));
+        if (!pathRun.IsSecretDungeon)
+        {
+            State.Reset();
+            State.SetNewGamePlusLevel(NewGamePlus.SelectedLevel(NewGamePlus.DungeonKey));
+        }
+        else
+        {
+            State.ActiveBoss = null;
+            State.EnemyHolster.Clear();
+            State.EnemyProjectileHolster.Clear();
+            State.BulletHolster.Clear();
+            State.DamageTextList.Clear();
+            State.ExperienceList.Clear();
+            State.FragmentList.Clear();
+            State.LootCrateList.Clear();
+            State.NearbyCrate = null;
+            State.CurrEnemyCount = 0;
+            State.EnemySpawningEnabled = true;
+            State.GameCompleted = false;
+        }
         Battleground = pathRun.Layout.Battleground;
         Player = new Player(Battleground.SpawnPosition.X, Battleground.SpawnPosition.Y);
         PathFog = new PathFogOfWar(Battleground);
@@ -275,12 +473,24 @@ public sealed class GameSession
         _dungeonBossInstance = null;
         RefreshLightingFixtures();
         State.CurrentStage = 1;
-        LoadCarriedItems();
+        if (!pathRun.IsSecretDungeon)
+            LoadCarriedItems();
     }
 
     /// <summary>Restarts whichever run mode is currently represented by this session.</summary>
     public void RestartCurrentRun(Random? rng = null)
     {
+        if (CampaignActivity == Systems.CampaignActivity.Aphantasia)
+        {
+            StartAphantasia(rng);
+            return;
+        }
+        if (Expedition is not null)
+        {
+            StartExpedition(Expedition.World,
+                Expedition.World == CampaignWorld.Soul ? Expedition.FinaleSense : null, rng);
+            return;
+        }
         if (PathRun is not null)
             StartPathRun(rng);
         else
@@ -298,7 +508,7 @@ public sealed class GameSession
         State.RunOutcome = outcome;
         string path = PathRun is not null
             ? NewGamePlus.DungeonKey
-            : GamePaths.Selected().Key;
+            : CampaignActivitySense ?? GamePaths.Selected().Key;
         LastRunRewardSummary = MetaProgression.RecordExtraction(State, path, completed);
         MetaProgression.SyncCarriedItems(State);
         GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed);
@@ -402,13 +612,17 @@ public sealed class GameSession
     }
 
     private string ActiveLightingPathKey =>
-        PathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
+        CampaignActivity == Systems.CampaignActivity.Aphantasia
+            ? "aphantasia"
+            : PathRun?.CurrentSenseKey ?? CampaignActivitySense ?? GamePaths.Active().Key;
 
     private void RefreshLightingFixtures()
     {
         _arenaLightPosts.Clear();
         _worldLightSources.Clear();
         string pathKey = ActiveLightingPathKey;
+        if (CampaignActivity == Systems.CampaignActivity.Aphantasia)
+            return;
         bool standaloneOrInstancedArena =
             PathRun is null || _dungeonBossInstance is not null;
         if (standaloneOrInstancedArena)
@@ -434,7 +648,12 @@ public sealed class GameSession
     /// </summary>
     public void DrawAtmosphericLighting(
         SpriteBatch spriteBatch,
-        GraphicsDevice graphicsDevice) =>
+        GraphicsDevice graphicsDevice)
+    {
+        float darknessScale = State.ActiveBoss is Aphantasia aphantasia
+            ? aphantasia.ArenaDarknessScale : 1f;
+        float playerLightScale = State.ActiveBoss is Aphantasia lightBoss
+            ? lightBoss.ArenaPlayerLightScale : 1f;
         _worldLighting.DrawAtmosphere(
             spriteBatch,
             graphicsDevice,
@@ -447,7 +666,10 @@ public sealed class GameSession
             _worldLightSources,
             ActiveVisibilityFog,
             _visualDensity.Optional,
-            GameProfile.Profile.HighContrast);
+            GameProfile.Profile.HighContrast,
+            darknessScale,
+            playerLightScale);
+    }
 
     // ----- Player movement/combat -----
 
@@ -566,13 +788,15 @@ public sealed class GameSession
             State.EnemyProjectileHolster.Count,
             telegraphCoverage,
             State.ActiveBoss is not null,
-            authoredPeak: State.ActiveBoss is Dissonance or PathChaseBoss);
+            authoredPeak: State.ActiveBoss is Aphantasia or Dissonance or PathChaseBoss);
         _visualEffects.Update(seconds);
     }
 
     public VisualRenderContext CurrentVisualContext()
     {
-        string pathKey = PathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
+        string pathKey = PathRun?.CurrentSenseKey
+            ?? CampaignActivitySense
+            ?? GamePaths.Active().Key;
         PathRoom? room = PathRun?.Layout.RoomAt(PlayerWorldCenter);
         RoomPresentationState roomState = RoomPresentationState.Residual;
         if (room is not null)
@@ -781,6 +1005,10 @@ public sealed class GameSession
     public void HandleEnemyCreation(Random? rng = null, bool interactPressed = false)
     {
         rng ??= Random.Shared;
+        if (CampaignActivity == Systems.CampaignActivity.Aphantasia)
+            return;
+        if (Expedition is not null && PathRun is null && interactPressed)
+            TryEnterExpeditionSecretDungeon(rng);
         if (PathRun is not null)
         {
             HandlePathEnemyCreation(rng, interactPressed);
@@ -1013,7 +1241,7 @@ public sealed class GameSession
     /// floor difficulty was even considered.
     /// </summary>
     public static bool UsesAuthoredBossBalance(Enemy enemy) =>
-        enemy is PathGuardianBoss or PathChaseBoss or Beaudis or Dissonance;
+        enemy is Aphantasia or PathGuardianBoss or PathChaseBoss or Beaudis or Dissonance;
 
     /// <summary>
     /// Applies ordinary sense identity only to catalog enemies and adds. Boss
@@ -1048,6 +1276,14 @@ public sealed class GameSession
                 (int)Math.Round(enemy.MaxHp * BossHealthMultiplier));
             enemy.Hp = enemy.MaxHp;
         }
+        if (SoulCampaignFinaleActive && UsesAuthoredBossBalance(enemy))
+        {
+            enemy.Damage = Math.Max(1, (int)Math.Round(enemy.Damage * .75));
+            if (enemy.AttackCooldown.HasValue)
+                enemy.AttackCooldown *= 1.25f;
+            if (enemy.AttackCooldownMax.HasValue)
+                enemy.AttackCooldownMax *= 1.25f;
+        }
         if (UsesAuthoredBossBalance(enemy) && State.HardMode)
         {
             enemy.MaxHp = Math.Max(1, (int)Math.Round(enemy.MaxHp * 1.12));
@@ -1079,6 +1315,8 @@ public sealed class GameSession
     /// </summary>
     public void UpdateEnemies()
     {
+        if (AphantasiaPrecombatDraftsPending)
+            return;
         var playerCenter = new Vector2(Player.WorldX + (float)State.PlayerSize / 2f, Player.WorldY + (float)State.PlayerSize / 2f);
         double pressureUsed = 0.0;
         _encounterScratch.Clear();
@@ -1321,10 +1559,29 @@ public sealed class GameSession
     /// <summary>Ported from character.py's handlingEnemyProjectileUpdating(), including boss-arena containment and overflow trimming.</summary>
     public void UpdateEnemyProjectiles()
     {
+        if (AphantasiaPrecombatDraftsPending)
+            return;
+        if (SoulCampaignFinaleActive)
+        {
+            foreach (EnemyProjectile projectile in State.EnemyProjectileHolster.ToArray())
+            {
+                if (!_campaignTunedProjectiles.Add(projectile))
+                    continue;
+                _campaignProjectileSequence++;
+                if (_campaignProjectileSequence % 4 == 0)
+                    projectile.RemFlag = true;
+                else
+                {
+                    projectile.Speed *= .8f;
+                    projectile.Damage *= .75f;
+                }
+            }
+        }
         _spawnedProjectileScratch.Clear();
         bool casualMode = GameProfile.Profile.CasualMode;
         (Vector2 Center, float Radius)? radialArena = State.ActiveBoss switch
         {
+            Aphantasia aphantasia => (aphantasia.ArenaCenter, aphantasia.ArenaRadius),
             Dissonance dissonance => (dissonance.ArenaCenter, dissonance.ArenaRadius),
             PathGuardianBoss guardian => (guardian.ArenaCenter, guardian.ArenaRadius),
             _ => null,
@@ -1397,6 +1654,61 @@ public sealed class GameSession
             }
             projectile.Draw(spriteBatch, Camera, PlayerWorldCenter, ScreenShake, highContrast);
         }
+    }
+
+    public void DrawExpeditionSecrets(SpriteBatch spriteBatch)
+    {
+        if (Expedition is null || PathRun is not null)
+            return;
+        float time = (float)State.RunTimeSeconds;
+        foreach (ExpeditionSecret secret in Expedition.Secrets)
+        {
+            bool available = secret.IsAvailable(Expedition.DefeatedGuardians);
+            Color accent = available
+                ? GamePaths.PathsByKey[secret.SenseKey].Accent
+                : UiTheme.Muted * .38f;
+            float radius = Simulation.TileSize
+                * (secret.State >= SecretState.DungeonOpen ? .78f : .34f);
+            Primitives2D.FillCircle(spriteBatch, secret.WorldPosition,
+                radius * .78f, UiTheme.Ink);
+            Primitives2D.CircleOutline(spriteBatch, secret.WorldPosition,
+                radius, accent * (.82f + .18f * MathF.Sin(time * 2.1f)),
+                secret.State >= SecretState.DungeonOpen ? 4 : 2);
+            for (int rune = 0; rune < 5; rune++)
+            {
+                float angle = rune * MathF.Tau / 5f
+                    + time * (secret.State >= SecretState.DungeonOpen ? .7f : .08f);
+                Vector2 at = secret.WorldPosition
+                    + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius * .72f;
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)at.X - 3, (int)at.Y - 3, 6, 6), accent * .7f);
+            }
+        }
+    }
+
+    public void DrawExpeditionHint(SpriteBatch spriteBatch)
+    {
+        if (CampaignActivity == Systems.CampaignActivity.Aphantasia)
+            return;
+        if (Expedition is null || PathRun is not null)
+            return;
+        float radius = Simulation.TileSize * 1.8f;
+        ExpeditionSecret? nearby = Expedition.Secrets
+            .Where(item => Vector2.DistanceSquared(item.WorldPosition, PlayerWorldCenter) <= radius * radius)
+            .OrderBy(item => Vector2.DistanceSquared(item.WorldPosition, PlayerWorldCenter))
+            .FirstOrDefault();
+        if (nearby is null)
+            return;
+        float scale = UiTheme.DisplayScale(ScreenWidth, ScreenHeight);
+        string prompt = !nearby.IsAvailable(Expedition.DefeatedGuardians)
+            ? "THE MARK DOES NOT ANSWER"
+            : nearby.State >= SecretState.DungeonOpen
+                ? $"{Keybinds.LabelForKey(Keybinds.KeyFor("interact"))}  //  ENTER"
+                : $"{nearby.JournalClue}  //  {Keybinds.LabelForKey(Keybinds.KeyFor("interact"))} SEARCH";
+        UiTheme.DrawText(spriteBatch, prompt, 10 * scale,
+            nearby.IsAvailable(Expedition.DefeatedGuardians)
+                ? GamePaths.PathsByKey[nearby.SenseKey].Accent : UiTheme.Muted,
+            new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
     }
 
     /// <summary>
@@ -1821,7 +2133,8 @@ public sealed class GameSession
                 : PathRun is null
                     ? Items.RollDropCount(rng)
                     : Items.RollPathDropCount(rng);
-            var drops = Items.GenerateDrops(regularDropCount, rng, State.HardMode, GamePaths.Active().Key,
+            string dropPath = CampaignActivitySense ?? GamePaths.Active().Key;
+            var drops = Items.GenerateDrops(regularDropCount, rng, State.HardMode, dropPath,
                 State.NewGamePlusLevel);
             if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng, State.NewGamePlusLevel) is { } uniqueDrop)
                 drops.Add(uniqueDrop);
@@ -1831,13 +2144,20 @@ public sealed class GameSession
             if (defeatedBossKey is not null)
             {
                 GameProfile.IncrementQuest("bosses_defeated");
-                if (defeatedBossKey == GamePaths.BossKey(midpoint: true))
+                if (defeatedBossKey == "aphantasia")
+                {
+                    State.GameCompleted = true;
+                    FinalizeSuccessfulRun("APHANTASIA DEFEATED", completed: true);
+                }
+                else if (defeatedBossKey == GamePaths.BossKey(midpoint: true))
                 {
                     State.BeaudisDefeated = true;
                 }
-                else if (defeatedBossKey == GamePaths.BossKey(midpoint: false))
+                else if (defeatedBossKey == GamePaths.BossKey(midpoint: false)
+                    && PathRun?.IsSecretDungeon != true)
                 {
                     State.GameCompleted = true;
+                    RecordCampaignClear();
                     FinalizeSuccessfulRun("RUN COMPLETE", completed: true);
                 }
                 CompleteBossTelemetry(victory: true);
@@ -1847,6 +2167,8 @@ public sealed class GameSession
                 ScreenShake = Vector2.Zero;
                 State.EnemyProjectileHolster.Clear();
                 PathRun?.NotifyBossDefeated();
+                if (PathRun?.IsSecretDungeon == true && PathRun.IsComplete)
+                    ReturnFromSecretDungeon();
             }
         }
         if (_deadEnemyScratch.Count > 0)
@@ -1872,6 +2194,7 @@ public sealed class GameSession
 
     private static string? BossKeyFor(Enemy enemy) => enemy switch
     {
+        Aphantasia => "aphantasia",
         Beaudis => "beaudis", Dissonance => "dissonance", Chronos => "chronos", Ishe => "ishe",
         Bair => "bair", Sting => "sting", Rot => "rot", Ache => "ache", Kage => "kage", Hypno => "hypno", Malady => "malady",
         _ => null,
@@ -1885,6 +2208,8 @@ public sealed class GameSession
             / Math.Max(1, Simulation.FrameRate);
         string phase = boss switch
         {
+            Aphantasia aphantasia =>
+                $"PHASE {aphantasia.Phase} // {aphantasia.PhaseLabel}",
             PathGuardianBoss { TrialActive: true } guardian =>
                 $"TRIAL // {guardian.PhaseLabel}",
             PathGuardianBoss guardian =>
@@ -1931,7 +2256,8 @@ public sealed class GameSession
     }
 
     private static bool DeathSpectacleActive(object? boss) => boss is
-        Beaudis { Dying: true }
+        Aphantasia { CompletionReady: true }
+        or Beaudis { Dying: true }
         or Dissonance { Dying: true }
         or PathGuardianBoss { Dying: true }
         or PathChaseBoss { Dying: true };
@@ -2116,6 +2442,53 @@ public sealed class GameSession
 
         if (occupiedRoom is not null && occupiedRoom.Type != PathRoomType.Boss)
             PreloadAdjacentPathRoomEncounters(occupiedRoom, rng);
+    }
+
+    private void RecordCampaignClear()
+    {
+        string sense = CampaignActivitySense
+            ?? PathRun?.CurrentSenseKey
+            ?? GamePaths.Active().Key;
+        if (CampaignActivity == Systems.CampaignActivity.Arena)
+            CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver,
+                State.NoHealing, State.NoExtract);
+        else if (CampaignActivity == Systems.CampaignActivity.Core)
+            CampaignProgression.CompleteStatue(sense, StatueMaterial.Gold,
+                State.NoHealing, State.NoExtract);
+    }
+
+    private void ReturnFromSecretDungeon()
+    {
+        ExpeditionRun expedition = Expedition
+            ?? throw new InvalidOperationException("Secret dungeon lost its expedition.");
+        expedition.CompleteDungeon();
+        bool cycleComplete = expedition.Complete;
+        string finale = expedition.FinaleSense;
+        CampaignWorld world = expedition.World;
+        if (cycleComplete && world == CampaignWorld.Body)
+        {
+            ContinueCompletedBodyIntoSoul();
+            return;
+        }
+        Vector2 returnPosition = expedition.SuspendedReturnPosition
+            ?? expedition.Battleground.SpawnPosition;
+        PathRun = null;
+        PathFog = null;
+        Battleground = expedition.Battleground;
+        RefreshLightingFixtures();
+        Player.SetPosition(returnPosition.X - (float)State.PlayerSize / 2f,
+            returnPosition.Y - (float)State.PlayerSize / 2f);
+        State.ActiveBoss = null;
+        State.EnemyHolster.Clear();
+        State.EnemyProjectileHolster.Clear();
+        State.BulletHolster.Clear();
+        State.GameCompleted = false;
+        State.EnemySpawningEnabled = true;
+        LastRunRewardSummary = null;
+        if (!cycleComplete)
+            return;
+        if (world == CampaignWorld.Soul)
+            CampaignProgression.CompleteSoul(finale);
     }
 
     /// <summary>
@@ -2476,7 +2849,9 @@ public sealed class GameSession
 
         Battleground suspended = Battleground;
         PathFogOfWar? suspendedFog = PathFog;
-        Battleground arena = BossArenaFactory.Create(bossKey, run.FloorNumber);
+        float arenaScale = run.FloorNumber == PathRun.TotalFloors
+            && !run.IsSecretDungeon ? 1.5f : 1f;
+        Battleground arena = BossArenaFactory.Create(bossKey, run.FloorNumber, arenaScale);
         Vector2 center = new(
             arena.Width * Simulation.TileSize / 2f,
             arena.Height * Simulation.TileSize / 2f);
@@ -2570,16 +2945,22 @@ public sealed class GameSession
         return rng.NextDouble() < FragmentDropChance;
     }
 
-    public int PlayerLevelCap => PathRun is null
+    public int PlayerLevelCap => PathRun is null || PathRun.IsSecretDungeon
         ? Progression.MaxLevel
         : Progression.DungeonMaxLevel;
 
     public bool CanPurchaseLevelUp =>
-        State.CurrentLevel < PlayerLevelCap && State.ExpCount >= State.ExpNeededForNextLevel;
+        State.CurrentLevel < PlayerLevelCap
+        && State.ExpCount >= State.ExpNeededForNextLevel;
 
     /// <summary>Consumes one threshold and queues exactly one card draft.</summary>
     public bool TryPurchaseLevelUp()
     {
+        // A purchased or encounter-granted draft is already paid for. This
+        // path only reopens its selection screen; it must not consume XP or
+        // enqueue another level.
+        if (State.PendingLevelUps > 0)
+            return true;
         if (!CanPurchaseLevelUp)
             return false;
         State.ExpCount -= State.ExpNeededForNextLevel;
@@ -2602,7 +2983,8 @@ public sealed class GameSession
     /// Dev/testing hotkeys. Ported from character.py's handlingBossDebugControls().
     /// `boss.debug_set_phase`/`hasattr(boss, "runeCannonCooldown")` were duck-typed
     /// across every boss type in Python. Here the controls are explicitly
-    /// dispatched to Beaudis, Dissonance, or the shared PathChaseBoss family;
+    /// dispatched to Aphantasia, Beaudis, Dissonance, guardians, or the shared
+    /// PathChaseBoss family;
     /// the "C" rune-cannon hotkey remains Dissonance-specific.
     ///
     /// Gated behind BossDebugInvincible (the "Y" dev-toggle, see RunState's
@@ -2616,7 +2998,34 @@ public sealed class GameSession
     {
         if (!State.BossDebugInvincible)
             return;
-        if (State.ActiveBoss is Beaudis beaudis)
+        if (State.ActiveBoss is Aphantasia aphantasia)
+        {
+            for (int index = 0; index < 4; index++)
+            {
+                if (keysPressed.Contains(BossDebugPhaseKeys[index]))
+                {
+                    aphantasia.DebugSetPhase(index + 1);
+                    State.EnemyProjectileHolster.Clear();
+                    return;
+                }
+            }
+            if (keysPressed.Contains(Keys.R))
+            {
+                aphantasia.DebugSetPhase(aphantasia.Phase);
+                State.EnemyProjectileHolster.Clear();
+            }
+            if (keysPressed.Contains(Keys.C))
+            {
+                aphantasia.DebugStartSurvival();
+                State.EnemyProjectileHolster.Clear();
+            }
+            if (keysPressed.Contains(Keys.F))
+            {
+                aphantasia.DebugStartFinale();
+                State.EnemyProjectileHolster.Clear();
+            }
+        }
+        else if (State.ActiveBoss is Beaudis beaudis)
         {
             for (int index = 0; index < BossDebugPhaseKeys.Length; index++)
             {
@@ -3522,7 +3931,7 @@ public sealed class GameSession
     /// </summary>
     private void DrawStandaloneSanctumAccents(SpriteBatch spriteBatch)
     {
-        string pathKey = GamePaths.Active().Key;
+        string pathKey = CampaignActivitySense ?? GamePaths.Active().Key;
         PathVisualProfile profile = SoulVisualLanguage.Path(pathKey);
         VisualRenderContext context = CurrentVisualContext();
         Vector2 center = Camera.WorldToScreen(
@@ -3821,6 +4230,13 @@ public sealed class GameSession
         if (!IsPathFogActive || PathFog is not { } fog)
             return;
 
+        DrawFogOfWar(spriteBatch, fog);
+    }
+
+    /// <summary>Shared world-space fog renderer used by Path floors and The Mind.</summary>
+    public void DrawFogOfWar(SpriteBatch spriteBatch, PathFogOfWar fog)
+    {
+
         var displayViewport = CombatViewport;
         Rectangle logicalViewport = Camera.LogicalViewport(displayViewport);
         Vector2 corner0 = Camera.ScreenToWorld(
@@ -3940,12 +4356,15 @@ public sealed class GameSession
 
     private void DrawBossHealthBar(SpriteBatch spriteBatch)
     {
-        if (State.ActiveBoss is not Enemy boss || boss.Hp <= 0 || DeathSpectacleActive(boss)
+        if (State.ActiveBoss is not Enemy boss
+            || (boss is not Aphantasia && boss.Hp <= 0)
+            || DeathSpectacleActive(boss)
             || (ActiveVisibilityFog is { } fog
                 && !fog.IsWorldAreaVisible(boss.WorldRect())))
             return;
         var presentation = State.ActiveBoss switch
         {
+            Aphantasia a => (Accent: a.PhaseAccent, Entrance: a.EntranceRemaining),
             Beaudis b => (Accent: b.PhaseAccent, Entrance: b.EntranceRemaining),
             Dissonance d => (Accent: d.PhaseAccent, Entrance: d.EntranceRemaining),
             PathChaseBoss p => (Accent: p.PhaseAccent, Entrance: p.EntranceRemaining),
@@ -3958,23 +4377,60 @@ public sealed class GameSession
             return;
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(ScreenWidth * .62f, 720 * scale);
-        var rect = new Rectangle((ScreenWidth - width) / 2, (int)(16 * scale), width, (int)(58 * scale));
+        bool aphantasiaLayout = boss is Aphantasia;
+        int panelHeight = (int)((aphantasiaLayout ? 74 : 58) * scale);
+        var rect = new Rectangle((ScreenWidth - width) / 2, (int)(16 * scale), width, panelHeight);
         UiTheme.DrawLivingPanel(
             spriteBatch, rect,
-            PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
+            CampaignActivitySense ?? PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
             (float)State.RunTimeSeconds,
             UiTheme.PanelRaised, presentation.Accent, shadow: 6);
-        string name = boss is PathGuardianBoss guardian
+        string bossKey = _activeBossKey ?? BossKeyFor(boss) ?? boss.Family;
+        string name = boss is Aphantasia aphantasia
+            ? aphantasia.DisplayName.ToUpperInvariant()
+            : CampaignActivity == Systems.CampaignActivity.Core
+            && PathRun?.FloorNumber == global::RotBoiRemastered.Systems.PathRun.TotalFloors
+            ? bossKey switch
+            {
+                "dissonance" => "DISSONANCE, CORE OF SOUND",
+                "rot" => "ROT, CORE OF TOUCH",
+                "malady" => "MALADY, CORE OF PHANTASIA",
+                "ache" => "ACHE, LORD OF CHEMESTHESIS",
+                "chronos" => "CHRONOS, EMPEROR OF SIGHT",
+                _ => bossKey.Replace('_', ' ').ToUpperInvariant(),
+            }
+            : boss is PathGuardianBoss guardian
             ? guardian.BossDisplayName
-            : (_activeBossKey ?? BossKeyFor(boss) ?? boss.Family)
+            : bossKey
                 .Replace('_', ' ').ToUpperInvariant();
         UiTheme.DrawText(spriteBatch, name, 20 * scale, UiTheme.Text, new Vector2(rect.X + 14 * scale, rect.Y + 8 * scale));
-        var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + 34 * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
-        float progress = boss is PathGuardianBoss { TrialActive: true } trial
-            ? Math.Clamp((float)(trial.TrialRemaining /
-                Math.Max(.01, trial.TrialDuration)), 0f, 1f)
-            : Math.Clamp((float)boss.Hp / Math.Max(1, boss.MaxHp), 0f, 1f);
-        UiTheme.DrawProgress(spriteBatch, hpRect, progress, presentation.Accent, 18);
+        if (boss is Aphantasia objectiveBoss)
+        {
+            UiTheme.DrawText(spriteBatch, objectiveBoss.ObjectiveText, 9 * scale,
+                objectiveBoss.DamageWindowActive ? UiTheme.Cream : presentation.Accent,
+                new Vector2(rect.X + 14 * scale, rect.Y + 32 * scale));
+            if (objectiveBoss.PresentationSurvivalActive)
+            {
+                UiTheme.DrawText(spriteBatch, objectiveBoss.SequenceStageLabel, 9 * scale,
+                    UiTheme.Muted,
+                    new Vector2(rect.Right - 14 * scale, rect.Y + 32 * scale), "topright");
+            }
+        }
+        int hpOffset = aphantasiaLayout ? 50 : 34;
+        var hpRect = new Rectangle((int)(rect.X + 14 * scale), (int)(rect.Y + hpOffset * scale), (int)(rect.Width - 28 * scale), (int)(12 * scale));
+        float progress = boss switch
+        {
+            Aphantasia value => Math.Clamp(
+                (float)value.DisplayedHp / Math.Max(1, value.DisplayedMaxHp), 0f, 1f),
+            PathGuardianBoss { TrialActive: true } trial => Math.Clamp(
+                (float)(trial.TrialRemaining / Math.Max(.01, trial.TrialDuration)), 0f, 1f),
+            _ => Math.Clamp((float)boss.Hp / Math.Max(1, boss.MaxHp), 0f, 1f),
+        };
+        Color healthAccent = boss is Aphantasia { DamageWindowActive: true }
+            ? Color.Lerp(presentation.Accent, UiTheme.Cream,
+                .5f + .5f * MathF.Sin((float)State.RunTimeSeconds * 9f))
+            : presentation.Accent;
+        UiTheme.DrawProgress(spriteBatch, hpRect, progress, healthAccent, 18);
     }
 
     private void DrawLowHealthWarning(SpriteBatch spriteBatch)
@@ -3997,17 +4453,23 @@ public sealed class GameSession
         var rect = new Rectangle((ScreenWidth - width) / 2, (int)(22 * scale), width, (int)(76 * scale));
         UiTheme.DrawLivingPanel(
             spriteBatch, rect,
-            PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
+            PathRun?.CurrentSenseKey ?? CampaignActivitySense ?? GamePaths.Active().Key,
             (float)State.RunTimeSeconds,
             UiTheme.PanelRaised, UiTheme.Cream,
             shadow: 7, composite: PathRun is not null);
-        string headline = PathRun is not null
-            ? "THE WOVEN PATH TRAVERSED"
-            : $"{GamePaths.BossKey(false).ToUpperInvariant()} ENDED";
+        string headline = CampaignActivity == Systems.CampaignActivity.Aphantasia
+            ? State.NoHealing && State.NoExtract
+                ? "THE CORE OF THE VOID ENDED"
+                : "APHANTASIA ENDED"
+            : PathRun is not null
+                ? "THE WOVEN PATH TRAVERSED"
+                : $"{GamePaths.BossKey(false).ToUpperInvariant()} ENDED";
         const int totalFloors = global::RotBoiRemastered.Systems.PathRun.TotalFloors;
-        string detail = PathRun is not null
-            ? $"FLOOR {totalFloors:D2} // ALL SENSES COMPLETE"
-            : "LEVEL 20 // RUN COMPLETE";
+        string detail = CampaignActivity == Systems.CampaignActivity.Aphantasia
+            ? "LEVEL 20 // FINAL CONVERGENCE COMPLETE"
+            : PathRun is not null
+                ? $"FLOOR {totalFloors:D2} // ALL SENSES COMPLETE"
+                : "LEVEL 20 // RUN COMPLETE";
         UiTheme.DrawText(spriteBatch, headline, 24 * scale, UiTheme.Cream,
             new Vector2(rect.Center.X, rect.Y + 10 * scale), "midtop");
         UiTheme.DrawText(spriteBatch, detail, 11 * scale, UiTheme.Purple,
@@ -4292,7 +4754,9 @@ public sealed class GameSession
         HealthPoints = State.HealthPoints,
         MaxHealthPoints = State.MaxHealthPoints,
         PendingLevelUps = State.PendingLevelUps,
-        PathKey = PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
+        PathKey = PathRun?.CurrentSenseKey
+            ?? CampaignActivitySense
+            ?? GamePaths.Active().Key,
         PresentationTime = (float)State.RunTimeSeconds,
     };
 

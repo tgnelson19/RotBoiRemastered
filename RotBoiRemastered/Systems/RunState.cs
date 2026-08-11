@@ -170,6 +170,8 @@ public sealed class RunState
     public double RunTimeSeconds { get; set; }
     public string RunOutcome { get; set; } = "DEFEATED";
     public bool HardMode { get; private set; }
+    public bool NoHealing => HardMode;
+    public bool NoExtract { get; private set; }
     public int NewGamePlusLevel { get; private set; }
 
     public double PlayerSpeed { get; private set; }
@@ -282,7 +284,8 @@ public sealed class RunState
     /// <summary>Ported from character.py's resetAllStats() (the characterStats.py-side fields only -- Player/world reset is Player.cs's job).</summary>
     public void Reset()
     {
-        HardMode = GameProfile.Profile.HardModeEnabled;
+        HardMode = GameProfile.Profile.NoHealingEnabled;
+        NoExtract = GameProfile.Profile.NoExtractEnabled;
         NewGamePlusLevel = NewGamePlus.SelectedLevel(GamePaths.Active().Key);
         PlayerSpeed = 2.1;
         PlayerSize = Simulation.TileSize * .75f;
@@ -399,8 +402,9 @@ public sealed class RunState
         FillHealthForMilestone();
     }
 
-    /// <summary>Used by the Soul challenge station before a new run captures the persisted setting.</summary>
+    /// <summary>Used by The Mind challenge braziers before a run captures the settings.</summary>
     public void SetHardMode(bool enabled) => HardMode = enabled;
+    public void SetNoExtract(bool enabled) => NoExtract = enabled;
 
     public void SetNewGamePlusLevel(int level) => NewGamePlusLevel = NewGamePlus.ClampLevel(level);
 

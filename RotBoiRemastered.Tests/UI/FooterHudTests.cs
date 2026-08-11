@@ -37,11 +37,28 @@ public sealed class FooterHudTests
         Assert.True(layout.Bounds.Contains(layout.Stats));
         Assert.True(layout.Bounds.Contains(layout.Experience));
         Assert.Equal(5, layout.EquipmentSlots.Count);
-        Assert.Equal(3, layout.StatSlots.Count);
+        Assert.Equal(10, layout.StatSlots.Count);
         Assert.All(layout.EquipmentSlots, slot => Assert.True(layout.Bounds.Contains(slot)));
         Assert.All(layout.StatSlots, slot => Assert.True(layout.Bounds.Contains(slot)));
         Assert.True(layout.Experience.Width >= layout.Bounds.Width * .9);
         Assert.True(FooterHud.SafeArea(width, height).Bottom <= layout.Bounds.Top + 12 * scale);
+    }
+
+    [Theory]
+    [MemberData(nameof(LayoutCases))]
+    public void CalculateLayout_ProvidesNonOverlappingTilesForEveryCoreStat(
+        int width, int height, double guiScale, double textScale)
+    {
+        GameProfile.Profile.GuiScale = guiScale;
+        GameProfile.Profile.TextSize = textScale;
+        FooterLayout layout = FooterHud.CalculateLayout(width, height,
+            UiTheme.DisplayScale(width, height));
+
+        Assert.Equal(StatDisplay.Definitions.Take(10).Count(), layout.StatSlots.Count);
+        Assert.All(layout.StatSlots, slot => Assert.True(layout.Stats.Contains(slot)));
+        for (int left = 0; left < layout.StatSlots.Count; left++)
+            for (int right = left + 1; right < layout.StatSlots.Count; right++)
+                Assert.False(layout.StatSlots[left].Intersects(layout.StatSlots[right]));
     }
 
     [Fact]

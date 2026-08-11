@@ -210,6 +210,9 @@ public static class BossArenaFactory
             ["ache"] = new("ache", "chemesthesis", BossArenaShape.NervousCourt, 35, 14, false),
             ["hypno"] = new("hypno", "phantasia", BossArenaShape.DreamCourt, 35, 14, true),
             ["malady"] = new("malady", "phantasia", BossArenaShape.DreamCourt, 35, 14, false),
+            // Larger than Malady's 1.5x Path-finale court (52.5 tiles / 21-tile
+            // radius) so the final encounter has room for intersecting fields.
+            ["aphantasia"] = new("aphantasia", "phantasia", BossArenaShape.DreamCourt, 59, 24, false),
         };
 
     public static BossArenaDefinition DefinitionFor(string bossKey) =>
@@ -217,10 +220,13 @@ public static class BossArenaFactory
             ? definition
             : throw new KeyNotFoundException($"No arena is registered for boss '{bossKey}'.");
 
-    public static Battleground Create(string bossKey, int floorNumber = 0)
+    public static Battleground Create(string bossKey, int floorNumber = 0,
+        float scale = 1f)
     {
         BossArenaDefinition definition = DefinitionFor(bossKey);
-        int size = definition.SizeTiles;
+        scale = Math.Clamp(scale, 1f, 1.5f);
+        int size = (int)MathF.Round(definition.SizeTiles * scale);
+        int playableRadius = (int)MathF.Round(definition.PlayableRadiusTiles * scale);
         int center = size / 2;
         var tiles = new TileType[size, size];
         for (int y = 0; y < size; y++)
@@ -232,21 +238,23 @@ public static class BossArenaFactory
                 bool inside = definition.Shape switch
                 {
                     BossArenaShape.Prison or BossArenaShape.Basin =>
-                        Math.Abs(dx) <= definition.PlayableRadiusTiles
-                        && Math.Abs(dy) <= definition.PlayableRadiusTiles,
+                        Math.Abs(dx) <= playableRadius
+                        && Math.Abs(dy) <= playableRadius,
                     BossArenaShape.Shutter =>
-                        Math.Abs(dx) / 1.08f + Math.Abs(dy) <= definition.PlayableRadiusTiles * 1.35f,
+                        Math.Abs(dx) / 1.08f + Math.Abs(dy) <= playableRadius * 1.35f,
                     BossArenaShape.Reactor or BossArenaShape.NervousCourt =>
-                        Math.Abs(dx) <= definition.PlayableRadiusTiles
-                        && Math.Abs(dy) <= definition.PlayableRadiusTiles
-                        && Math.Abs(dx) + Math.Abs(dy) <= definition.PlayableRadiusTiles * 1.65f,
-                    _ => dx * dx + dy * dy <= definition.PlayableRadiusTiles * definition.PlayableRadiusTiles,
+                        Math.Abs(dx) <= playableRadius
+                        && Math.Abs(dy) <= playableRadius
+                        && Math.Abs(dx) + Math.Abs(dy) <= playableRadius * 1.65f,
+                    _ => dx * dx + dy * dy <= playableRadius * playableRadius,
                 };
                 tiles[y, x] = inside ? TileType.BuildingFloor : TileType.OuterVoid;
             }
         }
 
-        IReadOnlyList<BiomePalette> palettes = definition.SenseKey switch
+        IReadOnlyList<BiomePalette> palettes = bossKey == "aphantasia"
+            ? BiomePalettes.Aphantasia
+            : definition.SenseKey switch
         {
             "touch" => BiomePalettes.Touch,
             "sight" => BiomePalettes.Sight,
@@ -256,13 +264,15 @@ public static class BossArenaFactory
         };
         Vector2 spawn = new(
             (center + .5f) * Battleground.TileSize - Battleground.TileSize * .375f,
-            (center + definition.PlayableRadiusTiles * .68f) * Battleground.TileSize);
+            (center + playableRadius * .68f) * Battleground.TileSize);
         return new Battleground(
             tiles,
             palettes,
             wallHeight: definition.SenseKey == "touch" ? 22 : 16,
             spawnPosition: spawn,
-            visualThemeKey: definition.SenseKey,
+            visualThemeKey: bossKey == "aphantasia"
+                ? "aphantasia"
+                : definition.SenseKey,
             pathFloorNumber: floorNumber);
     }
 }
@@ -342,6 +352,14 @@ public static class BossEncounterCatalog
                 Phase("PRESERVED", "Existing nine-phase encounter; presentation changes only.")),
             ["malady"] = Encounter("malady", 20,
                 Phase("PRESERVED", "Existing ten-movement encounter; presentation changes only.")),
+            ["aphantasia"] = Encounter("aphantasia", 20,
+                Phase("ESSENCE I", "Light and Dark guard the first three movement families."),
+                Phase("FIRST ECLIPSE", "The Minis become invulnerable during survival.", true),
+                Phase("ESSENCE II", "The shared health bar accelerates its crossing fields."),
+                Phase("SECOND ECLIPSE", "A denser survival closes the shared health bar.", true),
+                Phase("TESSERACT", "Six movement families and the surviving empowered Mini overlap."),
+                Phase("GRAND FINALE", "The remaining Mini and dancing fields resolve in sequence.", true),
+                Phase("CORE OF THE VOID", "Both braziers unlock portals and the final survival.", true)),
         };
 
     public static IReadOnlyCollection<BossEncounterDefinition> All => Definitions.Values.ToArray();

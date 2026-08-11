@@ -12,19 +12,19 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `Space`: dash (briefly avoids contact damage)
 - Hold `Q` / `E`: smoothly rotate the arena clockwise / counter-clockwise
 - `X`: reset camera rotation and zoom to the resolution-aware default
-- `O` / `P` or mouse wheel: zoom the world camera out / in around the player (also available in the Soul)
+- `O` / `P` or mouse wheel: zoom the world camera out / in around the player (also available in The Mind)
 - `I`: toggle autofire
 - `Tab`: toggle compact/detailed run information
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
-- `A` / `D`, arrows, or click: select an unlocked NG+ tier while confirming a Soul path portal
+- `A` / `D`, arrows, or click: select an unlocked NG+ tier while confirming a Mind arena/Core portal
 - `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
-- `Space` / `F` / `Enter`: enter the Soul from the title screen
-- `F` near a station in the Soul: open its extraction, quest, or skill menu
-- `F` at the Trial Brazier in the Soul: toggle Hard Mode
+- `Space` / `F` / `Enter`: enter The Mind from the title screen
+- `F` near a station in The Mind: open its vault, quest, or skill menu
+- `F` at a challenge brazier in The Mind: toggle No Healing or No Extract
 - `X` while paused after the midpoint boss: extract the current run and equipment
-- `Escape`: pause during a run or in the Soul; quit from the title screen
+- `Escape`: pause during a run or in The Mind; quit from the title screen
 - Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend 5 collected Fragments on an equipped item's grade or modifier
 - `F11`: switch between windowed and borderless fullscreen
 - Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
@@ -56,12 +56,12 @@ mark for flat bonuses or an `x` mark for multiplicative bonuses, and its rarity
 color. The five most recent cards collect on the small table at the bottom of the
 sidebar; hover one when you want its name and bonus type.
 
-## The Soul and permanent progression
+## The Mind and permanent progression
 
-Choose **Enter Soul** from the title screen to visit an authored sanctuary with
+Choose **Enter Mind** from the title screen to visit an authored sanctuary with
 three distinct beats: a quiet southern chapel lined with purpose-built utility
 shrines, a short passage where masonry dissolves into braided soul currents, and
-a five-branch crown surrounding the composite Soul Rose portal. The Vault
+a five-branch crown surrounding The Body portal. The Vault
 Reliquary keeps ten permanent item slots and statistics for the ten
 most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
 session best, and the all-time record. The Vow Lectern's 24 objectives award Soul
@@ -69,13 +69,19 @@ tokens; the Soul Rose spends those tokens on twelve simple, rankable permanent
 upgrades. The Vestment Mirror offers persistent player Core and Edge colors plus
 two-tone projectile palettes and projectile silhouettes.
 
-The central dungeon portal is the shortest route from spawn. Five compact walled
+The Body portal is the shortest route from spawn. Five compact walled
 branches lead to distinct Sound, Touch, Sight, Chemesthesis, and Phantasia gates
 with their own procedural silhouettes and ambient vocabulary. Cleared paths wake
 permanent architectural details, additional mastery enriches them to a bounded
 cap, and selected NG+ tiers add corruption seams and square motes. Optional
 chapel dust, tunnel motes, and secondary branch effects follow the visual-effects
 intensity setting without hiding portal silhouettes or interaction prompts.
+
+Completing The Body now continues immediately into The Soul as the second half
+of the same expedition. The player keeps their current level, temporary build,
+health, equipment, inventory, challenge flags, and elapsed time; The Soul has no
+standalone entrance in The Mind. Beyond the central Sight arena, a second sealed
+wall protects The Core, and another wall behind The Core protects Aphantasia.
 
 After defeating a path's midpoint boss, the pause menu offers an extraction choice;
 completing a path extracts automatically. The chest keeps the run summary and lets
@@ -106,10 +112,11 @@ rarity and F-S grade rolls upward. Core-Forged chances also rise at every NG+
 tier. Hard Mode remains an independent toggle and its reward multiplier stacks
 with NG+.
 
-## Composite Path mode
+## The Core
 
-Enter the Soul and use the large convergence portal where the five sense
-paths diverge to begin a ten-floor dungeon run through every sense. Floors
+After unlocking all five sense arenas, follow the central Sight branch through
+its newly opened wall and enter The Core to begin a ten-floor dungeon run
+through every sense. Floors
 1-5 use one shuffled copy of Sound, Touch,
 Sight, Chemesthesis, and Phantasia; floors 6-10 reshuffle all five and apply a
 much harder second-act curve. The fifth floor ends with its sense's midpoint

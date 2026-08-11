@@ -74,6 +74,10 @@ public sealed class WorldLighting
             new Color(8, 3, 13), 154,
             new Color(190, 87, 182), new Color(245, 199, 241),
             3.9f, 5.664f),
+        "aphantasia" => new LightingTheme(
+            new Color(2, 6, 18), 132,
+            new Color(58, 116, 216), new Color(150, 205, 255),
+            4.8f, 6.4f),
         "chemesthesis" => new LightingTheme(
             new Color(12, 5, 2), 151,
             new Color(222, 91, 43), new Color(255, 197, 107),
@@ -289,7 +293,9 @@ public sealed class WorldLighting
         IReadOnlyList<WorldLightSource> sources,
         PathFogOfWar? visibilityFog,
         float motionStrength,
-        bool highContrast)
+        bool highContrast,
+        float darknessScale = 1f,
+        float playerLightScale = 1f)
     {
         if (viewport.Width <= 0 || viewport.Height <= 0)
             return;
@@ -308,7 +314,7 @@ public sealed class WorldLighting
                 theme.DarknessTint.R,
                 theme.DarknessTint.G,
                 theme.DarknessTint.B,
-                theme.DarknessAlpha));
+                (byte)Math.Clamp((int)Math.Round(theme.DarknessAlpha * darknessScale), 0, 255)));
         spriteBatch.End();
 
         spriteBatch.Begin(
@@ -316,7 +322,7 @@ public sealed class WorldLighting
             samplerState: SamplerState.LinearClamp,
             rasterizerState: ScissorRasterizerState);
         float playerRadius = Simulation.TileSize * theme.PlayerRadiusTiles;
-        float playerIntensity = .56f;
+        float playerIntensity = .56f * playerLightScale;
         if (highContrast)
         {
             playerRadius *= 1.12f;

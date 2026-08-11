@@ -12,6 +12,84 @@ namespace RotBoiRemastered.Tests.UI;
 public sealed class SoulHubTests
 {
     [Fact]
+    public void F8_TogglesDevUnlockTestingAndImmediatelyRebuildsTheMind()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-mind-dev-tests-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            CampaignDevOverrides.Reset();
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+            var mindHub = new MindHub();
+            mindHub.Enter(session);
+
+            mindHub.HandleInput(session, new HashSet<Keys> { Keys.F8 },
+                Point.Zero, false, false);
+
+            Assert.True(GameProfile.Profile.DevUnlockTesting);
+            Assert.Equal(SoulLayout.SpawnTile,
+                new Point(
+                    (int)(session.PlayerWorldCenter.X / Battleground.TileSize),
+                    (int)(session.PlayerWorldCenter.Y / Battleground.TileSize)));
+            Assert.True(File.Exists(GameProfile.SavePath));
+
+            mindHub.HandleInput(session, new HashSet<Keys> { Keys.F8 },
+                Point.Zero, false, false);
+            Assert.False(GameProfile.Profile.DevUnlockTesting);
+        }
+        finally
+        {
+            CampaignDevOverrides.Reset();
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DevPortalControlImmediatelyRebuildsItsPhysicalMindGate()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = new GameProfileData { DevUnlockTesting = true };
+            CampaignDevOverrides.Reset();
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+            var mindHub = new MindHub();
+            mindHub.Enter(session);
+            int lockedWalls = CountTiles(session.Battleground, TileType.BuildingWall);
+
+            mindHub.HandleDevAction(session, "portal:sound");
+
+            Assert.True(CampaignProgression.PortalUnlocked("sound"));
+            Assert.True(CountTiles(session.Battleground, TileType.BuildingWall) < lockedWalls);
+
+            mindHub.HandleDevAction(session, "reset");
+            Assert.False(CampaignProgression.PortalUnlocked("sound"));
+            Assert.Equal(lockedWalls,
+                CountTiles(session.Battleground, TileType.BuildingWall));
+        }
+        finally
+        {
+            CampaignDevOverrides.Reset();
+            GameProfile.Profile = originalProfile;
+        }
+    }
+
+    private static int CountTiles(Battleground battleground, TileType tile)
+    {
+        int count = 0;
+        for (int y = 0; y < battleground.Height; y++)
+            for (int x = 0; x < battleground.Width; x++)
+                if (battleground.TileAt(x, y) == tile)
+                    count++;
+        return count;
+    }
+
+    [Fact]
     public void ToggleHardMode_PersistsSelectionAndUpdatesCurrentSoulState()
     {
         var originalProfile = GameProfile.Profile;
@@ -144,6 +222,11 @@ public sealed class SoulHubTests
 
         Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.DummyTile), soulHub.DummyWorld);
         Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.NexusTile), soulHub.CompositePortalWorld);
+        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile),
+            soulHub.PortalWorld(SoulHub.CorePortalKey));
+        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.AphantasiaPortalTile),
+            soulHub.PortalWorld(SoulHub.AphantasiaPortalKey));
+        Assert.Throws<KeyNotFoundException>(() => soulHub.PortalWorld("__soul_world"));
         foreach (var (key, tile) in SoulLayout.StationTiles)
             Assert.Equal(SoulLayout.TileWorldCenter(tile), soulHub.StationWorld(key));
         foreach (var (key, tile) in SoulLayout.PortalTiles)

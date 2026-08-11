@@ -444,13 +444,16 @@ public static class BossPresentationDirector
 {
     public static BossPresentationState Derive(Enemy boss)
     {
-        if (boss is Beaudis { Dying: true }
+        if (boss is Aphantasia { CompletionReady: true }
+            or Beaudis { Dying: true }
             or Dissonance { Dying: true }
             or PathGuardianBoss { Dying: true }
             or PathChaseBoss { Dying: true })
         {
             return BossPresentationState.DeathCollapse;
         }
+        if (boss is Aphantasia { PresentationSurvivalActive: true })
+            return BossPresentationState.Trial;
         if (boss.Hp <= 0)
             return BossPresentationState.ZeroHealthSeal;
         if (boss is Dissonance { StaggerRecoveryRemaining: > 0 })
@@ -483,6 +486,7 @@ public static class BossPresentationDirector
             Dissonance value => value.EntranceRemaining,
             PathGuardianBoss value => value.EntranceRemaining,
             PathChaseBoss value => value.EntranceRemaining,
+            Aphantasia value => value.EntranceRemaining,
             _ => 0,
         };
         if (entrance > 0)
