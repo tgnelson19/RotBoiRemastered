@@ -111,9 +111,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 {
     public const string EssenceName = "Aphantasia, Essence of Darkness";
     public const string CoreName = "Aphantasia, Core of The Void";
-    public const int BaseBarHealth = 260_000;
-    public const int BaseMiniHealth = 13_708;
-    public const int EmpoweredMiniHealth = 43_989;
+    public const int BaseBarHealth = 346_000;
+    public const int BaseMiniHealth = 18_230;
+    public const int EmpoweredMiniHealth = 58_505;
     public const float MiniPathedRadiusRatio = .76f;
     public const int CompactPathedPatternWeight = 2;
     public const int ExpandedPathedPatternWeight = 3;

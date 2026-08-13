@@ -317,14 +317,14 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void Minis_UseLargerTargetsAndReducedNormalHealth()
+    public void BossAndMinis_UseTheRetunedHealthAndLargerTargets()
     {
         Aphantasia boss = MakeBoss();
         boss.DebugSetPhase(1);
 
-        Assert.Equal(260_000, Aphantasia.BaseBarHealth);
+        Assert.Equal(346_000, Aphantasia.BaseBarHealth);
         Assert.Equal(Aphantasia.BaseBarHealth, boss.MaxHp);
-        Assert.Equal(13_708, Aphantasia.BaseMiniHealth);
+        Assert.Equal(18_230, Aphantasia.BaseMiniHealth);
         Assert.Equal(Aphantasia.BaseMiniHealth, boss.Light.MaxHp);
         Assert.Equal(Aphantasia.BaseMiniHealth, boss.Dark.MaxHp);
         int expectedEarlySize = (int)(Simulation.TileSize * 1.62f);
@@ -433,7 +433,7 @@ public sealed class AphantasiaTests
         Assert.True(boss.Dark.Empowered);
         Assert.True(boss.Dark.Aggressive);
         Assert.Equal(Aphantasia.EmpoweredMiniHealth, boss.Dark.MaxHp);
-        Assert.Equal(43_989, boss.Dark.MaxHp);
+        Assert.Equal(58_505, boss.Dark.MaxHp);
         Assert.True(boss.Dark.MaxHp > originalDarkMax * 3);
         Assert.True(boss.TakeDamage(1, "dark").Blocked);
     }
@@ -879,6 +879,27 @@ public sealed class AphantasiaTests
         Assert.Equal(CampaignActivity.Aphantasia, session.CampaignActivity);
         Assert.Equal("phantasia", session.CampaignActivitySense);
         Assert.Contains(boss, session.State.EnemyHolster);
+    }
+
+    [Fact]
+    public void Entry_PreservesTheCurrentlyEquippedMindLoadout()
+    {
+        GameSession session = MakeSession();
+        var weapon = new ItemDrop(
+            Items.DefinitionsByName["Iron Dagger"],
+            "Epic",
+            Grade: "A",
+            Modifier: "Heavy");
+        session.State.Equipment["weapon"] = weapon;
+        session.State.CombinePlayerStats();
+        int damageWithWeapon = session.State.BulletDamage;
+
+        session.StartAphantasia(new Random(13));
+
+        Assert.Same(weapon, session.State.Equipment["weapon"]);
+        Assert.Equal(damageWithWeapon, session.State.BulletDamage);
+        Assert.Equal(Progression.MaxLevel, session.State.CurrentLevel);
+        Assert.Equal(Progression.MaxLevel, session.State.PendingLevelUps);
     }
 
     [Fact]

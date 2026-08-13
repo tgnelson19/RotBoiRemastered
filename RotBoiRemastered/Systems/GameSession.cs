@@ -310,13 +310,16 @@ public sealed class GameSession
     public void StartAphantasia(Random? rng = null)
     {
         rng ??= Random.Shared;
-        // The Mind's braziers are live session settings. Capture them before
-        // ResetAll so tests and callers that changed the RunState directly get
-        // the same immutable entry contract as profile-driven portal travel.
+        // The Mind's braziers and equipped loadout are live session state.
+        // Capture them before ResetAll, which otherwise reloads the last
+        // profile-saved equipment and can discard changes made in The Mind.
         bool noHealing = State.NoHealing;
         bool noExtract = State.NoExtract;
+        Dictionary<string, ItemDrop?> equipment = State.Equipment
+            .ToDictionary(entry => entry.Key, entry => entry.Value);
 
         ResetAll(BossArenaFactory.Create("aphantasia", Progression.FinalBossLevel), rng);
+        State.SetEquipment(equipment);
         State.SetHardMode(noHealing);
         State.SetNoExtract(noExtract);
         State.SetNewGamePlusLevel(NewGamePlus.SelectedLevel("phantasia"));
