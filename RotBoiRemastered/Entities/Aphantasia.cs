@@ -129,6 +129,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const int PerimeterThreatReserve = 24;
     public const double PerimeterPressureCadence = 1.8;
     public const int PerimeterPressureCount = 8;
+    public const float MinimumProjectileSizeTiles = .25f;
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseOnePatterns =
     [
@@ -1305,7 +1306,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         float speed, float sizeTiles, Color color, string owner, string path,
         float amplitude, float lifetime, bool deliberatelyShortRange = false)
     {
-        float size = Simulation.TileSize * sizeTiles;
+        float size = Simulation.TileSize
+            * Math.Max(MinimumProjectileSizeTiles, sizeTiles);
         float edgeRange = DistanceToArenaEdge(origin, direction) + size;
         float travelRange = deliberatelyShortRange
             ? Math.Min(ArenaRadius * .42f, edgeRange)

@@ -134,6 +134,8 @@ public sealed class AphantasiaTests
                 Assert.False(projectile.PersistentHazard);
                 Assert.DoesNotContain(projectile.Path, new[] { "pool", "mine" });
                 Assert.True(projectile.Lifetime is > 0 and <= 40f);
+                Assert.True(projectile.Size >= Simulation.TileSize
+                    * Aphantasia.MinimumProjectileSizeTiles);
             }
             peak = Math.Max(peak, context.ProjectileSink.Count);
             reservedPeak = Math.Max(reservedPeak,
@@ -833,6 +835,8 @@ public sealed class AphantasiaTests
                     {
                         Assert.True(float.IsFinite(projectile.RemainingRange));
                         Assert.True(projectile.Lifetime is > 0 and <= 40f);
+                        Assert.True(projectile.Size >= Simulation.TileSize
+                            * Aphantasia.MinimumProjectileSizeTiles);
                     });
                     if (phase == 4)
                         Assert.Contains(patternProjectiles, projectile =>
