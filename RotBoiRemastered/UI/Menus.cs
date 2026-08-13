@@ -69,8 +69,7 @@ public sealed class Menus
     {
         _buttons.Clear();
         _resultFocus.BeginFrame();
-        bool success = report.Outcome is "RUN COMPLETE" or "EXTRACTED"
-            or "APHANTASIA DEFEATED";
+        bool success = RunOutcomes.IsSuccess(report.Outcome);
         Color outcomeAccent = success ? UiTheme.Cream : UiTheme.Red;
         float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
         float animation = (float)(_presentationClock.Seconds
@@ -118,7 +117,7 @@ public sealed class Menus
 
         int actionY = root.Bottom - actionGap - actionHeight;
         int actionWidth = (root.Width - margin * 2 - actionGap * 2) / 3;
-        ResultButton("results_soul", root.X + margin, "ENTER SOUL",
+        ResultButton("results_soul", root.X + margin, "ENTER MIND",
             UiTheme.Purple, "F");
         ResultButton("retry", root.X + margin + actionWidth + actionGap,
             "PLAY AGAIN", UiTheme.Green, "ENTER");
@@ -145,36 +144,46 @@ public sealed class Menus
         string time = $"{(int)(report.Seconds / 60):D2}:"
             + $"{(int)(report.Seconds % 60):D2}";
         UiTheme.DrawText(spriteBatch,
-            $"LEVEL {report.Level:D2}   KILLS {report.Kills}   TIME {time}   UPGRADES {report.UpgradeCount}",
+            $"LEVEL {report.Level:D2}   KILLS {report.Kills}   UPGRADES {report.UpgradeCount}",
             8 * scale, accent,
             new Vector2(panel.X + pad, panel.Y + 34 * scale));
+        string field = TimeLabel(report.FieldSeconds);
+        string bosses = TimeLabel(report.BossSeconds);
+        UiTheme.DrawText(spriteBatch,
+            $"TIME {time}   FIELD {field}   BOSSES {bosses}   {RunPacing.TargetLabel}",
+            7 * scale,
+            report.PaceBand == RunPaceBand.OnTarget ? UiTheme.Green : UiTheme.Muted,
+            new Vector2(panel.X + pad, panel.Y + 50 * scale));
         UiTheme.DrawText(spriteBatch, report.BuildIdentity, 16 * scale,
-            UiTheme.Purple, new Vector2(panel.X + pad, panel.Y + 59 * scale));
+            UiTheme.Purple, new Vector2(panel.X + pad, panel.Y + 69 * scale));
         string families = report.DominantFamilies.Count == 0
             ? "NO DOMINANT UPGRADE FAMILY"
-            : string.Join("  •  ", report.DominantFamilies);
+            : string.Join("  //  ", report.DominantFamilies);
         UiTheme.DrawText(spriteBatch, families, 7 * scale, UiTheme.Muted,
-            new Vector2(panel.X + pad, panel.Y + 86 * scale));
+            new Vector2(panel.X + pad, panel.Y + 96 * scale));
 
         int rewardY = panel.Y + Math.Max((int)(112 * scale), panel.Height / 2);
         UiTheme.DrawText(spriteBatch, "REWARDS & PROGRESSION", 10 * scale,
             UiTheme.Cream, new Vector2(panel.X + pad, rewardY));
         UiTheme.DrawText(spriteBatch,
-            $"MIND TOKENS  +{report.SoulTokenReward}", 9 * scale,
-            report.SoulTokenReward > 0 ? UiTheme.Gold : UiTheme.Muted,
+            $"MIND TOKENS  +{report.MindTokenReward}", 9 * scale,
+            report.MindTokenReward > 0 ? UiTheme.Gold : UiTheme.Muted,
             new Vector2(panel.X + pad, rewardY + 25 * scale));
         UiTheme.DrawText(spriteBatch,
-            $"PATH MASTERY  {report.PathMasteryBefore}  →  {report.PathMasteryAfter}",
+            $"PATH MASTERY  {report.PathMasteryBefore}  ->  {report.PathMasteryAfter}",
             8 * scale, UiTheme.Text,
             new Vector2(panel.X + pad, rewardY + 47 * scale));
         bool unlocked = report.NewGamePlusAfter > report.NewGamePlusBefore;
         string ng = unlocked
-            ? $"NG+ UNLOCKED  {report.NewGamePlusBefore}  →  {report.NewGamePlusAfter}"
+            ? $"NG+ UNLOCKED  {report.NewGamePlusBefore}  ->  {report.NewGamePlusAfter}"
             : $"NG+ UNLOCK TIER  {report.NewGamePlusAfter}";
         UiTheme.DrawText(spriteBatch, ng, 8 * scale,
             unlocked ? UiTheme.Green : UiTheme.Muted,
             new Vector2(panel.X + pad, rewardY + 69 * scale));
     }
+
+    private static string TimeLabel(double seconds) =>
+        $"{(int)Math.Max(0, seconds) / 60:D2}:{(int)Math.Max(0, seconds) % 60:D2}";
 
     private static void DrawDebriefGear(SpriteBatch spriteBatch,
         Rectangle panel, RunResultReport report, float scale)

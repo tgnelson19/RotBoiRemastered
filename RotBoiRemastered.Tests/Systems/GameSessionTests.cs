@@ -4,6 +4,7 @@ using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
+using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Systems;
@@ -29,6 +30,50 @@ public class GameSessionTests
         var session = new GameSession(GamePaths.ActivateSelected(), 1280, 720, new Random(1));
         session.State.CurrentLevel = level;
         return session;
+    }
+
+    [Fact]
+    public void ArenaExtractionUnlocksOnlyAfterTheMidpointBoss()
+    {
+        var session = new GameSession(Battleground.GenerateMind(), 1280, 720,
+            new Random(1));
+        session.StartArena("sound", new Random(2));
+
+        Assert.False(session.CanExtract);
+        session.State.BeaudisDefeated = true;
+        Assert.True(session.CanExtract);
+        session.State.SetNoExtract(true);
+        Assert.False(session.CanExtract);
+    }
+
+    [Fact]
+    public void RestartingArenaPreservesItsCampaignIdentityAndSense()
+    {
+        var session = new GameSession(Battleground.GenerateMind(), 1280, 720,
+            new Random(1));
+        session.StartArena("touch", new Random(2));
+        session.State.CurrentLevel = 12;
+
+        session.RestartCurrentRun(new Random(3));
+
+        Assert.Equal(CampaignActivity.Arena, session.CampaignActivity);
+        Assert.Equal("touch", session.CampaignActivitySense);
+        Assert.Equal("touch", GamePaths.Active().Key);
+        Assert.Equal(0, session.State.CurrentLevel);
+        Assert.Equal(GamePaths.PathsByKey["touch"].Title,
+            session.EntrySplash.Title);
+    }
+
+    [Fact]
+    public void ModeEntrySplashProtectsThePlayerForItsFullPresentation()
+    {
+        var session = new GameSession(Battleground.GenerateMind(), 1280, 720,
+            new Random(1));
+
+        session.StartArena("sight", new Random(2));
+
+        Assert.True(session.State.GracePeriod
+            >= Simulation.FrameRate * ModeEntrySplash.Duration);
     }
 
     [Fact]
@@ -79,6 +124,39 @@ public class GameSessionTests
             Assert.True(CampaignProgression.Data.SoulUnlocked);
             Assert.DoesNotContain(session.Expedition.FinaleSense,
                 CampaignProgression.Data.ArenaUnlocks);
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void StandaloneDungeonCompletionDoesNotAdvanceMetaProgression()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-neutral-dungeon-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData
+            {
+                CompletedQuests = MetaProgression.Quests.Select(quest => quest.Key).ToList(),
+            };
+            CampaignProgression.Normalize(GameProfile.Profile.Campaign);
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+
+            session.StartPathRun(new Random(2));
+            RunRewardSummary reward = session.FinalizeSuccessfulRun("DUNGEON COMPLETE", completed: true);
+
+            Assert.Equal(0, reward.MindTokenDelta);
+            Assert.Equal(0, GameProfile.Profile.PathMastery.GetValueOrDefault(NewGamePlus.DungeonKey));
+            Assert.Equal(0, NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey));
+            Assert.False(CampaignProgression.Data.BodyUnlocked);
+            Assert.False(CampaignProgression.Data.AphantasiaUnlocked);
         }
         finally
         {

@@ -11,6 +11,75 @@ namespace RotBoiRemastered.Tests.UI;
 [Collection("GameProfileState")]
 public sealed class SoulHubTests
 {
+    [Theory]
+    [InlineData("armory:0", 0)]
+    [InlineData("armory:7", 7)]
+    [InlineData("armory:10", 10)]
+    [InlineData("armory:123", 123)]
+    public void DeveloperArmoryClickTargetsPreserveTheCompleteItemIndex(
+        string target, int expected)
+    {
+        Assert.True(SoulHub.TryArmoryIndex(target, out int actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("armory:")]
+    [InlineData("armory:item")]
+    [InlineData("armory:-1")]
+    [InlineData("storage")]
+    public void MalformedDeveloperArmoryClickTargetsAreIgnored(string target)
+    {
+        Assert.False(SoulHub.TryArmoryIndex(target, out _));
+    }
+
+    [Fact]
+    public void DeveloperArmoryContainsAndDispensesPerfectCopiesOfEveryItem()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = new GameProfileData { DeveloperArmory = true };
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+
+            Assert.Equal(Items.Definitions.Count + Items.Uniques.Count,
+                SoulHub.DeveloperArmoryItems.Count);
+            Assert.True(SoulHub.TakeArmoryItem(session, 0));
+            ItemDrop item = Assert.IsType<ItemDrop>(session.State.Inventory[0]);
+            Assert.Equal("S", item.Grade);
+            Assert.Equal("Godly", item.Modifier);
+            Assert.Equal("Mythical", item.Rarity);
+
+            int uniqueIndex = SoulHub.DeveloperArmoryItems.Count - 1;
+            Assert.True(SoulHub.TakeArmoryItem(session, uniqueIndex));
+            Assert.Equal("Unique", session.State.Inventory[1]!.Rarity);
+
+            for (int i = 2; i < session.State.Inventory.Count; i++)
+                session.State.Inventory[i] = item;
+            Assert.False(SoulHub.TakeArmoryItem(session, 0));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+        }
+    }
+
+    [Fact]
+    public void DeveloperArmoryRejectsItemsWhenDisabled()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+            Assert.False(SoulHub.TakeArmoryItem(session, 0));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+        }
+    }
+
     [Fact]
     public void F8_TogglesDevUnlockTestingAndImmediatelyRebuildsTheMind()
     {
@@ -62,13 +131,13 @@ public sealed class SoulHubTests
             mindHub.Enter(session);
             int lockedWalls = CountTiles(session.Battleground, TileType.BuildingWall);
 
-            mindHub.HandleDevAction(session, "portal:sound");
+            mindHub.HandleDevAction(session, "portal:core");
 
-            Assert.True(CampaignProgression.PortalUnlocked("sound"));
+            Assert.True(CampaignProgression.PortalUnlocked("core"));
             Assert.True(CountTiles(session.Battleground, TileType.BuildingWall) < lockedWalls);
 
             mindHub.HandleDevAction(session, "reset");
-            Assert.False(CampaignProgression.PortalUnlocked("sound"));
+            Assert.False(CampaignProgression.PortalUnlocked("core"));
             Assert.Equal(lockedWalls,
                 CountTiles(session.Battleground, TileType.BuildingWall));
         }
@@ -106,6 +175,35 @@ public sealed class SoulHubTests
             Assert.True(GameProfile.Profile.HardModeEnabled);
             Assert.True(session.State.HardMode);
             Assert.True(File.Exists(GameProfile.SavePath));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BothBraziersCanBeEnabledBeforeAnyCampaignCompletion()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-free-braziers-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            CampaignProgression.Normalize(GameProfile.Profile.Campaign);
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+
+            SoulHub.ToggleHardMode(session);
+            SoulHub.ToggleNoExtract(session);
+
+            Assert.True(session.State.NoHealing);
+            Assert.True(session.State.NoExtract);
+            Assert.False(CampaignProgression.Data.BodyUnlocked);
+            Assert.False(CampaignProgression.Data.AphantasiaUnlocked);
         }
         finally
         {
@@ -222,8 +320,10 @@ public sealed class SoulHubTests
 
         Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.DummyTile), soulHub.DummyWorld);
         Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.NexusTile), soulHub.CompositePortalWorld);
-        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile),
+        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.NexusTile),
             soulHub.PortalWorld(SoulHub.CorePortalKey));
+        Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile),
+            soulHub.PortalWorld(SoulHub.BodyPortalKey));
         Assert.Equal(SoulLayout.TileWorldCenter(SoulLayout.AphantasiaPortalTile),
             soulHub.PortalWorld(SoulHub.AphantasiaPortalKey));
         Assert.Throws<KeyNotFoundException>(() => soulHub.PortalWorld("__soul_world"));
@@ -331,7 +431,38 @@ public sealed class SoulHubTests
         for (int tick = 0; tick < 30; tick++)
             soulHub.Update(session, .05);
 
-        Assert.Equal(SoulHub.CompositePathPortalKey, soulHub.HandleInput(
+        Assert.Equal(SoulHub.CorePortalKey, soulHub.HandleInput(
             session, new HashSet<Keys>(), Point.Zero, false, false));
+    }
+
+    [Fact]
+    public void ControllerCanOpenAndConfirmCriticalMindPortalsWithoutAKeyboard()
+    {
+        var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+        var mindHub = new MindHub();
+        mindHub.Enter(session);
+        Vector2 portal = mindHub.CompositePortalWorld;
+        float half = (float)session.State.PlayerSize / 2f;
+        session.Player.SetPosition(portal.X - half, portal.Y - half);
+        try
+        {
+            InputState.ControllerInteractPressed = true;
+            Assert.Null(mindHub.HandleInput(
+                session, new HashSet<Keys>(), Point.Zero, false, false));
+            Assert.True(mindHub.OverlayOpen);
+
+            InputState.ControllerInteractPressed = false;
+            InputState.ControllerBackPressed = false;
+            InputState.ControllerConfirmPressed = true;
+            Assert.Null(mindHub.HandleInput(
+                session, new HashSet<Keys>(), Point.Zero, false, false));
+            Assert.True(mindHub.IsEnteringPortal);
+        }
+        finally
+        {
+            InputState.ControllerInteractPressed = false;
+            InputState.ControllerConfirmPressed = false;
+            InputState.ControllerBackPressed = false;
+        }
     }
 }

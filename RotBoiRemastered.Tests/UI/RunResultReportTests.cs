@@ -36,7 +36,7 @@ public sealed class RunResultReportTests
             GameProfile.Profile.SoulTokens = 999;
 
             Assert.Equal("RUN COMPLETE", report.Outcome);
-            Assert.Equal(3, report.SoulTokenReward);
+            Assert.Equal(3, report.MindTokenReward);
             Assert.Equal(1, report.PathMasteryBefore);
             Assert.Equal(2, report.PathMasteryAfter);
             Assert.Equal(2, report.NewGamePlusAfter);
@@ -64,6 +64,36 @@ public sealed class RunResultReportTests
 
         Assert.Empty(report.RetainedLoadout);
         Assert.Single(report.LostLoadout);
-        Assert.Equal(0, report.SoulTokenReward);
+        Assert.Equal(0, report.MindTokenReward);
+    }
+
+    [Fact]
+    public void CaptureSeparatesFieldAndBossTimeAndNamesTheDungeon()
+    {
+        var state = new RunState
+        {
+            RunOutcome = RunOutcomes.DungeonComplete,
+            RunTimeSeconds = 30 * 60,
+        };
+        state.BossEncounterTelemetry.Add(new BossEncounterTelemetryData
+        {
+            BossKey = "path_guardian_sound",
+            ClearSeconds = 90,
+            Victory = true,
+        });
+        state.BossEncounterTelemetry.Add(new BossEncounterTelemetryData
+        {
+            BossKey = "dissonance",
+            ClearSeconds = 150,
+            Victory = true,
+        });
+
+        RunResultReport report = RunResultReport.Capture(state,
+            NewGamePlus.DungeonKey, retained: true, rewards: null);
+
+        Assert.Equal("THE DUNGEON", report.PathTitle);
+        Assert.Equal(240, report.BossSeconds);
+        Assert.Equal(1560, report.FieldSeconds);
+        Assert.Equal(RunPaceBand.OnTarget, report.PaceBand);
     }
 }

@@ -59,6 +59,7 @@ public sealed class GameProfileData
     public bool NoHealingEnabled { get => _noHealingEnabled; set => _noHealingEnabled = value; }
     public bool NoExtractEnabled { get; set; }
     public bool DevUnlockTesting { get; set; }
+    public bool DeveloperArmory { get; set; }
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();
@@ -119,7 +120,7 @@ public sealed class ExtractedRunData
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public DateTimeOffset ExtractedAt { get; set; } = DateTimeOffset.UtcNow;
     public string Path { get; set; } = "Unknown Path";
-    public string Outcome { get; set; } = "EXTRACTED";
+    public string Outcome { get; set; } = RunOutcomes.Extracted;
     public int Level { get; set; }
     public int Kills { get; set; }
     public double Seconds { get; set; }
@@ -174,17 +175,13 @@ public static class GameProfile
         {
             // Missing file, corrupt JSON, or an unreadable path -- fall back to defaults.
         }
-        return new GameProfileData();
+        var defaults = new GameProfileData();
+        Normalize(defaults);
+        return defaults;
     }
 
     /// <summary>
-    /// GuiScale is preset-only (see UiTheme.GuiScaleLevels' doc comment) --
-    /// snap rather than clamp, so a profile.json saved by an older build
-    /// with a continuous in-between value (or the old, wider slider range)
-    /// lands on the closest still-valid preset instead of an unreachable-
-    /// through-the-UI value that happened to also be in-range. TextSize is
-    /// back to being a plain slider (see Menus.cs's "text_size" control),
-    /// so it's clamped rather than snapped -- see Normalize() below.
+    /// Retained for migration helpers and other discrete settings.
     /// </summary>
     private static double SnapToNearest(IReadOnlyList<double> levels, double value)
     {
@@ -204,10 +201,17 @@ public static class GameProfile
 
     private static void Normalize(GameProfileData profile)
     {
+        profile.BestLevel = Math.Max(0, profile.BestLevel);
+        profile.BestKills = Math.Max(0, profile.BestKills);
+        profile.CompletedRuns = Math.Max(0, profile.CompletedRuns);
+        profile.MindTokens = Math.Max(0, profile.MindTokens);
+        profile.BestDummyDps = double.IsFinite(profile.BestDummyDps)
+            ? Math.Max(0, profile.BestDummyDps)
+            : 0;
         profile.Campaign ??= new CampaignProgressData();
         CampaignProgression.Normalize(profile.Campaign);
         profile.TextSize = Math.Clamp(profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale);
-        profile.GuiScale = SnapToNearest(UiTheme.GuiScaleLevels, profile.GuiScale);
+        profile.GuiScale = Math.Clamp(profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
         profile.DamageTextSize = Math.Clamp(profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         profile.CameraZoom = Math.Clamp(profile.CameraZoom, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
         profile.VisualEffectsIntensity = Math.Clamp(profile.VisualEffectsIntensity, 0.0, 1.0);
@@ -236,9 +240,94 @@ public static class GameProfile
         profile.NewGamePlusUnlocked ??= new();
         profile.SelectedNewGamePlus ??= new();
         profile.RecentBossEncounters ??= new();
-        if (profile.RecentBossEncounters.Count > 50)
-            profile.RecentBossEncounters.RemoveRange(
-                0, profile.RecentBossEncounters.Count - 50);
+        foreach (string key in profile.SkillLevels.Keys.ToList())
+        {
+            if (!MetaProgression.SkillNodesByKey.TryGetValue(key, out SkillNode? node))
+                profile.SkillLevels.Remove(key);
+            else
+                profile.SkillLevels[key] = Math.Clamp(profile.SkillLevels[key], 0, node.MaxLevel);
+        }
+        foreach (string key in profile.QuestProgress.Keys.ToList())
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                profile.QuestProgress.Remove(key);
+            else
+                profile.QuestProgress[key] = Math.Max(0, profile.QuestProgress[key]);
+        }
+        var validQuestKeys = MetaProgression.Quests.Select(quest => quest.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        profile.CompletedQuests = profile.CompletedQuests
+            .Where(validQuestKeys.Contains)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        profile.Storage = profile.Storage
+            .Where(item => Items.Deserialize(item) is not null)
+            .Take(MetaProgression.StorageCapacity)
+            .ToList();
+        foreach (string slot in profile.CarriedEquipment.Keys.ToList())
+        {
+            StoredItemData stored = profile.CarriedEquipment[slot];
+            if (!RunState.EquipmentSlotKeys.Contains(slot)
+                || Items.Deserialize(stored) is null)
+            {
+                profile.CarriedEquipment.Remove(slot);
+            }
+        }
+        for (int index = 0; index < profile.CarriedInventory.Count; index++)
+            if (Items.Deserialize(profile.CarriedInventory[index]) is null)
+                profile.CarriedInventory[index] = null;
+        profile.ExtractedRuns = profile.ExtractedRuns
+            .OfType<ExtractedRunData>()
+            .Take(10)
+            .ToList();
+        foreach (ExtractedRunData run in profile.ExtractedRuns)
+        {
+            run.Id = string.IsNullOrWhiteSpace(run.Id)
+                ? Guid.NewGuid().ToString("N")
+                : run.Id.Trim();
+            run.Path = string.IsNullOrWhiteSpace(run.Path)
+                ? "Unknown Path"
+                : run.Path.Trim();
+            run.Outcome = RunOutcomes.IsSuccess(run.Outcome)
+                ? run.Outcome
+                : RunOutcomes.Extracted;
+            run.Level = Math.Max(0, run.Level);
+            run.Kills = Math.Max(0, run.Kills);
+            run.Seconds = FiniteNonNegative(run.Seconds);
+            run.NewGamePlusLevel = NewGamePlus.ClampLevel(run.NewGamePlusLevel);
+        }
+        foreach (string pathKey in profile.PathMastery.Keys.ToList())
+            profile.PathMastery[pathKey] = Math.Max(0, profile.PathMastery[pathKey]);
+        profile.RecentBossEncounters = profile.RecentBossEncounters
+            .OfType<BossEncounterTelemetryData>()
+            .TakeLast(50)
+            .ToList();
+        foreach (BossEncounterTelemetryData encounter in profile.RecentBossEncounters)
+        {
+            encounter.BossKey = string.IsNullOrWhiteSpace(encounter.BossKey)
+                ? "unknown"
+                : encounter.BossKey.Trim();
+            encounter.SenseKey = string.IsNullOrWhiteSpace(encounter.SenseKey)
+                ? "unknown"
+                : encounter.SenseKey.Trim();
+            encounter.FloorNumber = Math.Max(0, encounter.FloorNumber);
+            encounter.ClearSeconds = FiniteNonNegative(encounter.ClearSeconds);
+            encounter.DamageTaken = Math.Max(0, encounter.DamageTaken);
+            encounter.SkippedBranchRooms = Math.Max(0, encounter.SkippedBranchRooms);
+            encounter.SkippedBranchThreat = FiniteNonNegative(encounter.SkippedBranchThreat);
+            encounter.CarriedEnemyThreat = FiniteNonNegative(encounter.CarriedEnemyThreat);
+            encounter.LocalPlayerCount = Math.Max(1, encounter.LocalPlayerCount);
+            encounter.Phases = (encounter.Phases ?? new())
+                .OfType<BossPhaseTelemetryData>()
+                .Select(phase => new BossPhaseTelemetryData
+                {
+                    Label = string.IsNullOrWhiteSpace(phase.Label)
+                        ? "UNKNOWN"
+                        : phase.Label.Trim(),
+                    Seconds = FiniteNonNegative(phase.Seconds),
+                })
+                .ToList();
+        }
         // Pre-NG+ saves already recorded ordinary clears in PathMastery. Preserve
         // that accomplishment by opening NG+1, but never infer higher tiers from
         // the old repeat-clear count because those clears had no NG+ difficulty.
@@ -252,6 +341,9 @@ public static class GameProfile
                 NewGamePlus.ClampLevel(profile.NewGamePlusUnlocked.GetValueOrDefault(pathKey)),
                 NewGamePlus.ClampLevel(profile.SelectedNewGamePlus[pathKey]));
     }
+
+    private static double FiniteNonNegative(double value) =>
+        double.IsFinite(value) ? Math.Max(0, value) : 0;
 
     public static bool SaveProfile(string? path = null)
     {

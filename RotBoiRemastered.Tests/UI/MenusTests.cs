@@ -24,10 +24,8 @@ public class MenusTests : IDisposable
     // (see GameProfile.cs) rather than a working-directory-relative one, so
     // this class -- like KeybindsTests -- must redirect to a scratch file
     // and reset Profile/Bindings to defaults before every test. Without
-    // this, a machine with a real saved profile.json (e.g. one where
-    // "restart" was ever explicitly unbound) would make
-    // HandlePause_RestartKeybind_ReturnsRestart fail by loading that real,
-    // non-default state instead of Keybinds.ActionDefaults.
+    // this, a machine with a real saved profile.json could load a non-default
+    // binding set instead of Keybinds.ActionDefaults.
     public MenusTests()
     {
         _originalBindings = new Dictionary<string, Keys?>(Keybinds.Bindings);
@@ -68,15 +66,10 @@ public class MenusTests : IDisposable
     }
 
     [Fact]
-    public void HandlePause_RestartKeybind_DoesNotBypassConfirmation()
+    public void RestartIsAConfirmedMenuActionNotAConflictingKeybind()
     {
-        var menus = new Menus();
-        var restartKey = Keybinds.KeyFor("restart");
-        Assert.NotNull(restartKey);
-
-        var result = menus.HandlePause(new HashSet<Keys> { restartKey!.Value }, Point.Zero, false, false);
-
-        Assert.Equal(MenuAction.None, result);
+        Assert.DoesNotContain("restart", Keybinds.ActionDefaults.Keys);
+        Assert.Equal(Keys.R, Keybinds.ActionDefaults["extract"]);
     }
 
     [Fact]

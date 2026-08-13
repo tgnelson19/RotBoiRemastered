@@ -133,7 +133,7 @@ public sealed class AphantasiaTests
                     hitThreats.Add(projectile);
                 Assert.False(projectile.PersistentHazard);
                 Assert.DoesNotContain(projectile.Path, new[] { "pool", "mine" });
-                Assert.True(projectile.Lifetime is > 0 and <= 20f);
+                Assert.True(projectile.Lifetime is > 0 and <= 40f);
             }
             peak = Math.Max(peak, context.ProjectileSink.Count);
             reservedPeak = Math.Max(reservedPeak,
@@ -345,6 +345,33 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
+    public void Minis_SpawnAndReviveFromTheBossOrigin()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(427));
+        boss.DebugSetPhase(1);
+        Vector2 bossOrigin = new(
+            boss.WorldX + boss.Size / 2f,
+            boss.WorldY + boss.Size / 2f);
+
+        Assert.Equal(bossOrigin, boss.Light.Position);
+        Assert.Equal(bossOrigin, boss.Dark.Position);
+
+        EnemyUpdateContext context = Context(boss, arena);
+        OpenDamageWindow(boss, context);
+        AdvanceUntil(boss, context, () =>
+            !boss.DamageWindowActive && boss.Light.Alive && boss.Dark.Alive);
+        bossOrigin = new Vector2(
+            boss.WorldX + boss.Size / 2f,
+            boss.WorldY + boss.Size / 2f);
+
+        Assert.Equal(bossOrigin, boss.Light.Position);
+        Assert.Equal(bossOrigin, boss.Dark.Position);
+        Assert.Equal(Vector2.Zero, boss.Light.Velocity);
+        Assert.Equal(Vector2.Zero, boss.Dark.Velocity);
+    }
+
+    [Fact]
     public void MiniHealth_PersistsAcrossTimedSubPhaseChanges()
     {
         Battleground arena = MakeArena();
@@ -524,6 +551,72 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
+    public void PerimeterPressure_ContinuouslySeedsThreatsAroundTheWholeArena()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(439));
+        boss.DebugSetPhase(1);
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate; tick++)
+            boss.Update(context);
+
+        List<EnemyProjectile> perimeter = context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_perimeter_drift").ToList();
+        Assert.Equal(Aphantasia.PerimeterPressureCount, perimeter.Count);
+        Assert.All(perimeter, projectile =>
+        {
+            Vector2 origin = projectile.OriginPoint - boss.ArenaCenter;
+            Assert.InRange(origin.Length(), boss.ArenaRadius * .9f, boss.ArenaRadius);
+            Assert.True(projectile.Lifetime > 12f);
+        });
+        Assert.Equal(4, perimeter.Select(projectile =>
+        {
+            Vector2 origin = projectile.OriginPoint - boss.ArenaCenter;
+            return (origin.X >= 0 ? 1 : 0) + (origin.Y >= 0 ? 2 : 0);
+        }).Distinct().Count());
+    }
+
+    [Fact]
+    public void OrdinaryBossAndMiniShots_LiveLongEnoughToReachTheArenaEdge()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(443));
+        boss.DebugSetPhase(1);
+        SelectPattern(boss, "ordered_bloom");
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 2; tick++)
+            boss.Update(context);
+
+        EnemyProjectile bossShot = Assert.Single(context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_essence_bloom"
+            && projectile.Path == "linear").Take(1));
+        EnemyProjectile miniShot = Assert.Single(context.ProjectileSink.Where(projectile =>
+            projectile.Owner?.StartsWith("aphantasia_mini_") == true
+            && projectile.Path == "linear").Take(1));
+
+        AssertShotReachesBoundary(bossShot, arena, boss.ArenaRadius);
+        AssertShotReachesBoundary(miniShot, arena, boss.ArenaRadius);
+    }
+
+    private static void AssertShotReachesBoundary(EnemyProjectile projectile,
+        Battleground arena, float arenaRadius)
+    {
+        float authoredRange = projectile.RemainingRange;
+        Assert.True(authoredRange >= Simulation.TileSize);
+        for (int tick = 0; tick < Simulation.FrameRate * 45 && !projectile.RemFlag; tick++)
+            projectile.Update(arena, casualMode: true);
+
+        Assert.True(projectile.RemFlag);
+        Assert.True(projectile.Travelled >= authoredRange * .98f,
+            $"Shot expired at {projectile.Travelled:0} of {authoredRange:0} authored pixels.");
+        Assert.True(projectile.Lifetime >= authoredRange
+            / Math.Max(.01f, projectile.Speed * .52f * (float)Simulation.ReferenceFps * .88f));
+        Assert.True(projectile.Travelled >= arenaRadius * .25f);
+    }
+
+    [Fact]
     public void ObjectiveText_ExplainsDispositionDamageAndSurvivalGoals()
     {
         Battleground arena = MakeArena();
@@ -622,16 +715,21 @@ public sealed class AphantasiaTests
         for (int tick = 0; tick < Simulation.FrameRate * 2; tick++)
             boss.Update(context);
 
-        Assert.Equal(Aphantasia.ActiveThreatSoftCap - 19, context.ProjectileSink.Count);
+        Assert.Equal(Aphantasia.ActiveThreatSoftCap - 11, context.ProjectileSink.Count);
 
         context.ProjectileSink.Clear();
-        for (int tick = 0; tick < Simulation.FrameRate * 2
-            && context.ProjectileSink.Count == 0; tick++)
+        for (int tick = 0; tick < Simulation.FrameRate * 3
+            && !context.ProjectileSink.Any(projectile =>
+                projectile.Owner?.Contains("void_clock") == true
+                || projectile.Owner?.Contains("portal_clock_hand") == true); tick++)
             boss.Update(context);
 
-        Assert.Equal(13, context.ProjectileSink.Count);
-        Assert.Equal(20, context.ProjectileSink.Sum(projectile => projectile.ThreatReservationCost));
-        Assert.Single(context.ProjectileSink,
+        List<EnemyProjectile> clockVolley = context.ProjectileSink.Where(projectile =>
+            projectile.Owner?.Contains("void_clock") == true
+            || projectile.Owner?.Contains("portal_clock_hand") == true).ToList();
+        Assert.Equal(13, clockVolley.Count);
+        Assert.Equal(20, clockVolley.Sum(projectile => projectile.ThreatReservationCost));
+        Assert.Single(clockVolley,
             projectile => projectile.Owner?.Contains("portal_clock_hand") == true);
     }
 
@@ -644,15 +742,17 @@ public sealed class AphantasiaTests
         boss.DebugSetPhase(4);
         SelectPattern(boss, "portal_constellation");
         EnemyUpdateContext context = Context(boss, arena);
-        for (int tick = 0; tick < Simulation.FrameRate * 2
-            && context.ProjectileSink.Count == 0; tick++)
+        for (int tick = 0; tick < Simulation.FrameRate * 3
+            && !context.ProjectileSink.Any(projectile =>
+                projectile.Owner?.StartsWith("aphantasia_portal_") == true); tick++)
             boss.Update(context);
-        EnemyProjectile portal = Assert.Single(context.ProjectileSink.Take(1));
+        EnemyProjectile portal = Assert.Single(context.ProjectileSink.Where(projectile =>
+            projectile.Owner?.StartsWith("aphantasia_portal_") == true).Take(1));
 
         Assert.Equal(8, portal.ThreatReservationCost);
         Assert.Equal(.72f, portal.SplitTelegraphStartRatio);
         Assert.Equal(.82f, portal.SplitSpeedScale);
-        Assert.Equal(10f, portal.SplitChildLifetime);
+        Assert.Equal(32f, portal.SplitChildLifetime);
         float parentSpeed = portal.Speed;
         for (int tick = 0; tick < Simulation.FrameRate * 12 && !portal.Exploded; tick++)
             portal.Update(arena, casualMode: false);
@@ -663,7 +763,7 @@ public sealed class AphantasiaTests
         {
             Assert.Equal(parentSpeed * .82f, child.Speed, 3);
             Assert.True(child.Speed < parentSpeed);
-            Assert.Equal(10f, child.Lifetime);
+            Assert.Equal(32f, child.Lifetime);
             Assert.Equal(1, child.ThreatReservationCost);
             Assert.False(child.PersistentHazard);
         });
@@ -716,22 +816,26 @@ public sealed class AphantasiaTests
                 if (remaining.Contains(pattern))
                 {
                     context.ProjectileSink.Clear();
-                    for (int tick = 0; tick < Simulation.FrameRate * 2
-                        && context.ProjectileSink.Count == 0; tick++)
+                    for (int tick = 0; tick < Simulation.FrameRate * 3
+                        && !context.ProjectileSink.Any(projectile =>
+                            projectile.Owner != "aphantasia_perimeter_drift"); tick++)
                         boss.Update(context);
 
-                    Assert.NotEmpty(context.ProjectileSink);
-                    Assert.DoesNotContain(context.ProjectileSink, projectile =>
+                    List<EnemyProjectile> patternProjectiles = context.ProjectileSink
+                        .Where(projectile => projectile.Owner != "aphantasia_perimeter_drift")
+                        .ToList();
+                    Assert.NotEmpty(patternProjectiles);
+                    Assert.DoesNotContain(patternProjectiles, projectile =>
                         projectile.Path is "pool" or "mine"
                         || projectile.Shape == "mine"
                         || projectile.PersistentHazard);
-                    Assert.All(context.ProjectileSink, projectile =>
+                    Assert.All(patternProjectiles, projectile =>
                     {
                         Assert.True(float.IsFinite(projectile.RemainingRange));
-                        Assert.True(projectile.Lifetime is > 0 and <= 20f);
+                        Assert.True(projectile.Lifetime is > 0 and <= 40f);
                     });
                     if (phase == 4)
-                        Assert.Contains(context.ProjectileSink, projectile =>
+                        Assert.Contains(patternProjectiles, projectile =>
                             projectile.Owner?.StartsWith("aphantasia_portal_") == true);
                     remaining.Remove(pattern);
                 }

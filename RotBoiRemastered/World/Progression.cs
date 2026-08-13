@@ -23,6 +23,7 @@ public static class Progression
     };
 
     private static double LateProgress(int level) => Math.Clamp((level - MidBossLevel) / 10.0, 0.0, 1.0);
+    private static double PathProgress(int level) => Math.Clamp((level - MaxLevel) / 20.0, 0.0, 1.0);
 
     /// <summary>
     /// Stretch the old ten-level 1.08 curve across twenty levels. The back
@@ -32,14 +33,15 @@ public static class Progression
     /// </summary>
     public static EnemyStatScales EnemyStatScales(int level)
     {
-        level = Math.Clamp(level, 0, MaxLevel);
-        double stretched = Math.Pow(1.08, level / 2.0);
+        level = Math.Clamp(level, 0, DungeonMaxLevel);
+        double readableSpeed = Math.Pow(1.08, Math.Min(level, MaxLevel) / 2.0);
         double late = LateProgress(level);
+        double path = PathProgress(level);
         return new EnemyStatScales(
-            Speed: stretched,
-            Health: stretched * (1.0 + .22 * late),
-            Damage: stretched * (1.0 + .12 * late),
-            Experience: stretched * (1.0 + .35 * late));
+            Speed: readableSpeed,
+            Health: Math.Pow(1.088, level) * (1.0 + .08 * late + .10 * path),
+            Damage: Math.Pow(1.045, level) * (1.0 + .08 * late + .06 * path),
+            Experience: Math.Pow(1.055, level) * (1.0 + .10 * late + .08 * path));
     }
 
     /// <summary>Raise simultaneous pressure after Beaudis instead of only inflating HP.</summary>

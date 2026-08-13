@@ -33,6 +33,7 @@ public sealed class Player
     private float _fireRecoil;
     private bool _visualMoved;
     private Vector2 _visualMotionDirection = Vector2.UnitX;
+    private Vector2 _visualAimDirection = -Vector2.UnitY;
     private Vector2 _lastVisualPosition;
 
     public Player(float worldX, float worldY)
@@ -43,6 +44,13 @@ public sealed class Player
     }
 
     public void MarkFired() => _fireRecoil = 1f;
+
+    internal void SetAimDirection(Vector2 screenDirection)
+    {
+        if (screenDirection.LengthSquared() <= .0001f)
+            return;
+        _visualAimDirection = Vector2.Normalize(screenDirection);
+    }
 
     public void SetPosition(float worldX, float worldY)
     {
@@ -229,7 +237,7 @@ public sealed class Player
         if (motionDirection.LengthSquared() > .0001f)
             motionDirection.Normalize();
         (Vector2 axisX, Vector2 axisY, Vector2 facing) =
-            FixedScreenOrientation();
+            ScreenOrientation(_visualAimDirection);
         Vector2 recoil =
             -facing * MathF.Round(_fireRecoil * drawSize * .08f);
         var rect = new Rectangle(
@@ -331,14 +339,22 @@ public sealed class Player
 
     /// <summary>
     /// The player is a screen-space anchor while the world rotates beneath
-    /// it. Its body, regalia, recoil, and muzzle therefore keep the original
-    /// north-facing presentation at every camera angle.
+    /// it. Aim is already supplied in screen space, so the body, regalia,
+    /// recoil, and muzzle follow the cursor/right stick without inheriting
+    /// camera yaw or changing collision geometry.
     /// </summary>
     internal static (
         Vector2 AxisX,
         Vector2 AxisY,
-        Vector2 Facing) FixedScreenOrientation() =>
-        (Vector2.UnitX, Vector2.UnitY, -Vector2.UnitY);
+        Vector2 Facing) ScreenOrientation(Vector2 screenAim)
+    {
+        Vector2 facing = screenAim.LengthSquared() <= .0001f
+            ? -Vector2.UnitY
+            : Vector2.Normalize(screenAim);
+        Vector2 axisY = -facing;
+        Vector2 axisX = new(axisY.Y, -axisY.X);
+        return (axisX, axisY, facing);
+    }
 
     internal static Color ResolveBodyColor(RunState state)
     {

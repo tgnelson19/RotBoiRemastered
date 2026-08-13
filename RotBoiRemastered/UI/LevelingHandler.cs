@@ -94,13 +94,18 @@ public sealed class LevelingHandler
 
     /// <summary>Public (Python's `_projected_value` was underscore-private in name only).</summary>
     public static (double Current, double Projected) ProjectedValue(UpgradeCard card, LevelUpStatSnapshot stats)
+        => ProjectedValue(card.Rarity, card.Effects[0], stats);
+
+    public static (double Current, double Projected) ProjectedValue(
+        string rarity, UpgradeEffect effect, LevelUpStatSnapshot stats)
     {
-        double baseValue = stats.CollectiveStats[card.Name];
-        double additive = stats.CollectiveAddStats[card.Name].Sum();
-        double multiplicative = stats.CollectiveMultStats[card.Name].Aggregate(1.0, (acc, v) => acc * v);
-        double modifier = Upgrades.CardModifier(card);
+        string stat = effect.Stat;
+        double baseValue = stats.CollectiveStats[stat];
+        double additive = stats.CollectiveAddStats[stat].Sum();
+        double multiplicative = stats.CollectiveMultStats[stat].Aggregate(1.0, (acc, v) => acc * v);
+        double modifier = Upgrades.EffectModifier(rarity, effect);
         double current = (baseValue + additive) * multiplicative;
-        double projected = card.MathType == "additive"
+        double projected = effect.MathType == "additive"
             ? (baseValue + additive + modifier) * multiplicative
             : current * modifier;
         return (current, projected);
@@ -115,9 +120,9 @@ public sealed class LevelingHandler
             if (Upgrades.DefinitionsByName.TryGetValue(name, out var definition))
                 ownedCategories[definition.Category] = ownedCategories.GetValueOrDefault(definition.Category) + count;
         }
-        if (stats.HealthPoints <= stats.MaxHealthPoints * .45 && card.Definition.Category == "survival")
+        if (stats.HealthPoints <= stats.MaxHealthPoints * .45 && card.Category == "survival")
             return ("SAFE PICK", UiTheme.Green);
-        if (ownedCategories.GetValueOrDefault(card.Definition.Category) >= 2)
+        if (ownedCategories.GetValueOrDefault(card.Category) >= 2)
             return ("BUILD MATCH", UiTheme.Purple);
         return (null, null);
     }
@@ -167,15 +172,17 @@ public sealed class LevelingHandler
             UiTheme.DrawTag(spriteBatch, card.Rarity,
                 new Vector2(visualRect.Right - Px(22) - rarityWidth, visualRect.Y + Px(29)), accent, _tileSize * .23);
             float textWidth = visualRect.Width - Px(36);
-            UiTheme.DrawText(spriteBatch, card.Definition.Category.ToUpperInvariant() + " CARD", _tileSize * 0.24, UiTheme.Muted,
+            UiTheme.DrawText(spriteBatch, card.Category.ToUpperInvariant() + " CARD", _tileSize * 0.24, UiTheme.Muted,
                 new Vector2(visualRect.Center.X, visualRect.Y + _tileSize * 1.55f), "center");
             UiTheme.DrawWrappedText(spriteBatch, card.Name, _tileSize * 0.58, UiTheme.Text,
                 new Vector2(visualRect.Center.X, visualRect.Y + _tileSize * 2.15f), textWidth);
             Primitives2D.Line(spriteBatch, new Vector2(visualRect.X + Px(28), visualRect.Y + _tileSize * 2.72f),
                 new Vector2(visualRect.Right - Px(28), visualRect.Y + _tileSize * 2.72f), accent, (int)Px(2));
-            UiTheme.DrawWrappedText(spriteBatch, card.Definition.Description, _tileSize * 0.38, UiTheme.Text,
+            UiTheme.DrawWrappedText(spriteBatch, card.Description, _tileSize * 0.38, UiTheme.Text,
                 new Vector2(visualRect.Center.X, visualRect.Center.Y - _tileSize * 0.2f), textWidth);
 
+            if (card.Effects.Count == 1)
+            {
             string mode = card.MathType == "additive" ? "Flat bonus" : "Scaling bonus";
             float modeWidth = UiTheme.Font(_tileSize * .2).MeasureString(mode.ToUpperInvariant()).X;
             UiTheme.DrawTag(spriteBatch, mode,
@@ -192,6 +199,29 @@ public sealed class LevelingHandler
             int owned = stats.UpgradeTypeCounts.GetValueOrDefault(card.Name);
             UiTheme.DrawText(spriteBatch, $"OWNED  {owned}", _tileSize * 0.22, UiTheme.Muted,
                 new Vector2(visualRect.Center.X, visualRect.Bottom - _tileSize * 0.45f * (float)textScale), "center");
+
+            }
+            else
+            {
+                float effectStart = visualRect.Center.Y + _tileSize * .58f;
+                float effectStep = _tileSize * .48f;
+                for (int effectIndex = 0; effectIndex < card.Effects.Count; effectIndex++)
+                {
+                    var effect = card.Effects[effectIndex];
+                    var (current, projected) = ProjectedValue(card.Rarity, effect, stats);
+                    string effectMode = effect.MathType == "additive" ? "FLAT" : "SCALING";
+                    string value = Upgrades.FormatEffectValue(card.Rarity, effect);
+                    UiTheme.DrawText(spriteBatch, $"{effect.Stat.ToUpperInvariant()}  {value}  //  {effectMode}",
+                        _tileSize * .23, accent,
+                        new Vector2(visualRect.Center.X, effectStart + effectIndex * effectStep), "center");
+                    UiTheme.DrawText(spriteBatch, $"{current:F2} -> {projected:F2}", _tileSize * .17,
+                        projected != current ? UiTheme.Green : UiTheme.Muted,
+                        new Vector2(visualRect.Center.X, effectStart + effectIndex * effectStep + _tileSize * .22f), "center");
+                }
+                int effectOwned = card.Effects.Sum(effect => stats.UpgradeTypeCounts.GetValueOrDefault(effect.Stat));
+                UiTheme.DrawText(spriteBatch, $"EFFECTS OWNED  {effectOwned}", _tileSize * .20, UiTheme.Muted,
+                    new Vector2(visualRect.Center.X, visualRect.Bottom - _tileSize * .42f * (float)textScale), "center");
+            }
 
             var (recommendation, recommendationColor) = Recommendation(card, stats);
             if (recommendation is not null)

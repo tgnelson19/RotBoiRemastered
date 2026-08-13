@@ -167,8 +167,8 @@ public sealed class SettingsMenu
                         new Vector2(rect.Right - 9 * scale, rect.Center.Y), "midright");
                 if (_focus.IsFocused(row.Id) && row.Enabled)
                     Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, 2);
-                if (row.Id == "setting:TextSize")
-                    DrawTextSizeSlider(spriteBatch, rect, scale);
+                if (row.Id is "setting:TextSize" or "setting:DamageTextSize" or "setting:GuiScale")
+                    DrawScaleSlider(spriteBatch, rect, scale, row.Id[8..]);
                 else if (!string.IsNullOrWhiteSpace(row.Description) && rowHeight >= 38)
                     UiTheme.DrawText(spriteBatch, row.Description, 6.8 * scale,
                         row.Enabled ? UiTheme.Muted : UiTheme.Red,
@@ -190,7 +190,7 @@ public sealed class SettingsMenu
         }
     }
 
-    private static Rectangle TextSizeSliderTrack(Rectangle row, float scale)
+    private static Rectangle ScaleSliderTrack(Rectangle row, float scale)
     {
         int inset = Math.Max(8, (int)(12 * scale));
         int height = Math.Max(3, (int)(4 * scale));
@@ -198,31 +198,44 @@ public sealed class SettingsMenu
             Math.Max(1, row.Width - inset * 2), height);
     }
 
-    private static void DrawTextSizeSlider(SpriteBatch spriteBatch, Rectangle row,
-        float scale)
+    private static void DrawScaleSlider(SpriteBatch spriteBatch, Rectangle row,
+        float scale, string key)
     {
-        Rectangle track = TextSizeSliderTrack(row, scale);
-        double progress = (GameProfile.Profile.TextSize - UiTheme.MinTextScale)
-            / (UiTheme.MaxTextScale - UiTheme.MinTextScale);
+        Rectangle track = ScaleSliderTrack(row, scale);
+        (double value, double minimum, double maximum, Color color) = key switch
+        {
+            "GuiScale" => (GameProfile.Profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale, UiTheme.Blue),
+            "DamageTextSize" => (GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, UiTheme.Red),
+            _ => (GameProfile.Profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale, UiTheme.Cream),
+        };
+        double progress = (value - minimum) / (maximum - minimum);
         progress = Math.Clamp(progress, 0, 1);
         Primitives2D.FillRect(spriteBatch, track, UiTheme.Ink);
         Primitives2D.FillRect(spriteBatch,
             new Rectangle(track.X, track.Y, Math.Max(1, (int)(track.Width * progress)), track.Height),
-            UiTheme.Cream);
+            color);
         int thumbSize = Math.Max(8, (int)(10 * scale));
         int thumbX = track.X + (int)(track.Width * progress);
         Primitives2D.FillRect(spriteBatch,
             new Rectangle(thumbX - thumbSize / 2, track.Center.Y - thumbSize / 2,
-                thumbSize, thumbSize), UiTheme.Cream);
+                thumbSize, thumbSize), color);
     }
 
     internal static double TextSizeForSliderPosition(int mouseX, Rectangle row,
         float scale)
     {
-        Rectangle track = TextSizeSliderTrack(row, scale);
+        Rectangle track = ScaleSliderTrack(row, scale);
         double progress = Math.Clamp((mouseX - track.Left) / (double)track.Width, 0, 1);
         return UiTheme.MinTextScale
             + progress * (UiTheme.MaxTextScale - UiTheme.MinTextScale);
+    }
+
+    internal static double ScaleForSliderPosition(int mouseX, Rectangle row,
+        float scale, double minimum, double maximum)
+    {
+        Rectangle track = ScaleSliderTrack(row, scale);
+        double progress = Math.Clamp((mouseX - track.Left) / (double)track.Width, 0, 1);
+        return minimum + progress * (maximum - minimum);
     }
 
     private sealed record SettingRow(string Id, string Label, string Value,
@@ -241,6 +254,7 @@ public sealed class SettingsMenu
                 new("setting:TutorialHints", "CONTEXT HINTS", OnOff(profile.TutorialHints), "Short situational reminders", UiTheme.Blue),
                 new("setting:AimGuide", "AIM GUIDE", OnOff(profile.AimGuide), "Show a short aiming line", UiTheme.Blue),
                 new("setting:DevUnlockTesting", "DEV UNLOCK TESTING", OnOff(profile.DevUnlockTesting), "Show reversible campaign gate controls in The Mind", UiTheme.Gold),
+                new("setting:DeveloperArmory", "DEVELOPER ARMORY", OnOff(profile.DeveloperArmory), "Add an all-items testing armory to The Mind", UiTheme.Gold),
             },
             "accessibility" => new List<SettingRow>
             {
@@ -254,7 +268,7 @@ public sealed class SettingsMenu
             "display" => new List<SettingRow>
             {
                 new("setting:Fullscreen", "FULLSCREEN", OnOff(profile.Fullscreen), "Borderless native display", UiTheme.Blue),
-                new("setting:GuiScale", "GUI SCALE", GuiScaleLabel(profile.GuiScale), "Size of interface containers", UiTheme.Blue),
+                new("setting:GuiScale", "GUI SCALE", $"{profile.GuiScale * 100:0}%", "Drag, or use left/right for 5% steps", UiTheme.Blue),
                 new("setting:CameraZoom", "CAMERA ZOOM", $"{profile.CameraZoom * 100:0}%", "Default combat camera distance", UiTheme.Purple),
                 new("setting:MaxFrameRate", "FPS CAP", $"{profile.MaxFrameRate}", "Maximum update and presentation rate", UiTheme.Green),
                 new("setting:VSync", "VERTICAL SYNC", OnOff(profile.VSync), "Match display refresh when supported", UiTheme.Green),
@@ -279,7 +293,7 @@ public sealed class SettingsMenu
     {
         var rows = new List<SettingRow>
         {
-            new("manual", "FIELD MANUAL", "", "WASD move • mouse/right stick aim • Space/A dash • Tab/View dossier", UiTheme.Cream),
+            new("manual", "FIELD MANUAL", "", "WASD move // mouse/right stick aim // Space/A dash // Tab/View dossier", UiTheme.Cream),
         };
         rows.AddRange(Keybinds.Actions.Select(action => new SettingRow(
             $"binding:{action.Id}", action.Label.ToUpperInvariant(),
@@ -290,18 +304,6 @@ public sealed class SettingsMenu
         return rows;
     }
 
-    private static string GuiScaleLabel(double scale)
-    {
-        int index = 0;
-        double best = double.MaxValue;
-        for (int i = 0; i < UiTheme.GuiScaleLevels.Count; i++)
-        {
-            double distance = Math.Abs(UiTheme.GuiScaleLevels[i] - scale);
-            if (distance < best) { best = distance; index = i; }
-        }
-        return UiTheme.GuiScaleLabels[index];
-    }
-
     private void DrawActions(SpriteBatch spriteBatch, Rectangle rail, Point mouse,
         bool mouseDown, bool canExtract, bool soulContext, bool settingsOnly,
         float scale)
@@ -309,7 +311,7 @@ public sealed class SettingsMenu
         int pad = Math.Max(5, (int)(7 * scale));
         int rowHeight = rail.Height - pad * 2;
         var actions = new List<(string Id, string Label, Color Color, bool Enabled, string? Hint)>();
-        actions.Add(("action:resume", settingsOnly ? "BACK" : soulContext ? "RETURN TO SOUL" : "RESUME", UiTheme.Green, true, "ESC"));
+        actions.Add(("action:resume", settingsOnly ? "BACK" : soulContext ? "RETURN TO MIND" : "RESUME", UiTheme.Green, true, "ESC"));
         if (!soulContext && !settingsOnly)
         {
             actions.Add(("action:dossier", "DOSSIER", UiTheme.Purple, true, "TAB"));
@@ -414,12 +416,12 @@ public sealed class SettingsMenu
         bool down = InputState.UiDownPressed || keysPressed.Contains(Keys.Down) || keysPressed.Contains(Keys.S);
         bool left = InputState.UiLeftPressed || keysPressed.Contains(Keys.Left) || keysPressed.Contains(Keys.A);
         bool right = InputState.UiRightPressed || keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D);
-        bool adjustingTextSize = (left || right)
-            && _focus.FocusedId == "setting:TextSize";
+        bool adjustingScale = (left || right)
+            && _focus.FocusedId is "setting:TextSize" or "setting:DamageTextSize" or "setting:GuiScale";
         if (up) _focus.Move(0, -1);
         if (down) _focus.Move(0, 1);
-        if (left && !adjustingTextSize) _focus.Move(-1, 0);
-        if (right && !adjustingTextSize) _focus.Move(1, 0);
+        if (left && !adjustingScale) _focus.Move(-1, 0);
+        if (right && !adjustingScale) _focus.Move(1, 0);
 
         bool confirm = mousePressed || InputState.ControllerConfirmPressed
             || keysPressed.Contains(Keys.Enter) || keysPressed.Contains(Keys.Space);
@@ -451,18 +453,25 @@ public sealed class SettingsMenu
         if (InputState.ControllerBackPressed || keysPressed.Contains(Keys.Escape))
             return MenuAction.Resume;
 
-        if (mouseDown && hovered == "setting:TextSize"
-            && _controls.TryGetValue(hovered, out Rectangle textSizeRow))
+        if (mouseDown && hovered is "setting:TextSize" or "setting:DamageTextSize" or "setting:GuiScale"
+            && _controls.TryGetValue(hovered, out Rectangle scaleRow))
         {
-            GameProfile.Profile.TextSize = TextSizeForSliderPosition(
-                mouse.X, textSizeRow, _drawScale);
+            double value = hovered switch
+            {
+                "setting:GuiScale" => ScaleForSliderPosition(mouse.X, scaleRow, _drawScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale),
+                "setting:DamageTextSize" => ScaleForSliderPosition(mouse.X, scaleRow, _drawScale, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale),
+                _ => TextSizeForSliderPosition(mouse.X, scaleRow, _drawScale),
+            };
+            if (hovered == "setting:GuiScale") GameProfile.Profile.GuiScale = value;
+            else if (hovered == "setting:DamageTextSize") GameProfile.Profile.DamageTextSize = value;
+            else GameProfile.Profile.TextSize = value;
             GameProfile.SaveProfile();
             return MenuAction.None;
         }
 
-        if (adjustingTextSize)
+        if (adjustingScale)
         {
-            ChangeSetting("TextSize", right ? 1 : -1);
+            ChangeSetting(_focus.FocusedId![8..], right ? 1 : -1);
             return MenuAction.None;
         }
         if (activated is null)
@@ -499,7 +508,7 @@ public sealed class SettingsMenu
         GameProfileData profile = GameProfile.Profile;
         if (key is "CasualMode" or "AutoFire" or "TutorialHints" or "AimGuide"
             or "DamageNumbers" or "HighContrast" or "Fullscreen" or "VSync"
-            or "DevUnlockTesting")
+            or "DevUnlockTesting" or "DeveloperArmory")
         {
             GameProfile.Toggle(key);
             return;
@@ -524,11 +533,11 @@ public sealed class SettingsMenu
         else if (key == "VisualEffects")
             profile.VisualEffectsIntensity = Math.Clamp(profile.VisualEffectsIntensity + direction * .25, 0, 1);
         else if (key == "TextSize")
-            profile.TextSize = Math.Clamp(profile.TextSize + direction * .1, UiTheme.MinTextScale, UiTheme.MaxTextScale);
+            profile.TextSize = Math.Clamp(profile.TextSize + direction * .05, UiTheme.MinTextScale, UiTheme.MaxTextScale);
         else if (key == "DamageTextSize")
-            profile.DamageTextSize = Math.Clamp(profile.DamageTextSize + direction * .1, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
+            profile.DamageTextSize = Math.Clamp(profile.DamageTextSize + direction * .05, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
         else if (key == "GuiScale")
-            profile.GuiScale = Cycle(profile.GuiScale, UiTheme.GuiScaleLevels, direction);
+            profile.GuiScale = Math.Clamp(profile.GuiScale + direction * .05, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
         else if (key == "CameraZoom")
             profile.CameraZoom = Math.Clamp(profile.CameraZoom + direction * .1, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
         else if (key == "MaxFrameRate")

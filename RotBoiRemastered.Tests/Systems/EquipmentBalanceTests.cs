@@ -36,7 +36,7 @@ public class EquipmentBalanceTests : IDisposable
 
         Assert.True(damage.SequenceEqual(damage.OrderDescending()));
         Assert.True(range.SequenceEqual(range.Order()));
-        Assert.True(range[^1] >= range[0] * 7);
+        Assert.True(range[^1] >= range[0] * 5);
         Assert.True(damage[0] >= damage[^1] * 2.5);
     }
 

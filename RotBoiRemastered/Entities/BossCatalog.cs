@@ -21,10 +21,8 @@ public sealed record BossDefinition(string Key, string DisplayName, BossFactory 
 
 /// <summary>
 /// Ported from bossTypes.py's `BossCatalog`/`BOSS_CATALOG`. Registers every
-/// boss now ported: `beaudis`/`dissonance` (the "sound" content path's
-/// mid/final bosses -- the only path natural gameplay can currently reach,
-/// since `gamePaths.py`'s per-path boss-key selection isn't wired), the
-/// Touch path's `bair`/`rot`, the sight-themed `ishe`/`chronos`, the
+/// boss now ported: `beaudis`/`dissonance` for Sound, the Touch path's
+/// `bair`/`rot`, the sight-themed `ishe`/`chronos`, the
 /// Chemesthesis path's `kage`/`ache`, and the Phantasia path's
 /// `hypno`/`malady`, and the final Aphantasia encounter.
 /// </summary>

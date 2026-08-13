@@ -47,6 +47,10 @@ public class GameProfileTests : IDisposable
     {
         var profile = GameProfile.LoadProfile(Path.Combine(_tempDir, "missing.json"));
         AssertMatchesDefaults(profile);
+        Assert.Equal(CampaignProgression.SenseKeys.Length,
+            profile.Campaign.SilverStatues.Count);
+        Assert.Equal(CampaignProgression.SenseKeys.Length,
+            profile.Campaign.GoldStatues.Count);
     }
 
     [Fact]
@@ -73,6 +77,92 @@ public class GameProfileTests : IDisposable
         Assert.Equal(UiTheme.MinGuiScale, profile.GuiScale);
         Assert.Equal(UiTheme.MaxDamageTextScale, profile.DamageTextSize);
         Assert.Equal(Camera.MaxDefaultZoomScale, profile.CameraZoom);
+    }
+
+    [Fact]
+    public void MalformedProgressionCollectionsAreClampedFilteredAndCapacitySafe()
+    {
+        string path = Path.Combine(_tempDir, "malformed-progression.json");
+        File.WriteAllText(path, """
+        {
+          "BestLevel": -4,
+          "BestKills": -2,
+          "CompletedRuns": -8,
+          "MindTokens": -12,
+          "SkillLevels": { "tempered_soul": 999, "unknown": 3 },
+          "QuestProgress": { "enemies_defeated": -50, "": 4 },
+          "CompletedQuests": ["first_steps", "first_steps", "unknown"],
+          "Storage": [
+            { "Name": "Iron Sword", "Rarity": "Common" },
+            { "Name": "missing item", "Rarity": "Common" }
+          ],
+          "CarriedEquipment": {
+            "weapon": { "Name": "Iron Sword", "Rarity": "Common" },
+            "helmet": { "Name": "Iron Sword", "Rarity": "Common" },
+            "armor": { "Name": "missing item", "Rarity": "Common" }
+          },
+          "CarriedInventory": [
+            { "Name": "missing item", "Rarity": "Common" }
+          ],
+          "PathMastery": { "sound": -9 },
+          "ExtractedRuns": [
+            null,
+            {
+              "Id": " ", "Path": " ", "Outcome": "BROKEN",
+              "Level": -3, "Kills": -8, "Seconds": -12,
+              "NewGamePlusLevel": 99
+            }
+          ],
+          "RecentBossEncounters": [
+            null,
+            {
+              "BossKey": " ", "SenseKey": " ", "FloorNumber": -2,
+              "ClearSeconds": -4, "DamageTaken": -5,
+              "SkippedBranchRooms": -1, "SkippedBranchThreat": -6,
+              "CarriedEnemyThreat": -7, "LocalPlayerCount": 0,
+              "Phases": [null, { "Label": " ", "Seconds": -9 }]
+            }
+          ]
+        }
+        """);
+
+        GameProfileData profile = GameProfile.LoadProfile(path);
+
+        Assert.Equal(0, profile.BestLevel);
+        Assert.Equal(0, profile.BestKills);
+        Assert.Equal(0, profile.CompletedRuns);
+        Assert.Equal(0, profile.MindTokens);
+        Assert.Equal(5, profile.SkillLevels["tempered_soul"]);
+        Assert.DoesNotContain("unknown", profile.SkillLevels);
+        Assert.Equal(0, profile.QuestProgress["enemies_defeated"]);
+        Assert.DoesNotContain("", profile.QuestProgress);
+        Assert.Equal(new[] { "first_steps" }, profile.CompletedQuests);
+        Assert.Single(profile.Storage);
+        Assert.Equal("Iron Sword", profile.Storage[0].Name);
+        Assert.Equal(new[] { "weapon" }, profile.CarriedEquipment.Keys);
+        Assert.All(profile.CarriedInventory, Assert.Null);
+        Assert.Equal(0, profile.PathMastery["sound"]);
+        ExtractedRunData run = Assert.Single(profile.ExtractedRuns);
+        Assert.False(string.IsNullOrWhiteSpace(run.Id));
+        Assert.Equal("Unknown Path", run.Path);
+        Assert.Equal(RunOutcomes.Extracted, run.Outcome);
+        Assert.Equal(0, run.Level);
+        Assert.Equal(0, run.Kills);
+        Assert.Equal(0, run.Seconds);
+        Assert.Equal(NewGamePlus.MaxLevel, run.NewGamePlusLevel);
+        BossEncounterTelemetryData encounter = Assert.Single(profile.RecentBossEncounters);
+        Assert.Equal("unknown", encounter.BossKey);
+        Assert.Equal("unknown", encounter.SenseKey);
+        Assert.Equal(0, encounter.FloorNumber);
+        Assert.Equal(0, encounter.ClearSeconds);
+        Assert.Equal(0, encounter.DamageTaken);
+        Assert.Equal(0, encounter.SkippedBranchRooms);
+        Assert.Equal(0, encounter.SkippedBranchThreat);
+        Assert.Equal(0, encounter.CarriedEnemyThreat);
+        Assert.Equal(1, encounter.LocalPlayerCount);
+        BossPhaseTelemetryData phase = Assert.Single(encounter.Phases);
+        Assert.Equal("UNKNOWN", phase.Label);
+        Assert.Equal(0, phase.Seconds);
     }
 
     [Theory]

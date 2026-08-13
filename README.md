@@ -4,6 +4,8 @@ A 2D arena roguelite built with C#, MonoGame, and .NET 9. Move through the arena
 aim with the mouse, collect experience, and draft upgrade cards that shape each
 run into a focused build. The red edge-of-screen
 bounty arrow points toward the highest-value living patrol or elite target.
+Normal standalone arena paths target a complete 25-35 minute run; the campaign,
+Dungeon, challenges, and NG+ provide longer-term mastery rather than prerequisites.
 
 ## Controls
 
@@ -14,20 +16,20 @@ bounty arrow points toward the highest-value living patrol or elite target.
 - `X`: reset camera rotation and zoom to the resolution-aware default
 - `O` / `P` or mouse wheel: zoom the world camera out / in around the player (also available in The Mind)
 - `I`: toggle autofire
-- `Tab`: toggle compact/detailed run information
+- `Tab`: open or close the paused run dossier
 - `1`, `2`, `3` or click: choose an upgrade card
 - `R`: reroll the current card offer
-- `A` / `D`, arrows, or click: select an unlocked NG+ tier while confirming a Mind arena/Core portal
+- `A` / `D`, arrows, controller stick/D-pad, or click: select an unlocked NG+ tier while confirming a Mind arena/Dungeon portal
 - `B`: hidden debug shortcut that clears the arena and summons the selected path's final boss
 - `Y`: toggle player invincibility during boss practice
 - `Space` / `F` / `Enter`: enter The Mind from the title screen
 - `F` near a station in The Mind: open its vault, quest, or skill menu
 - `F` at a challenge brazier in The Mind: toggle No Healing or No Extract
-- `X` while paused after the midpoint boss: extract the current run and equipment
+- `R` after the midpoint boss, or **Extract** while paused: bank the run and open its debrief
 - `Escape`: pause during a run or in The Mind; quit from the title screen
 - Click the glowing gold sidebar button when stored EXP is sufficient to buy a level; choose `REFORGE` to spend 5 collected Fragments on an equipped item's grade or modifier
 - `F11`: switch between windowed and borderless fullscreen
-- Controller: left stick moves, right stick aims/fires, `A` dashes, `X` toggles autofire, and Start pauses
+- Controller: left stick moves, right stick aims/fires, `A` dashes/confirms, `B` interacts/backs out, `X` toggles autofire, View opens the dossier, and Start pauses
 
 ## Comfort and accessibility
 
@@ -39,8 +41,8 @@ the default; reducing the effects control removes optional ambience, trails, and
 debris without weakening attack telegraphs, shadows, or hit feedback.
 World zoom starts from a resolution-aware baseline so high-resolution displays retain
 the intended character and arena readability. Casual assist reduces incoming damage and hostile projectile speed
-without reducing enemy variety. Preferences and best-run records are saved locally
-in `data/profile.json`.
+without reducing enemy variety. Preferences and best-run records are saved in the
+per-user application-data folder (`%APPDATA%\RotBoiRemastered\profile.json` on Windows).
 
 For visual development, the in-game console command
 `/vfxgallery [0-100] [path] [easy|medium|hard]` places every player and
@@ -48,47 +50,52 @@ hostile projectile silhouette plus the selected Path-native enemy family
 gallery around the player. Its overlay also previews the shared room-role
 glyphs and the adaptive ambience, trail, and debris budgets.
 
-The in-run information sidebar starts in a compact, action-focused mode. Press
-`Tab` for additional weapon outcomes and build-family detail. Damage and fire rate
-retain exact values; fractional projectiles and pierce are translated into plain
-language such as “5 shots + 35% bonus.” Each upgrade has a stat symbol, a `+` corner
-mark for flat bonuses or an `x` mark for multiplicative bonuses, and its rarity
-color. The five most recent cards collect on the small table at the bottom of the
-sidebar; hover one when you want its name and bonus type.
+The combat footer keeps health, dash, equipment, Fragments, selected stats, and the
+level-up action visible without shrinking the arena. Press `Tab` for the paused run
+dossier with exact weapon outcomes, build-family detail, objectives, loadout, and
+recent cards. Fractional projectiles and pierce use plain-language bonus chances;
+upgrade symbols and rarity colors remain consistent between drafting and the dossier.
 
 ## The Mind and permanent progression
 
 Choose **Enter Mind** from the title screen to visit an authored sanctuary with
 three distinct beats: a quiet southern chapel lined with purpose-built utility
 shrines, a short passage where masonry dissolves into braided soul currents, and
-a five-branch crown surrounding The Body portal. The Vault
+a five-branch crown surrounding the always-open Dungeon portal. The Vault
 Reliquary keeps ten permanent item slots and statistics for the ten
 most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
-session best, and the all-time record. The Vow Lectern's 24 objectives award Soul
-tokens; the Soul Rose spends those tokens on twelve simple, rankable permanent
+session best, and the all-time record. The Vow Lectern's 24 objectives award Mind
+Tokens; the Mind Rose spends those tokens on twelve simple, rankable permanent
 upgrades. The Vestment Mirror offers persistent player Core and Edge colors plus
 two-tone projectile palettes and projectile silhouettes.
 
-The Body portal is the shortest route from spawn. Five compact walled
-branches lead to distinct Sound, Touch, Sight, Chemesthesis, and Phantasia gates
-with their own procedural silhouettes and ambient vocabulary. Cleared paths wake
-permanent architectural details, additional mastery enriches them to a bounded
-cap, and selected NG+ tiers add corruption seams and square motes. Optional
+Five compact walled branches lead to immediately available Sound, Touch, Sight,
+Chemesthesis, and Phantasia arenas with their own procedural silhouettes and
+ambient vocabulary. These are the primary standalone runs: completing an arena
+awards its silver statue, a Mind Token, mastery, and the next NG+ tier. Cleared
+paths wake permanent architectural details, additional mastery enriches them to
+a bounded cap, and selected NG+ tiers add corruption seams and square motes. Optional
 chapel dust, tunnel motes, and secondary branch effects follow the visual-effects
 intensity setting without hiding portal silhouettes or interaction prompts.
 
-Completing The Body now continues immediately into The Soul as the second half
-of the same expedition. The player keeps their current level, temporary build,
+Collecting all five silver statues opens the northern Body/Soul campaign gate.
+Completing The Body continues immediately into The Soul as the second half of
+the same expedition. The player keeps their current level, temporary build,
 health, equipment, inventory, challenge flags, and elapsed time; The Soul has no
-standalone entrance in The Mind. Beyond the central Sight arena, a second sealed
-wall protects The Core, and another wall behind The Core protects Aphantasia.
+standalone entrance in The Mind. Each completed Soul finale awards its sense's
+gold statue. Collecting all five gold statues opens Aphantasia beyond the next
+northern wall.
 
-After defeating a path's midpoint boss, the pause menu offers an extraction choice;
-completing a path extracts automatically. The chest keeps the run summary and lets
-the player salvage surviving equipment into permanent storage. Selecting a stored
+After defeating a path's midpoint boss, the pause menu and `R` offer extraction;
+the ten-floor Dungeon unlocks extraction after floor five, and expeditions unlock it
+after their first guardian. Completing a path banks it automatically. The debrief
+shows field/boss time, build, rewards, unlocks, and retained or lost gear; the Mind
+Vault moves surviving equipment into permanent storage. Selecting a stored
 item prepares that copy for the next run; it leaves storage when the run begins.
-Dying, restarting, or abandoning the run destroys carried items, while Soul-grid
-bonuses and other permanent progress remain intact. Hover equipment or nearby loot
+Dying destroys carried items. A confirmed restart retains the current loadout;
+returning to the title leaves behind changes made since the last extraction,
+completion, or restart sync. Mind-grid bonuses, vaulted equipment, and other
+permanent progress remain intact. Hover equipment or nearby loot
 for its symbolic stat card, rarity-scaled tradeoffs, status effects, and flavor text.
 
 Enemies have a one-in-three chance to leave a gold Fragment pickup. Fragments
@@ -96,27 +103,29 @@ follow the same collection aura as EXP but use a separate run counter; every
 grade increase and modifier reroll costs exactly five, leaving stored EXP solely
 for purchasing levels.
 
-The northern Soul station toggles Hard Mode for future runs. Hard Mode disables
+The northern Mind station toggles Hard Mode for future runs. Hard Mode disables
 all healing except the full heal granted when EXP is spent on a level, and path
-completion awards two Soul tokens instead of one. Epic and Legendary drops can
+completion awards two Mind Tokens instead of one. Epic and Legendary drops can
 become path-bound Core-Forged items at 10% and 20% respectively; Mythical drops
 use a 35% chance, while named Unique items remain unforgeable. Core-Forged gear
 adds a fixed path-specific stat package, glows in inventories and loot crates,
 and contributes a matching concentric aura while equipped.
 
-Every Soul path portal also has a per-path New Game Plus selector. Completing
+Every Mind arena portal also has a per-path New Game Plus selector. Completing
 the normal path unlocks NG+1 for that path; completing each tier unlocks only
 the next, through NG+7. Each tier multiplies enemy health and incoming enemy
-damage by 1.5, doubles the direct path-clear Soul-token reward, and shifts item
+damage by 1.5, doubles the direct path-clear Mind Token reward, and shifts item
 rarity and F-S grade rolls upward. Core-Forged chances also rise at every NG+
 tier. Hard Mode remains an independent toggle and its reward multiplier stacks
 with NG+.
 
-## The Core
+## The Dungeon
 
-After unlocking all five sense arenas, follow the central Sight branch through
-its newly opened wall and enter The Core to begin a ten-floor dungeon run
-through every sense. Floors
+The central Dungeon portal is available from the first visit to The Mind. It is
+a ten-floor free-play run through every sense and does not award campaign
+statues, path mastery, clear tokens, or new NG+ unlocks; retained equipment,
+run history, and relevant quest counters still follow the normal extraction and
+completion rules. Floors
 1-5 use one shuffled copy of Sound, Touch,
 Sight, Chemesthesis, and Phantasia; floors 6-10 reshuffle all five and apply a
 much harder second-act curve. The fifth floor ends with its sense's midpoint

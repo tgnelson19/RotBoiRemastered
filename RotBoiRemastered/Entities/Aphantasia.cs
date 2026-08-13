@@ -125,7 +125,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double PhaseThreeSurvivalDuration = 40.0;
     public const double PhaseFourFinaleDuration = 60.0;
     public const double TesseractTransitionDuration = 5.0;
-    public const int ActiveThreatSoftCap = 142;
+    public const int ActiveThreatSoftCap = 320;
+    public const int PerimeterThreatReserve = 24;
+    public const double PerimeterPressureCadence = 1.8;
+    public const int PerimeterPressureCount = 8;
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseOnePatterns =
     [
@@ -200,6 +203,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private double _damageWindowRemaining;
     private bool _damageWindowOpened;
     private double _attackRemaining;
+    private double _perimeterPressureRemaining = .8;
     private double _stateElapsed;
     private double _visualTime;
     private double _transitionRemaining;
@@ -370,15 +374,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         PhaseFourEligible = noHealing && noExtract;
         ContentPath = "phantasia";
         Family = "aphantasia";
-        Light = NewMini("THE LIGHT", new Color(245, 228, 136), -1);
-        Dark = NewMini("THE DARK", new Color(43, 69, 166), 1);
+        Light = NewMini("THE LIGHT", new Color(245, 228, 136));
+        Dark = NewMini("THE DARK", new Color(43, 69, 166));
         CenterBody();
         StartNextSubphase(revivePair: true);
     }
 
     public override bool ReceivesKnockback => false;
 
-    private AphantasiaMini NewMini(string name, Color accent, int side)
+    private AphantasiaMini NewMini(string name, Color accent)
     {
         return new AphantasiaMini
         {
@@ -386,7 +390,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             Accent = accent,
             MaxHp = BaseMiniHealth,
             Hp = BaseMiniHealth,
-            Position = ArenaCenter + new Vector2(side * ArenaRadius * .31f, 0),
+            Position = BossCenter,
             FireCooldown = .4f + (float)_rng.NextDouble() * .35f,
         };
     }
@@ -405,6 +409,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         WorldX = ArenaCenter.X - Size / 2f;
         WorldY = ArenaCenter.Y - Size / 2f;
     }
+
+    private Vector2 BossCenter => new(WorldX + Size / 2f, WorldY + Size / 2f);
 
     public override void Update(EnemyUpdateContext context)
     {
@@ -443,6 +449,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 Hp = 0;
             }
             return;
+        }
+
+        if (EncounterState is AphantasiaEncounterState.Combat
+            or AphantasiaEncounterState.Survival
+            or AphantasiaEncounterState.MiniExecution
+            or AphantasiaEncounterState.Finale)
+        {
+            UpdatePerimeterPressure(context, dt);
         }
 
         switch (EncounterState)
@@ -634,6 +648,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             _survivalMovement = desiredStage;
             _sequenceTransitionRemaining = SequenceTransitionDuration;
             _attackRemaining = SequenceTransitionDuration;
+            _perimeterPressureRemaining = 0;
             TransitionCleanupRequested = true;
             return false;
         }
@@ -1136,7 +1151,32 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             AddShot(sink, ArenaCenter, spin + index * MathF.Tau / 8f,
                 .62f + index % 3 * .16f, .18f + index % 2 * .1f,
                 Rainbow(index / 8f + spin * .04f), "transformation", "sine",
-                Simulation.TileSize * .35f, 3.4f);
+                Simulation.TileSize * .35f, 3.4f, deliberatelyShortRange: true);
+    }
+
+    private void UpdatePerimeterPressure(EnemyUpdateContext context, double dt)
+    {
+        _perimeterPressureRemaining -= dt;
+        if (_perimeterPressureRemaining > 0)
+            return;
+        _perimeterPressureRemaining = PerimeterPressureCadence;
+        List<EnemyProjectile> staged = BeginVolley();
+        float rotation = (float)_visualTime * .17f;
+        for (int index = 0; index < PerimeterPressureCount; index++)
+        {
+            float angle = rotation + index * MathF.Tau / PerimeterPressureCount;
+            Vector2 origin = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                * ArenaRadius * .93f;
+            float opposite = angle + MathF.PI + MathF.Sin(rotation * 1.7f + index) * .24f;
+            Vector2 target = ArenaCenter + new Vector2(MathF.Cos(opposite), MathF.Sin(opposite))
+                * ArenaRadius * .92f;
+            AddShot(staged, origin, AngleTo(origin, target),
+                .72f + index % 3 * .08f, .15f + index % 2 * .035f,
+                index % 2 == 0 ? Light.Accent * .82f : Dark.Accent * .9f,
+                "perimeter_drift", index % 3 == 0 ? "sine" : "linear",
+                Simulation.TileSize * .22f, 12f);
+        }
+        CommitVolley(context.ProjectileSink);
     }
 
     private void FireRing(List<EnemyProjectile> sink, Vector2 origin, int count,
@@ -1253,7 +1293,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             SplitSpeedScale = .82f,
             SplitSpread = MathF.Tau,
             SplitRadial = true,
-            SplitChildLifetime = 10f,
+            SplitChildLifetime = 32f,
             ThreatReservationCost = 8,
             SplitTelegraphStartRatio = .72f,
             OriginTelegraphDuration = .68f,
@@ -1263,15 +1303,36 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void AddShot(List<EnemyProjectile> sink, Vector2 origin, float direction,
         float speed, float sizeTiles, Color color, string owner, string path,
-        float amplitude, float lifetime)
+        float amplitude, float lifetime, bool deliberatelyShortRange = false)
     {
         float size = Simulation.TileSize * sizeTiles;
+        float edgeRange = DistanceToArenaEdge(origin, direction) + size;
+        float travelRange = deliberatelyShortRange
+            ? Math.Min(ArenaRadius * .42f, edgeRange)
+            : edgeRange;
+        float requiredLifetime = travelRange
+            / Math.Max(.01f, speed * .52f * (float)Simulation.ReferenceFps * .88f)
+            + .75f;
         sink.Add(new EnemyProjectile(
             origin.X - size / 2f, origin.Y - size / 2f,
             direction, speed, Damage * .62f, size,
-            travelRange: ArenaRadius * 2.3f, color: color,
+            travelRange: travelRange, color: color,
             shape: "diamond", path: path, amplitude: amplitude,
-            lifetime: lifetime, owner: $"aphantasia_{owner}", ignoreWalls: true));
+            lifetime: deliberatelyShortRange ? lifetime : Math.Max(lifetime, requiredLifetime),
+            owner: $"aphantasia_{owner}", ignoreWalls: true));
+    }
+
+    private float DistanceToArenaEdge(Vector2 origin, float direction)
+    {
+        Vector2 offset = origin - ArenaCenter;
+        Vector2 heading = new(MathF.Cos(direction), MathF.Sin(direction));
+        float projection = Vector2.Dot(offset, heading);
+        float discriminant = projection * projection
+            - (offset.LengthSquared() - ArenaRadius * ArenaRadius);
+        if (discriminant <= 0)
+            return ArenaRadius * 2f;
+        return Math.Max(Simulation.TileSize,
+            -projection + MathF.Sqrt(discriminant));
     }
 
     private List<EnemyProjectile> BeginVolley()
@@ -1294,7 +1355,13 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         int stagedCost = 0;
         foreach (EnemyProjectile projectile in _volleyScratch)
             stagedCost += Math.Max(1, projectile.ThreatReservationCost);
-        if (activeCost + stagedCost <= ActiveThreatSoftCap)
+        bool perimeterVolley = _volleyScratch.Count > 0
+            && _volleyScratch.All(projectile =>
+                projectile.Owner == "aphantasia_perimeter_drift");
+        int volleyCap = perimeterVolley
+            ? ActiveThreatSoftCap
+            : ActiveThreatSoftCap - PerimeterThreatReserve;
+        if (activeCost + stagedCost <= volleyCap)
             sink.AddRange(_volleyScratch);
         _volleyScratch.Clear();
     }
@@ -1403,12 +1470,16 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void ReviveMiniPair()
     {
+        Vector2 origin = BossCenter;
         foreach (AphantasiaMini mini in new[] { Light, Dark })
         {
             mini.PermanentlyDestroyed = false;
             mini.Empowered = false;
             mini.MaxHp = BaseMiniHealth;
             mini.Hp = mini.MaxHp;
+            mini.Position = origin;
+            mini.Velocity = Vector2.Zero;
+            mini.FireCooldown = Math.Max(mini.FireCooldown, .65f);
         }
     }
 

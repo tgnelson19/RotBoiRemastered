@@ -32,7 +32,6 @@ public static class Keybinds
         ("interact", "Interact", Keys.F),
         ("extract", "Extract to The Mind", Keys.R),
         ("hud_toggle", "Toggle HUD Detail", Keys.Tab),
-        ("restart", "Restart Run (while paused)", Keys.R),
         ("console_toggle", "DEV: Toggle Console", Keys.OemTilde),
     };
 

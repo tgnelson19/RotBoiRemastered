@@ -102,6 +102,22 @@ public class MetaProgressionTests : IDisposable
     }
 
     [Fact]
+    public void ProgressionNeutralCompletionRecordsRunWithoutRewardsOrUnlocks()
+    {
+        GameProfile.Profile.CompletedQuests = MetaProgression.Quests.Select(quest => quest.Key).ToList();
+        var state = new RunState();
+
+        MetaProgression.RecordExtraction(state, NewGamePlus.DungeonKey,
+            completed: true, grantCompletionRewards: false);
+
+        Assert.Equal(RunOutcomes.RunComplete,
+            GameProfile.Profile.ExtractedRuns[0].Outcome);
+        Assert.Equal(0, GameProfile.Profile.MindTokens);
+        Assert.Equal(0, GameProfile.Profile.PathMastery.GetValueOrDefault(NewGamePlus.DungeonKey));
+        Assert.Equal(0, NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey));
+    }
+
+    [Fact]
     public void SyncCarriedItems_RoundTripsEquipmentAndInventoryIntoProfile()
     {
         var state = new RunState();

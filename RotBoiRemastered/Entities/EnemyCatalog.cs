@@ -168,11 +168,12 @@ public sealed class EnemyCatalog
     }
 
     public Enemy Create(string key, float worldX, float worldY, int level, float awarenessRange, Random? rng = null,
-        Battleground? battleground = null)
+        Battleground? battleground = null, int? statScalingLevel = null)
     {
         rng ??= Random.Shared;
         var definition = _definitions[key];
-        var scales = Progression.EnemyStatScales(level);
+        int balanceLevel = Math.Clamp(statScalingLevel ?? level, 0, Progression.DungeonMaxLevel);
+        var scales = Progression.EnemyStatScales(balanceLevel);
         var tier = EnemyCatalogData.TierBalance[definition.ProgressionTier];
         float variation = (float)(rng.NextDouble() * (1.12 - .9) + .9);
         double difficulty = rng.NextDouble() * (1.25 - .92) + .92;
@@ -184,7 +185,8 @@ public sealed class EnemyCatalog
             size, definition.Color,
             Math.Round(90 * scales.Damage * tier.Damage * definition.Damage / variation),
             Math.Round(220 * scales.Health * tier.Health * definition.Health / variation),
-            2.4 * scales.Experience * tier.Experience * definition.Experience * difficulty,
+            2.4 * scales.Experience * tier.Experience * definition.Experience
+                * Math.Pow(Math.Max(1.0, definition.ThreatCost * tier.Threat), .12) * difficulty,
             difficulty, awarenessRange, definition.ProgressionTier, tier.Rank, rng, battleground);
 
         var enemy = definition.Factory(args);
@@ -200,7 +202,7 @@ public sealed class EnemyCatalog
 
     public Enemy? Spawn(int level, Battleground battleground, Vector2 playerWorldPosition, float awarenessRange,
         Random? rng = null, string? key = null, double? maxThreat = null, IReadOnlyList<Enemy>? existing = null,
-        int minDistanceTiles = 4)
+        int minDistanceTiles = 4, int? statScalingLevel = null)
     {
         rng ??= Random.Shared;
         var definition = key is not null ? _definitions[key] : Choose(level, rng, maxThreat, existing);
@@ -209,7 +211,7 @@ public sealed class EnemyCatalog
         // Find a fitting spawn using the definition's nominal body size.
         float nominalSize = Simulation.TileSize * (float)definition.Size;
         var spawnRect = battleground.FindSpawnRect((int)nominalSize, playerWorldPosition, minDistanceTiles, rng);
-        var enemy = Create(definition.Key, spawnRect.X, spawnRect.Y, level, awarenessRange, rng, battleground);
+        var enemy = Create(definition.Key, spawnRect.X, spawnRect.Y, level, awarenessRange, rng, battleground, statScalingLevel);
         if (key is null)
             ApplyModifier(enemy, level, rng);
         return enemy;
@@ -218,7 +220,7 @@ public sealed class EnemyCatalog
     /// <summary>Build an atomic curated composition using the tier live at this level.</summary>
     public (EncounterPackage Package, List<Enemy> Group)? SpawnEncounter(
         int level, double maxThreat, Battleground battleground, Vector2 playerWorldPosition, float awarenessRange,
-        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null)
+        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, int? statScalingLevel = null)
     {
         rng ??= Random.Shared;
         var activeKeys = (existing ?? Array.Empty<Enemy>()).Select(e => e.EncounterKey).ToList();
@@ -246,7 +248,7 @@ public sealed class EnemyCatalog
                 (int)(anchor.Y + MathF.Sin(angle) * Simulation.TileSize * 1.8f),
                 Simulation.TileSize, Simulation.TileSize);
             var safe = battleground.FindNearestOpenRect(candidate);
-            var enemy = Create(definition.Key, safe.X, safe.Y, level, awarenessRange, rng, battleground);
+            var enemy = Create(definition.Key, safe.X, safe.Y, level, awarenessRange, rng, battleground, statScalingLevel);
             enemy.EncounterKey = package.Key;
             if (index == 0 && level >= 8)
                 ApplyModifier(enemy, level, rng);
@@ -259,7 +261,8 @@ public sealed class EnemyCatalog
     /// <summary>Compose a coherent ambient encounter instead of loose random bodies.</summary>
     public (RuntimeEncounter Encounter, List<Enemy> Group)? SpawnPatrol(
         int level, double maxThreat, Battleground battleground, Vector2 playerWorldPosition, float awarenessRange,
-        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, string? contentPath = null)
+        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, string? contentPath = null,
+        int? statScalingLevel = null)
     {
         rng ??= Random.Shared;
         existing ??= Array.Empty<Enemy>();
@@ -306,7 +309,7 @@ public sealed class EnemyCatalog
                 (int)(anchor.Center.Y + MathF.Sin(angle) * Simulation.TileSize * 1.4f),
                 Simulation.TileSize, Simulation.TileSize);
             var safe = battleground.FindNearestOpenRect(candidate);
-            var enemy = Create(definitions[index].Key, safe.X, safe.Y, level, awarenessRange, rng, battleground);
+            var enemy = Create(definitions[index].Key, safe.X, safe.Y, level, awarenessRange, rng, battleground, statScalingLevel);
             ApplyModifier(enemy, level, rng);
             group.AddRange(ExpandAtomicMembers(enemy, key));
         }

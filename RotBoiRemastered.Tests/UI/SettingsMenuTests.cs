@@ -8,9 +8,9 @@ namespace RotBoiRemastered.Tests.UI;
 public sealed class SettingsMenuTests
 {
     [Theory]
-    [InlineData(100, .85)]
-    [InlineData(300, 2.0)]
-    [InlineData(200, 1.425)]
+    [InlineData(100, .70)]
+    [InlineData(300, 3.0)]
+    [InlineData(200, 1.85)]
     public void TextSizeSliderMapsItsFullTrackToTheSupportedRange(
         int mouseX, double expected)
     {
@@ -39,6 +39,32 @@ public sealed class SettingsMenuTests
 
             SettingsMenu.ChangeSetting("DevUnlockTesting", 1);
             Assert.False(GameProfile.Profile.DevUnlockTesting);
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GameplaySettingCanToggleDeveloperArmory()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-armory-setting-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+
+            SettingsMenu.ChangeSetting("DeveloperArmory", 1);
+
+            Assert.True(GameProfile.Profile.DeveloperArmory);
+            Assert.True(File.Exists(GameProfile.SavePath));
+            SettingsMenu.ChangeSetting("DeveloperArmory", 1);
+            Assert.False(GameProfile.Profile.DeveloperArmory);
         }
         finally
         {

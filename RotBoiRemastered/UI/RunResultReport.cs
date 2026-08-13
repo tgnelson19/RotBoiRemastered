@@ -5,6 +5,22 @@ namespace RotBoiRemastered.UI;
 
 public sealed record RunItemSummary(string Slot, string Name, string Rarity);
 
+public enum RunPaceBand { UnderTarget, OnTarget, OverTarget }
+
+public static class RunPacing
+{
+    public const double TargetMinimumSeconds = 25 * 60;
+    public const double TargetMaximumSeconds = 35 * 60;
+    public const string TargetLabel = "25-35 MIN TARGET";
+
+    public static RunPaceBand Assess(double seconds) => seconds switch
+    {
+        < TargetMinimumSeconds => RunPaceBand.UnderTarget,
+        <= TargetMaximumSeconds => RunPaceBand.OnTarget,
+        _ => RunPaceBand.OverTarget,
+    };
+}
+
 /// <summary>
 /// Immutable end-of-run debrief. It snapshots both live run state and exact
 /// persistence deltas once, so later Soul/profile changes cannot rewrite it.
@@ -24,12 +40,15 @@ public sealed record RunResultReport
     public bool HardMode { get; init; }
     public bool NoExtract { get; init; }
     public int NewGamePlusLevel { get; init; }
-    public int SoulTokenReward { get; init; }
+    public int MindTokenReward { get; init; }
     public int PathMasteryBefore { get; init; }
     public int PathMasteryAfter { get; init; }
     public int NewGamePlusBefore { get; init; }
     public int NewGamePlusAfter { get; init; }
     public int UpgradeCount { get; init; }
+    public double FieldSeconds { get; init; }
+    public double BossSeconds { get; init; }
+    public RunPaceBand PaceBand { get; init; }
 
     public static RunResultReport Capture(RunState state, string pathKey,
         bool retained, RunRewardSummary? rewards)
@@ -57,15 +76,22 @@ public sealed record RunResultReport
             if (state.Inventory[index] is { } item)
                 items.Add(new RunItemSummary($"STASH {index + 1}", item.DisplayName, item.Rarity));
 
-        GamePath path = GamePaths.PathsByKey.GetValueOrDefault(pathKey)
-            ?? GamePaths.Active();
+        string pathTitle = pathKey == NewGamePlus.DungeonKey
+            ? "THE DUNGEON"
+            : state.RunOutcome == RunOutcomes.AphantasiaDefeated
+                ? "APHANTASIA"
+                : GamePaths.PathsByKey.GetValueOrDefault(pathKey)?.Title
+                    ?? GamePaths.Active().Title;
         int mastery = GameProfile.Profile.PathMastery.GetValueOrDefault(pathKey);
         int newGamePlus = GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(pathKey);
+        double bossSeconds = Math.Clamp(
+            state.BossEncounterTelemetry.Sum(encounter => encounter.ClearSeconds),
+            0, Math.Max(0, state.RunTimeSeconds));
         return new RunResultReport
         {
             Outcome = state.RunOutcome,
             PathKey = pathKey,
-            PathTitle = path.Title,
+            PathTitle = pathTitle,
             BuildIdentity = identity,
             DominantFamilies = dominant,
             RetainedLoadout = retained ? items.ToArray() : Array.Empty<RunItemSummary>(),
@@ -76,12 +102,16 @@ public sealed record RunResultReport
             HardMode = state.HardMode,
             NoExtract = state.NoExtract,
             NewGamePlusLevel = state.NewGamePlusLevel,
-            SoulTokenReward = rewards?.SoulTokenDelta ?? 0,
+            MindTokenReward = rewards?.MindTokenDelta ?? 0,
             PathMasteryBefore = rewards?.PathMasteryBefore ?? mastery,
             PathMasteryAfter = rewards?.PathMasteryAfter ?? mastery,
             NewGamePlusBefore = rewards?.NewGamePlusBefore ?? newGamePlus,
             NewGamePlusAfter = rewards?.NewGamePlusAfter ?? newGamePlus,
-            UpgradeCount = state.UpgradeTypeCounts.Values.Sum(),
+            UpgradeCount = Math.Max(state.UpgradeHistory.Count,
+                state.UpgradeRarityCounts.Values.Sum()),
+            BossSeconds = bossSeconds,
+            FieldSeconds = Math.Max(0, state.RunTimeSeconds - bossSeconds),
+            PaceBand = RunPacing.Assess(state.RunTimeSeconds),
         };
     }
 }

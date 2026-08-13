@@ -5,6 +5,19 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Systems;
 
+/// <summary>Canonical player-facing outcomes shared by persistence, results, and transitions.</summary>
+public static class RunOutcomes
+{
+    public const string Defeated = "DEFEATED";
+    public const string Extracted = "EXTRACTED";
+    public const string RunComplete = "RUN COMPLETE";
+    public const string DungeonComplete = "DUNGEON COMPLETE";
+    public const string AphantasiaDefeated = "APHANTASIA DEFEATED";
+
+    public static bool IsSuccess(string outcome) => outcome is
+        Extracted or RunComplete or DungeonComplete or AphantasiaDefeated;
+}
+
 /// <summary>Ported from characterStats.py's `upgradeCollection["history"]` entries.</summary>
 public sealed record UpgradeHistoryEntry(string Name, string Rarity, string MathType);
 
@@ -163,12 +176,14 @@ public sealed class BossAfflictions
 /// </summary>
 public sealed class RunState
 {
+    public static readonly IReadOnlyList<string> EquipmentSlotKeys =
+        ["weapon", "armor", "ring", "accessory_1", "accessory_2"];
     public const double MinimumProjectileSeparationDegrees = 1.0;
     public const double MinimumProjectileSeparationRadians =
         MinimumProjectileSeparationDegrees * Math.PI / 180.0;
     public int HighestLevel { get; set; }
     public double RunTimeSeconds { get; set; }
-    public string RunOutcome { get; set; } = "DEFEATED";
+    public string RunOutcome { get; set; } = RunOutcomes.Defeated;
     public bool HardMode { get; private set; }
     public bool NoHealing => HardMode;
     public bool NoExtract { get; private set; }
@@ -352,10 +367,8 @@ public sealed class RunState
         EnemyProjectileHolster.Clear();
         LootCrateList.Clear();
         NearbyCrate = null;
-        Equipment = new Dictionary<string, ItemDrop?>
-        {
-            ["weapon"] = null, ["armor"] = null, ["ring"] = null, ["accessory_1"] = null, ["accessory_2"] = null,
-        };
+        Equipment = EquipmentSlotKeys.ToDictionary(slot => slot,
+            _ => (ItemDrop?)null);
         Inventory = Enumerable.Repeat<ItemDrop?>(null, 8).ToList();
         ActiveBoss = null;
         BeaudisEncounterStarted = false;
@@ -365,7 +378,7 @@ public sealed class RunState
         BossDebugRequested = false;
         BossDebugInvincible = false;
         RunTimeSeconds = 0.0;
-        RunOutcome = "DEFEATED";
+        RunOutcome = RunOutcomes.Defeated;
         GuaranteedMiniBossesSpawned = new HashSet<string>();
         EnemySpawningEnabled = true;
         AutoFire = GameProfile.Profile.AutoFire;
@@ -529,5 +542,15 @@ public sealed class RunState
             ["bullet_size"] = BulletSize,
         };
         return new PlayerBuildSnapshot(new Dictionary<string, int>(UpgradeTypeCounts), categories, stats, dominant);
+    }
+
+    /// <summary>Records one card choice while crediting each affected stat for future synergy weighting.</summary>
+    public void RecordUpgrade(UpgradeCard card)
+    {
+        foreach (var effect in card.Effects)
+            UpgradeTypeCounts[effect.Stat] = UpgradeTypeCounts.GetValueOrDefault(effect.Stat) + 1;
+        UpgradeRarityCounts[card.Rarity] = UpgradeRarityCounts.GetValueOrDefault(card.Rarity) + 1;
+        string modes = string.Join("+", card.Effects.Select(effect => effect.MathType));
+        UpgradeHistory.Add(new UpgradeHistoryEntry(card.Name, card.Rarity, modes));
     }
 }

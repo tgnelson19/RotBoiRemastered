@@ -34,11 +34,13 @@ public class ProgressionTests
     }
 
     [Fact]
-    public void EnemyStatScales_ClampsToMaxLevel()
+    public void EnemyStatScales_ContinuesThroughDungeonAndClampsThere()
     {
         var atMax = Progression.EnemyStatScales(Progression.MaxLevel);
-        var beyondMax = Progression.EnemyStatScales(Progression.MaxLevel + 50);
-        Assert.Equal(atMax, beyondMax);
+        var atDungeonMax = Progression.EnemyStatScales(Progression.DungeonMaxLevel);
+        var beyondMax = Progression.EnemyStatScales(Progression.DungeonMaxLevel + 50);
+        Assert.True(atDungeonMax.Health > atMax.Health);
+        Assert.Equal(atDungeonMax, beyondMax);
     }
 
     [Fact]

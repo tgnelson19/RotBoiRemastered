@@ -36,6 +36,7 @@ internal static class SoulLayout
             ["wardrobe"] = AuthoredTile(48, 64),
             ["hard_mode"] = AuthoredTile(48, 70),
             ["no_extract"] = AuthoredTile(47, 73),
+            ["developer_armory"] = AuthoredTile(35, 75),
         };
 
     /// <summary>

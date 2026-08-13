@@ -24,10 +24,11 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   Each arena portal's confirmation panel also provides mouse or A/D/arrow NG+
   selection, shows enemy and reward multipliers, and disables tiers that have
   not yet been unlocked by clearing the preceding tier on that path. The
-  rebuilt convergence dais now holds the larger five-color Body portal. Body
-  completion flows directly into the hostile Soul expedition with the live
-  build intact. The central Sight branch continues north through separately
-  sealed Core and Aphantasia chambers.
+  rebuilt convergence dais now holds the always-open five-color Dungeon portal.
+  Completing all five standalone arenas raises their silver statues and opens
+  the northern Body/Soul campaign gate. Body completion flows directly into the
+  hostile Soul expedition with the live build intact; five Soul-finale gold
+  statues open the separately sealed Aphantasia chamber.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment

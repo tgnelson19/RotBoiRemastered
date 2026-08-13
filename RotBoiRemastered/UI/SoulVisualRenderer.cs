@@ -553,6 +553,13 @@ internal static class SoulVisualRenderer
             case "no_extract":
                 DrawTrialBrazier(spriteBatch, at, UiTheme.Purple, time, wake, GameProfile.Profile.NoExtractEnabled);
                 break;
+            case "developer_armory":
+                DrawReliquary(spriteBatch, at, UiTheme.Gold, time, wake);
+                for (int slot = 0; slot < 4; slot++)
+                    Primitives2D.RectOutline(spriteBatch,
+                        new Rectangle((int)at.X - 27 + slot * 14, (int)at.Y - 8, 10, 16),
+                        UiTheme.Cream * .75f, 2);
+                break;
         }
 
         if (state is SoulStationPresentationState.Nearby or SoulStationPresentationState.Active)
@@ -929,12 +936,13 @@ internal static class SoulVisualRenderer
     {
         "storage" => ("VAULT RELIQUARY", UiTheme.Gold),
         "quests" => ("VOW LECTERN", UiTheme.Green),
-        "skills" => ("SOUL ROSE", UiTheme.Purple),
+        "skills" => ("MIND ROSE", UiTheme.Purple),
         "wardrobe" => ("VESTMENT MIRROR", UiTheme.Blue),
         "hard_mode" => (GameProfile.Profile.NoHealingEnabled ? "NO HEALING LIT" : "NO HEALING BRAZIER",
             GameProfile.Profile.NoHealingEnabled ? UiTheme.Red : UiTheme.Muted),
         "no_extract" => (GameProfile.Profile.NoExtractEnabled ? "NO EXTRACT LIT" : "NO EXTRACT BRAZIER",
             GameProfile.Profile.NoExtractEnabled ? UiTheme.Purple : UiTheme.Muted),
+        "developer_armory" => ("DEVELOPER ARMORY", UiTheme.Gold),
         _ => (key.ToUpperInvariant(), UiTheme.Cream),
     };
 

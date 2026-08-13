@@ -35,13 +35,25 @@ public sealed record BountyInfo(Vector2 World, double Score, string Label, objec
 /// </summary>
 public sealed class GameSession
 {
+    public ModeEntrySplash EntrySplash { get; } = new();
+    public void ShowEntrySplash(string title, string flavor, Color accent)
+    {
+        EntrySplash.Show(title, flavor, accent);
+        // The title band briefly obscures the middle of the arena. Matching
+        // damage grace to its lifetime prevents a new mode from attacking a
+        // player before its objective and identity have finished appearing.
+        State.GracePeriod = Math.Max(State.GracePeriod,
+            Simulation.FrameRate * ModeEntrySplash.Duration);
+    }
+    public void UpdateEntrySplash(double seconds) => EntrySplash.Update(seconds);
+    public void DrawEntrySplash(SpriteBatch spriteBatch) => EntrySplash.Draw(spriteBatch, ScreenWidth, ScreenHeight);
     public const double BossHealthMultiplier = 2.0;
     /// <summary>
     /// Emergency safety ceiling, not a pattern-density tool. Boss patterns
     /// are authored to reach the arena boundary and expire naturally before
     /// this limit; exceeding it means old bullets are being truncated.
     /// </summary>
-    public const int MaxBossProjectiles = 150;
+    public const int MaxBossProjectiles = 360;
     private const int CrateInteractRadius = 24;
     private const int MaxLootCrates = 40;
     private const int BossPortalInteractRadius = 40;
@@ -175,6 +187,20 @@ public sealed class GameSession
         && Expedition?.World == CampaignWorld.Soul;
     public bool PreferControllerPrompts => _controllerPromptRemaining > 0;
     public VisualDensity CurrentVisualDensity => _visualDensity;
+    public bool CanExtract => !State.NoExtract
+        && !State.GameCompleted
+        && CampaignActivity switch
+        {
+            Systems.CampaignActivity.Arena => State.BeaudisDefeated,
+            Systems.CampaignActivity.Core => PathRun is not null
+                && (PathRun.FloorNumber > global::RotBoiRemastered.Systems.PathRun.FloorsPerAct
+                    || PathRun.FloorNumber == global::RotBoiRemastered.Systems.PathRun.FloorsPerAct
+                    && PathRun.ExitPortalOpen),
+            Systems.CampaignActivity.Body or Systems.CampaignActivity.Soul =>
+                Expedition?.DefeatedGuardians > 0,
+            Systems.CampaignActivity.Aphantasia => false,
+            _ => State.BeaudisDefeated,
+        };
     internal IReadOnlyList<ArenaLightPost> ArenaLightPosts =>
         _arenaLightPosts;
 
@@ -266,6 +292,7 @@ public sealed class GameSession
         InstallPathRun(pathRun, rng);
         CampaignActivity = Systems.CampaignActivity.Core;
         CampaignActivitySense = null;
+        ShowEntrySplash("The Dungeon", "Ten floors. Five senses. No memory required.", UiTheme.Gold);
     }
 
     public void StartArena(string sense, Random? rng = null)
@@ -276,6 +303,8 @@ public sealed class GameSession
         ResetAll(GamePaths.ActivateSelected(), rng);
         CampaignActivity = Systems.CampaignActivity.Arena;
         CampaignActivitySense = sense;
+        GamePath path = GamePaths.PathsByKey[sense];
+        ShowEntrySplash(path.Title, path.Subtitle, path.Accent);
     }
 
     public void StartAphantasia(Random? rng = null)
@@ -311,6 +340,7 @@ public sealed class GameSession
             },
             rng,
             bossKey: "aphantasia");
+        ShowEntrySplash("Aphantasia", "At the northern edge of thought, imagination remembers you.", UiTheme.Purple);
     }
 
     public void StartExpedition(CampaignWorld world, string? finaleSense = null,
@@ -324,6 +354,11 @@ public sealed class GameSession
             ? Systems.CampaignActivity.Body : Systems.CampaignActivity.Soul;
         CampaignActivitySense = finaleSense;
         State.EnemySpawningEnabled = true;
+        ShowEntrySplash(world == CampaignWorld.Body ? "The Body" : "The Soul",
+            world == CampaignWorld.Body
+                ? "Descend through flesh; what follows will remember the wound."
+                : "The journey continues. One sense waits at its end.",
+            world == CampaignWorld.Body ? UiTheme.Red : UiTheme.Gold);
     }
 
     /// <summary>
@@ -397,6 +432,7 @@ public sealed class GameSession
         _debugVisualGallery = false;
         _dungeonBossInstance = null;
         RefreshLightingFixtures();
+        ShowEntrySplash("The Soul", "The Body falls away. The same journey continues beneath it.", UiTheme.Gold);
     }
 
     public bool TryEnterExpeditionSecretDungeon(Random? rng = null)
@@ -491,6 +527,12 @@ public sealed class GameSession
                 Expedition.World == CampaignWorld.Soul ? Expedition.FinaleSense : null, rng);
             return;
         }
+        if (CampaignActivity == Systems.CampaignActivity.Arena
+            && CampaignActivitySense is { } sense)
+        {
+            StartArena(sense, rng);
+            return;
+        }
         if (PathRun is not null)
             StartPathRun(rng);
         else
@@ -505,11 +547,15 @@ public sealed class GameSession
     {
         if (LastRunRewardSummary is not null)
             return LastRunRewardSummary;
+        if (!completed)
+            CompleteBossTelemetry(victory: false);
         State.RunOutcome = outcome;
         string path = PathRun is not null
             ? NewGamePlus.DungeonKey
             : CampaignActivitySense ?? GamePaths.Selected().Key;
-        LastRunRewardSummary = MetaProgression.RecordExtraction(State, path, completed);
+        bool grantsMetaCompletion = completed && PathRun is null;
+        LastRunRewardSummary = MetaProgression.RecordExtraction(
+            State, path, completed, grantCompletionRewards: grantsMetaCompletion);
         MetaProgression.SyncCarriedItems(State);
         GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled, completed);
         return LastRunRewardSummary;
@@ -837,6 +883,8 @@ public sealed class GameSession
     public void HandleBulletCreation(Vector2 mouseScreenPosition, bool mouseDown, bool dragInProgress, Random? rng = null, bool controllerFiring = false)
     {
         rng ??= Random.Shared;
+        if (!dragInProgress)
+            Player.SetAimDirection(mouseScreenPosition - Camera.Lock);
         if (State.AttackCooldownTimer <= 0 && !dragInProgress && (State.AutoFire || mouseDown || controllerFiring))
         {
             State.AttackCooldownTimer = State.AttackCooldownStat;
@@ -2147,7 +2195,8 @@ public sealed class GameSession
                 if (defeatedBossKey == "aphantasia")
                 {
                     State.GameCompleted = true;
-                    FinalizeSuccessfulRun("APHANTASIA DEFEATED", completed: true);
+                    FinalizeSuccessfulRun(RunOutcomes.AphantasiaDefeated,
+                        completed: true);
                 }
                 else if (defeatedBossKey == GamePaths.BossKey(midpoint: true))
                 {
@@ -2158,7 +2207,10 @@ public sealed class GameSession
                 {
                     State.GameCompleted = true;
                     RecordCampaignClear();
-                    FinalizeSuccessfulRun("RUN COMPLETE", completed: true);
+                    FinalizeSuccessfulRun(PathRun is null
+                            ? RunOutcomes.RunComplete
+                            : RunOutcomes.DungeonComplete,
+                        completed: true);
                 }
                 CompleteBossTelemetry(victory: true);
                 State.ActiveBoss = null;
@@ -2452,9 +2504,8 @@ public sealed class GameSession
         if (CampaignActivity == Systems.CampaignActivity.Arena)
             CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver,
                 State.NoHealing, State.NoExtract);
-        else if (CampaignActivity == Systems.CampaignActivity.Core)
-            CampaignProgression.CompleteStatue(sense, StatueMaterial.Gold,
-                State.NoHealing, State.NoExtract);
+        // The standalone dungeon is intentionally progression-neutral. Gold
+        // statues belong exclusively to completed Soul finales.
     }
 
     private void ReturnFromSecretDungeon()
@@ -2488,7 +2539,7 @@ public sealed class GameSession
         if (!cycleComplete)
             return;
         if (world == CampaignWorld.Soul)
-            CampaignProgression.CompleteSoul(finale);
+            CampaignProgression.CompleteSoul(finale, State.NoHealing, State.NoExtract);
     }
 
     /// <summary>
@@ -2618,7 +2669,8 @@ public sealed class GameSession
                 wave.EncounterLevel,
                 AwarenessRange,
                 wave.Rng,
-                Battleground);
+                Battleground,
+                Math.Max(wave.EncounterLevel, State.CurrentLevel));
             EnemyCatalog.Shared.ApplyModifier(
                 enemy,
                 wave.EncounterLevel,
@@ -2990,9 +3042,8 @@ public sealed class GameSession
     /// Gated behind BossDebugInvincible (the "Y" dev-toggle, see RunState's
     /// "Hidden debug hotkey state" doc comment) -- unlike Python, these raw
     /// 1-9/R/L/F/C key checks never went through Keybinds, so without this
-    /// gate they fired on every real bossfight regardless of what the player
-    /// had "restart" (also R by default) bound to, silently resetting the
-    /// boss's phase.
+    /// gate they fired on every real bossfight regardless of bindings,
+    /// silently resetting the boss's phase.
     /// </summary>
     public void HandleBossDebugControls(IReadOnlySet<Keys> keysPressed)
     {
@@ -4474,7 +4525,9 @@ public sealed class GameSession
             new Vector2(rect.Center.X, rect.Y + 10 * scale), "midtop");
         UiTheme.DrawText(spriteBatch, detail, 11 * scale, UiTheme.Purple,
             new Vector2(rect.Center.X, rect.Bottom - 12 * scale), "midbottom");
-        UiTheme.DrawText(spriteBatch, "ENTER  VIEW RESULTS", 9 * scale, UiTheme.Text,
+        UiTheme.DrawText(spriteBatch,
+            PreferControllerPrompts ? "A  VIEW RESULTS" : "ENTER  VIEW RESULTS",
+            9 * scale, UiTheme.Text,
             new Vector2(rect.Center.X, rect.Bottom + 12 * scale), "midtop");
     }
 
@@ -4482,14 +4535,23 @@ public sealed class GameSession
     {
         if (!GameProfile.Profile.TutorialHints || State.RunTimeSeconds >= 42 || State.GameCompleted)
             return;
-        string text = State.RunTimeSeconds switch
-        {
-            < 8 => "WASD MOVE  //  MOUSE AIM  //  PRESS I FOR AUTOFIRE",
-            < 16 => "SPACE DASHES IN YOUR MOVEMENT DIRECTION AND BRIEFLY AVOIDS DAMAGE",
-            < 25 => "FOLLOW THE RED BOUNTY ARROW TO HIGH-VALUE PATROLS",
-            < 34 => "Q / E ROTATE THE ARENA  //  MOVEMENT STAYS SCREEN-RELATIVE",
-            _ => "TAB OPENS DETAILS  //  ESC PAUSES AND OPENS COMFORT SETTINGS",
-        };
+        string text = PreferControllerPrompts
+            ? State.RunTimeSeconds switch
+            {
+                < 8 => "LEFT STICK MOVE  //  RIGHT STICK AIM AND FIRE  //  X TOGGLES AUTOFIRE",
+                < 16 => "A DASHES IN YOUR MOVEMENT DIRECTION AND BRIEFLY AVOIDS DAMAGE",
+                < 25 => "FOLLOW THE RED BOUNTY ARROW TO HIGH-VALUE PATROLS",
+                < 34 => "B INTERACTS WITH PORTALS AND LOOT  //  VIEW OPENS DETAILS",
+                _ => "VIEW OPENS DETAILS  //  START PAUSES AND OPENS COMFORT SETTINGS",
+            }
+            : State.RunTimeSeconds switch
+            {
+                < 8 => "WASD MOVE  //  MOUSE AIM  //  PRESS I FOR AUTOFIRE",
+                < 16 => "SPACE DASHES IN YOUR MOVEMENT DIRECTION AND BRIEFLY AVOIDS DAMAGE",
+                < 25 => "FOLLOW THE RED BOUNTY ARROW TO HIGH-VALUE PATROLS",
+                < 34 => "Q / E ROTATE THE ARENA  //  MOVEMENT STAYS SCREEN-RELATIVE",
+                _ => "TAB OPENS DETAILS  //  ESC PAUSES AND OPENS COMFORT SETTINGS",
+            };
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(ScreenWidth * .72f, 760 * scale);
         var rect = new Rectangle((ScreenWidth - width) / 2,
@@ -4737,7 +4799,7 @@ public sealed class GameSession
     private bool FinalizeDefeat()
     {
         CompleteBossTelemetry(victory: false);
-        State.RunOutcome = "DEFEATED";
+        State.RunOutcome = RunOutcomes.Defeated;
         GameProfile.RecordRun(State.CurrentLevel, State.NumOfEnemiesKilled);
         State.HighestLevel = Math.Max(State.HighestLevel, State.CurrentLevel);
         return true;
@@ -4792,12 +4854,15 @@ public sealed class GameSession
             return LevelUpOutcome.StillChoosing;
 
         var card = LevelingHandler.SelectedCard!;
-        State.RecordUpgrade(card.Name, card.Rarity, card.MathType);
-        double modifier = Upgrades.CardModifier(card);
-        if (card.MathType == "additive")
-            State.Stats[card.Name].Additive.Add(modifier);
-        else
-            State.Stats[card.Name].Multiplicative.Add(modifier);
+        State.RecordUpgrade(card);
+        foreach (var effect in card.Effects)
+        {
+            double modifier = Upgrades.EffectModifier(card.Rarity, effect);
+            if (effect.MathType == "additive")
+                State.Stats[effect.Stat].Additive.Add(modifier);
+            else
+                State.Stats[effect.Stat].Multiplicative.Add(modifier);
+        }
         State.CombinePlayerStats();
         if (State.HardMode)
             State.FillHealthForMilestone();

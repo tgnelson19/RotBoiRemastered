@@ -8,14 +8,20 @@ namespace RotBoiRemastered.Tests.Entities;
 public sealed class PlayerVisualTests
 {
     [Fact]
-    public void FixedScreenOrientation_AlwaysFacesNorth()
+    public void ScreenOrientation_FollowsAimAndDefaultsNorth()
     {
         (Vector2 axisX, Vector2 axisY, Vector2 facing) =
-            Player.FixedScreenOrientation();
+            Player.ScreenOrientation(Vector2.Zero);
 
         Assert.Equal(Vector2.UnitX, axisX);
         Assert.Equal(Vector2.UnitY, axisY);
         Assert.Equal(-Vector2.UnitY, facing);
+
+        (axisX, axisY, facing) =
+            Player.ScreenOrientation(new Vector2(10, 0));
+        Assert.Equal(Vector2.UnitX, facing);
+        Assert.Equal(-Vector2.UnitX, axisY);
+        Assert.Equal(Vector2.UnitY, axisX);
     }
 
     [Fact]

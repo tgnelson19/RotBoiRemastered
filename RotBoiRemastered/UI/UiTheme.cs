@@ -22,7 +22,13 @@ namespace RotBoiRemastered.UI;
 /// </summary>
 public static class UiTheme
 {
-    public const string FontPath = "Content/Fonts/coolveticarg.otf";
+    /// <summary>
+    /// Raw FontStash asset copied beside the executable. Resolve from the app
+    /// base rather than the process working directory so installed builds and
+    /// `dotnet run --project` work from any launch location.
+    /// </summary>
+    public static string FontPath => Path.Combine(
+        AppContext.BaseDirectory, "Content", "Fonts", "coolveticarg.otf");
 
     public static readonly Color Ink = new(12, 14, 18);
     public static readonly Color Void = new(17, 20, 27);
@@ -64,27 +70,21 @@ public static class UiTheme
     public const int ReferenceHeight = 1080;
     public const float MinDisplayScale = .6f;
     public const float MaxDisplayScale = 2.4f;
-    public const double MinTextScale = .85;
-    public const double MaxTextScale = 2.0;
-    public const double MinGuiScale = .85;
-    public const double MaxGuiScale = 1.3;
-    public const double MinDamageTextScale = .45;
-    public const double MaxDamageTextScale = 2.0;
+    public const double MinTextScale = .70;
+    public const double MaxTextScale = 3.0;
+    public const double MinGuiScale = .70;
+    public const double MaxGuiScale = 1.75;
+    public const double MinDamageTextScale = .40;
+    public const double MaxDamageTextScale = 3.0;
 
     /// <summary>
-    /// Fixed presets rather than a free-form slider for GuiScale -- see
-    /// Menus.cs's OPTIONS tab. It used to be a continuous slider up to
-    /// 1.8x; at that extreme the pause/title screens' fixed-pixel button
-    /// offsets started running off-screen or overlapping themselves.
-    /// Capping the range and only exposing a handful of pre-checked steps
-    /// keeps every screen usable at every selectable value, at the cost of
-    /// not being able to dial in an arbitrary in-between percentage.
-    /// TextSize stays a plain slider (capped at MaxTextScale) -- its sidebar
-    /// overlap problem was solved instead by InformationSheet's own capped
-    /// local text scale (see DrawSheetText/MaxLocalTextBoost there).
+    /// Legacy preset values remain available for compatibility with callers
+    /// that present discrete choices. The settings screen now exposes the
+    /// complete range continuously, which is substantially more useful on
+    /// high-DPI and living-room displays.
     /// </summary>
-    public static readonly IReadOnlyList<double> GuiScaleLevels = new[] { .85, 1.0, 1.15, 1.3 };
-    public static readonly IReadOnlyList<string> GuiScaleLabels = new[] { "SMALL", "NORMAL", "LARGE", "MAX" };
+    public static readonly IReadOnlyList<double> GuiScaleLevels =
+        new[] { .70, .85, 1.0, 1.15, 1.30, 1.50, 1.75 };
 
     private static FontSystem? _fontSystem;
     private const string DungeonGlyphWarmupText =

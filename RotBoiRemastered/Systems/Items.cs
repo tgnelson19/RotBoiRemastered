@@ -253,9 +253,9 @@ public static class Items
     public static readonly IReadOnlyList<ItemDefinition> Definitions = new[]
     {
         new ItemDefinition("Iron Dagger", "weapon", "Close enough to hear the cut.", "dagger",
-            Mods(Mult("Bullet Damage", 210), Mult("Bullet Range", 28), Mult("Attack Speed", 128))),
+            Mods(Mult("Bullet Damage", 205), Mult("Bullet Range", 40), Mult("Attack Speed", 128))),
         new ItemDefinition("Bloody Dagger", "weapon", "It remembers every hand that slipped.", "dagger",
-            Mods(Mult("Bullet Damage", 182), Mult("Bullet Range", 32), Mult("Attack Speed", 122)), Status("bleed", .20)),
+            Mods(Mult("Bullet Damage", 182), Mult("Bullet Range", 44), Mult("Attack Speed", 122)), Status("bleed", .20)),
         new ItemDefinition("Rusty Sword", "weapon", "The ruined edge asks for many swings.", "sword",
             Mods(Mult("Bullet Damage", 62), Mult("Bullet Range", 58), Mult("Attack Speed", 217))),
         new ItemDefinition("Iron Sword", "weapon", "A dependable answer at arm's length.", "sword",
@@ -271,9 +271,9 @@ public static class Items
         new ItemDefinition("Yew Longbow", "weapon", "Patience drawn into a distant point.", "bow",
             Mods(Mult("Bullet Damage", 98), Mult("Bullet Range", 202), Mult("Bullet Speed", 142), Mult("Attack Speed", 85))),
         new ItemDefinition("Ash Wand", "weapon", "A faint ember reaches beyond the dark.", "wand",
-            Mods(Mult("Bullet Damage", 72), Mult("Bullet Range", 255), Mult("Bullet Speed", 134), Mult("Bullet Size", 82))),
+            Mods(Mult("Bullet Damage", 72), Mult("Bullet Range", 215), Mult("Bullet Speed", 134), Mult("Bullet Size", 82))),
         new ItemDefinition("Glass Wand", "weapon", "Fragile light travels farther than courage.", "wand",
-            Mods(Mult("Bullet Damage", 64), Mult("Bullet Range", 300), Mult("Bullet Speed", 155), Add("Crit Chance", .12))),
+            Mods(Mult("Bullet Damage", 64), Mult("Bullet Range", 245), Mult("Bullet Speed", 155), Add("Crit Chance", .12))),
 
         new ItemDefinition("Leather Vest", "armor", "Scuffed hide that leaves room to breathe.", "vest",
             Mods(Add("Defense", 18), Mult("Player Speed", 108))),
@@ -527,12 +527,17 @@ public static class Items
     private static ItemAffixDefinition AffixFor(ItemDrop drop)
     {
         if (AffixesByName.TryGetValue(drop.Modifier, out var affix)
-            && (affix.SlotType == drop.SlotType || affix.SlotType == "*"))
+            && (affix.SlotType == drop.SlotType || affix.SlotType == "*"
+                || drop.Modifier == "Godly"))
             return affix;
         return AffixesByName["Balanced"];
     }
 
     public static ItemAffixDefinition ModifierDefinition(ItemDrop drop) => AffixFor(drop);
+
+    /// <summary>Developer-only perfect copy; never participates in ordinary drop rolls.</summary>
+    public static ItemDrop DeveloperArmoryDrop(ItemDefinition definition) =>
+        new(definition, Uniques.Contains(definition) ? "Unique" : "Mythical", "S", "Godly");
 
     public static CoreForgeDefinition? CoreForgeFor(ItemDrop drop) =>
         drop.CoreForge is not null ? CoreForgesByKey.GetValueOrDefault(drop.CoreForge) : null;

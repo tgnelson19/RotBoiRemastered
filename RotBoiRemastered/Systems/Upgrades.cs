@@ -15,9 +15,61 @@ public sealed record UpgradeDefinition(
     double Multiplicative,
     string Description);
 
-public sealed record UpgradeCard(UpgradeDefinition Definition, string Rarity, string MathType)
+public sealed record UpgradeEffect(UpgradeDefinition Definition, string MathType, double Strength = 1.0)
 {
-    public string Name => Definition.Name;
+    public string Stat => Definition.Name;
+}
+
+public sealed record UpgradeBundleDefinition(
+    string Key,
+    string DisplayName,
+    string Category,
+    string Description,
+    IReadOnlyList<string> Stats);
+
+/// <summary>A draft choice containing one legacy standalone effect or a curated multi-stat bundle.</summary>
+public sealed record UpgradeCard
+{
+    public string Name { get; init; }
+    public string Category { get; init; }
+    public string Description { get; init; }
+    public string Rarity { get; init; }
+    public string BundleKey { get; init; }
+    public IReadOnlyList<UpgradeEffect> Effects { get; init; }
+
+    // Compatibility surface for callers/tests that still construct and inspect single-stat cards.
+    public UpgradeDefinition Definition => Effects[0].Definition;
+    public string MathType => Effects[0].MathType;
+
+    public UpgradeCard(UpgradeDefinition definition, string rarity, string mathType)
+        : this(definition.Name, definition.Category, definition.Description, rarity, definition.Name,
+            new[] { new UpgradeEffect(definition, mathType) }) { }
+
+    public UpgradeCard(string name, string category, string description, string rarity, string bundleKey,
+        IReadOnlyList<UpgradeEffect> effects)
+    {
+        if (effects.Count is < 1 or > 3)
+            throw new ArgumentOutOfRangeException(nameof(effects), "Cards must contain one to three effects.");
+        Name = name;
+        Category = category;
+        Description = description;
+        Rarity = rarity;
+        BundleKey = bundleKey;
+        Effects = effects;
+    }
+
+    public bool Equals(UpgradeCard? other) => other is not null
+        && Name == other.Name && Category == other.Category && Description == other.Description
+        && Rarity == other.Rarity && BundleKey == other.BundleKey
+        && Effects.SequenceEqual(other.Effects);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Name); hash.Add(Category); hash.Add(Description); hash.Add(Rarity); hash.Add(BundleKey);
+        foreach (var effect in Effects) hash.Add(effect);
+        return hash.ToHashCode();
+    }
 }
 
 public static class Upgrades
@@ -54,7 +106,7 @@ public static class Upgrades
 
     public static readonly IReadOnlyList<UpgradeDefinition> Definitions = new[]
     {
-        new UpgradeDefinition("Defense", "survival", 8, 0.10, "Reduce incoming damage (maximum 90)"),
+        new UpgradeDefinition("Defense", "survival", 10, 0.12, "Reduce incoming damage (maximum 90)"),
         new UpgradeDefinition("Health", "survival", 100, 0.10, "Increase current and maximum health"),
         new UpgradeDefinition("Vitality", "survival", 5, 0.12, "Recover health continuously"),
         new UpgradeDefinition("Bullet Pierce", "volley", 0.25, 0.12, "Shots pass through more foes"),
@@ -66,7 +118,7 @@ public static class Upgrades
         new UpgradeDefinition("Bullet Range", "precision", 75, 0.18, "Shots travel farther"),
         new UpgradeDefinition("Bullet Damage", "power", 25, 0.16, "Increase every hit"),
         new UpgradeDefinition("Bullet Size", "power", 4, 0.12, "Make shots easier to land"),
-        new UpgradeDefinition("Player Speed", "survival", 0.2, 0.16, "Improve repositioning"),
+        new UpgradeDefinition("Player Speed", "survival", 0.3, 0.20, "Improve repositioning"),
         new UpgradeDefinition("Crit Chance", "critical", 0.08, 0.04, "Land critical hits more often"),
         new UpgradeDefinition("Crit Damage", "critical", 0.25, 0.12, "Critical hits deal more damage"),
         new UpgradeDefinition("Aura Size", "harvest", 8, 0.14, "Collect experience from farther away"),
@@ -76,6 +128,24 @@ public static class Upgrades
 
     public static readonly IReadOnlyDictionary<string, UpgradeDefinition> DefinitionsByName =
         Definitions.ToDictionary(definition => definition.Name);
+
+    public static readonly IReadOnlyList<UpgradeBundleDefinition> Bundles = new[]
+    {
+        new UpgradeBundleDefinition("bulwark", "Bulwark", "survival", "Endure through layered resilience.",
+            new[] { "Health", "Defense", "Vitality" }),
+        new UpgradeBundleDefinition("skirmisher", "Skirmisher", "survival", "Move, brace, and recover between attacks.",
+            new[] { "Player Speed", "Defense", "Vitality" }),
+        new UpgradeBundleDefinition("sharpshooter", "Sharpshooter", "precision", "Make every distant shot arrive with purpose.",
+            new[] { "Bullet Damage", "Bullet Speed", "Bullet Range" }),
+        new UpgradeBundleDefinition("executioner", "Executioner", "critical", "Turn precision into decisive damage.",
+            new[] { "Bullet Damage", "Crit Chance", "Crit Damage" }),
+        new UpgradeBundleDefinition("storm", "Storm", "volley", "Build a faster and more concentrated volley.",
+            new[] { "Bullet Count", "Attack Speed", "Spread Angle" }),
+        new UpgradeBundleDefinition("siegebreaker", "Siegebreaker", "power", "Launch heavier shots through clustered foes.",
+            new[] { "Bullet Damage", "Bullet Size", "Bullet Pierce" }),
+        new UpgradeBundleDefinition("harvester", "Harvester", "harvest", "Gather more experience with less exposure.",
+            new[] { "Exp Multiplier", "Aura Size", "Aura Strength" }),
+    };
 
     /// <summary>Weighted pick matching Python's random.choices(items, weights=weights, k=1)[0].</summary>
     private static T WeightedChoice<T>(IReadOnlyList<T> items, IReadOnlyList<double> weights, Random rng)
@@ -122,7 +192,9 @@ public static class Upgrades
     {
         rng ??= Random.Shared;
         var categoryCounts = CategoryCounts(upgradeTypeCounts ?? new Dictionary<string, int>());
-        var available = new List<UpgradeDefinition>(Definitions);
+        var available = new List<(string Name, string Category, UpgradeDefinition? Single, UpgradeBundleDefinition? Bundle)>();
+        available.AddRange(Definitions.Select(d => (d.Name, d.Category, (UpgradeDefinition?)d, (UpgradeBundleDefinition?)null)));
+        available.AddRange(Bundles.Select(b => (b.DisplayName, b.Category, (UpgradeDefinition?)null, (UpgradeBundleDefinition?)b)));
         var cards = new List<UpgradeCard>();
 
         for (int i = 0; i < Math.Min(count, available.Count); i++)
@@ -130,33 +202,76 @@ public static class Upgrades
             var weights = available
                 .Select(item => 1.0 + categoryCounts.GetValueOrDefault(item.Category) * 0.45)
                 .ToList();
-            var definition = WeightedChoice(available, weights, rng);
-            available.Remove(definition);
-            var mathType = WeightedChoice(
-                new[] { "additive", "multiplicative" }, new[] { 0.62, 0.38 }, rng);
-            cards.Add(new UpgradeCard(definition, RollRarity(rng), mathType));
+            var choice = WeightedChoice(available, weights, rng);
+            available.Remove(choice);
+            string rarity = RollRarity(rng);
+            if (choice.Single is { } definition)
+            {
+                string mathType = RollMathType(rng);
+                cards.Add(new UpgradeCard(definition, rarity, mathType));
+            }
+            else
+            {
+                cards.Add(CreateBundleCard(choice.Bundle!, rarity, rng));
+            }
         }
 
         return cards;
     }
 
+    private static string RollMathType(Random rng) =>
+        WeightedChoice(new[] { "additive", "multiplicative" }, new[] { 0.62, 0.38 }, rng);
+
+    private static UpgradeCard CreateBundleCard(UpgradeBundleDefinition bundle, string rarity, Random rng)
+    {
+        double roll = rng.NextDouble();
+        int count = roll < .55 ? 1 : roll < .85 ? 2 : 3;
+        double totalBudget = BundleBudget(rarity, count);
+        // Earlier effects define the bundle identity, while this gentle descending split
+        // prevents three offensive stats from each receiving a full standalone roll.
+        double[] weights = count switch { 1 => [1], 2 => [.56, .44], _ => [.44, .33, .23] };
+        var effects = bundle.Stats.Take(count).Select((stat, index) =>
+            new UpgradeEffect(DefinitionsByName[stat], RollMathType(rng), totalBudget * weights[index])).ToList();
+        return new UpgradeCard(bundle.DisplayName, bundle.Category, bundle.Description, rarity, bundle.Key, effects);
+    }
+
+    public static double BundleBudget(string rarity, int effectCount)
+    {
+        if (effectCount <= 1) return 1.0;
+        return (rarity, effectCount) switch
+        {
+            ("Common", 2) => 1.05, ("Common", 3) => 1.10,
+            ("Rare", 2) => 1.10, ("Rare", 3) => 1.20,
+            ("Epic", 2) => 1.15, ("Epic", 3) => 1.30,
+            ("Legendary", 2) => 1.25, ("Legendary", 3) => 1.50,
+            ("Mythical", 2) => 1.35, ("Mythical", 3) => 1.70,
+            _ => 1.0,
+        };
+    }
+
     /// <summary>The value appended to the additive or multiplicative stat stack.</summary>
     public static double CardModifier(UpgradeCard card)
+        => EffectModifier(card.Rarity, card.Effects[0]);
+
+    public static double EffectModifier(string rarityName, UpgradeEffect effect)
     {
-        double rarity = RarityMultipliers[card.Rarity];
-        return card.MathType == "additive"
-            ? card.Definition.Additive * rarity
-            : 1 + card.Definition.Multiplicative * rarity;
+        double rarity = RarityMultipliers[rarityName];
+        return effect.MathType == "additive"
+            ? effect.Definition.Additive * rarity * effect.Strength
+            : 1 + effect.Definition.Multiplicative * rarity * effect.Strength;
     }
 
     public static string FormatCardValue(UpgradeCard card)
+        => FormatEffectValue(card.Rarity, card.Effects[0]);
+
+    public static string FormatEffectValue(string rarity, UpgradeEffect effect)
     {
-        double modifier = CardModifier(card);
-        if (card.MathType == "additive")
+        double modifier = EffectModifier(rarity, effect);
+        if (effect.MathType == "additive")
         {
-            if (card.Definition.Name == "Attack Speed")
+            if (effect.Definition.Name == "Attack Speed")
                 modifier *= -1;
-            if (card.Definition.Name == "Spread Angle")
+            if (effect.Definition.Name == "Spread Angle")
             {
                 double degrees = modifier * 180 / Math.PI;
                 return $"{degrees.ToString("0.##", CultureInfo.InvariantCulture)}°";
@@ -166,9 +281,9 @@ public static class Upgrades
             return $"{sign}{formatted}";
         }
         double percent = (modifier - 1) * 100;
-        if (card.Definition.Name == "Attack Speed")
+        if (effect.Definition.Name == "Attack Speed")
             percent *= -1;
-        if (card.Definition.Name == "Spread Angle")
+        if (effect.Definition.Name == "Spread Angle")
             return $"{Math.Abs(percent).ToString("0.##", CultureInfo.InvariantCulture)}% tighter";
         return $"{(percent >= 0 ? "+" : "")}{percent.ToString("0.##", CultureInfo.InvariantCulture)}%";
     }

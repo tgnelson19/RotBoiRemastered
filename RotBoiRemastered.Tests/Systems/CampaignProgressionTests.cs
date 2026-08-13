@@ -28,31 +28,59 @@ public sealed class CampaignProgressionTests : IDisposable
     [Fact]
     public void GatesOpenInCampaignOrder()
     {
-        Assert.True(CampaignProgression.PortalUnlocked("body"));
-        Assert.False(CampaignProgression.PortalUnlocked("soul"));
+        Assert.True(CampaignProgression.PortalUnlocked("dungeon"));
+        Assert.False(CampaignProgression.PortalUnlocked("core"));
+        Assert.All(CampaignProgression.SenseKeys,
+            sense => Assert.True(CampaignProgression.PortalUnlocked(sense)));
+        Assert.False(CampaignProgression.PortalUnlocked("body"));
 
-        CampaignProgression.CompleteBody();
-        Assert.True(CampaignProgression.PortalUnlocked("soul"));
+        foreach (string sense in CampaignProgression.SenseKeys)
+            CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver, false, false);
+        Assert.True(CampaignProgression.PortalUnlocked("body"));
+        Assert.False(CampaignProgression.PortalUnlocked("aphantasia"));
 
         foreach (string sense in CampaignProgression.SenseKeys)
             CampaignProgression.CompleteSoul(sense);
-        Assert.True(CampaignProgression.PortalUnlocked("core"));
+        Assert.True(CampaignProgression.PortalUnlocked("aphantasia"));
     }
 
     [Fact]
-    public void AphantasiaRequiresDedicatedBothChallengeClearOnAllTenStatues()
+    public void FreshUnnormalizedProfileCanEarnItsFirstStatue()
+    {
+        GameProfile.Profile = new GameProfileData();
+
+        CampaignProgression.CompleteStatue("sound", StatueMaterial.Silver,
+            noHealing: false, noExtract: false);
+
+        Assert.True(GameProfile.Profile.Campaign.SilverStatues["sound"].Unlocked);
+        Assert.Equal(CampaignProgression.SenseKeys.Length,
+            GameProfile.Profile.Campaign.SilverStatues.Count);
+    }
+
+    [Fact]
+    public void AphantasiaRequiresGoldStatuesButNotChallengeClears()
     {
         foreach (string sense in CampaignProgression.SenseKeys)
         {
-            CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver, true, false);
-            CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver, false, true);
-            CampaignProgression.CompleteStatue(sense, StatueMaterial.Gold, true, true);
+            CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver, false, false);
+            CampaignProgression.CompleteSoul(sense, false, false);
         }
-        Assert.False(CampaignProgression.Data.AphantasiaUnlocked);
-
-        foreach (string sense in CampaignProgression.SenseKeys)
-            CampaignProgression.CompleteStatue(sense, StatueMaterial.Silver, true, true);
         Assert.True(CampaignProgression.Data.AphantasiaUnlocked);
+        Assert.All(CampaignProgression.Data.GoldStatues.Values,
+            statue => Assert.False(statue.Rainbow));
+    }
+
+    [Fact]
+    public void VersionOneSoulCompletionsMigrateToGoldWithoutKeepingDungeonGold()
+    {
+        var legacy = new CampaignProgressData { Version = 1 };
+        legacy.ArenaUnlocks.Add("sound");
+        legacy.GoldStatues["touch"] = new StatueProgress { Unlocked = true };
+
+        CampaignProgression.Normalize(legacy);
+
+        Assert.True(legacy.GoldStatues["sound"].Unlocked);
+        Assert.False(legacy.GoldStatues["touch"].Unlocked);
     }
 
     [Fact]
@@ -68,15 +96,15 @@ public sealed class CampaignProgressionTests : IDisposable
     public void DevGateOverridesAreReversibleAndNeverAlterSavedProgression()
     {
         GameProfile.Profile.DevUnlockTesting = true;
-        Assert.False(CampaignProgression.PortalUnlocked("sound"));
+        Assert.False(CampaignProgression.PortalUnlocked("core"));
 
-        CampaignDevOverrides.TogglePortal("sound");
+        CampaignDevOverrides.TogglePortal("core");
 
-        Assert.True(CampaignProgression.PortalUnlocked("sound"));
-        Assert.DoesNotContain("sound", CampaignProgression.Data.ArenaUnlocks);
+        Assert.True(CampaignProgression.PortalUnlocked("core"));
+        Assert.False(CampaignProgression.Data.CoreUnlocked);
 
-        CampaignDevOverrides.TogglePortal("sound");
-        Assert.False(CampaignProgression.PortalUnlocked("sound"));
+        CampaignDevOverrides.TogglePortal("core");
+        Assert.False(CampaignProgression.PortalUnlocked("core"));
     }
 
     [Fact]

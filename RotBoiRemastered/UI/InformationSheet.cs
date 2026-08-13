@@ -967,7 +967,7 @@ public sealed class InformationSheet
             UiTheme.DrawProgress(spriteBatch, new Rectangle(cell.X + Px(6), cell.Bottom - Px(7), cell.Width - Px(12), Px(4)),
                 (float)value / Math.Max(1, quest.Target), UiTheme.Green, segments: 8);
             if (cell.Contains(mousePosition))
-                _tooltip = $"{quest.Description} Progress: {value:N0}/{quest.Target:N0}. Reward: {quest.Reward} Soul token{(quest.Reward == 1 ? "" : "s")}.";
+                _tooltip = $"{quest.Description} Progress: {value:N0}/{quest.Target:N0}. Reward: {quest.Reward} Mind Token{(quest.Reward == 1 ? "" : "s")}.";
         }
     }
 

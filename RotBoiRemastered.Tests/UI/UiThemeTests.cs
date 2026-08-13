@@ -28,6 +28,14 @@ public class UiThemeTests : IDisposable
     public void Dispose() => GameProfile.Profile = _originalProfile;
 
     [Fact]
+    public void RuntimeFontPathIsAnchoredToTheExecutableAndExists()
+    {
+        Assert.StartsWith(AppContext.BaseDirectory, UiTheme.FontPath,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.True(File.Exists(UiTheme.FontPath));
+    }
+
+    [Fact]
     public void ReferenceResolution_UsesOneToOneUiScale()
     {
         Assert.Equal(1.0f, UiTheme.DisplayScale(1920, 1080));

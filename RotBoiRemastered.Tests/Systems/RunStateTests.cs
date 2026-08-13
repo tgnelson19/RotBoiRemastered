@@ -106,6 +106,24 @@ public class RunStateTests : IDisposable
     }
 
     [Fact]
+    public void RecordUpgrade_MultiEffectCardCountsStatsButRecordsOneChoice()
+    {
+        var state = new RunState();
+        var card = new UpgradeCard("Bulwark", "survival", "test", "Rare", "bulwark", new[]
+        {
+            new UpgradeEffect(Upgrades.DefinitionsByName["Health"], "additive", .6),
+            new UpgradeEffect(Upgrades.DefinitionsByName["Defense"], "multiplicative", .5),
+        });
+
+        state.RecordUpgrade(card);
+
+        Assert.Equal(1, state.UpgradeTypeCounts["Health"]);
+        Assert.Equal(1, state.UpgradeTypeCounts["Defense"]);
+        Assert.Equal(1, state.UpgradeRarityCounts["Rare"]);
+        Assert.Equal("Bulwark", Assert.Single(state.UpgradeHistory).Name);
+    }
+
+    [Fact]
     public void BuildSnapshot_ReflectsDirectUpgradeCountChanges()
     {
         var state = new RunState();

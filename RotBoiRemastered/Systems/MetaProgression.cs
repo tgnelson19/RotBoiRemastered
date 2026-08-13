@@ -147,7 +147,8 @@ public static class MetaProgression
         GameProfile.SaveProfile();
     }
 
-    public static RunRewardSummary RecordExtraction(RunState state, string path, bool completed)
+    public static RunRewardSummary RecordExtraction(RunState state, string path, bool completed,
+        bool grantCompletionRewards = true)
     {
         int tokensBefore = GameProfile.Profile.MindTokens;
         int masteryBefore = GameProfile.Profile.PathMastery.GetValueOrDefault(path);
@@ -155,7 +156,9 @@ public static class MetaProgression
         var run = new ExtractedRunData
         {
             Path = path,
-            Outcome = completed ? "PATH COMPLETE" : "EXTRACTED",
+            Outcome = completed
+                ? StateCompletionOutcome(state.RunOutcome)
+                : RunOutcomes.Extracted,
             Level = state.CurrentLevel,
             Kills = state.NumOfEnemiesKilled,
             Seconds = state.RunTimeSeconds,
@@ -165,7 +168,7 @@ public static class MetaProgression
         if (GameProfile.Profile.ExtractedRuns.Count > 10)
             GameProfile.Profile.ExtractedRuns.RemoveRange(10, GameProfile.Profile.ExtractedRuns.Count - 10);
         GameProfile.IncrementQuest("runs_extracted");
-        if (completed)
+        if (completed && grantCompletionRewards)
         {
             GameProfile.Profile.MindTokens += PathCompletionTokenReward
                 * (state.HardMode ? 2 : 1)
@@ -184,4 +187,9 @@ public static class MetaProgression
             GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(path),
             EquipmentRetained: true);
     }
+
+    private static string StateCompletionOutcome(string outcome) =>
+        RunOutcomes.IsSuccess(outcome) && outcome != RunOutcomes.Extracted
+            ? outcome
+            : RunOutcomes.RunComplete;
 }

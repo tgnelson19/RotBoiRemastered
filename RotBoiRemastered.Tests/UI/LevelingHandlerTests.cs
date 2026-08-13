@@ -146,11 +146,11 @@ public class LevelingHandlerTests
     public void ProjectedValue_Additive_MatchesHandComputedStack()
     {
         var stats = MakeSnapshot();
-        var card = DefenseCard("additive"); // Defense is deliberately bounded: +8 Common.
+        var card = DefenseCard("additive"); // Defense is deliberately bounded: +10 Common.
         var (current, projected) = LevelingHandler.ProjectedValue(card, stats);
 
         Assert.Equal(138.0, current, 3); // (100 + 10 + 5) * (1.0 * 1.2)
-        Assert.Equal(147.6, projected, 3); // (100 + 15 + 8) * 1.2
+        Assert.Equal(150.0, projected, 3); // (100 + 15 + 10) * 1.2
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class LevelingHandlerTests
         var (current, projected) = LevelingHandler.ProjectedValue(card, stats);
 
         Assert.Equal(138.0, current, 3);
-        Assert.Equal(151.8, projected, 2); // current * (1 + 0.10 * 1.0)
+        Assert.Equal(154.56, projected, 2); // current * (1 + 0.12 * 1.0)
     }
 
     [Fact]

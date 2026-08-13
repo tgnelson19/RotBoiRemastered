@@ -139,9 +139,11 @@ public class RotBoiGame : Game
             _devConsole.Close();
 
         var consoleResult = _devConsole.Update(_session, InputState.KeysPressed, gameTime.ElapsedGameTime.TotalSeconds);
-        if (consoleResult.Kind == ConsoleActionKind.ExtractRequested && _session is not null)
+        if (consoleResult.Kind == ConsoleActionKind.ExtractRequested
+            && _session is not null
+            && State == GameState.GameRun)
         {
-            BeginReturnToMind();
+            BeginReturnToMind(force: true);
         }
 
         if (_devConsole.IsOpen)
@@ -469,7 +471,7 @@ public class RotBoiGame : Game
     private void UpdateGameRun(GameTime gameTime)
     {
         var session = _session!;
-        if (Keybinds.Pressed("extract") && !session.State.NoExtract)
+        if (Keybinds.Pressed("extract") && session.CanExtract)
         {
             BeginReturnToMind();
             return;
@@ -529,6 +531,7 @@ public class RotBoiGame : Game
         session.UpdateEnemyProjectiles();
         session.HandleDamagingEnemies();
         session.UpdateVisualEffects(gameTime.ElapsedGameTime.TotalSeconds);
+        session.UpdateEntrySplash(gameTime.ElapsedGameTime.TotalSeconds);
 
         session.UpdateDamageTexts();
         session.UpdateExperience();
@@ -544,13 +547,20 @@ public class RotBoiGame : Game
             State = GameState.Results;
             return;
         }
-        if (session.State.GameCompleted && InputState.KeysPressed.Contains(Keys.Enter))
+        if (session.State.GameCompleted
+            && ResultsRequested(InputState.KeysPressed,
+                InputState.ControllerConfirmPressed))
         {
             CaptureRunResult(retained: true, session.LastRunRewardSummary);
             State = GameState.Results;
             return;
         }
     }
+
+    internal static bool ResultsRequested(
+        IReadOnlySet<Keys> keysPressed,
+        bool controllerConfirm) =>
+        controllerConfirm || keysPressed.Contains(Keys.Enter);
 
     private void UpdateLeveling()
     {
@@ -605,7 +615,8 @@ public class RotBoiGame : Game
     {
         bool soulContext = _pauseReturnState == GameState.Soul;
         bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
-        bool canExtract = _session is not null && !soulContext && !_session.State.NoExtract && !_session.State.GameCompleted;
+        bool canExtract = _session is not null && !soulContext
+            && _session.CanExtract;
         var action = _menus.HandlePause(InputState.KeysPressed, InputState.MousePosition, InputState.MouseDown,
             InputState.MousePressed, canExtract, soulContext, settingsOnly, InputState.ScrollWheelDelta);
         // Menus edits the persisted default; the live run keeps a cached copy.
@@ -776,13 +787,14 @@ public class RotBoiGame : Game
         base.Draw(gameTime);
     }
 
-    private void BeginReturnToMind(bool ignoreNoExtract = false)
+    private void BeginReturnToMind(bool force = false)
     {
         if (_session is null || _returnToMindRemaining > 0
-            || _session.State.NoExtract && !ignoreNoExtract)
+            || !force && !_session.CanExtract)
             return;
-        _session.FinalizeSuccessfulRun("EXTRACTED", completed: false);
-        MetaProgression.SyncCarriedItems(_session.State);
+        RunRewardSummary rewards = _session.FinalizeSuccessfulRun(
+            RunOutcomes.Extracted, completed: false);
+        CaptureRunResult(retained: true, rewards);
         _returnToMindRemaining = 2.0;
     }
 
@@ -790,10 +802,7 @@ public class RotBoiGame : Game
     {
         if (_session is null)
             return;
-        _resultReport = null;
-        _session.ResetAll(Battleground.GenerateMind());
-        _soulHub.Enter(_session);
-        State = GameState.Soul;
+        State = GameState.Results;
     }
 
     private void DrawReturnToMind()
@@ -805,10 +814,11 @@ public class RotBoiGame : Game
             new Rectangle(0, 0, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height),
             UiTheme.Void * MathHelper.Lerp(.72f, 1f, progress));
         float pulse = .5f + .5f * MathF.Sin(progress * MathF.PI * 6f);
-        UiTheme.DrawText(_spriteBatch, "RETURNING TO THE MIND", 24 * scale,
+        UiTheme.DrawText(_spriteBatch, "EXTRACTION COMPLETE", 24 * scale,
             Color.Lerp(UiTheme.Purple, UiTheme.Cream, pulse),
             new Vector2(GraphicsDevice.Viewport.Width / 2f, GraphicsDevice.Viewport.Height / 2f), "center");
-        UiTheme.DrawText(_spriteBatch, "YOUR SPOILS HAVE BEEN REMEMBERED", 9 * scale,
+        UiTheme.DrawText(_spriteBatch,
+            "YOUR SPOILS HAVE BEEN REMEMBERED  //  DEBRIEF FOLLOWS", 9 * scale,
             UiTheme.Muted, new Vector2(GraphicsDevice.Viewport.Width / 2f,
                 GraphicsDevice.Viewport.Height / 2f + 34 * scale), "center");
         _spriteBatch.End();
@@ -854,6 +864,7 @@ public class RotBoiGame : Game
         session.DrawExpeditionHint(_spriteBatch);
         session.DrawFooter(_spriteBatch, InputState.MousePosition);
         session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
+        session.DrawEntrySplash(_spriteBatch);
         _spriteBatch.End();
     }
 
@@ -912,7 +923,8 @@ public class RotBoiGame : Game
         _spriteBatch.Begin();
         bool soulContext = _pauseReturnState == GameState.Soul;
         bool settingsOnly = _pauseReturnState == GameState.TitleScreen;
-        bool canExtract = _session is not null && !soulContext && !_session.State.NoExtract && !_session.State.GameCompleted;
+        bool canExtract = _session is not null && !soulContext
+            && _session.CanExtract;
         _menus.DrawPause(_spriteBatch, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height,
             InputState.MousePosition, InputState.MouseDown, canExtract, soulContext, settingsOnly);
         _spriteBatch.End();
@@ -964,6 +976,7 @@ public class RotBoiGame : Game
         // the combat HUD. Only the sanctuary world participates in camera zoom.
         _spriteBatch.Begin();
         _soulHub.DrawForeground(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
+        session.DrawEntrySplash(_spriteBatch);
         _spriteBatch.End();
     }
 }

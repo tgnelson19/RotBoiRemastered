@@ -24,7 +24,7 @@ public sealed class StatueProgress
 /// <summary>Versioned, permanent gates for the linear Mind campaign.</summary>
 public sealed class CampaignProgressData
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
     public int Version { get; set; } = CurrentVersion;
     public bool BodyCompleted { get; set; }
     public bool SoulUnlocked { get; set; }
@@ -33,7 +33,9 @@ public sealed class CampaignProgressData
     public Dictionary<string, StatueProgress> GoldStatues { get; set; } = new();
     public bool AphantasiaUnlocked { get; set; }
 
-    public bool CoreUnlocked => CampaignProgression.SenseKeys.All(ArenaUnlocks.Contains);
+    public bool BodyUnlocked => CampaignProgression.SenseKeys.All(sense =>
+        SilverStatues.GetValueOrDefault(sense)?.Unlocked == true);
+    public bool CoreUnlocked => BodyUnlocked; // Legacy/UI alias for the first northern gate.
 }
 
 public static class CampaignProgression
@@ -50,13 +52,23 @@ public static class CampaignProgression
         data.SilverStatues ??= new();
         data.GoldStatues ??= new();
         data.ArenaUnlocks.RemoveWhere(key => !SenseKeys.Contains(key));
+        bool legacy = data.Version < CampaignProgressData.CurrentVersion;
         foreach (string sense in SenseKeys)
         {
             data.SilverStatues.TryAdd(sense, new StatueProgress());
             data.GoldStatues.TryAdd(sense, new StatueProgress());
+            if (legacy)
+            {
+                // Version 1 used ArenaUnlocks for completed Soul finales, while
+                // dungeon clears could incorrectly create gold statues. Preserve
+                // real Soul progress and discard those ambiguous dungeon awards.
+                data.GoldStatues[sense].Unlocked = data.ArenaUnlocks.Contains(sense);
+                if (!data.GoldStatues[sense].Unlocked)
+                    data.GoldStatues[sense].ChallengeClears = ChallengeClear.None;
+            }
         }
-        data.SoulUnlocked |= data.BodyCompleted;
-        data.AphantasiaUnlocked = AllStatuesRainbow(data);
+        data.SoulUnlocked = data.BodyCompleted;
+        data.AphantasiaUnlocked = AllGoldStatuesUnlocked(data);
         data.Version = CampaignProgressData.CurrentVersion;
     }
 
@@ -66,11 +78,12 @@ public static class CampaignProgression
             return true;
         return key switch
     {
-        "body" => true,
+        "body" => Data.BodyUnlocked,
         "soul" => Data.SoulUnlocked,
+        "dungeon" => true,
         "core" => Data.CoreUnlocked,
         "aphantasia" => Data.AphantasiaUnlocked,
-        _ when SenseKeys.Contains(key) => Data.ArenaUnlocks.Contains(key),
+        _ when SenseKeys.Contains(key) => true,
         _ => false,
     };
     }
@@ -82,26 +95,34 @@ public static class CampaignProgression
         Save();
     }
 
-    public static void CompleteSoul(string sense)
+    public static void CompleteSoul(string sense, bool noHealing = false, bool noExtract = false)
     {
         RequireSense(sense);
         Data.ArenaUnlocks.Add(sense);
-        Save();
+        CompleteStatue(sense, StatueMaterial.Gold, noHealing, noExtract);
     }
 
     public static void CompleteStatue(string sense, StatueMaterial material,
         bool noHealing, bool noExtract)
     {
         RequireSense(sense);
+        // A missing or corrupt profile is normalized on load, but callers and
+        // tests may also install a freshly constructed profile directly.
+        // Never let the first earned statue fail because its dictionary was
+        // not populated yet.
+        Normalize(Data);
         StatueProgress statue = (material == StatueMaterial.Silver
             ? Data.SilverStatues : Data.GoldStatues)[sense];
         statue.Unlocked = true;
         if (noHealing) statue.ChallengeClears |= ChallengeClear.NoHealing;
         if (noExtract) statue.ChallengeClears |= ChallengeClear.NoExtract;
         if (noHealing && noExtract) statue.ChallengeClears |= ChallengeClear.Both;
-        Data.AphantasiaUnlocked = AllStatuesRainbow(Data);
+        Data.AphantasiaUnlocked = AllGoldStatuesUnlocked(Data);
         Save();
     }
+
+    public static bool AllGoldStatuesUnlocked(CampaignProgressData data) =>
+        SenseKeys.All(sense => data.GoldStatues.GetValueOrDefault(sense)?.Unlocked == true);
 
     public static bool AllStatuesRainbow(CampaignProgressData data) =>
         SenseKeys.All(sense =>
