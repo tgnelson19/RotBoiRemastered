@@ -8,6 +8,20 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
+public enum AphantasiaTrophyVisual
+{
+    Normal,
+    Bloody,
+    Cracked,
+    BloodyAndCracked,
+    Rainbow,
+}
+
+internal readonly record struct AphantasiaTrophyMotion(
+    float Hover,
+    float Pulse,
+    float OrbitRadians);
+
 /// <summary>Legacy source filename for The Mind's safe firing range and progression sanctuary.</summary>
 public class SoulHub
 {
@@ -80,6 +94,30 @@ public class SoulHub
     public double CurrentDps => _currentDps;
     /// <summary>Whether the training dummy is currently carrying the given status effect (e.g. "bleed", "bane") -- lets tests confirm status effects actually land on it instead of only checking the DPS number they produce.</summary>
     public bool DummyHasStatus(string kind) => _dummy.StatusEffects.ContainsKey(kind);
+    internal static AphantasiaTrophyVisual AphantasiaTrophyVisualFor(
+        StatueProgress statue)
+    {
+        if (statue.Rainbow)
+            return AphantasiaTrophyVisual.Rainbow;
+        bool blood = statue.ChallengeClears.HasFlag(ChallengeClear.NoHealing);
+        bool crack = statue.ChallengeClears.HasFlag(ChallengeClear.NoExtract);
+        return (blood, crack) switch
+        {
+            (true, true) => AphantasiaTrophyVisual.BloodyAndCracked,
+            (true, false) => AphantasiaTrophyVisual.Bloody,
+            (false, true) => AphantasiaTrophyVisual.Cracked,
+            _ => AphantasiaTrophyVisual.Normal,
+        };
+    }
+
+    internal static AphantasiaTrophyMotion AphantasiaTrophyMotionAt(double seconds)
+    {
+        float time = (float)(seconds % 120.0);
+        return new AphantasiaTrophyMotion(
+            Hover: MathF.Sin(time * 1.55f) * 4f,
+            Pulse: .5f + .5f * MathF.Sin(time * 2.1f),
+            OrbitRadians: time * .82f);
+    }
     public void CloseOverlay()
     {
         _overlay = null;
@@ -1144,6 +1182,23 @@ public class SoulHub
                 DrawStatue(spriteBatch, session, portal - new Vector2(Simulation.TileSize * 2f, 0),
                     gold, UiTheme.Gold, sense);
         }
+        StatueProgress aphantasia = EffectiveAphantasiaStatue();
+        if (aphantasia.Unlocked)
+            DrawAphantasiaStatue(spriteBatch, session, aphantasia);
+    }
+
+    private static StatueProgress EffectiveAphantasiaStatue()
+    {
+        if (GameProfile.Profile.DevUnlockTesting
+            && CampaignDevOverrides.AphantasiaStatue is ChallengeClear clear)
+        {
+            return new StatueProgress
+            {
+                Unlocked = true,
+                ChallengeClears = clear,
+            };
+        }
+        return CampaignProgression.Data.AphantasiaStatue;
     }
 
     private static StatueProgress EffectiveStatue(string sense, StatueMaterial material)
@@ -1204,6 +1259,134 @@ public class SoulHub
         }
     }
 
+    private void DrawAphantasiaStatue(SpriteBatch spriteBatch,
+        GameSession session, StatueProgress statue)
+    {
+        Vector2 world = SoulLayout.TileWorldCenter(SoulLayout.AphantasiaStatueTile);
+        Vector2 at = session.Camera.WorldToScreen(
+            world, session.PlayerWorldCenter, Vector2.Zero);
+        AphantasiaTrophyVisual visual = AphantasiaTrophyVisualFor(statue);
+        AphantasiaTrophyMotion motion = AphantasiaTrophyMotionAt(_seconds);
+        bool blood = visual is AphantasiaTrophyVisual.Bloody
+            or AphantasiaTrophyVisual.BloodyAndCracked
+            or AphantasiaTrophyVisual.Rainbow;
+        bool cracked = visual is AphantasiaTrophyVisual.Cracked
+            or AphantasiaTrophyVisual.BloodyAndCracked
+            or AphantasiaTrophyVisual.Rainbow;
+        bool rainbow = visual == AphantasiaTrophyVisual.Rainbow;
+        Color accent = rainbow
+            ? RainbowColor((float)_seconds * .11f)
+            : Color.Lerp(UiTheme.Purple, UiTheme.Cream, .2f + motion.Pulse * .22f);
+        Color dark = new(26, 17, 39);
+
+        // The floor treatment remains visible at 0% VFX: this is permanent
+        // progression communication, not optional spectacle.
+        Primitives2D.FillEllipse(spriteBatch,
+            new Rectangle((int)at.X - 58, (int)at.Y + 25, 116, 28),
+            UiTheme.Shadow * .86f);
+        if (blood)
+        {
+            Color bloodColor = new Color(104, 7, 20) * (.72f + motion.Pulse * .16f);
+            Primitives2D.FillEllipse(spriteBatch,
+                new Rectangle((int)at.X - 47, (int)at.Y + 20, 94, 25), bloodColor);
+            Primitives2D.FillCircle(spriteBatch,
+                at + new Vector2(-31, 35), 7 + motion.Pulse * 2f, bloodColor);
+            Primitives2D.FillCircle(spriteBatch,
+                at + new Vector2(37, 38), 5 + motion.Pulse, bloodColor);
+        }
+
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle((int)at.X - 42, (int)at.Y + 20, 84, 13), new Color(38, 31, 48));
+        Primitives2D.RectOutline(spriteBatch,
+            new Rectangle((int)at.X - 42, (int)at.Y + 20, 84, 13), accent, 3);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle((int)at.X - 29, (int)at.Y + 8, 58, 13), dark);
+        Primitives2D.RectOutline(spriteBatch,
+            new Rectangle((int)at.X - 29, (int)at.Y + 8, 58, 13), UiTheme.Gold * .72f, 2);
+
+        Vector2 core = at + new Vector2(0, -27 + motion.Hover);
+        float orbitRadiusX = 41f;
+        float orbitRadiusY = 14f;
+        var halo = new Rectangle((int)core.X - 51, (int)core.Y - 36, 102, 72);
+        Primitives2D.Arc(spriteBatch, halo, motion.OrbitRadians,
+            motion.OrbitRadians + MathF.PI * 1.25f, accent * .78f, 3);
+        Primitives2D.Arc(spriteBatch, halo, motion.OrbitRadians + MathF.PI,
+            motion.OrbitRadians + MathF.PI * 1.65f,
+            (rainbow ? RainbowColor((float)_seconds * .11f + .42f) : UiTheme.Gold) * .66f, 2);
+
+        Vector2 lightMini = core + new Vector2(
+            MathF.Cos(motion.OrbitRadians) * orbitRadiusX,
+            MathF.Sin(motion.OrbitRadians) * orbitRadiusY);
+        Vector2 darkMini = core + new Vector2(
+            MathF.Cos(motion.OrbitRadians + MathF.PI) * orbitRadiusX,
+            MathF.Sin(motion.OrbitRadians + MathF.PI) * orbitRadiusY);
+        Primitives2D.FillCircle(spriteBatch, lightMini, 7, UiTheme.Cream);
+        Primitives2D.CircleOutline(spriteBatch, lightMini, 9, accent, 2);
+        Primitives2D.FillCircle(spriteBatch, darkMini, 7, new Color(5, 4, 10));
+        Primitives2D.CircleOutline(spriteBatch, darkMini, 9,
+            rainbow ? RainbowColor((float)_seconds * .11f + .66f) : UiTheme.Purple, 2);
+
+        Vector2[] diamond =
+        [
+            core + new Vector2(0, -27),
+            core + new Vector2(24, 0),
+            core + new Vector2(0, 28),
+            core + new Vector2(-24, 0),
+        ];
+        Primitives2D.FillPolygon(spriteBatch, diamond,
+            rainbow ? accent * .84f : dark);
+        Primitives2D.PolygonOutline(spriteBatch, diamond, accent, 4);
+        var inner = new Rectangle((int)core.X - 9, (int)core.Y - 9, 18, 18);
+        Primitives2D.FillRect(spriteBatch, inner,
+            rainbow ? RainbowColor((float)_seconds * .17f + .2f) : UiTheme.Purple * .78f);
+        Primitives2D.RectOutline(spriteBatch, inner, UiTheme.Cream * .9f, 2);
+
+        if (blood)
+        {
+            Color drip = new(126, 8, 23);
+            Primitives2D.Line(spriteBatch, core + new Vector2(-13, 2),
+                core + new Vector2(-10, 19 + motion.Pulse * 4), drip, 4);
+            Primitives2D.FillCircle(spriteBatch,
+                core + new Vector2(-10, 21 + motion.Pulse * 4), 3, drip);
+        }
+        if (cracked)
+        {
+            Color fracture = rainbow
+                ? RainbowColor((float)_seconds * .23f + .73f)
+                : new Color(205, 126, 245);
+            Primitives2D.Line(spriteBatch, core + new Vector2(-3, -25),
+                core + new Vector2(5, -8), fracture, 3);
+            Primitives2D.Line(spriteBatch, core + new Vector2(5, -8),
+                core + new Vector2(-7, 5), fracture, 3);
+            Primitives2D.Line(spriteBatch, core + new Vector2(-7, 5),
+                core + new Vector2(4, 26), fracture, 3);
+            Primitives2D.Line(spriteBatch, core + new Vector2(-7, 5),
+                core + new Vector2(-19, 11), fracture, 2);
+        }
+
+        int motes = SoulVisualRenderer.OptionalEffectCount(10,
+            (float)GameProfile.Profile.VisualEffectsIntensity);
+        for (int index = 0; index < motes; index++)
+        {
+            float phase = motion.OrbitRadians * (.45f + index % 3 * .11f)
+                + index * MathF.Tau / Math.Max(1, motes);
+            float radius = 38 + index % 4 * 9;
+            Vector2 mote = core + new Vector2(
+                MathF.Cos(phase) * radius,
+                MathF.Sin(phase * 1.37f) * (18 + index % 3 * 5));
+            Color moteColor = rainbow
+                ? RainbowColor(index / (float)Math.Max(1, motes) + (float)_seconds * .05f)
+                : index % 2 == 0 ? UiTheme.Purple : UiTheme.Gold;
+            int size = 2 + index % 2;
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)mote.X, (int)mote.Y, size, size), moteColor * .78f);
+        }
+
+        UiTheme.DrawText(spriteBatch, "APHANTASIA REMEMBERED", 7,
+            rainbow ? accent : UiTheme.Muted,
+            new Vector2(at.X, at.Y + 48), "midtop");
+    }
+
     private static Color RainbowColor(float phase) => new(
         .5f + .5f * MathF.Sin(phase * MathF.Tau),
         .5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau / 3f),
@@ -1241,6 +1424,8 @@ public class SoulHub
             new Color(175, 184, 196)));
         controls.Add(($"gold:{selectedSense}",
             $"GOLD STATUE  {DevStatueLabel(selectedSense, StatueMaterial.Gold)}", UiTheme.Gold));
+        controls.Add(("aphantasia_statue",
+            $"APHANTASIA TROPHY  {DevAphantasiaStatueLabel()}", UiTheme.Purple));
         controls.Add(("rainbow", "TOGGLE ALL RAINBOW", UiTheme.Purple));
         controls.Add(("portal:aphantasia", $"APHANTASIA  {DevGateLabel("aphantasia")}", UiTheme.Purple));
         controls.Add(("reset", "RESET OVERRIDES TO SAVED", UiTheme.Red));
@@ -1283,6 +1468,17 @@ public class SoulHub
             : "[NORMAL/NONE]";
     }
 
+    private static string DevAphantasiaStatueLabel()
+    {
+        ChallengeClear? state = CampaignDevOverrides.AphantasiaStatue;
+        return state?.HasFlag(ChallengeClear.Both) == true ? "[RAINBOW]"
+            : state == (ChallengeClear.NoHealing | ChallengeClear.NoExtract) ? "[BLOOD + CRACK]"
+            : state?.HasFlag(ChallengeClear.NoHealing) == true ? "[BLOOD]"
+            : state?.HasFlag(ChallengeClear.NoExtract) == true ? "[CRACKED]"
+            : state.HasValue ? "[INTACT]"
+            : "[SAVED/NONE]";
+    }
+
     internal void HandleDevAction(GameSession session, string action)
     {
         if (action == "toggle")
@@ -1309,6 +1505,8 @@ public class SoulHub
             CampaignDevOverrides.CycleStatue(action[(silver ? 7 : 5)..],
                 silver ? StatueMaterial.Silver : StatueMaterial.Gold);
         }
+        else if (action == "aphantasia_statue")
+            CampaignDevOverrides.CycleAphantasiaStatue();
         else if (action == "rainbow")
             CampaignDevOverrides.ToggleAllRainbow();
     }

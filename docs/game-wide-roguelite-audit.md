@@ -21,7 +21,7 @@ dotnet tool restore
 dotnet test RotBoiRemastered.Tests/RotBoiRemastered.Tests.csproj --no-restore
 ```
 
-The audit baseline on 2026-08-13 is 1,132 passing tests, zero failures. Tests construct saves only
+The audit baseline on 2026-08-13 is 1,147 passing tests, zero failures. Tests construct saves only
 under disposable temporary directories. `GameProfileAuditScenarioTests` round-trips these states:
 
 | Scenario | Purpose | Campaign state |
@@ -48,6 +48,7 @@ Never point an audit build or test at the developer profile. The live Windows pr
 | PRESENT-01 | High | Aim at any camera rotation | Player muzzle, recoil, regalia, and shot direction agree | Player presentation now tracks screen-space aim independently of collision state. `PlayerVisualTests` |
 | PRESENT-02 | High | Set VFX to 0% during dense combat | Telegraphs and ownership remain visible | Essential recipes, hostile trim, shadows, hit feedback, and typed boss poses bypass optional density. `VisualLanguageTests`, `BitVfxSystemTests`, boss tests |
 | PRESENT-03 | Medium | Enter a mode behind an opaque entry banner | No unseen opening damage | Entry splash duration grants matching opening grace. `ModeEntrySplashTests`, `GameSessionTests` |
+| PRESENT-04 | Medium | Defeat Aphantasia under normal, either single-brazier, or dual-brazier conditions | The finale has a persistent, readable home-base trophy | The central chapel gains an animated Aphantasia trophy: normal, bloody, cracked, accumulated blood+crack, and combined-trial rainbow variants. Its essential silhouette remains animated at 0% VFX. `CampaignProgressionTests`, `SoulHubTests` |
 | RESULT-01 | Medium | Complete or extract from any supported mode | Outcome, rewards, timing, and retained gear are explicit | Canonical outcomes, mode titles, field/boss/total time, 25-35 minute target band, reward deltas, and correct upgrade count are captured. `RunResultReportTests`, `MenusTests` |
 | COPY-01 | Medium | Compare hub, settings, quests, results, and README | One concept has one shipped name | Safe hub and currency are The Mind and Mind Tokens; hostile campaign worlds remain The Body/The Soul; standalone composite route is The Dungeon. String assertions and README |
 

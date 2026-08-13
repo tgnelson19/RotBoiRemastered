@@ -22,6 +22,11 @@ internal static class SoulLayout
     public static readonly Point NexusTile = AuthoredTile(39, 43);
     public static readonly Point TunnelSouthTile = AuthoredTile(39, 56);
     public static readonly Point DummyTile = AuthoredTile(50, 58);
+    /// <summary>
+    /// Center of the safe chapel crossing. The Aphantasia victory trophy is
+    /// decorative rather than colliding, so the wide nave remains navigable.
+    /// </summary>
+    public static readonly Point AphantasiaStatueTile = AuthoredTile(39, 67);
     // These two chambers occupy the newly added northern rows rather than
     // shifting with the legacy chapel.
     public static readonly Point CorePortalTile = new(39, 31);

@@ -352,6 +352,54 @@ public sealed class SoulHubTests
         Assert.Equal(24, SoulVisualRenderer.OptionalEffectCount(24, 1));
     }
 
+    [Theory]
+    [InlineData(ChallengeClear.None, AphantasiaTrophyVisual.Normal)]
+    [InlineData(ChallengeClear.NoHealing, AphantasiaTrophyVisual.Bloody)]
+    [InlineData(ChallengeClear.NoExtract, AphantasiaTrophyVisual.Cracked)]
+    [InlineData(ChallengeClear.NoHealing | ChallengeClear.NoExtract,
+        AphantasiaTrophyVisual.BloodyAndCracked)]
+    [InlineData(ChallengeClear.NoHealing | ChallengeClear.NoExtract | ChallengeClear.Both,
+        AphantasiaTrophyVisual.Rainbow)]
+    public void AphantasiaTrophyVisualMatchesItsEarnedChallengeState(
+        ChallengeClear clears, AphantasiaTrophyVisual expected)
+    {
+        var trophy = new StatueProgress
+        {
+            Unlocked = true,
+            ChallengeClears = clears,
+        };
+
+        Assert.Equal(expected, SoulHub.AphantasiaTrophyVisualFor(trophy));
+    }
+
+    [Fact]
+    public void AphantasiaTrophyAnimationIsBoundedAndLoopsContinuously()
+    {
+        AphantasiaTrophyMotion start = SoulHub.AphantasiaTrophyMotionAt(0);
+        AphantasiaTrophyMotion moving = SoulHub.AphantasiaTrophyMotionAt(.7);
+        AphantasiaTrophyMotion loop = SoulHub.AphantasiaTrophyMotionAt(120);
+
+        Assert.InRange(start.Hover, -4, 4);
+        Assert.InRange(moving.Hover, -4, 4);
+        Assert.InRange(moving.Pulse, 0, 1);
+        Assert.NotEqual(start, moving);
+        Assert.Equal(start, loop);
+    }
+
+    [Fact]
+    public void AphantasiaTrophyOccupiesTheCentralWalkableChapelCrossing()
+    {
+        TileType[,] tiles = SoulLayout.BuildTiles();
+        Point trophy = SoulLayout.AphantasiaStatueTile;
+
+        Assert.Equal(SoulLayout.AuthoredTile(39, 67), trophy);
+        Assert.Contains(tiles[trophy.Y, trophy.X],
+            new[] { TileType.BuildingFloor, TileType.Road });
+        Assert.NotEqual(SoulLayout.SpawnTile, trophy);
+        Assert.DoesNotContain(trophy, SoulLayout.StationTiles.Values);
+        Assert.DoesNotContain(trophy, SoulLayout.PortalTiles.Values);
+    }
+
     [Fact]
     public void SoulVeinsWakeLocallyAsThePlayerCrossesThem()
     {

@@ -84,7 +84,11 @@ the same expedition. The player keeps their current level, temporary build,
 health, equipment, inventory, challenge flags, and elapsed time; The Soul has no
 standalone entrance in The Mind. Each completed Soul finale awards its sense's
 gold statue. Collecting all five gold statues opens Aphantasia beyond the next
-northern wall.
+northern wall. Defeating Aphantasia erects an animated light-and-dark trophy at
+the central chapel crossing in The Mind. A No Healing victory marks it with
+blood, a No Extract victory fractures it, and defeating her with both braziers
+active transforms it into the animated rainbow version. Challenge treatments
+accumulate across victories, while the rainbow form records the combined trial.
 
 After defeating a path's midpoint boss, the pause menu and `R` offer extraction;
 the ten-floor Dungeon unlocks extraction after floor five, and expeditions unlock it

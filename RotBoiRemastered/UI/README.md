@@ -28,7 +28,10 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   Completing all five standalone arenas raises their silver statues and opens
   the northern Body/Soul campaign gate. Body completion flows directly into the
   hostile Soul expedition with the live build intact; five Soul-finale gold
-  statues open the separately sealed Aphantasia chamber.
+  statues open the separately sealed Aphantasia chamber. Her first defeat
+  erects an animated trophy at the center of the chapel; No Healing and No
+  Extract add blood and crack treatments, and a dual-brazier clear adds its
+  rainbow transformation.
 - `Menus.cs` <- `menus.py`. **Done** -- pause screen (gameplay/options/
   keybinds tabs, rebind capture) and results screen.
 - `InformationSheet.cs` <- `informationSheet.py` (sidebar HUD, equipment

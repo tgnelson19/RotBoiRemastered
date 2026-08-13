@@ -29,6 +29,13 @@ internal static class AuditProfileScenarios
         if (stage == AuditProfileStage.FullyUnlocked)
         {
             profile.Campaign.BodyCompleted = true;
+            profile.Campaign.AphantasiaStatue = new StatueProgress
+            {
+                Unlocked = true,
+                ChallengeClears = ChallengeClear.NoHealing
+                    | ChallengeClear.NoExtract
+                    | ChallengeClear.Both,
+            };
             foreach (string sense in CampaignProgression.SenseKeys)
             {
                 profile.Campaign.ArenaUnlocks.Add(sense);
@@ -89,6 +96,8 @@ public sealed class GameProfileAuditScenarioTests : IDisposable
         {
             Assert.True(loaded.Campaign.BodyUnlocked);
             Assert.True(loaded.Campaign.AphantasiaUnlocked);
+            Assert.True(loaded.Campaign.AphantasiaStatue.Unlocked);
+            Assert.True(loaded.Campaign.AphantasiaStatue.Rainbow);
             Assert.All(CampaignProgression.SenseKeys,
                 sense => Assert.Equal(7, loaded.NewGamePlusUnlocked[sense]));
         }

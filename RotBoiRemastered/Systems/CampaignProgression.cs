@@ -24,7 +24,7 @@ public sealed class StatueProgress
 /// <summary>Versioned, permanent gates for the linear Mind campaign.</summary>
 public sealed class CampaignProgressData
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
     public int Version { get; set; } = CurrentVersion;
     public bool BodyCompleted { get; set; }
     public bool SoulUnlocked { get; set; }
@@ -32,6 +32,11 @@ public sealed class CampaignProgressData
     public Dictionary<string, StatueProgress> SilverStatues { get; set; } = new();
     public Dictionary<string, StatueProgress> GoldStatues { get; set; } = new();
     public bool AphantasiaUnlocked { get; set; }
+    /// <summary>
+    /// Central Mind trophy earned by defeating Aphantasia. Challenge clears
+    /// use the same blood/crack/rainbow language as the sense statues.
+    /// </summary>
+    public StatueProgress AphantasiaStatue { get; set; } = new();
 
     public bool BodyUnlocked => CampaignProgression.SenseKeys.All(sense =>
         SilverStatues.GetValueOrDefault(sense)?.Unlocked == true);
@@ -51,13 +56,14 @@ public static class CampaignProgression
         data.ArenaUnlocks ??= new();
         data.SilverStatues ??= new();
         data.GoldStatues ??= new();
+        data.AphantasiaStatue ??= new StatueProgress();
         data.ArenaUnlocks.RemoveWhere(key => !SenseKeys.Contains(key));
-        bool legacy = data.Version < CampaignProgressData.CurrentVersion;
+        bool legacyV1 = data.Version < 2;
         foreach (string sense in SenseKeys)
         {
             data.SilverStatues.TryAdd(sense, new StatueProgress());
             data.GoldStatues.TryAdd(sense, new StatueProgress());
-            if (legacy)
+            if (legacyV1)
             {
                 // Version 1 used ArenaUnlocks for completed Soul finales, while
                 // dungeon clears could incorrectly create gold statues. Preserve
@@ -102,6 +108,13 @@ public static class CampaignProgression
         CompleteStatue(sense, StatueMaterial.Gold, noHealing, noExtract);
     }
 
+    public static void CompleteAphantasia(bool noHealing = false, bool noExtract = false)
+    {
+        Normalize(Data);
+        RecordChallengeClear(Data.AphantasiaStatue, noHealing, noExtract);
+        Save();
+    }
+
     public static void CompleteStatue(string sense, StatueMaterial material,
         bool noHealing, bool noExtract)
     {
@@ -113,12 +126,18 @@ public static class CampaignProgression
         Normalize(Data);
         StatueProgress statue = (material == StatueMaterial.Silver
             ? Data.SilverStatues : Data.GoldStatues)[sense];
+        RecordChallengeClear(statue, noHealing, noExtract);
+        Data.AphantasiaUnlocked = AllGoldStatuesUnlocked(Data);
+        Save();
+    }
+
+    private static void RecordChallengeClear(StatueProgress statue,
+        bool noHealing, bool noExtract)
+    {
         statue.Unlocked = true;
         if (noHealing) statue.ChallengeClears |= ChallengeClear.NoHealing;
         if (noExtract) statue.ChallengeClears |= ChallengeClear.NoExtract;
         if (noHealing && noExtract) statue.ChallengeClears |= ChallengeClear.Both;
-        Data.AphantasiaUnlocked = AllGoldStatuesUnlocked(Data);
-        Save();
     }
 
     public static bool AllGoldStatuesUnlocked(CampaignProgressData data) =>
@@ -155,12 +174,14 @@ public static class CampaignDevOverrides
     public static HashSet<string> PortalUnlocks { get; } = new();
     public static Dictionary<string, ChallengeClear> SilverStatues { get; } = new();
     public static Dictionary<string, ChallengeClear> GoldStatues { get; } = new();
+    public static ChallengeClear? AphantasiaStatue { get; private set; }
 
     public static void Reset()
     {
         PortalUnlocks.Clear();
         SilverStatues.Clear();
         GoldStatues.Clear();
+        AphantasiaStatue = null;
     }
 
     public static void TogglePortal(string key)
@@ -215,17 +236,37 @@ public static class CampaignDevOverrides
             values.Remove(sense);
     }
 
+    public static void CycleAphantasiaStatue()
+    {
+        AphantasiaStatue = NextStatueState(AphantasiaStatue);
+    }
+
+    private static ChallengeClear? NextStatueState(ChallengeClear? current) => current switch
+    {
+        null => ChallengeClear.None,
+        ChallengeClear.None => ChallengeClear.NoHealing,
+        ChallengeClear.NoHealing => ChallengeClear.NoExtract,
+        ChallengeClear.NoExtract => ChallengeClear.NoHealing | ChallengeClear.NoExtract,
+        ChallengeClear.NoHealing | ChallengeClear.NoExtract =>
+            ChallengeClear.NoHealing | ChallengeClear.NoExtract | ChallengeClear.Both,
+        _ => null,
+    };
+
     public static void ToggleAllRainbow()
     {
-        bool enable = CampaignProgression.SenseKeys.Any(sense =>
-            !SilverStatues.GetValueOrDefault(sense).HasFlag(ChallengeClear.Both)
-            || !GoldStatues.GetValueOrDefault(sense).HasFlag(ChallengeClear.Both));
+        bool enable = AphantasiaStatue?.HasFlag(ChallengeClear.Both) != true
+            || CampaignProgression.SenseKeys.Any(sense =>
+                !SilverStatues.GetValueOrDefault(sense).HasFlag(ChallengeClear.Both)
+                || !GoldStatues.GetValueOrDefault(sense).HasFlag(ChallengeClear.Both));
         foreach (string sense in CampaignProgression.SenseKeys)
         {
             SilverStatues[sense] = enable
                 ? ChallengeClear.NoHealing | ChallengeClear.NoExtract | ChallengeClear.Both : ChallengeClear.None;
             GoldStatues[sense] = SilverStatues[sense];
         }
+        AphantasiaStatue = enable
+            ? ChallengeClear.NoHealing | ChallengeClear.NoExtract | ChallengeClear.Both
+            : null;
         if (enable)
         {
             PortalUnlocks.Add("sight");

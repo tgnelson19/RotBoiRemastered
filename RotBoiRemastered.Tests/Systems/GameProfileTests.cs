@@ -40,6 +40,7 @@ public class GameProfileTests : IDisposable
         Assert.Empty(profile.Keybinds);
         Assert.Empty(profile.NewGamePlusUnlocked);
         Assert.Empty(profile.SelectedNewGamePlus);
+        Assert.False(profile.Campaign.AphantasiaStatue.Unlocked);
     }
 
     [Fact]
@@ -51,6 +52,7 @@ public class GameProfileTests : IDisposable
             profile.Campaign.SilverStatues.Count);
         Assert.Equal(CampaignProgression.SenseKeys.Length,
             profile.Campaign.GoldStatues.Count);
+        Assert.NotNull(profile.Campaign.AphantasiaStatue);
     }
 
     [Fact]

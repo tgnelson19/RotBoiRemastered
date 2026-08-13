@@ -2198,6 +2198,10 @@ public sealed class GameSession
                 if (defeatedBossKey == "aphantasia")
                 {
                     State.GameCompleted = true;
+                    Aphantasia? defeatedAphantasia = enemy as Aphantasia;
+                    CampaignProgression.CompleteAphantasia(
+                        defeatedAphantasia?.CapturedNoHealing ?? State.NoHealing,
+                        defeatedAphantasia?.CapturedNoExtract ?? State.NoExtract);
                     FinalizeSuccessfulRun(RunOutcomes.AphantasiaDefeated,
                         completed: true);
                 }
