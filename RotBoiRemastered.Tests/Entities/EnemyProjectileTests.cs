@@ -101,8 +101,101 @@ public class EnemyProjectileTests
         projectile.Update(battleground, casualMode: false);
 
         Assert.InRange(projectile.RemainingRange, 69f, 71f);
+        Assert.InRange(projectile.LaserSproutProgress, 0f, .1f);
+        Assert.False(projectile.Collides(new Rectangle(105, 120, 10, 10)));
+        for (int frame = 0; frame < 20; frame++)
+            projectile.Update(battleground, casualMode: false);
+        Assert.Equal(1f, projectile.LaserSproutProgress);
         Assert.True(projectile.Collides(new Rectangle(105, 120, 10, 10)));
         Assert.False(projectile.Collides(new Rectangle(175, 120, 10, 10)));
+    }
+
+    [Fact]
+    public void Laser_SproutAndCollisionGrowTogetherFromTheSource()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var projectile = new EnemyProjectile(
+            75, 125, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 70, lifetime: 2f)
+        {
+            TelegraphDuration = 0f,
+        };
+
+        projectile.Update(battleground, casualMode: false);
+        Assert.InRange(projectile.LaserSproutProgress, 0f, 1f);
+        Assert.False(projectile.Collides(new Rectangle(125, 120, 10, 10)));
+
+        for (int frame = 0; frame < 20; frame++)
+            projectile.Update(battleground, casualMode: false);
+
+        Assert.Equal(1f, projectile.LaserSproutProgress);
+        Assert.True(projectile.Collides(new Rectangle(125, 120, 10, 10)));
+        Assert.True(EnemyProjectile.LaserSproutDuration < .2f);
+        Assert.Equal(5, EnemyProjectile.LaserTentacleCount);
+        Assert.True(EnemyProjectile.LaserVisualWidthScale >= 1.5f);
+        Assert.True(EnemyProjectile.MinimumLaserVisualWidth >= 12f);
+    }
+
+    [Fact]
+    public void AphantasiaLasersCyclePulsingRainbowWhileOtherLasersKeepOwnerColor()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var authored = new Color(37, 149, 211);
+        var ordinary = new EnemyProjectile(75, 125, 0, 0, 10, 10,
+            color: authored, path: "laser", owner: "chronos_directive");
+        var aphantasia = new EnemyProjectile(75, 125, 0, 0, 10, 10,
+            color: authored, path: "laser", owner: "aphantasia_laser_light");
+
+        Assert.False(ordinary.UsesRainbowLaserTentacles);
+        Assert.Equal(authored, ordinary.LaserTentacleColor(2, .5f));
+        Assert.True(aphantasia.UsesRainbowLaserTentacles);
+        Color first = aphantasia.LaserTentacleColor(0, .25f);
+        for (int frame = 0; frame < 12; frame++)
+            aphantasia.Update(battleground, casualMode: false);
+        Color later = aphantasia.LaserTentacleColor(0, .25f);
+
+        Assert.NotEqual(authored, first);
+        Assert.NotEqual(first, later);
+        Assert.NotEqual(
+            aphantasia.LaserTentacleColor(0, .5f),
+            aphantasia.LaserTentacleColor(4, .5f));
+    }
+
+    [Fact]
+    public void LaserEnemiesAndArsenalBossesPassTheirOwnColorIntoTentacles()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.SmallOpenRoom();
+        var context = new EnemyUpdateContext
+        {
+            PlayerWorldX = 150,
+            PlayerWorldY = 150,
+            Battleground = battleground,
+        };
+        var enemyColor = new Color(48, 188, 164);
+        var laserEnemy = new LaserEnemy(75, 75, 1, 30, enemyColor,
+            10, 100, 0, 1, tier: "small", rng: new Random(3))
+        {
+            AttackCooldown = 0,
+        };
+        laserEnemy.Update(context);
+        EnemyProjectile enemyLaser = Assert.Single(context.ProjectileSink);
+        Assert.Equal(enemyColor, enemyLaser.Color);
+
+        context.ProjectileSink.Clear();
+        var bossColor = new Color(194, 71, 132);
+        var arsenal = new ArsenalMiniBoss(75, 75, 1, 30, bossColor,
+            10, 100, 0, 1, awarenessRange: 1000,
+            phaseOrder: ["laser", "laser", "laser"], rng: new Random(4))
+        {
+            AttackCooldown = 0,
+        };
+        arsenal.Update(context);
+        Assert.NotEmpty(context.ProjectileSink);
+        Assert.All(context.ProjectileSink,
+            laser => Assert.Equal(bossColor, laser.Color));
     }
 
     [Fact]

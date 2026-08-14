@@ -75,7 +75,7 @@ public sealed class ArsenalMiniBoss : Enemy
         {
             var laser = new EnemyProjectile(
                 centerX, centerY, baseDirection + offset, 0, Damage * .42f, Size * .13f,
-                travelRange: Simulation.TileSize * 18f, color: UiTheme.Red, path: "laser",
+                travelRange: Simulation.TileSize * 18f, color: Color, path: "laser",
                 lifetime: 2.4f, angularSpeed: .12f, owner: TransitionCleanupOwner, ignoreWalls: true);
             laser.TelegraphDuration = 1.0f;
             projectileSink.Add(laser);

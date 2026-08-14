@@ -13,6 +13,12 @@ public enum MenuAction
     None, Resume, Dossier, Restart, Extract, ReturnToTitle, EnterSoul, Quit,
 }
 
+internal readonly record struct DeathBannerLayout(
+    Rectangle Banner,
+    Rectangle EnterMind,
+    Rectangle Retry,
+    Rectangle Title);
+
 /// <summary>Settings-first pause menu and immutable end-of-run debrief.</summary>
 public sealed class Menus
 {
@@ -23,6 +29,10 @@ public sealed class Menus
 
     public void AdvancePresentation(double seconds) =>
         _presentationClock.Advance(seconds);
+
+    public void BeginResults() => _presentationClock.Reset();
+
+    internal float ResultsPresentationSeconds => _presentationClock.Seconds;
 
     public void DrawPause(SpriteBatch spriteBatch, int screenWidth,
         int screenHeight, Point mousePosition, bool mouseDown,
@@ -70,6 +80,12 @@ public sealed class Menus
         _buttons.Clear();
         _resultFocus.BeginFrame();
         bool success = RunOutcomes.IsSuccess(report.Outcome);
+        if (!success)
+        {
+            DrawDeathResults(spriteBatch, screenWidth, screenHeight, report,
+                mousePosition, mouseDown);
+            return;
+        }
         Color outcomeAccent = success ? UiTheme.Cream : UiTheme.Red;
         float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
         float animation = (float)(_presentationClock.Seconds
@@ -129,6 +145,112 @@ public sealed class Menus
             string hint)
         {
             var rect = new Rectangle(x, actionY, actionWidth, actionHeight);
+            _resultFocus.Register(id, rect);
+            Button(spriteBatch, id, rect, label, mousePosition, mouseDown,
+                accent, hint, 9 * scale);
+        }
+    }
+
+    internal static DeathBannerLayout CalculateDeathBannerLayout(
+        int screenWidth, int screenHeight)
+    {
+        float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
+        int margin = Math.Max(16, (int)(24 * scale));
+        int width = Math.Min(screenWidth - margin * 2,
+            Math.Max(340, (int)(760 * scale)));
+        int height = Math.Min(screenHeight - margin * 2,
+            Math.Max(230, (int)(300 * scale)));
+        var banner = new Rectangle((screenWidth - width) / 2,
+            (screenHeight - height) / 2, width, height);
+        int pad = Math.Max(12, (int)(18 * scale));
+        int gap = Math.Max(6, (int)(9 * scale));
+        int buttonHeight = Math.Max(38, (int)(48 * scale));
+        int buttonWidth = (banner.Width - pad * 2 - gap * 2) / 3;
+        int y = banner.Bottom - pad - buttonHeight;
+        var enterMind = new Rectangle(banner.X + pad, y,
+            buttonWidth, buttonHeight);
+        var retry = new Rectangle(enterMind.Right + gap, y,
+            buttonWidth, buttonHeight);
+        var title = new Rectangle(retry.Right + gap, y,
+            banner.Right - pad - retry.Right - gap, buttonHeight);
+        return new DeathBannerLayout(banner, enterMind, retry, title);
+    }
+
+    private void DrawDeathResults(SpriteBatch spriteBatch, int screenWidth,
+        int screenHeight, RunResultReport report, Point mousePosition,
+        bool mouseDown)
+    {
+        float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
+        float elapsed = _presentationClock.Seconds;
+        float reveal = MathHelper.SmoothStep(0f, 1f,
+            Math.Clamp(elapsed / .72f, 0f, 1f));
+        float breathe = .5f + .5f * MathF.Sin(elapsed * 1.8f);
+        var layout = CalculateDeathBannerLayout(screenWidth, screenHeight);
+        Rectangle banner = layout.Banner;
+
+        // A translucent veil quiets the still-living combat scene without
+        // replacing it. The banner remains the only opaque UI mass.
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(0, 0, screenWidth, screenHeight),
+            UiTheme.Void * (.12f + reveal * .34f));
+        var shadow = banner;
+        shadow.Offset(8, 10);
+        Primitives2D.FillRect(spriteBatch, shadow,
+            UiTheme.Shadow * (.72f * reveal));
+        UiTheme.DrawFramedPanel(spriteBatch, banner,
+            UiTheme.Panel * (.9f * reveal),
+            Color.Lerp(UiTheme.Purple, UiTheme.Red, .32f + breathe * .12f)
+                * reveal, 7);
+
+        float lineHalf = banner.Width * .31f * reveal;
+        float lineY = banner.Y + 104 * scale;
+        Primitives2D.Line(spriteBatch,
+            new Vector2(banner.Center.X - lineHalf, lineY),
+            new Vector2(banner.Center.X + lineHalf, lineY),
+            UiTheme.Purple * (.72f * reveal),
+            Math.Max(2, (int)(3 * scale)));
+        int jitter = (int)(elapsed * 18f) % 17 == 0
+            ? Math.Max(1, (int)(2 * scale)) : 0;
+        Vector2 title = new(banner.Center.X, banner.Y + 27 * scale);
+        UiTheme.DrawText(spriteBatch, "RETURNING TO THE VOID",
+            28 * scale, UiTheme.Ink * reveal,
+            title + new Vector2(4 * scale, 5 * scale), "midtop");
+        UiTheme.DrawText(spriteBatch, "RETURNING TO THE VOID",
+            28 * scale,
+            Color.Lerp(UiTheme.Purple, UiTheme.Cream, .35f + breathe * .16f)
+                * reveal,
+            title + new Vector2(jitter, 0), "midtop");
+        UiTheme.DrawText(spriteBatch,
+            "THE MIND REMEMBERS WHAT THE BODY COULD NOT",
+            9 * scale, UiTheme.Cream * (.82f * reveal),
+            new Vector2(banner.Center.X, banner.Y + 79 * scale), "midtop");
+
+        string time = $"{(int)(report.Seconds / 60):D2}:"
+            + $"{(int)(report.Seconds % 60):D2}";
+        UiTheme.DrawText(spriteBatch,
+            $"{report.PathTitle}  //  LEVEL {report.Level:D2}  //  "
+                + $"{report.Kills} KILLS  //  {time}",
+            8 * scale,
+            GamePaths.PathsByKey.GetValueOrDefault(report.PathKey)?.Accent
+                ?? UiTheme.Cream,
+            new Vector2(banner.Center.X, banner.Y + 125 * scale), "midtop");
+        UiTheme.DrawText(spriteBatch,
+            report.LostLoadout.Count > 0
+                ? "THE LOADOUT IS LOST. THE PATH REMAINS."
+                : "THE PATH REMAINS.",
+            8 * scale, UiTheme.Muted * reveal,
+            new Vector2(banner.Center.X, banner.Y + 150 * scale), "midtop");
+
+        RegisterDeathButton("results_soul", layout.EnterMind, "ENTER MIND",
+            UiTheme.Purple, "F");
+        RegisterDeathButton("retry", layout.Retry, "PLAY AGAIN",
+            UiTheme.Green, "ENTER");
+        RegisterDeathButton("results_title", layout.Title, "TITLE",
+            UiTheme.Red, "ESC");
+
+        void RegisterDeathButton(string id, Rectangle rect, string label,
+            Color accent, string hint)
+        {
             _resultFocus.Register(id, rect);
             Button(spriteBatch, id, rect, label, mousePosition, mouseDown,
                 accent, hint, 9 * scale);
