@@ -81,7 +81,40 @@ public sealed class SoulHubTests
     }
 
     [Fact]
-    public void F8_TogglesDevUnlockTestingAndImmediatelyRebuildsTheMind()
+    public void LeatherVestClickBeatsOverlappingBackgroundDevControlAndGrantsItem()
+    {
+        GameProfileData originalProfile = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = new GameProfileData { DeveloperArmory = true };
+            int leatherIndex = SoulHub.DeveloperArmoryItems.ToList()
+                .FindIndex(item => item.Name == "Leather Vest");
+            Assert.True(leatherIndex >= 0);
+            var overlap = new Rectangle(100, 100, 60, 60);
+            var targets = new Dictionary<string, Rectangle>
+            {
+                ["dev:portal:core"] = overlap,
+                [$"armory:{leatherIndex}"] = overlap,
+            };
+
+            string? clicked = SoulHub.ClickTargetAt(targets,
+                new Point(120, 120), overlayOpen: true);
+
+            Assert.Equal($"armory:{leatherIndex}", clicked);
+            var session = new GameSession(
+                Battleground.GenerateMind(), 1280, 720, new Random(1));
+            Assert.True(SoulHub.TakeArmoryItem(session, leatherIndex));
+            Assert.Contains(session.State.Inventory,
+                item => item?.Name == "Leather Vest");
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+        }
+    }
+
+    [Fact]
+    public void F8_TogglesDevUnlockTestingWithoutResettingPositionOrEquipment()
     {
         var originalProfile = GameProfile.Profile;
         string originalPath = GameProfile.SavePath;
@@ -94,20 +127,28 @@ public sealed class SoulHubTests
             var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
             var mindHub = new MindHub();
             mindHub.Enter(session);
+            Vector2 position = SoulLayout.TileWorldCenter(SoulLayout.DummyTile)
+                + new Vector2(37, -19);
+            float half = (float)session.State.PlayerSize / 2f;
+            session.Player.SetPosition(position.X - half, position.Y - half);
+            ItemDefinition definition = Items.Definitions.First(item =>
+                session.State.Equipment.ContainsKey(item.SlotType));
+            ItemDrop equipped = Items.DeveloperArmoryDrop(definition);
+            session.State.Equipment[definition.SlotType] = equipped;
 
             mindHub.HandleInput(session, new HashSet<Keys> { Keys.F8 },
                 Point.Zero, false, false);
 
             Assert.True(GameProfile.Profile.DevUnlockTesting);
-            Assert.Equal(SoulLayout.SpawnTile,
-                new Point(
-                    (int)(session.PlayerWorldCenter.X / Battleground.TileSize),
-                    (int)(session.PlayerWorldCenter.Y / Battleground.TileSize)));
+            Assert.Equal(position, session.PlayerWorldCenter);
+            Assert.Same(equipped, session.State.Equipment[definition.SlotType]);
             Assert.True(File.Exists(GameProfile.SavePath));
 
             mindHub.HandleInput(session, new HashSet<Keys> { Keys.F8 },
                 Point.Zero, false, false);
             Assert.False(GameProfile.Profile.DevUnlockTesting);
+            Assert.Equal(position, session.PlayerWorldCenter);
+            Assert.Same(equipped, session.State.Equipment[definition.SlotType]);
         }
         finally
         {
@@ -130,16 +171,28 @@ public sealed class SoulHubTests
             var mindHub = new MindHub();
             mindHub.Enter(session);
             int lockedWalls = CountTiles(session.Battleground, TileType.BuildingWall);
+            Vector2 position = SoulLayout.TileWorldCenter(SoulLayout.NexusTile)
+                + new Vector2(23, 41);
+            float half = (float)session.State.PlayerSize / 2f;
+            session.Player.SetPosition(position.X - half, position.Y - half);
+            ItemDefinition definition = Items.Definitions.First(item =>
+                session.State.Equipment.ContainsKey(item.SlotType));
+            ItemDrop equipped = Items.DeveloperArmoryDrop(definition);
+            session.State.Equipment[definition.SlotType] = equipped;
 
             mindHub.HandleDevAction(session, "portal:core");
 
             Assert.True(CampaignProgression.PortalUnlocked("core"));
             Assert.True(CountTiles(session.Battleground, TileType.BuildingWall) < lockedWalls);
+            Assert.Equal(position, session.PlayerWorldCenter);
+            Assert.Same(equipped, session.State.Equipment[definition.SlotType]);
 
             mindHub.HandleDevAction(session, "reset");
             Assert.False(CampaignProgression.PortalUnlocked("core"));
             Assert.Equal(lockedWalls,
                 CountTiles(session.Battleground, TileType.BuildingWall));
+            Assert.Equal(position, session.PlayerWorldCenter);
+            Assert.Same(equipped, session.State.Equipment[definition.SlotType]);
         }
         finally
         {

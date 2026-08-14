@@ -50,11 +50,13 @@ public sealed class AphantasiaTests
     private static void OpenDamageWindow(
         Aphantasia boss, EnemyUpdateContext context)
     {
+        if (boss.PhaseHandoffActive)
+            AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
         Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
+        AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
         Assert.True(boss.TakeDamage(1, "body").Blocked);
         Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
-        boss.Update(context);
-        context.ProjectileSink.Clear();
+        AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
         Assert.True(boss.DamageWindowActive);
     }
 
@@ -69,7 +71,7 @@ public sealed class AphantasiaTests
 
     private static void SelectPattern(Aphantasia boss, string key)
     {
-        for (int attempt = 0; attempt < Aphantasia.PatternCountForPhase(boss.Phase); attempt++)
+        for (int attempt = 0; attempt < Aphantasia.PatternSelectionCycleCount(boss.Phase); attempt++)
         {
             if (boss.CurrentPattern.Key == key)
                 return;
@@ -131,9 +133,12 @@ public sealed class AphantasiaTests
             {
                 if (projectile.Collides(playerRect))
                     hitThreats.Add(projectile);
-                Assert.False(projectile.PersistentHazard);
+                Assert.True(!projectile.PersistentHazard || projectile.Path == "laser");
                 Assert.DoesNotContain(projectile.Path, new[] { "pool", "mine" });
-                Assert.True(projectile.Lifetime is > 0 and <= 40f);
+                Assert.True(projectile.Lifetime is > 0 and <= 240f
+                    || projectile.Lifetime is null
+                    && float.IsFinite(projectile.RemainingRange)
+                    && projectile.Speed > 0);
                 Assert.True(projectile.Size >= Simulation.TileSize
                     * Aphantasia.MinimumProjectileSizeTiles);
             }
@@ -197,7 +202,7 @@ public sealed class AphantasiaTests
     [Theory]
     [InlineData(1, 30.0)]
     [InlineData(2, 30.0)]
-    [InlineData(3, 40.0)]
+    [InlineData(3, 30.0)]
     public void MidpointSurvivals_UseTheirAuthoredDurations(
         int phase, double expectedSeconds)
     {
@@ -213,7 +218,7 @@ public sealed class AphantasiaTests
     [Theory]
     [InlineData(1, .75, 30.0)]
     [InlineData(2, .25, 30.0)]
-    [InlineData(3, .50, 40.0)]
+    [InlineData(3, .50, 30.0)]
     public void HealthGates_StartTheCorrectMidpointSurvival(
         int phase, double floorRatio, double expectedSeconds)
     {
@@ -272,8 +277,8 @@ public sealed class AphantasiaTests
     }
 
     [Theory]
-    [InlineData(3, 40.0)]
-    [InlineData(4, 60.0)]
+    [InlineData(3, 30.0)]
+    [InlineData(4, 30.0)]
     public void Finales_UsePhaseSpecificDurations(int phase, double expectedSeconds)
     {
         Aphantasia boss = MakeBoss(noHealing: true, noExtract: true);
@@ -301,10 +306,10 @@ public sealed class AphantasiaTests
         Assert.True(boss.TakeDamage(1000, "body").Blocked);
 
         Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
+        AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
         Assert.True(boss.TakeDamage(1000, "body").Blocked);
         Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
-        boss.Update(context);
-        context.ProjectileSink.Clear();
+        AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
         Assert.True(boss.DamageWindowActive);
         Assert.True(boss.TakeDamage(1000, "body").Applied);
 
@@ -699,7 +704,7 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void VoidClockVolley_IsCommittedAtomicallyWithinReservedBudget()
+    public void ProjectileBudget_IsFiveTimesLargerAndEvictsTheLongestLastingShot()
     {
         Battleground arena = MakeArena();
         var boss = new Aphantasia(1000, 1000, arena, new Random(601),
@@ -707,17 +712,363 @@ public sealed class AphantasiaTests
         boss.DebugSetPhase(4);
         SelectPattern(boss, "void_clock");
         EnemyUpdateContext context = Context(boss, arena);
-        for (int index = 0; index < Aphantasia.ActiveThreatSoftCap - 19; index++)
+        var longestLasting = new EnemyProjectile(
+            boss.ArenaCenter.X, boss.ArenaCenter.Y, 0, 0, 1, 1,
+            lifetime: 60, owner: "aphantasia_budget_oldest", ignoreWalls: true);
+        for (int tick = 0; tick < Simulation.FrameRate; tick++)
+            longestLasting.Update(arena, casualMode: false);
+        context.ProjectileSink.Add(longestLasting);
+        for (int index = 1; index < Aphantasia.ActiveThreatSoftCap; index++)
         {
             context.ProjectileSink.Add(new EnemyProjectile(
-                0, 0, 0, 0, 1, 1, lifetime: 20,
+                boss.ArenaCenter.X, boss.ArenaCenter.Y, 0, 0, 1, 1, lifetime: 20,
                 owner: "aphantasia_budget_filler", ignoreWalls: true));
         }
 
-        for (int tick = 0; tick < Simulation.FrameRate * 2; tick++)
+        for (int tick = 0; tick < Simulation.FrameRate * 2
+            && context.ProjectileSink.Contains(longestLasting); tick++)
             boss.Update(context);
 
-        Assert.Equal(Aphantasia.ActiveThreatSoftCap - 11, context.ProjectileSink.Count);
+        Assert.Equal(5, Aphantasia.ProjectileCapacityMultiplier);
+        Assert.Equal(1_600, Aphantasia.ActiveThreatSoftCap);
+        Assert.DoesNotContain(longestLasting, context.ProjectileSink);
+        int reserved = context.ProjectileSink.Sum(projectile =>
+            Math.Max(1, projectile.ThreatReservationCost));
+        Assert.InRange(reserved,
+            Aphantasia.ActiveThreatSoftCap - Aphantasia.PerimeterThreatReserve,
+            Aphantasia.ActiveThreatSoftCap);
+    }
+
+    [Fact]
+    public void EveryPhaseKeepsBaselineShotsButSpecialAttacksAreSubphaseExclusive()
+    {
+        foreach (int phase in Enumerable.Range(1, 4))
+        {
+            IReadOnlyList<AphantasiaPattern> patterns = PatternsForPhase(phase);
+            Assert.Contains(patterns, pattern =>
+                pattern.SpecialAttack == AphantasiaSpecialAttack.DoubleHelix);
+            Assert.Contains(patterns, pattern =>
+                pattern.SpecialAttack == AphantasiaSpecialAttack.Laser);
+            Assert.Contains(patterns, pattern =>
+                pattern.SpecialAttack == AphantasiaSpecialAttack.Bomb);
+
+            foreach (AphantasiaPattern pattern in patterns)
+            {
+                Battleground arena = MakeArena();
+                var boss = new Aphantasia(1000, 1000, arena,
+                    new Random(613 + phase * 100 + pattern.Key.Length),
+                    noHealing: true, noExtract: true);
+                boss.DebugSetPhase(phase);
+                SelectPattern(boss, pattern.Key);
+                EnemyUpdateContext context = Context(boss, arena);
+
+                for (int tick = 0; tick < Simulation.FrameRate * 8; tick++)
+                    boss.Update(context);
+
+                Assert.Contains(context.ProjectileSink, projectile =>
+                    projectile.Owner == "aphantasia_baseline_straight");
+                Assert.Contains(context.ProjectileSink, projectile =>
+                    projectile.Owner == "aphantasia_baseline_sine");
+                Assert.Contains(context.ProjectileSink, projectile =>
+                    projectile.Owner == "aphantasia_baseline_shotgun");
+                foreach (string mini in phase < 4
+                    ? new[] { "light", "dark" }
+                    : Array.Empty<string>())
+                {
+                    List<EnemyProjectile> miniShots = context.ProjectileSink.Where(projectile =>
+                        projectile.Owner == $"aphantasia_mini_{mini}").ToList();
+                    Assert.Contains(miniShots, projectile => projectile.Path == "linear");
+                    Assert.Contains(miniShots, projectile => projectile.Path == "sine");
+                }
+                Assert.DoesNotContain(context.ProjectileSink, projectile =>
+                    projectile.Owner?.StartsWith("aphantasia_mini_") == true
+                    && (projectile.Path == "laser" || projectile.Path == "bomb"));
+
+                bool hasHelix = context.ProjectileSink.Any(projectile =>
+                    projectile.Owner?.StartsWith("aphantasia_double_helix_") == true);
+                bool hasLaser = context.ProjectileSink.Any(projectile =>
+                    projectile.Owner?.Contains("_laser") == true);
+                bool hasBomb = context.ProjectileSink.Any(projectile =>
+                    projectile.Owner?.EndsWith("_bomb") == true);
+                Assert.Equal(pattern.SpecialAttack == AphantasiaSpecialAttack.DoubleHelix,
+                    hasHelix);
+                Assert.Equal(pattern.SpecialAttack == AphantasiaSpecialAttack.Laser,
+                    hasLaser);
+                Assert.Equal(pattern.SpecialAttack == AphantasiaSpecialAttack.Bomb,
+                    hasBomb);
+            }
+        }
+    }
+
+    [Fact]
+    public void BossLasersProvideAFullSecondCollisionFreeIndicator()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(619));
+        boss.DebugSetPhase(1);
+        SelectPattern(boss, "horizon_ellipse");
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 5; tick++)
+            boss.Update(context);
+
+        List<EnemyProjectile> lasers = context.ProjectileSink.Where(projectile =>
+            projectile.Owner?.StartsWith("aphantasia_laser_") == true).ToList();
+        Assert.NotEmpty(lasers);
+        Assert.All(lasers, laser => Assert.Equal(1f, laser.TelegraphDuration));
+        EnemyProjectile warning = lasers[0];
+        Assert.False(warning.Collides(new Rectangle(
+            (int)warning.WorldX, (int)warning.WorldY, 20, 20)));
+    }
+
+    [Fact]
+    public void LaserGridsOnlyAppearDuringPhaseThreeAndFourSurvivalSequences()
+    {
+        foreach (int phase in Enumerable.Range(1, 4))
+        {
+            Battleground arena = MakeArena();
+            var boss = new Aphantasia(1000, 1000, arena, new Random(623 + phase),
+                noHealing: true, noExtract: true);
+            boss.DebugSetPhase(phase);
+            EnemyUpdateContext context = Context(boss, arena);
+
+            for (int tick = 0; tick < Simulation.FrameRate * 12; tick++)
+                boss.Update(context);
+            Assert.DoesNotContain(context.ProjectileSink, projectile =>
+                projectile.Owner?.StartsWith("aphantasia_edge_grid_") == true);
+
+            context.ProjectileSink.Clear();
+            if (phase == 3)
+                boss.DebugStartSurvival();
+            else if (phase == 4)
+                boss.DebugStartFinale();
+            else
+                continue;
+            if (boss.PhaseHandoffActive)
+                AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
+            context.ProjectileSink.Clear();
+            var emittedGrids = new List<EnemyProjectile>();
+            for (int tick = 0; tick < Simulation.FrameRate * 20; tick++)
+            {
+                boss.Update(context);
+                emittedGrids.AddRange(context.ProjectileSink.Where(projectile =>
+                    projectile.Owner?.StartsWith("aphantasia_edge_grid_") == true));
+                context.ProjectileSink.Clear();
+            }
+
+            foreach (string orientation in new[] { "cardinal", "anticardinal" })
+            {
+                List<EnemyProjectile> grid = emittedGrids.Where(projectile =>
+                    projectile.Owner == $"aphantasia_edge_grid_{orientation}").ToList();
+                Assert.True(grid.Count >= 8,
+                    $"Phase {phase} produced {grid.Count} {orientation} grid lasers.");
+                Assert.All(grid, projectile =>
+                {
+                    Assert.Equal("laser", projectile.Path);
+                    Assert.True(Vector2.Distance(projectile.OriginPoint, boss.ArenaCenter)
+                        >= boss.ArenaRadius * .75f);
+                });
+            }
+        }
+    }
+
+    [Fact]
+    public void PlayerRoll_ReachesAphantasiaArenaBoundary()
+    {
+        GameSession session = MakeSession();
+        session.StartAphantasia(new Random(629));
+        var boss = Assert.IsType<Aphantasia>(session.State.ActiveBoss);
+        float playerSize = (float)session.State.PlayerSize;
+        float limit = boss.ArenaRadius - playerSize * .72f;
+        Vector2 startCenter = boss.ArenaCenter + Vector2.UnitX * (limit - 4f);
+        session.Player.SetPosition(
+            startCenter.X - playerSize / 2f,
+            startCenter.Y - playerSize / 2f);
+        float before = session.Player.WorldX;
+        session.State.CurrDashCooldown = 0;
+
+        session.MovePlayer(false, true, false, false, true);
+
+        Vector2 playerCenter = new(
+            session.Player.WorldX + playerSize / 2f,
+            session.Player.WorldY + playerSize / 2f);
+        Assert.True(session.State.Dashing);
+        Assert.True(session.Player.WorldX > before);
+        Assert.InRange(Vector2.Distance(playerCenter, boss.ArenaCenter),
+            limit - .01f, limit + .01f);
+    }
+
+    [Fact]
+    public void ArenaHalvesContinuouslyRollDifferentProjectileProperties()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(631));
+        boss.DebugSetPhase(2);
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 12; tick++)
+            boss.Update(context);
+
+        List<EnemyProjectile> halfShots = context.ProjectileSink.Where(projectile =>
+            projectile.Owner?.StartsWith("aphantasia_half_") == true).ToList();
+        Assert.Contains(halfShots, projectile => projectile.Owner?.StartsWith("aphantasia_half_0_") == true);
+        Assert.Contains(halfShots, projectile => projectile.Owner?.StartsWith("aphantasia_half_1_") == true);
+        Assert.True(halfShots.Select(projectile => projectile.Speed).Distinct().Count() >= 6);
+        Assert.True(halfShots.Select(projectile => projectile.Size).Distinct().Count() >= 6);
+        Assert.Contains(halfShots, projectile => projectile.Path == "linear");
+        Assert.Contains(halfShots, projectile => projectile.Path == "sine"
+            && projectile.Amplitude != 0 && projectile.Frequency != .035f);
+        Assert.Contains(halfShots.GroupBy(projectile => projectile.Owner), volley => volley.Count() >= 3);
+    }
+
+    [Fact]
+    public void SurvivalTimerCompletesAcrossTheThirtySecondPhase()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(641));
+        boss.DebugSetPhase(3);
+        boss.DebugStartSurvival();
+        EnemyUpdateContext context = Context(boss, arena);
+
+        Assert.Equal(30, boss.SurvivalDuration);
+        Assert.Equal(0f, boss.SurvivalTimerProgress);
+        for (int tick = 0; tick < Simulation.FrameRate * 15; tick++)
+            boss.Update(context);
+
+        Assert.InRange(boss.SurvivalTimerProgress, .49f, .51f);
+    }
+
+    [Fact]
+    public void SurvivalClockAndPresentationWaitForSevenSecondHandoff()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(643));
+        boss.DebugSetPhase(1);
+        EnemyUpdateContext context = Context(boss, arena);
+        Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
+        Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
+        Assert.True(boss.TakeDamage(boss.MaxHp, "body").Applied);
+        context.ProjectileSink.Clear();
+
+        Assert.Equal(AphantasiaEncounterState.Survival, boss.EncounterState);
+        Assert.True(boss.PhaseHandoffActive);
+        Assert.False(boss.PresentationSurvivalActive);
+        Assert.Equal(Aphantasia.EarlySurvivalDuration, boss.SurvivalRemaining);
+        for (int tick = 0; tick < (Aphantasia.PhaseHandoffDuration - .5)
+            * Simulation.FrameRate; tick++)
+            boss.Update(context);
+
+        Assert.True(boss.PhaseHandoffActive);
+        Assert.Equal(Aphantasia.EarlySurvivalDuration, boss.SurvivalRemaining);
+        Assert.Empty(context.ProjectileSink);
+        AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
+        Assert.True(boss.PresentationSurvivalActive);
+        Assert.Equal(Aphantasia.EarlySurvivalDuration, boss.SurvivalRemaining);
+
+        boss.Update(context);
+
+        Assert.True(boss.SurvivalRemaining < Aphantasia.EarlySurvivalDuration);
+    }
+
+    [Fact]
+    public void SurvivalStageChanges_PreserveExistingProjectiles()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(617));
+        boss.DebugSetPhase(1);
+        boss.DebugStartSurvival();
+        boss.TransitionCleanupRequested = false;
+        EnemyUpdateContext context = Context(boss, arena);
+        var persistent = new EnemyProjectile(
+            boss.ArenaCenter.X, boss.ArenaCenter.Y, 0, 0, 1, 1,
+            lifetime: 60, owner: "aphantasia_stage_persistence", ignoreWalls: true);
+        context.ProjectileSink.Add(persistent);
+
+        double firstStageDuration = Aphantasia.EarlySurvivalDuration / 4;
+        for (int tick = 0; tick < (firstStageDuration + 1) * Simulation.FrameRate; tick++)
+            boss.Update(context);
+
+        Assert.True(boss.SequenceStage >= 1);
+        Assert.False(boss.TransitionCleanupRequested);
+        Assert.Contains(persistent, context.ProjectileSink);
+    }
+
+    [Fact]
+    public void IndividualMiniDeath_DoesNotBeginPhaseHandoff()
+    {
+        Battleground arena = MakeArena();
+        Aphantasia boss = Enumerable.Range(643, 200)
+            .Select(seed =>
+            {
+                var candidate = new Aphantasia(1000, 1000, arena, new Random(seed));
+                candidate.DebugSetPhase(1);
+                return candidate;
+            })
+            .First(candidate => candidate.CurrentPattern.Key == "tidal_pursuit");
+        EnemyUpdateContext context = Context(boss, arena);
+        context.PlayerWorldX = boss.ArenaCenter.X + boss.ArenaRadius * .55f;
+        for (int tick = 0; tick < Simulation.FrameRate * 4; tick++)
+        {
+            boss.Update(context);
+            context.ProjectileSink.Clear();
+        }
+        Vector2 before = new(boss.WorldX + boss.Size / 2f,
+            boss.WorldY + boss.Size / 2f);
+        Assert.True(Vector2.Distance(before, boss.ArenaCenter)
+            > Simulation.TileSize);
+        var lingering = new EnemyProjectile(
+            boss.ArenaCenter.X, boss.ArenaCenter.Y, 0, 0, 1, 1,
+            lifetime: 60, owner: "aphantasia_handoff_lingering", ignoreWalls: true);
+        context.ProjectileSink.Add(lingering);
+
+        HitResult result = boss.TakeDamage(boss.Light.MaxHp, "light");
+
+        Assert.True(result.Applied);
+        Assert.False(boss.PhaseHandoffActive);
+        Assert.False(boss.MilestoneHealRequested);
+        Assert.False(boss.TransitionCleanupRequested);
+        Assert.Contains(lingering, context.ProjectileSink);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void PhaseCheckpoint_OnlyFullHealsInHardMode(
+        bool hardMode, bool expectFullHealth)
+    {
+        GameSession session = MakeSession();
+        session.State.SetHardMode(hardMode);
+        session.StartAphantasia(new Random(647));
+        session.State.PendingLevelUps = 0;
+        var boss = Assert.IsType<Aphantasia>(session.State.ActiveBoss);
+        boss.DebugSetPhase(1);
+        session.State.HealthPoints = 1;
+        var lingering = new EnemyProjectile(
+            boss.ArenaCenter.X, boss.ArenaCenter.Y, 0, 0, 1, 1,
+            lifetime: 60, owner: "aphantasia_session_lingering", ignoreWalls: true);
+        session.State.EnemyProjectileHolster.Add(lingering);
+
+        Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
+        Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
+        Assert.True(boss.TakeDamage(boss.MaxHp, "body").Applied);
+        session.UpdateEnemies();
+
+        Assert.Equal(expectFullHealth
+            ? session.State.MaxHealthPoints : 1,
+            session.State.HealthPoints);
+        Assert.Contains(lingering, session.State.EnemyProjectileHolster);
+        Assert.False(boss.MilestoneHealRequested);
+    }
+
+    [Fact]
+    public void VoidClockVolley_ReservesItsCompletePortalWave()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(601),
+            noHealing: true, noExtract: true);
+        boss.DebugSetPhase(4);
+        SelectPattern(boss, "void_clock");
+        EnemyUpdateContext context = Context(boss, arena);
 
         context.ProjectileSink.Clear();
         for (int tick = 0; tick < Simulation.FrameRate * 3
@@ -817,26 +1168,35 @@ public sealed class AphantasiaTests
                 string pattern = boss.CurrentPattern.Key;
                 if (remaining.Contains(pattern))
                 {
+                    if (boss.PhaseHandoffActive)
+                        AdvanceUntil(boss, context, () => !boss.PhaseHandoffActive);
                     context.ProjectileSink.Clear();
                     for (int tick = 0; tick < Simulation.FrameRate * 3
                         && !context.ProjectileSink.Any(projectile =>
-                            projectile.Owner != "aphantasia_perimeter_drift"); tick++)
+                            projectile.Owner != "aphantasia_perimeter_drift"
+                            && projectile.Owner?.StartsWith("aphantasia_half_") != true
+                            && projectile.Owner?.StartsWith("aphantasia_double_helix_") != true); tick++)
                         boss.Update(context);
 
                     List<EnemyProjectile> patternProjectiles = context.ProjectileSink
-                        .Where(projectile => projectile.Owner != "aphantasia_perimeter_drift")
+                        .Where(projectile => projectile.Owner != "aphantasia_perimeter_drift"
+                            && projectile.Owner?.StartsWith("aphantasia_half_") != true
+                            && projectile.Owner?.StartsWith("aphantasia_double_helix_") != true)
                         .ToList();
                     Assert.NotEmpty(patternProjectiles);
                     Assert.DoesNotContain(patternProjectiles, projectile =>
                         projectile.Path is "pool" or "mine"
                         || projectile.Shape == "mine"
-                        || projectile.PersistentHazard);
+                        || projectile.PersistentHazard && projectile.Path != "laser");
                     Assert.All(patternProjectiles, projectile =>
                     {
-                        Assert.True(float.IsFinite(projectile.RemainingRange));
-                        Assert.True(projectile.Lifetime is > 0 and <= 40f);
+                        Assert.True(float.IsFinite(projectile.RemainingRange),
+                            $"{projectile.Owner} has range {projectile.RemainingRange}.");
+                        Assert.True(projectile.Lifetime is > 0 and <= 40f,
+                            $"{projectile.Owner} has lifetime {projectile.Lifetime}.");
                         Assert.True(projectile.Size >= Simulation.TileSize
-                            * Aphantasia.MinimumProjectileSizeTiles);
+                            * Aphantasia.MinimumProjectileSizeTiles,
+                            $"{projectile.Owner} has size {projectile.Size}.");
                     });
                     if (phase == 4)
                         Assert.Contains(patternProjectiles, projectile =>

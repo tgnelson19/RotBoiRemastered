@@ -172,6 +172,11 @@ public class Enemy
     /// </summary>
     public bool TransitionCleanupRequested { get; set; }
     public string? TransitionCleanupOwner { get; set; }
+    /// <summary>
+    /// Requests the Hard Mode full-heal checkpoint associated with a boss
+    /// phase or subphase handoff. Ordinary recovery remains disabled.
+    /// </summary>
+    public bool MilestoneHealRequested { get; set; }
 
     private Vector2 _lastVisualWorld;
     private Vector2 _visualFacing = Vector2.UnitX;

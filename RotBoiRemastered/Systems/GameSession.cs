@@ -281,6 +281,17 @@ public sealed class GameSession
         LoadCarriedItems();
     }
 
+    /// <summary>
+    /// Refreshes The Mind's dev-controlled gate geometry without treating the
+    /// change as a new run. Live position, equipment, inventory, and stats stay
+    /// attached to the existing player/session.
+    /// </summary>
+    internal void RefreshMindBattleground(Battleground battleground)
+    {
+        Battleground = battleground;
+        RefreshLightingFixtures();
+    }
+
     /// <summary>Starts a fresh ten-floor composite Path run.</summary>
     public void StartPathRun(Random? rng = null)
     {
@@ -734,7 +745,9 @@ public sealed class GameSession
         var obstacles = State.ActiveBoss is SinChemesthesisBoss chemicalBoss
             ? chemicalBoss.MovementObstacles()
             : null;
-        Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown, dashPressed, obstacles, controllerMove);
+        Player.Move(State, Battleground, Camera, moveLeft, moveRight, moveUp, moveDown,
+            dashPressed, obstacles, controllerMove,
+            useArenaBoundaryConstraint: State.ActiveBoss is Aphantasia);
         if (State.ActiveBoss is IBossArenaController arenaController)
         {
             Vector2 constrained = arenaController.ConstrainPlayer(
@@ -1475,14 +1488,7 @@ public sealed class GameSession
             {
                 GamePaths.TuneNewProjectiles(State.EnemyProjectileHolster, projectileStart);
             }
-            if (enemy.TransitionCleanupRequested)
-            {
-                if (enemy.TransitionCleanupOwner is not null)
-                    State.EnemyProjectileHolster.RemoveAll(p => p.Owner == enemy.TransitionCleanupOwner);
-                else
-                    State.EnemyProjectileHolster.Clear();
-                enemy.TransitionCleanupRequested = false;
-            }
+            HandleEnemyTransitionRequests(enemy);
             if (enemy.SpawnedEnemies.Count > 0)
             {
                 int start = _spawnedEnemyScratch.Count;
@@ -1589,6 +1595,28 @@ public sealed class GameSession
             .CompareTo(rightX * rightX + rightY * rightY);
     }
 
+    private void HandleEnemyTransitionRequests(Enemy enemy)
+    {
+        bool phaseCheckpoint = enemy.MilestoneHealRequested
+            || enemy.TransitionCleanupRequested;
+        if (phaseCheckpoint
+            && State.HardMode
+            && ReferenceEquals(enemy, State.ActiveBoss))
+        {
+            State.FillHealthForMilestone();
+        }
+        enemy.MilestoneHealRequested = false;
+
+        if (!enemy.TransitionCleanupRequested)
+            return;
+        if (enemy.TransitionCleanupOwner is not null)
+            State.EnemyProjectileHolster.RemoveAll(projectile =>
+                projectile.Owner == enemy.TransitionCleanupOwner);
+        else
+            State.EnemyProjectileHolster.Clear();
+        enemy.TransitionCleanupRequested = false;
+    }
+
     public void DrawEnemies(SpriteBatch spriteBatch)
     {
         PathFogOfWar? fog = ActiveVisibilityFog;
@@ -1638,7 +1666,8 @@ public sealed class GameSession
             _ => null,
         };
         var pathArena = State.ActiveBoss as PathChaseBoss;
-        bool bossDying = DeathSpectacleActive(State.ActiveBoss);
+        bool bossDying = DeathSpectacleActive(State.ActiveBoss)
+            && State.ActiveBoss is not Aphantasia;
         foreach (var projectile in State.EnemyProjectileHolster)
         {
             var center = new Vector2(projectile.WorldX + projectile.Size / 2f, projectile.WorldY + projectile.Size / 2f);
@@ -1661,8 +1690,16 @@ public sealed class GameSession
         State.EnemyProjectileHolster.RemoveAll(p => p.RemFlag);
         GamePaths.TuneNewProjectiles(_spawnedProjectileScratch);
         State.EnemyProjectileHolster.AddRange(_spawnedProjectileScratch);
-        if (State.ActiveBoss is not null && State.EnemyProjectileHolster.Count > MaxBossProjectiles)
-            State.EnemyProjectileHolster.RemoveRange(0, State.EnemyProjectileHolster.Count - MaxBossProjectiles);
+        int projectileLimit = State.ActiveBoss is Aphantasia
+            ? MaxBossProjectiles * Aphantasia.ProjectileCapacityMultiplier
+            : MaxBossProjectiles;
+        while (State.ActiveBoss is not null
+            && State.EnemyProjectileHolster.Count > projectileLimit)
+        {
+            EnemyProjectile longestLasting = State.EnemyProjectileHolster
+                .MaxBy(projectile => projectile.Age)!;
+            State.EnemyProjectileHolster.Remove(longestLasting);
+        }
     }
 
     /// <summary>Persistent pools are ground hazards and render below every combat actor.</summary>
@@ -2118,14 +2155,7 @@ public sealed class GameSession
                     if (bullet.IsCritical)
                         GameProfile.IncrementQuest("critical_hits");
                 }
-                if (enemy.TransitionCleanupRequested)
-                {
-                    if (enemy.TransitionCleanupOwner is not null)
-                        State.EnemyProjectileHolster.RemoveAll(p => p.Owner == enemy.TransitionCleanupOwner);
-                    else
-                        State.EnemyProjectileHolster.Clear();
-                    enemy.TransitionCleanupRequested = false;
-                }
+                HandleEnemyTransitionRequests(enemy);
                 Color currColor = bullet.IsCritical ? UiTheme.Purple : UiTheme.Gold;
                 object displayValue = result.Applied ? Math.Round(result.Amount) : "BLOCK";
                 var textWorld = Camera.ScreenToWorld(new Vector2(collided.Rect.X, collided.Rect.Y), PlayerWorldCenter, ScreenShake);

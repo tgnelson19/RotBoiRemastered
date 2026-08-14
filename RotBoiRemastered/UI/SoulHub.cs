@@ -372,14 +372,32 @@ public class SoulHub
         }
         if (!mousePressed)
             return null;
-        foreach (var (key, rect) in _targets.ToArray())
+        string? clickedTarget = ClickTargetAt(_targets, mouse,
+            overlayOpen: _overlay is not null);
+        if (clickedTarget is not null)
+            ActivateTarget(session, clickedTarget);
+        return null;
+    }
+
+    internal static string? ClickTargetAt(
+        IEnumerable<KeyValuePair<string, Rectangle>> targets,
+        Point mouse,
+        bool overlayOpen)
+    {
+        foreach ((string key, Rectangle rect) in targets)
         {
-            if (!rect.Contains(mouse)) continue;
-            ActivateTarget(session, key);
-            break;
+            if (overlayOpen && !IsOverlayTarget(key))
+                continue;
+            if (rect.Contains(mouse))
+                return key;
         }
         return null;
     }
+
+    private static bool IsOverlayTarget(string key) =>
+        key.StartsWith("skill:", StringComparison.Ordinal)
+        || key.StartsWith("cosmetic:", StringComparison.Ordinal)
+        || key.StartsWith("armory:", StringComparison.Ordinal);
 
     private void HandleOverlayControllerInput(GameSession session)
     {
@@ -396,9 +414,7 @@ public class SoulHub
     }
 
     private List<string> OrderedOverlayTargets() => _targets
-        .Where(pair => pair.Key.StartsWith("skill:", StringComparison.Ordinal)
-            || pair.Key.StartsWith("cosmetic:", StringComparison.Ordinal)
-            || pair.Key.StartsWith("armory:", StringComparison.Ordinal))
+        .Where(pair => IsOverlayTarget(pair.Key))
         .OrderBy(pair => pair.Value.Y)
         .ThenBy(pair => pair.Value.X)
         .Select(pair => pair.Key)
@@ -480,7 +496,7 @@ public class SoulHub
 
     private void RebuildMind(GameSession session)
     {
-        session.ResetAll(Battleground.GenerateMind());
+        session.RefreshMindBattleground(Battleground.GenerateMind());
         Enter(session);
     }
 

@@ -111,7 +111,8 @@ public sealed class Player
     /// <summary>Ported from character.py's movePlayer().</summary>
     public void Move(RunState state, Battleground battleground, Camera camera,
         bool moveLeft, bool moveRight, bool moveUp, bool moveDown, bool dashPressed,
-        IReadOnlyList<Rectangle>? obstacles = null, Vector2 controllerMove = default)
+        IReadOnlyList<Rectangle>? obstacles = null, Vector2 controllerMove = default,
+        bool useArenaBoundaryConstraint = false)
     {
         double seconds = Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         state.BossAfflictions.Update(seconds);
@@ -176,7 +177,8 @@ public sealed class Player
         float playerSize = (float)state.PlayerSize;
         Vector2 nextXAnchor = new Vector2(newAbsPosX + halfSize, WorldY + halfSize)
             + camera.ScreenVectorToWorld(new Vector2(-halfSize, -halfSize));
-        if (!battleground.ScreenAlignedRectangleHitsWall(nextXAnchor, playerSize, playerSize, camera)
+        if ((useArenaBoundaryConstraint
+                || !battleground.ScreenAlignedRectangleHitsWall(nextXAnchor, playerSize, playerSize, camera))
             && !HitsObstacle(nextXAnchor, playerSize, camera, obstacles))
             WorldX = newAbsPosX;
         else
@@ -184,7 +186,8 @@ public sealed class Player
 
         Vector2 nextYAnchor = new Vector2(WorldX + halfSize, newAbsPosY + halfSize)
             + camera.ScreenVectorToWorld(new Vector2(-halfSize, -halfSize));
-        if (!battleground.ScreenAlignedRectangleHitsWall(nextYAnchor, playerSize, playerSize, camera)
+        if ((useArenaBoundaryConstraint
+                || !battleground.ScreenAlignedRectangleHitsWall(nextYAnchor, playerSize, playerSize, camera))
             && !HitsObstacle(nextYAnchor, playerSize, camera, obstacles))
             WorldY = newAbsPosY;
         else
