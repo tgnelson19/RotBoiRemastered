@@ -327,9 +327,9 @@ public sealed class AphantasiaTests
         Aphantasia boss = MakeBoss();
         boss.DebugSetPhase(1);
 
-        Assert.Equal(346_000, Aphantasia.BaseBarHealth);
+        Assert.Equal(1_038_000, Aphantasia.BaseBarHealth);
         Assert.Equal(Aphantasia.BaseBarHealth, boss.MaxHp);
-        Assert.Equal(18_230, Aphantasia.BaseMiniHealth);
+        Assert.Equal(54_690, Aphantasia.BaseMiniHealth);
         Assert.Equal(Aphantasia.BaseMiniHealth, boss.Light.MaxHp);
         Assert.Equal(Aphantasia.BaseMiniHealth, boss.Dark.MaxHp);
         int expectedEarlySize = (int)(Simulation.TileSize * 1.62f);
@@ -438,7 +438,7 @@ public sealed class AphantasiaTests
         Assert.True(boss.Dark.Empowered);
         Assert.True(boss.Dark.Aggressive);
         Assert.Equal(Aphantasia.EmpoweredMiniHealth, boss.Dark.MaxHp);
-        Assert.Equal(58_505, boss.Dark.MaxHp);
+        Assert.Equal(175_515, boss.Dark.MaxHp);
         Assert.True(boss.Dark.MaxHp > originalDarkMax * 3);
         Assert.True(boss.TakeDamage(1, "dark").Blocked);
     }
@@ -558,30 +558,28 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void PerimeterPressure_ContinuouslySeedsThreatsAroundTheWholeArena()
+    public void GenericPerimeterPressure_ScalesFromNoneToHalfToFullByPhase()
     {
-        Battleground arena = MakeArena();
-        var boss = new Aphantasia(1000, 1000, arena, new Random(439));
-        boss.DebugSetPhase(1);
-        EnemyUpdateContext context = Context(boss, arena);
-
-        for (int tick = 0; tick < Simulation.FrameRate; tick++)
-            boss.Update(context);
-
-        List<EnemyProjectile> perimeter = context.ProjectileSink.Where(projectile =>
-            projectile.Owner == "aphantasia_perimeter_drift").ToList();
-        Assert.Equal(Aphantasia.PerimeterPressureCount, perimeter.Count);
-        Assert.All(perimeter, projectile =>
+        foreach ((int phase, int expectedCount) in new[] { (1, 0), (2, 0), (3, 4), (4, 8) })
         {
-            Vector2 origin = projectile.OriginPoint - boss.ArenaCenter;
-            Assert.InRange(origin.Length(), boss.ArenaRadius * .9f, boss.ArenaRadius);
-            Assert.True(projectile.Lifetime > 12f);
-        });
-        Assert.Equal(4, perimeter.Select(projectile =>
-        {
-            Vector2 origin = projectile.OriginPoint - boss.ArenaCenter;
-            return (origin.X >= 0 ? 1 : 0) + (origin.Y >= 0 ? 2 : 0);
-        }).Distinct().Count());
+            Battleground arena = MakeArena();
+            var boss = new Aphantasia(1000, 1000, arena, new Random(439));
+            boss.DebugSetPhase(phase);
+            EnemyUpdateContext context = Context(boss, arena);
+
+            for (int tick = 0; tick < Simulation.FrameRate * 2; tick++)
+                boss.Update(context);
+
+            List<EnemyProjectile> perimeter = context.ProjectileSink.Where(projectile =>
+                projectile.Owner == "aphantasia_perimeter_drift").ToList();
+            Assert.Equal(expectedCount, perimeter.Count);
+            Assert.All(perimeter, projectile =>
+            {
+                Vector2 origin = projectile.OriginPoint - boss.ArenaCenter;
+                Assert.InRange(origin.Length(), boss.ArenaRadius * .9f, boss.ArenaRadius);
+                Assert.True(projectile.Lifetime > 12f);
+            });
+        }
     }
 
     [Fact]
@@ -597,7 +595,7 @@ public sealed class AphantasiaTests
             boss.Update(context);
 
         EnemyProjectile bossShot = Assert.Single(context.ProjectileSink.Where(projectile =>
-            projectile.Owner == "aphantasia_essence_bloom"
+            projectile.Owner == "aphantasia_ordered_bloom_outer"
             && projectile.Path == "linear").Take(1));
         EnemyProjectile miniShot = Assert.Single(context.ProjectileSink.Where(projectile =>
             projectile.Owner?.StartsWith("aphantasia_mini_") == true
@@ -801,6 +799,84 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
+    public void TesseractEight_FiresTelegraphedCapacityReservedRefractors()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(617));
+        boss.DebugSetPhase(3);
+        SelectPattern(boss, "tesseract_eight");
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 3; tick++)
+            boss.Update(context);
+
+        List<EnemyProjectile> refractors = context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_refractor").ToList();
+        Assert.NotEmpty(refractors);
+        Assert.All(refractors, projectile =>
+        {
+            Assert.Equal("star", projectile.Shape);
+            Assert.Equal(3, projectile.SplitCount);
+            Assert.Equal(3, projectile.ThreatReservationCost);
+            Assert.Equal(.55f, projectile.SplitTelegraphStartRatio);
+            Assert.NotNull(projectile.SplitAt);
+            Assert.InRange(projectile.SplitAt!.Value / projectile.RemainingRange, .49f, .51f);
+        });
+    }
+
+    [Fact]
+    public void NestedVoidClock_FiresFiniteDeceleratingVoidAnchors()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(619));
+        boss.DebugSetPhase(4);
+        SelectPattern(boss, "void_clock");
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 3; tick++)
+            boss.Update(context);
+
+        EnemyProjectile anchor = Assert.Single(context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_void_anchor").Take(1));
+        Assert.Equal("orbit_core", anchor.Shape);
+        Assert.Equal(5.5f, anchor.Lifetime);
+        Assert.True(anchor.SpeedDecay > 0);
+        float initialSpeed = anchor.Speed;
+        for (int tick = 0; tick < Simulation.FrameRate * 6 && !anchor.RemFlag; tick++)
+            anchor.Update(arena, casualMode: false);
+        Assert.True(anchor.Speed < initialSpeed);
+        Assert.True(anchor.RemFlag);
+    }
+
+    [Fact]
+    public void CombatPhrases_PauseNewFireThenResumeWithAnAccentVolley()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(623));
+        boss.DebugSetPhase(1);
+        SelectPattern(boss, "ordered_bloom");
+        EnemyUpdateContext context = Context(boss, arena);
+        bool Breathing() => boss.SubPhaseElapsed >= Aphantasia.SubphaseDeclarationDuration
+            + Aphantasia.CombatPhraseDuration - Aphantasia.CombatPhraseBreathDuration
+            && boss.SubPhaseElapsed < Aphantasia.SubphaseDeclarationDuration
+                + Aphantasia.CombatPhraseDuration;
+        AdvanceUntil(boss, context, Breathing,
+            Simulation.FrameRate * 8);
+        context.ProjectileSink.Clear();
+
+        for (int tick = 0; tick < Simulation.FrameRate * .4; tick++)
+            boss.Update(context);
+
+        Assert.True(Breathing());
+        Assert.Empty(context.ProjectileSink);
+        while (Breathing())
+            boss.Update(context);
+
+        Assert.Contains(context.ProjectileSink, projectile =>
+            projectile.Owner?.Contains("order_accent_") == true);
+    }
+
+    [Fact]
     public void BossLasersProvideAFullSecondCollisionFreeIndicator()
     {
         Battleground arena = MakeArena();
@@ -899,18 +975,29 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void ArenaHalvesContinuouslyRollDifferentProjectileProperties()
+    public void ArenaHalfPressure_IsDisabledEarlyAndApproximatelyHalvedInPhaseThree()
     {
-        Battleground arena = MakeArena();
-        var boss = new Aphantasia(1000, 1000, arena, new Random(631));
-        boss.DebugSetPhase(2);
-        EnemyUpdateContext context = Context(boss, arena);
+        static List<EnemyProjectile> Simulate(int phase)
+        {
+            Battleground arena = MakeArena();
+            var boss = new Aphantasia(1000, 1000, arena, new Random(631));
+            boss.DebugSetPhase(phase);
+            EnemyUpdateContext context = Context(boss, arena);
+            for (int tick = 0; tick < Simulation.FrameRate * 12; tick++)
+                boss.Update(context);
+            return context.ProjectileSink.Where(projectile =>
+                projectile.Owner?.StartsWith("aphantasia_half_") == true).ToList();
+        }
 
-        for (int tick = 0; tick < Simulation.FrameRate * 12; tick++)
-            boss.Update(context);
-
-        List<EnemyProjectile> halfShots = context.ProjectileSink.Where(projectile =>
-            projectile.Owner?.StartsWith("aphantasia_half_") == true).ToList();
+        Assert.Empty(Simulate(1));
+        Assert.Empty(Simulate(2));
+        List<EnemyProjectile> phaseThree = Simulate(3);
+        List<EnemyProjectile> halfShots = Simulate(4);
+        int phaseThreeVolleys = phaseThree.Select(projectile => projectile.Owner).Distinct().Count();
+        int phaseFourVolleys = halfShots.Select(projectile => projectile.Owner).Distinct().Count();
+        Assert.InRange(phaseThreeVolleys, 1, phaseFourVolleys);
+        Assert.True(phaseThreeVolleys <= Math.Ceiling(phaseFourVolleys * .65),
+            $"Expected roughly half as many phase-three half-pressure volleys, got {phaseThreeVolleys} versus {phaseFourVolleys}.");
         Assert.Contains(halfShots, projectile => projectile.Owner?.StartsWith("aphantasia_half_0_") == true);
         Assert.Contains(halfShots, projectile => projectile.Owner?.StartsWith("aphantasia_half_1_") == true);
         Assert.True(halfShots.Select(projectile => projectile.Speed).Distinct().Count() >= 6);
@@ -1080,8 +1167,8 @@ public sealed class AphantasiaTests
         List<EnemyProjectile> clockVolley = context.ProjectileSink.Where(projectile =>
             projectile.Owner?.Contains("void_clock") == true
             || projectile.Owner?.Contains("portal_clock_hand") == true).ToList();
-        Assert.Equal(13, clockVolley.Count);
-        Assert.Equal(20, clockVolley.Sum(projectile => projectile.ThreatReservationCost));
+        Assert.Equal(11, clockVolley.Count);
+        Assert.Equal(18, clockVolley.Sum(projectile => projectile.ThreatReservationCost));
         Assert.Single(clockVolley,
             projectile => projectile.Owner?.Contains("portal_clock_hand") == true);
     }
