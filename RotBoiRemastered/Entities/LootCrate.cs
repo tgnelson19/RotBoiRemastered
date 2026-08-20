@@ -47,6 +47,21 @@ public class LootCrate
     /// <summary>"Unique" isn't in Upgrades.RarityOrder (crates can't roll one the normal way -- only a boss's fixed drop table grants one), so this is checked directly rather than through Tint()'s rarity-order ranking.</summary>
     public bool ContainsUnique => Items.Any(item => item.Rarity == "Unique");
 
+    /// <summary>
+    /// Best Legendary/Mythical rarity among contained items, or null if
+    /// there isn't one. Before the item-system rework, a crate's orbiting
+    /// aura (DrawTreasureAura) only ever fired for ContainsUnique -- a crate
+    /// holding three Legendaries looked identical to one holding three
+    /// Commons. This is what lets DrawAt give Legendary/Mythical crates
+    /// their own scaled-down version of that same fanfare instead, so the
+    /// rarity of what's inside is legible before you've even opened it.
+    /// </summary>
+    public string? BestHighTierRarity => Items
+        .Select(item => item.Rarity)
+        .Where(rarity => rarity is "Legendary" or "Mythical")
+        .OrderByDescending(rarity => rarity == "Mythical")
+        .FirstOrDefault();
+
     public bool ContainsCoreForged => Items.Any(item => RotBoiRemastered.Systems.Items.CoreForgeFor(item) is not null);
 
     public Color? CoreAccent
@@ -119,7 +134,11 @@ public class LootCrate
         Primitives2D.FillEllipse(spriteBatch, shadowRect, UiTheme.Shadow);
 
         if (ContainsUnique)
-            DrawTreasureAura(spriteBatch, rect, animationTime);
+            DrawTreasureAura(spriteBatch, rect, animationTime, 1f, UiTheme.Gold);
+        else if (BestHighTierRarity is { } highTierRarity)
+            DrawTreasureAura(spriteBatch, rect, animationTime,
+                highTierRarity == "Mythical" ? .68f : .4f,
+                UiTheme.RarityColors.GetValueOrDefault(highTierRarity, UiTheme.Gold));
 
         int border = Math.Max(2, (int)(size * 0.08f));
         Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
@@ -148,23 +167,30 @@ public class LootCrate
     }
 
     /// <summary>
-    /// Two golden points orbit the chest in a flattened ellipse (matching the
-    /// squashed shadow ellipse drawn above), each dragging a fading trail of
-    /// shrinking dots behind it -- reads as a beam of light swirling around
-    /// the chest rather than a static glow.
+    /// Two colored points orbit the chest in a flattened ellipse (matching
+    /// the squashed shadow ellipse drawn above), each dragging a fading
+    /// trail of shrinking dots behind it -- reads as a beam of light
+    /// swirling around the chest rather than a static glow. Originally
+    /// Unique-only and hardcoded gold; now shared by Legendary/Mythical
+    /// crates too (see LootCrate.BestHighTierRarity), each at their own
+    /// `intensity` (orbit reach, trail length, and brightness all scale down
+    /// together) and tinted with their own rarity color instead of gold, so
+    /// a Legendary crate's aura doesn't get mistaken for a Unique one.
     /// </summary>
     private static void DrawTreasureAura(
         SpriteBatch spriteBatch,
         Rectangle rect,
-        float animationTime)
+        float animationTime,
+        float intensity,
+        Color color)
     {
         const double period = 2.4; // seconds per full orbit
-        const int trailSegments = 16;
+        int trailSegments = Math.Max(4, (int)(16 * intensity));
         const float trailSpan = MathHelper.TwoPi * .5f; // how much of the orbit the fading trail covers
 
         float headAngle = (float)(animationTime % period / period * MathHelper.TwoPi);
-        float orbitRx = rect.Width * .85f;
-        float orbitRy = rect.Height * .5f;
+        float orbitRx = rect.Width * .85f * (.75f + .25f * intensity);
+        float orbitRy = rect.Height * .5f * (.75f + .25f * intensity);
         var center = new Vector2(rect.Center.X, rect.Center.Y);
 
         for (int beam = 0; beam < 2; beam++)
@@ -174,10 +200,10 @@ public class LootCrate
             {
                 float t = i / (float)(trailSegments - 1);
                 float angle = headAngle + beamOffset - t * trailSpan;
-                float alpha = (1f - t) * .85f;
-                float dotRadius = MathHelper.Lerp(3.5f, 1f, t);
+                float alpha = (1f - t) * .85f * intensity;
+                float dotRadius = MathHelper.Lerp(3.5f, 1f, t) * (.6f + .4f * intensity);
                 var point = center + new Vector2(MathF.Cos(angle) * orbitRx, MathF.Sin(angle) * orbitRy);
-                Primitives2D.FillCircle(spriteBatch, point, dotRadius, UiTheme.Gold * alpha);
+                Primitives2D.FillCircle(spriteBatch, point, dotRadius, color * alpha);
             }
         }
     }

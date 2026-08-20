@@ -31,7 +31,27 @@ public static class InputState
     public static int ScrollWheelDelta { get; set; }
 
     public static Vector2 ControllerMove { get; set; }
+
+    /// <summary>
+    /// Right-stick aim *direction* (unit-length once past the deadzone, else
+    /// Vector2.Zero) -- magnitude is not distance/speed here. RotBoiGame
+    /// combines this with a fixed on-screen radius to place an orbiting
+    /// reticle around the player, rather than treating the raw stick vector
+    /// as a free-roaming virtual mouse position.
+    /// </summary>
     public static Vector2 ControllerAim { get; set; }
+
+    /// <summary>True while the right trigger is held past its threshold (fires, mirroring MouseDown).</summary>
+    public static bool ControllerFireHeld { get; set; }
+
+    /// <summary>
+    /// Where the aim reticle should actually render this frame: the real
+    /// cursor position, or -- while beta controller support has the right
+    /// stick deflected -- the fixed-radius orbiting point RotBoiGame
+    /// computes from InputState.ControllerAim. Set once per frame alongside
+    /// bullet-creation's own aim target so Draw doesn't recompute it.
+    /// </summary>
+    public static Point EffectiveAimPosition { get; set; }
     public static bool ControllerDashPressed { get; set; }
     public static bool ControllerAutofirePressed { get; set; }
     public static bool ControllerInteractPressed { get; set; }

@@ -174,7 +174,7 @@ public static class ItemCards
         Color rarityColor = UiTheme.RarityColors.TryGetValue(item.Rarity, out var color) ? color : UiTheme.Border;
         var core = Items.CoreForgeFor(item);
         Color? coreColor = core is not null ? GamePaths.PathsByKey[core.PathKey].Accent : null;
-        int cornerRadius = Math.Max(2, rect.Width / 8);
+        int cornerRadius = UiTheme.CardCornerRadius(rect.Width);
 
         if (coreColor is Color glowColor)
             DrawCoreGlow(spriteBatch, rect, glowColor, cornerRadius, animationTime);
@@ -201,15 +201,37 @@ public static class ItemCards
         if (isUnique)
             DrawUniqueSheen(spriteBatch, rect, animationTime);
 
-        Color gradeColor = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Muted);
-        int badgeSize = Math.Max(12, rect.Width / 3);
-        var gradeBadge = new Rectangle(rect.Right - badgeSize, rect.Bottom - badgeSize, badgeSize, badgeSize);
-        Primitives2D.FillRoundedRect(spriteBatch, gradeBadge, UiTheme.Ink, Math.Max(2, badgeSize / 5));
-        Primitives2D.RoundedRectOutline(spriteBatch, gradeBadge, gradeColor, Math.Max(1, badgeSize / 10), Math.Max(2, badgeSize / 5));
-        UiTheme.DrawText(spriteBatch, item.Grade, Math.Max(8, badgeSize * .58), gradeColor, gradeBadge.Center.ToVector2(), "center");
+        // Grade's old corner badge is gone along with Grade itself -- in its
+        // place, a row of pips along the bottom edge shows how many rungs of
+        // this item's Modifier ladder (see Items.ModifierUnlockCount) the
+        // drop's current Rarity has actually unlocked, at a glance, on every
+        // card everywhere DrawItemCard is used (inventory, Reforge slots,
+        // loot panels). Empty for Uniques -- they have no ladder to climb.
+        int unlockedPips = Items.ModifierUnlockCount(item.Rarity);
+        int totalPips = Math.Max(unlockedPips, item.Definition.ModifierLadder.Count);
+        if (totalPips > 0)
+        {
+            int pipSize = Math.Max(2, rect.Width / 14);
+            int pipGap = Math.Max(1, pipSize / 3);
+            int rowWidth = totalPips * pipSize + (totalPips - 1) * pipGap;
+            int pipStartX = rect.Center.X - rowWidth / 2;
+            int pipY = rect.Bottom - pipSize - Math.Max(2, rect.Width / 20);
+            for (int index = 0; index < totalPips; index++)
+            {
+                var pip = new Rectangle(pipStartX + index * (pipSize + pipGap), pipY, pipSize, pipSize);
+                bool filled = index < unlockedPips;
+                Primitives2D.FillRect(spriteBatch, pip, filled ? rarityColor : UiTheme.Shadow);
+                Primitives2D.RectOutline(spriteBatch, pip, UiTheme.Ink, 1);
+            }
+        }
 
         if (coreColor is Color coreBadgeColor)
         {
+            // badgeSize used to be shared with the old Grade corner badge;
+            // that badge is gone, but the core-forge pulse dot still wants
+            // the same top-left-corner scale reference, so it's computed
+            // locally here now instead.
+            int badgeSize = Math.Max(12, rect.Width / 3);
             float pulse = .75f + .2f * MathF.Sin(animationTime * 4.75f);
             Primitives2D.FillCircle(spriteBatch,
                 new Vector2(rect.X + badgeSize * .45f, rect.Y + badgeSize * .45f),
@@ -287,5 +309,50 @@ public static class ItemCards
         int right = (int)Math.Min(rect.Right, centerX + width / 2f);
         if (right > left)
             Primitives2D.FillRect(spriteBatch, new Rectangle(left, y, right - left, 2), color);
+    }
+
+    /// <summary>
+    /// Shared "what does each rarity unlock" ladder visualizer, one row per
+    /// rung of Items.ModifierUnlockPreview(item): a [X]/[ ] checkbox, the
+    /// tier it unlocks at (or SIGNATURE for the Legendary/Mythical bespoke
+    /// power), and the Modifier/Signature's name, lit in that rarity's color
+    /// once reached and dimmed to Muted while still locked. Every tooltip
+    /// that shows an item in the game draws this at the bottom via this one
+    /// method (InformationSheet.DrawItemTooltip, FooterHud.DrawTooltip,
+    /// ReforgeHandler.DrawSelectedItem) so it can never drift between them.
+    /// Returns the total height drawn so callers can size their own
+    /// panel/tooltip around it.
+    /// </summary>
+    public static int DrawModifierLadder(SpriteBatch spriteBatch, Vector2 topLeft, double rowTextSize, ItemDrop item)
+    {
+        var rungs = Items.ModifierUnlockPreview(item);
+        if (rungs.Count == 0)
+            return 0;
+        float lineHeight = (float)(rowTextSize * 1.75);
+        float y = topLeft.Y;
+        UiTheme.DrawText(spriteBatch, "RARITY UNLOCKS", rowTextSize * .9, UiTheme.Muted, new Vector2(topLeft.X, y));
+        y += lineHeight;
+        foreach (var rung in rungs)
+        {
+            Color tierColor = UiTheme.RarityColors.GetValueOrDefault(rung.Rarity, UiTheme.Border);
+            Color rowColor = rung.Unlocked ? tierColor : UiTheme.Muted;
+            string checkbox = rung.Unlocked ? "[X]" : "[ ]";
+            string tag = rung.IsSignature ? "SIGNATURE" : rung.Rarity.ToUpperInvariant();
+            UiTheme.DrawText(spriteBatch, $"{checkbox} {tag}", rowTextSize, rowColor, new Vector2(topLeft.X, y));
+            UiTheme.DrawText(spriteBatch, rung.Name.ToUpperInvariant(), rowTextSize, rowColor,
+                new Vector2(topLeft.X + (float)(rowTextSize * 11), y));
+            y += lineHeight;
+        }
+        return (int)MathF.Ceiling(y - topLeft.Y);
+    }
+
+    /// <summary>Total height DrawModifierLadder will use for `item` at rowTextSize, without drawing anything -- lets a caller size its panel/tooltip before it starts drawing (see InformationSheet.DrawItemTooltip and FooterHud.DrawTooltip, both of which size their box up front).</summary>
+    public static int MeasureModifierLadder(double rowTextSize, ItemDrop item)
+    {
+        int rungCount = Items.ModifierUnlockPreview(item).Count;
+        if (rungCount == 0)
+            return 0;
+        float lineHeight = (float)(rowTextSize * 1.75);
+        return (int)MathF.Ceiling(lineHeight * (rungCount + 1));
     }
 }

@@ -887,9 +887,7 @@ public sealed class AphantasiaTests
         GameSession session = MakeSession();
         var weapon = new ItemDrop(
             Items.DefinitionsByName["Iron Dagger"],
-            "Epic",
-            Grade: "A",
-            Modifier: "Heavy");
+            "Epic");
         session.State.Equipment["weapon"] = weapon;
         session.State.CombinePlayerStats();
         int damageWithWeapon = session.State.BulletDamage;

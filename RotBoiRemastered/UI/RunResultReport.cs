@@ -5,6 +5,9 @@ namespace RotBoiRemastered.UI;
 
 public sealed record RunItemSummary(string Slot, string Name, string Rarity);
 
+/// <summary>A Vow Lectern quest that crossed its target during this run, for the debrief's callout.</summary>
+public sealed record QuestCompletionSummary(string Symbol, string Name, int Reward);
+
 public enum RunPaceBand { UnderTarget, OnTarget, OverTarget }
 
 public static class RunPacing
@@ -34,6 +37,7 @@ public sealed record RunResultReport
     public required IReadOnlyList<string> DominantFamilies { get; init; }
     public required IReadOnlyList<RunItemSummary> RetainedLoadout { get; init; }
     public required IReadOnlyList<RunItemSummary> LostLoadout { get; init; }
+    public required IReadOnlyList<QuestCompletionSummary> CompletedQuests { get; init; }
     public int Level { get; init; }
     public int Kills { get; init; }
     public double Seconds { get; init; }
@@ -84,6 +88,12 @@ public sealed record RunResultReport
                     ?? GamePaths.Active().Title;
         int mastery = GameProfile.Profile.PathMastery.GetValueOrDefault(pathKey);
         int newGamePlus = GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(pathKey);
+        var completedQuests = state.QuestsCompletedThisRun
+            .Distinct()
+            .Select(key => MetaProgression.QuestsByKey.GetValueOrDefault(key))
+            .Where(quest => quest is not null)
+            .Select(quest => new QuestCompletionSummary(quest!.Symbol, quest.Name, quest.Reward))
+            .ToArray();
         double bossSeconds = Math.Clamp(
             state.BossEncounterTelemetry.Sum(encounter => encounter.ClearSeconds),
             0, Math.Max(0, state.RunTimeSeconds));
@@ -96,6 +106,7 @@ public sealed record RunResultReport
             DominantFamilies = dominant,
             RetainedLoadout = retained ? items.ToArray() : Array.Empty<RunItemSummary>(),
             LostLoadout = retained ? Array.Empty<RunItemSummary>() : items.ToArray(),
+            CompletedQuests = completedQuests,
             Level = state.CurrentLevel,
             Kills = state.NumOfEnemiesKilled,
             Seconds = state.RunTimeSeconds,

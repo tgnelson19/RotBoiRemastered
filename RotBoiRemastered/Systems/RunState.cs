@@ -187,6 +187,10 @@ public sealed class RunState
     public bool HardMode { get; private set; }
     public bool NoHealing => HardMode;
     public bool NoExtract { get; private set; }
+    /// <summary>Either Hard Mode brazier lit -- the minimum needed for Core-Forged drops to become possible at all (see Items.RollCoreForge).</summary>
+    public bool AnyHardModeActive => HardMode || NoExtract;
+    /// <summary>Both Hard Mode braziers lit ("Aphantasia, Core of the Void" territory). Items.RollCoreForge triples the Core-Forge roll chance while this is true.</summary>
+    public bool IsTrueHardMode => HardMode && NoExtract;
     public int NewGamePlusLevel { get; private set; }
 
     public double PlayerSpeed { get; private set; }
@@ -290,6 +294,12 @@ public sealed class RunState
     public BossAfflictions BossAfflictions { get; } = new();
     public List<BossEncounterTelemetryData> BossEncounterTelemetry { get; } = new();
 
+    /// <summary>Quest keys completed since the last Reset(), for the debrief's "quest complete" callouts. See GameProfile.IncrementQuest.</summary>
+    public List<string> QuestsCompletedThisRun { get; private set; } = new();
+
+    /// <summary>Set true the first time this run's Golden Forge upgrades a grade or rerolls a modifier. See ReforgeHandler and MetaProgression.RecordExtraction.</summary>
+    public bool ReforgeUsedThisRun { get; set; }
+
     public RunState()
     {
         HighestLevel = GameProfile.Profile.BestLevel;
@@ -387,6 +397,8 @@ public sealed class RunState
         BossAfflictions.Reset();
         DreamState.Reset();
         BossEncounterTelemetry.Clear();
+        QuestsCompletedThisRun = new List<string>();
+        ReforgeUsedThisRun = false;
 
         NewRandoUps = false;
 

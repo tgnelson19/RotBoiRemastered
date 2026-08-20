@@ -56,6 +56,41 @@ public class GameProfileTests : IDisposable
     }
 
     [Fact]
+    public void MissingProfile_GrandfathersTheDefaultEquippedCosmetics()
+    {
+        var profile = GameProfile.LoadProfile(Path.Combine(_tempDir, "missing.json"));
+
+        Assert.Contains($"core:{profile.PlayerCoreColor}", profile.UnlockedCosmetics);
+        Assert.Contains($"edge:{profile.PlayerEdgeColor}", profile.UnlockedCosmetics);
+        Assert.Contains($"projectile:{profile.ProjectileColor}", profile.UnlockedCosmetics);
+        Assert.Contains($"design:{profile.ProjectileDesign}", profile.UnlockedCosmetics);
+    }
+
+    [Fact]
+    public void LoadingASaveWithGatedCosmeticsEquipped_GrandfathersThemIn()
+    {
+        string path = Path.Combine(_tempDir, "profile.json");
+        // A hand-authored save (as if written before this cosmetic tier existed) with a
+        // gated core color equipped but never separately unlocked.
+        File.WriteAllText(path, """{"PlayerCoreColor": "voidbloom"}""");
+
+        var profile = GameProfile.LoadProfile(path);
+
+        Assert.Contains("core:voidbloom", profile.UnlockedCosmetics);
+
+        var originalProfile = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = profile;
+            Assert.True(Cosmetics.IsUnlocked("core", "voidbloom"));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+        }
+    }
+
+    [Fact]
     public void UnknownFieldsAreIgnored_KnownFieldsAreLoaded()
     {
         string path = Path.Combine(_tempDir, "profile.json");

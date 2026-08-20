@@ -555,10 +555,10 @@ public class SoulHub
         int sideX = screen.X < session.ScreenWidth * .68f ? (int)screen.X + 58 : (int)screen.X - 268;
         var readout = new Rectangle(sideX, (int)screen.Y - 68, 210, 128);
         UiTheme.DrawPanel(spriteBatch, readout, UiTheme.Panel, UiTheme.Red, shadow: 5);
-        UiTheme.DrawText(spriteBatch, "THE EFFIGY REMEMBERS", 10, UiTheme.Muted, new Vector2(readout.X + 12, readout.Y + 10));
-        UiTheme.DrawText(spriteBatch, $"{_currentDps:0}", 34, UiTheme.Text, new Vector2(readout.X + 12, readout.Y + 31));
-        UiTheme.DrawText(spriteBatch, "DAMAGE PER SECOND", 9, UiTheme.Red, new Vector2(readout.X + 14, readout.Y + 74));
-        UiTheme.DrawText(spriteBatch, $"SESSION {_sessionBest:0}  //  RECORD {GameProfile.Profile.BestDummyDps:0}", 8, UiTheme.Cream,
+        UiTheme.DrawText(spriteBatch, "THE EFFIGY REMEMBERS", Fs(10), UiTheme.Muted, new Vector2(readout.X + 12, readout.Y + 10));
+        UiTheme.DrawText(spriteBatch, $"{_currentDps:0}", Fs(34), UiTheme.Text, new Vector2(readout.X + 12, readout.Y + 31));
+        UiTheme.DrawText(spriteBatch, "DAMAGE PER SECOND", Fs(9), UiTheme.Red, new Vector2(readout.X + 14, readout.Y + 74));
+        UiTheme.DrawText(spriteBatch, $"SESSION {_sessionBest:0}  //  RECORD {GameProfile.Profile.BestDummyDps:0}", Fs(8), UiTheme.Cream,
             new Vector2(readout.X + 14, readout.Y + 98));
         SoulVisualRenderer.DrawStations(
             spriteBatch, session, (float)_seconds, _stationWorld,
@@ -1077,7 +1077,7 @@ public class SoulHub
             Primitives2D.FillRect(spriteBatch, baseRect, UiTheme.PanelRaised);
             Primitives2D.RectOutline(spriteBatch, baseRect, accent, 3);
             Primitives2D.FillCircle(spriteBatch, new Vector2(position.X, position.Y), 9, accent);
-            UiTheme.DrawText(spriteBatch, label, 8, accent, new Vector2(position.X, baseRect.Bottom + 7), "midtop");
+            UiTheme.DrawText(spriteBatch, label, Fs(8), accent, new Vector2(position.X, baseRect.Bottom + 7), "midtop");
         }
     }
 
@@ -1137,22 +1137,22 @@ public class SoulHub
                 var arcRect = new Rectangle((int)(screen.X - ringRadius), (int)(screen.Y - ringRadius), (int)(ringRadius * 2), (int)(ringRadius * 2));
                 Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .62f, path.Accent, 2);
             }
-            UiTheme.DrawText(spriteBatch, path.Title, 10, path.Accent, new Vector2(screen.X, screen.Y + radius + 8), "midtop");
+            UiTheme.DrawText(spriteBatch, path.Title, Fs(10), path.Accent, new Vector2(screen.X, screen.Y + radius + 8), "midtop");
             int unlockedNg = NewGamePlus.UnlockedLevel(path.Key);
             string ngLabel = unlockedNg == 0
                 ? "NORMAL  //  COMPLETE TO UNLOCK NG+"
                 : selectedNg == 0 ? $"NORMAL  //  NG+{unlockedNg} UNLOCKED" : $"NG+{selectedNg}  //  MAX {unlockedNg}";
             UiTheme.DrawText(spriteBatch, ngLabel,
-                8, selectedNg == 0 ? UiTheme.Muted : UiTheme.Gold,
+                Fs(8), selectedNg == 0 ? UiTheme.Muted : UiTheme.Gold,
                 new Vector2(screen.X, screen.Y + radius + 25), "midtop");
             // Suppressed while confirming/entering that same portal -- the center
             // confirmation panel (DrawPortalConfirm) already explains the prompt.
             bool unlocked = CampaignProgression.PortalUnlocked(path.Key);
             if (!unlocked)
-                UiTheme.DrawText(spriteBatch, "SEALED", 9, UiTheme.Red,
+                UiTheme.DrawText(spriteBatch, "SEALED", Fs(9), UiTheme.Red,
                     new Vector2(screen.X, screen.Y + radius + 42), "midtop");
             else if (path.Key == nearbyPortal && path.Key != _confirmingPortalKey && _enteringPortalKey is null)
-                UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", 9, UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 42), "midtop");
+                UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", Fs(9), UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 42), "midtop");
         }
     }
 
@@ -1382,7 +1382,7 @@ public class SoulHub
                 new Rectangle((int)mote.X, (int)mote.Y, size, size), moteColor * .78f);
         }
 
-        UiTheme.DrawText(spriteBatch, "APHANTASIA REMEMBERED", 7,
+        UiTheme.DrawText(spriteBatch, "APHANTASIA REMEMBERED", Fs(7),
             rainbow ? accent : UiTheme.Muted,
             new Vector2(at.X, at.Y + 48), "midtop");
     }
@@ -1429,7 +1429,7 @@ public class SoulHub
         controls.Add(("rainbow", "TOGGLE ALL RAINBOW", UiTheme.Purple));
         controls.Add(("portal:aphantasia", $"APHANTASIA  {DevGateLabel("aphantasia")}", UiTheme.Purple));
         controls.Add(("reset", "RESET OVERRIDES TO SAVED", UiTheme.Red));
-        UiTheme.DrawText(spriteBatch, "DEV UNLOCK TESTING", 10, UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "DEV UNLOCK TESTING", Fs(10), UiTheme.Gold,
             new Vector2(x + width / 2f, y - 18), "center");
         int rowHeight = Math.Max(23, Math.Min(29,
             (session.ScreenHeight - y - 18) / controls.Count));
@@ -1536,12 +1536,12 @@ public class SoulHub
                 Primitives2D.Line(spriteBatch, screen + new Vector2(radius, -radius),
                     screen + new Vector2(-radius, radius), UiTheme.Red * .75f, 4);
             }
-            UiTheme.DrawText(spriteBatch, unlocked ? label : $"{label} // SEALED", 8,
+            UiTheme.DrawText(spriteBatch, unlocked ? label : $"{label} // SEALED", Fs(8),
                 unlocked ? color : UiTheme.Muted,
                 new Vector2(screen.X, screen.Y + radius + 7), "midtop");
             if (unlocked && nearbyPortal == key && _confirmingPortalKey != key
                 && _enteringPortalKey is null)
-                UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", 8, UiTheme.Cream,
+                UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", Fs(8), UiTheme.Cream,
                     new Vector2(screen.X, screen.Y + radius + 23), "midtop");
         }
     }
@@ -1606,16 +1606,16 @@ public class SoulHub
         float coreRadius = radius * (.2f - pullT * .07f);
         Primitives2D.FillCircle(spriteBatch, screen, coreRadius,
             Color.Lerp(UiTheme.Cream, UiTheme.Gold, .55f + .25f * MathF.Sin(time * 2.1f)));
-        UiTheme.DrawText(spriteBatch, "THE DUNGEON", 12, UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "THE DUNGEON", Fs(12), UiTheme.Gold,
             new Vector2(screen.X, screen.Y + radius + 12), "midtop");
         UiTheme.DrawText(spriteBatch, "FREE PLAY  //  NO CAMPAIGN UNLOCKS",
-            8, selectedNg == 0 ? UiTheme.Cream : UiTheme.Gold,
+            Fs(8), selectedNg == 0 ? UiTheme.Cream : UiTheme.Gold,
             new Vector2(screen.X, screen.Y + radius + 31), "midtop");
         if (nearbyPortal == CorePortalKey
             && _confirmingPortalKey != CorePortalKey
             && _enteringPortalKey is null)
         {
-            UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", 10, UiTheme.Gold,
+            UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", Fs(10), UiTheme.Gold,
                 new Vector2(screen.X, screen.Y + radius + 49), "midtop");
         }
     }
@@ -1818,7 +1818,7 @@ public class SoulHub
             new Vector2(panel.X + Px(24), panel.Y + Px(18)));
         int free = session.State.Inventory.Count(item => item is null);
         UiTheme.DrawText(spriteBatch,
-            $"S-GRADE // GODLY // CLICK TO COPY INTO INVENTORY // {free} FREE SLOTS",
+            $"MYTHICAL // FULL MODIFIER LADDER // CLICK TO COPY INTO INVENTORY // {free} FREE SLOTS",
             Fs(9), free > 0 ? UiTheme.Cream : UiTheme.Red,
             new Vector2(panel.X + Px(26), panel.Y + Px(53)));
 
@@ -1840,7 +1840,7 @@ public class SoulHub
             ItemCards.DrawItemCard(spriteBatch, rect, drop, hovered, (float)_seconds);
             if (free > 0) _targets[$"armory:{index}"] = rect;
             if (hovered)
-                _tooltip = $"{drop.Name}  //  {drop.Rarity}  //  GRADE S  //  GODLY";
+                _tooltip = $"{drop.Name}  //  {drop.Rarity}  //  {Items.ModifierUnlockCount(drop.Rarity)}/{drop.Definition.ModifierLadder.Count} MODIFIERS";
         }
     }
 
@@ -2061,12 +2061,18 @@ public class SoulHub
         for (int index = 0; index < colors.Count; index++)
         {
             var option = colors[index];
+            bool unlocked = Cosmetics.IsUnlocked(category, option.Id);
             int row = index / 3, col = index % 3;
             var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
-            Primitives2D.FillRect(spriteBatch, rect, option.Color);
+            Primitives2D.FillRect(spriteBatch, rect, unlocked ? option.Color : Color.Lerp(option.Color, UiTheme.Ink, .72f));
             Primitives2D.RectOutline(spriteBatch, rect, option.Id == selected ? UiTheme.Cream : UiTheme.Ink, option.Id == selected ? Px(4) : Px(2));
+            if (!unlocked)
+                UiTheme.DrawText(spriteBatch, "?", Fs(16), UiTheme.Muted, new Vector2(rect.Center.X, rect.Center.Y), "center");
             _targets[$"cosmetic:{category}:{option.Id}"] = rect;
-            if (rect.Contains(mouse)) _tooltip = $"{option.Name} {title.ToLowerInvariant()}.";
+            if (rect.Contains(mouse))
+                _tooltip = unlocked
+                    ? $"{option.Name} {title.ToLowerInvariant()}."
+                    : $"LOCKED  //  {Cosmetics.LockDescription(category, option.Id) ?? Cosmetics.LockedHint}";
         }
     }
 
@@ -2078,16 +2084,22 @@ public class SoulHub
         for (int index = 0; index < Cosmetics.ProjectileColors.Count; index++)
         {
             var option = Cosmetics.ProjectileColors[index];
+            bool unlocked = Cosmetics.IsUnlocked("projectile", option.Id);
             int row = index / 3, col = index % 3;
             var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
-            Primitives2D.FillRect(spriteBatch, rect, option.Edge);
+            Primitives2D.FillRect(spriteBatch, rect, unlocked ? option.Edge : Color.Lerp(option.Edge, UiTheme.Ink, .72f));
             var inner = rect;
             inner.Inflate(-Math.Max(5, tile / 5), -Math.Max(5, tile / 5));
-            Primitives2D.FillRect(spriteBatch, inner, option.Core);
+            Primitives2D.FillRect(spriteBatch, inner, unlocked ? option.Core : Color.Lerp(option.Core, UiTheme.Ink, .72f));
             bool selected = option.Id == GameProfile.Profile.ProjectileColor;
             Primitives2D.RectOutline(spriteBatch, rect, selected ? UiTheme.Cream : UiTheme.Ink, selected ? Px(4) : Px(2));
+            if (!unlocked)
+                UiTheme.DrawText(spriteBatch, "?", Fs(16), UiTheme.Muted, new Vector2(rect.Center.X, rect.Center.Y), "center");
             _targets[$"cosmetic:projectile:{option.Id}"] = rect;
-            if (rect.Contains(mouse)) _tooltip = $"{option.Name} projectile palette.";
+            if (rect.Contains(mouse))
+                _tooltip = unlocked
+                    ? $"{option.Name} projectile palette."
+                    : $"LOCKED  //  {Cosmetics.LockDescription("projectile", option.Id) ?? Cosmetics.LockedHint}";
         }
     }
 
@@ -2097,41 +2109,52 @@ public class SoulHub
         int y = column.Y + Px(30);
         foreach (var option in Cosmetics.ProjectileDesigns)
         {
+            bool unlocked = Cosmetics.IsUnlocked("design", option.Id);
             var rect = new Rectangle(column.X, y, column.Width, Px(58));
             bool selected = option.Id == GameProfile.Profile.ProjectileDesign;
             UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, selected ? UiTheme.Cream : UiTheme.Border, hovered: rect.Contains(mouse));
-            ProjectileVisuals.Draw(spriteBatch, new Vector2(rect.X + Px(38), rect.Center.Y), Vector2.UnitX, Px(25),
-                Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, option.Id,
-                animationTime: (float)_seconds, drawShadow: true,
-                intensity: (float)GameProfile.Profile.VisualEffectsIntensity);
-            UiTheme.DrawText(spriteBatch, option.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(rect.X + Px(72), rect.Center.Y), "midleft");
+            if (unlocked)
+            {
+                ProjectileVisuals.Draw(spriteBatch, new Vector2(rect.X + Px(38), rect.Center.Y), Vector2.UnitX, Px(25),
+                    Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, option.Id,
+                    animationTime: (float)_seconds, drawShadow: true,
+                    intensity: (float)GameProfile.Profile.VisualEffectsIntensity);
+                UiTheme.DrawText(spriteBatch, option.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(rect.X + Px(72), rect.Center.Y), "midleft");
+            }
+            else
+            {
+                UiTheme.DrawText(spriteBatch, "?", Fs(20), UiTheme.Muted, new Vector2(rect.X + Px(38), rect.Center.Y), "center");
+                UiTheme.DrawText(spriteBatch, "LOCKED", Fs(9), UiTheme.Muted, new Vector2(rect.X + Px(72), rect.Center.Y), "midleft");
+            }
             _targets[$"cosmetic:design:{option.Id}"] = rect;
-            if (rect.Contains(mouse)) _tooltip = option.Description;
+            if (rect.Contains(mouse))
+                _tooltip = unlocked
+                    ? option.Description
+                    : $"LOCKED  //  {Cosmetics.LockDescription("design", option.Id) ?? Cosmetics.LockedHint}";
             y += Px(65);
         }
     }
 
+    /// <summary>
+    /// Wraps against the font's real measured width (see
+    /// <see cref="UiTheme.WrapLines"/>) rather than a fixed character count,
+    /// so the box is sized to what actually fits, and hands positioning to
+    /// <see cref="UiTheme.ClampTooltipRect"/> -- the shared clamp every
+    /// tooltip in the game uses -- so a long entry stretches upward and
+    /// stays fully on screen instead of overflowing bounds.Bottom (the old
+    /// hand-rolled Math.Clamp here would throw once a tall enough tooltip
+    /// pushed its min above its max).
+    /// </summary>
     private void DrawTooltip(SpriteBatch spriteBatch, Point mouse, Rectangle bounds)
     {
         int width = Math.Min(Px(360), bounds.Width / 2);
-        var words = _tooltip!.Split(' ');
-        var lines = new List<string>();
-        string line = "";
-        foreach (string word in words)
-        {
-            if ((line.Length + word.Length + 1) > 64 && line.Length > 0)
-            {
-                lines.Add(line);
-                line = word;
-            }
-            else line = (line + " " + word).Trim();
-        }
-        if (line.Length > 0) lines.Add(line);
-        var rect = new Rectangle(mouse.X + Px(15), mouse.Y + Px(15), width, Px(24 + lines.Count * 17));
-        rect.X = Math.Clamp(rect.X, bounds.X + Px(6), bounds.Right - rect.Width - Px(6));
-        rect.Y = Math.Clamp(rect.Y, bounds.Y + Px(6), bounds.Bottom - rect.Height - Px(6));
+        double fontSize = Fs(9);
+        var lines = UiTheme.WrapLines(_tooltip!, fontSize, width - Px(20));
+        var rect = UiTheme.ClampTooltipRect(
+            new Rectangle(mouse.X + Px(15), mouse.Y + Px(15), width, Px(24 + lines.Count * 17)),
+            bounds, Px(6));
         UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Ink, UiTheme.Cream, shadow: 4);
         for (int index = 0; index < lines.Count; index++)
-            UiTheme.DrawText(spriteBatch, lines[index], Fs(9), UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(9 + index * 17)));
+            UiTheme.DrawText(spriteBatch, lines[index], fontSize, UiTheme.Text, new Vector2(rect.X + Px(10), rect.Y + Px(9 + index * 17)));
     }
 }

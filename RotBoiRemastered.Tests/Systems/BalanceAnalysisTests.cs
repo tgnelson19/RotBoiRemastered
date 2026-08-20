@@ -14,7 +14,13 @@ public class BalanceAnalysisTests
     [InlineData("Glass Wand", "Bullet Range", 2.45)]
     public void WeaponIdentity_UsesRebalancedValues(string itemName, string stat, double expected)
     {
-        var drop = new ItemDrop(Items.DefinitionsByName[itemName], "Epic", "S", "Balanced");
+        // Common, not Epic: this checks the weapon's own authored identity
+        // (Definition.Modifiers) in isolation. Epic+ would unlock this
+        // item's ModifierLadder rungs too, which can add a second row for
+        // the same Stat (e.g. Iron Dagger's Epic-unlocked "Fast" also
+        // touches Bullet Damage) and break the single-row assumption below
+        // -- Common is the one Rarity guaranteed to unlock none of them.
+        var drop = new ItemDrop(Items.DefinitionsByName[itemName], "Common");
         var effect = Assert.Single(Items.Effects(drop).Where(effect => effect.Stat == stat));
         Assert.Equal(expected, effect.Multiplier, precision: 8);
     }
@@ -23,7 +29,7 @@ public class BalanceAnalysisTests
     public void CombatEstimate_IncludesEquipmentCardsMetaCritVolleyAndPierce()
     {
         var damage = new UpgradeCard(Upgrades.DefinitionsByName["Bullet Damage"], "Rare", "multiplicative");
-        var weapon = new ItemDrop(Items.DefinitionsByName["Iron Spear"], "Epic", "S", "Balanced");
+        var weapon = new ItemDrop(Items.DefinitionsByName["Iron Spear"], "Epic");
         var result = BalanceAnalysis.Estimate(new BalanceAnalysis.BuildInput(
             ProjectileCount: 2, Pierce: 2, Equipment: new ItemDrop?[] { weapon }, Cards: new[] { damage },
             MetaRanks: new Dictionary<string, int> { ["tempered_soul"] = 5 }));
@@ -78,8 +84,10 @@ public class BalanceAnalysisTests
     }
 
     [Fact]
-    public void FragmentCadence_ProvidesTwoReforgesInAThirtyKillPath()
+    public void FragmentCadence_ProvidesOverThreeReforgesInAThirtyKillPath()
     {
-        Assert.Equal(2, BalanceAnalysis.ExpectedReforges(30), precision: 6);
+        // 30 kills * FragmentDropChance(1/3) / Items.ReforgeFragmentCost(3,
+        // reduced from the old Grade/reroll era's 5 -- see Items.cs) = 10/3.
+        Assert.Equal(10.0 / 3.0, BalanceAnalysis.ExpectedReforges(30), precision: 6);
     }
 }

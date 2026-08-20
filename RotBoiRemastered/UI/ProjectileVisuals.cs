@@ -36,6 +36,8 @@ public static class ProjectileVisuals
             center -= forward * MathF.Round((.5f + .5f * MathF.Sin(animationTime * 18f)) * 2f * motion);
         else if (design is "prism" or "cog" or "sigil")
             forward = Rotate(forward, animationTime * (design == "cog" ? 4.2f : 2.2f) * motion);
+        else if (design == "halo")
+            forward = Rotate(forward, animationTime * 1.4f * motion);
 
         Vector2 side = new(-forward.Y, forward.X);
         Vector2 P(float x, float y) => center + forward * (x * size) + side * (y * size);
@@ -179,6 +181,97 @@ public static class ProjectileVisuals
                 new Rectangle((int)(center.X - size * .08f), (int)(center.Y - size * .08f),
                     Math.Max(2, (int)(size * .16f)), Math.Max(2, (int)(size * .16f))),
                 UiTheme.Cream);
+        }
+        else if (design == "arrow")
+        {
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.60f, -.30f), new(.10f, -.30f), new(.65f, 0),
+                new(.10f, .30f), new(-.60f, .30f),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.40f, -.15f), new(.06f, -.15f), new(.42f, 0),
+                new(.06f, .15f), new(-.40f, .15f),
+            });
+        }
+        else if (design == "orb")
+        {
+            Primitives2D.FillCircle(spriteBatch, center, size * .50f, edge);
+            Primitives2D.FillCircle(spriteBatch, center, size * .32f, core);
+        }
+        else if (design == "blade")
+        {
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.66f, -.08f), new(.06f, -.34f), new(.72f, 0),
+                new(.06f, .08f), new(-.40f, .10f),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.46f, -.04f), new(.06f, -.20f), new(.50f, 0),
+                new(.02f, .04f), new(-.28f, .05f),
+            });
+        }
+        else if (design == "spark")
+        {
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.62f, -.10f), new(-.10f, -.10f), new(-.02f, -.42f),
+                new(.34f, -.02f), new(.02f, -.02f), new(.10f, .42f),
+                new(-.30f, .06f), new(-.10f, .06f),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.42f, -.05f), new(-.06f, -.05f), new(-.01f, -.24f),
+                new(.20f, -.01f), new(.01f, -.01f), new(.06f, .24f),
+                new(-.18f, .03f), new(-.06f, .03f),
+            });
+        }
+        else if (design == "banner")
+        {
+            float flex = MathF.Sin(animationTime * 9f) * .10f * motion;
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.72f, -.10f - flex), new(-.30f, -.30f), new(.05f, -.10f + flex),
+                new(.40f, -.26f), new(.74f, 0), new(.40f, .26f),
+                new(.05f, .10f - flex), new(-.30f, .30f), new(-.72f, .10f + flex),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.48f, -.05f), new(-.16f, -.16f), new(.08f, -.05f),
+                new(.30f, -.12f), new(.50f, 0), new(.30f, .12f),
+                new(.08f, .05f), new(-.16f, .16f), new(-.48f, .05f),
+            });
+        }
+        else if (design == "halo")
+        {
+            Primitives2D.CircleOutline(spriteBatch, center, size * .55f, edge, Math.Max(1, (int)(size * .05f)));
+            Primitives2D.FillCircle(spriteBatch, center, size * .30f, edge);
+            Primitives2D.FillCircle(spriteBatch, center, size * .16f, core);
+            for (int index = 0; index < 3; index++)
+            {
+                float angle = index * MathF.Tau / 3f;
+                Vector2 mote = P(MathF.Cos(angle) * .62f, MathF.Sin(angle) * .62f);
+                int moteSize = Math.Max(2, (int)(size * .14f));
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)mote.X - moteSize / 2, (int)mote.Y - moteSize / 2, moteSize, moteSize),
+                    index % 2 == 0 ? core : edge);
+            }
+        }
+        else if (design == "specter")
+        {
+            float phase = MathF.Sin(animationTime * 5f * motion);
+            Vector2 ghostCenter = center + side * phase * size * .26f;
+            Primitives2D.FillCircle(spriteBatch, ghostCenter, size * .34f, edge * .4f);
+            FillShape(edge, stackalloc Vector2[]
+            {
+                new(-.55f, 0), new(0, -.38f), new(.55f, 0), new(0, .38f),
+            });
+            FillShape(core, stackalloc Vector2[]
+            {
+                new(-.30f, 0), new(0, -.20f), new(.30f, 0), new(0, .20f),
+            });
         }
         else
         {

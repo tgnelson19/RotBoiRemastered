@@ -46,6 +46,16 @@ public static class UiTheme
     public static readonly Color Purple = new(175, 105, 218);
     public static readonly Color Shadow = new(8, 9, 12);
 
+    /// <summary>
+    /// Canonical "dim the world behind a modal" color. Every full-screen
+    /// confirmation/backdrop should draw through <see cref="DrawScrim"/>
+    /// rather than inventing its own translucent black -- three near-
+    /// identical one-off values (TitleScreen's quit confirm, SettingsMenu's
+    /// pause backdrop, SettingsMenu's destructive-action confirmation) used
+    /// to drift slightly from each other for no reason.
+    /// </summary>
+    public static readonly Color Scrim = new(3, 5, 8, 205);
+
     public static readonly IReadOnlyDictionary<string, Color> RarityColors = new Dictionary<string, Color>
     {
         ["Common"] = new Color(190, 195, 202),
@@ -54,16 +64,6 @@ public static class UiTheme
         ["Legendary"] = Gold,
         ["Mythical"] = new Color(245, 241, 220),
         ["Unique"] = new Color(224, 96, 43),
-    };
-
-    public static readonly IReadOnlyDictionary<string, Color> GradeColors = new Dictionary<string, Color>
-    {
-        ["F"] = Muted,
-        ["D"] = new Color(170, 126, 82),
-        ["C"] = new Color(190, 195, 202),
-        ["B"] = Blue,
-        ["A"] = Purple,
-        ["S"] = Gold,
     };
 
     public const int ReferenceWidth = 1920;
@@ -259,6 +259,10 @@ public static class UiTheme
         return new Rectangle((int)MathF.Round(x), (int)MathF.Round(y),
             (int)MathF.Ceiling(size.X), (int)MathF.Ceiling(size.Y));
     }
+
+    /// <summary>Dims `rect` (typically the full screen) behind a modal with the shared <see cref="Scrim"/> color.</summary>
+    public static void DrawScrim(SpriteBatch spriteBatch, Rectangle rect) =>
+        Primitives2D.FillRect(spriteBatch, rect, Scrim);
 
     public static Rectangle DrawPanel(SpriteBatch spriteBatch, Rectangle rect, Color? fill = null,
         Color? border = null, int shadow = 5, bool hovered = false)
@@ -568,6 +572,59 @@ public static class UiTheme
         var textPos = new Vector2(rect.Center.X - measured.X / 2f, rect.Center.Y - measured.Y / 2f);
         font.DrawText(spriteBatch, upper, textPos, tagColor);
         return rect;
+    }
+
+    /// <summary>
+    /// Small-chrome corner radius (equipment/stash/icon slots) in reference
+    /// pixels. Scale it through <see cref="SmallCornerRadius"/> rather than
+    /// re-deriving a one-off 3px/4px rounding per call site -- FooterHud,
+    /// InformationSheet, and the HUD icon slots used to each pick a slightly
+    /// different radius for the same kind of small rounded box.
+    /// </summary>
+    public const int SmallCornerRadiusPx = 4;
+
+    /// <summary>Larger decorative corner radius for bigger rounded surfaces (e.g. the Vestment Mirror station).</summary>
+    public const int LargeCornerRadiusPx = 16;
+
+    public static int SmallCornerRadius(float displayScale) =>
+        Math.Max(2, (int)MathF.Round(SmallCornerRadiusPx * displayScale));
+
+    /// <summary>
+    /// Shared rarity-card corner radius, proportional to the card's own
+    /// rendered width so it stays correct whether the card is a tiny stash
+    /// icon or a large Reforge preview. Used identically by
+    /// <c>ItemCards.DrawItemCard</c> and <c>StatCards.DrawUpgradeCard</c> --
+    /// keep it here instead of each duplicating the same formula.
+    /// </summary>
+    public static int CardCornerRadius(int width) => Math.Max(2, width / 8);
+
+    /// <summary>
+    /// Clamps a fully-sized tooltip rectangle so it never runs off `bounds`.
+    /// A tooltip's rect is always sized to its *actual* wrapped content
+    /// before this runs (see <see cref="WrapLines"/>), so when that content
+    /// is too tall to fit between its natural anchor point and the bottom of
+    /// `bounds`, clamping the Y axis here is what makes the panel appear to
+    /// grow upward instead of running off-screen or getting clipped -- the
+    /// top edge slides up while the bottom edge settles just inside the
+    /// screen, rather than the panel silently overflowing past it. The
+    /// Math.Max guards against bounds shorter/narrower than the tooltip
+    /// itself (an extremely long description on a small viewport): without
+    /// them min could exceed max and Math.Clamp would throw.
+    ///
+    /// Shared by every DrawTooltip in the game (InformationSheet, FooterHud,
+    /// SoulHub) so this "stretch upward, never clip" behavior can't drift
+    /// between call sites the way it used to when each one hand-rolled its
+    /// own clamp.
+    /// </summary>
+    public static Rectangle ClampTooltipRect(Rectangle rect, Rectangle bounds, int margin = 0)
+    {
+        int minX = bounds.X + margin;
+        int maxX = Math.Max(minX, bounds.Right - rect.Width - margin);
+        int minY = bounds.Y + margin;
+        int maxY = Math.Max(minY, bounds.Bottom - rect.Height - margin);
+        int x = Math.Clamp(rect.X, minX, maxX);
+        int y = Math.Clamp(rect.Y, minY, maxY);
+        return new Rectangle(x, y, rect.Width, rect.Height);
     }
 
     public static Color Lighten(Color color, int amount) => new(

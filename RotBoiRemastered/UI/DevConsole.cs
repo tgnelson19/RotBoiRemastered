@@ -290,7 +290,7 @@ public sealed class DevConsole
         Items.Uniques.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
         ?? Items.Definitions.FirstOrDefault(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Uniques always drop at "Unique" rarity (see Items.RarityPower) regardless of any rarity token given; a regular item takes the requested tier if it's a real one, else defaults to Legendary -- admin testing usually wants strong stats, not a Common roll.</summary>
+    /// <summary>Uniques always drop at "Unique" rarity regardless of any rarity token given; a regular item takes the requested tier if it's a real one, else defaults to Legendary -- admin testing usually wants a fuller Modifier ladder unlocked, not a Common roll.</summary>
     private static string ResolveRarity(ItemDefinition definition, string? requested)
     {
         if (Items.UniquesByName.ContainsKey(definition.Name))
@@ -342,8 +342,10 @@ public sealed class DevConsole
         int Px(float value) => Math.Max(1, (int)MathF.Round(value * scale));
         int panelHeight = Math.Max(Px(190), (int)(screenHeight * .32f));
         var panel = new Rectangle(0, 0, screenWidth, panelHeight);
-        Primitives2D.FillRect(spriteBatch, panel, UiTheme.Void * .92f);
-        Primitives2D.Line(spriteBatch, new Vector2(0, panelHeight), new Vector2(screenWidth, panelHeight), UiTheme.Border, Px(2));
+        // Same border/shadow/top-highlight treatment as every other overlay
+        // in the game (UiTheme.DrawPanel), rather than a bare fill -- this
+        // is the one overlay that used to skip it entirely.
+        UiTheme.DrawPanel(spriteBatch, panel, UiTheme.Void * .92f, UiTheme.Border, shadow: 4);
 
         int y = Px(10), lineStep = Px(18), inputHeight = Px(30);
         int capacity = Math.Max(1, (panelHeight - inputHeight - Px(14)) / lineStep);

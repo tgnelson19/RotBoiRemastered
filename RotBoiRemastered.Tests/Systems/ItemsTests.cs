@@ -48,8 +48,11 @@ public class ItemsTests
             var drop = Items.GenerateDrop(rng);
             Assert.Contains(drop.SlotType, Items.SlotTypes);
             Assert.Contains(drop.Rarity, Upgrades.RarityWeights.Keys);
-            Assert.Contains(drop.Grade, Items.GradeOrder);
-            Assert.Contains(Items.AffixesFor(drop.SlotType), affix => affix.Name == drop.Modifier);
+            // No Grade or rolled Modifier to check anymore -- every drop's
+            // active-Modifier count is purely a function of its Rarity, and
+            // every item's authored ModifierLadder has to be long enough to
+            // actually supply that many rungs (up to Mythical's 4).
+            Assert.True(drop.Definition.ModifierLadder.Count >= Items.ModifierUnlockCount(drop.Rarity));
         }
     }
 
@@ -67,61 +70,59 @@ public class ItemsTests
     }
 
     [Fact]
-    public void GradeCatalog_HasRequestedPowerCurveAndOneInFiftySWeight()
+    public void ModifierUnlockCount_ClimbsOneRungPerRarityStepUpToMythical()
     {
-        Assert.Equal(new[] { "F", "D", "C", "B", "A", "S" }, Items.GradeOrder);
-        Assert.Equal(.60, Items.GradePowers["F"]);
-        Assert.Equal(.70, Items.GradePowers["D"]);
-        Assert.Equal(.80, Items.GradePowers["C"]);
-        Assert.Equal(.90, Items.GradePowers["B"]);
-        Assert.Equal(.95, Items.GradePowers["A"]);
-        Assert.Equal(1.00, Items.GradePowers["S"]);
-        Assert.Equal(100, Items.GradeWeights.Values.Sum());
-        Assert.Equal(2, Items.GradeWeights["S"]);
+        // Grade is gone -- Rarity is the item's only power dial now, and
+        // this ladder (see Items.ModifierUnlockCount) is what it actually
+        // buys: zero active Modifiers at Common, one more per step, topping
+        // out at all four on Mythical. Unique sits outside this ladder
+        // entirely (see ItemDefinition's doc comment).
+        Assert.Equal(0, Items.ModifierUnlockCount("Common"));
+        Assert.Equal(1, Items.ModifierUnlockCount("Rare"));
+        Assert.Equal(2, Items.ModifierUnlockCount("Epic"));
+        Assert.Equal(3, Items.ModifierUnlockCount("Legendary"));
+        Assert.Equal(4, Items.ModifierUnlockCount("Mythical"));
+        Assert.Equal(0, Items.ModifierUnlockCount("Unique"));
     }
 
     [Fact]
-    public void RollGrade_IsWeightedTowardLowGrades_WithApproximatelyTwoPercentS()
+    public void SignatureUnlocked_OnlyAtLegendaryAndMythical()
     {
-        var rng = new Random(2026);
-        var counts = Items.GradeOrder.ToDictionary(grade => grade, _ => 0);
-        for (int index = 0; index < 100_000; index++)
-            counts[Items.RollGrade(rng)]++;
-
-        Assert.True(counts["F"] > counts["D"]);
-        Assert.True(counts["D"] > counts["C"]);
-        Assert.True(counts["C"] > counts["B"]);
-        Assert.True(counts["B"] > counts["A"]);
-        Assert.True(counts["A"] > counts["S"]);
-        Assert.InRange(counts["S"], 1_800, 2_200);
+        Assert.False(Items.SignatureUnlocked("Common"));
+        Assert.False(Items.SignatureUnlocked("Rare"));
+        Assert.False(Items.SignatureUnlocked("Epic"));
+        Assert.True(Items.SignatureUnlocked("Legendary"));
+        Assert.True(Items.SignatureUnlocked("Mythical"));
     }
 
     [Fact]
-    public void GradeScalesItemDeltaSeparatelyFromRarity()
+    public void RarityAloneScalesAnItemsActiveModifierCount_NoGradeInvolved()
     {
+        // The direct replacement for the old Grade-scaling test: the same
+        // item's Definition/base Modifiers never change, but the number of
+        // ModifierLadder rungs switched on climbs strictly with Rarity.
         var definition = Items.DefinitionsByName["Iron Sword"];
-        var f = new ItemDrop(definition, "Epic", "F", "Balanced");
-        var s = new ItemDrop(definition, "Epic", "S", "Balanced");
+        var common = new ItemDrop(definition, "Common");
+        var mythical = new ItemDrop(definition, "Mythical");
 
-        double fDamage = Items.AdjustStat("Bullet Damage", 100, new ItemDrop?[] { f });
-        double sDamage = Items.AdjustStat("Bullet Damage", 100, new ItemDrop?[] { s });
-
-        Assert.Equal(.60, (fDamage - 100) / (sDamage - 100), precision: 10);
-        Assert.Equal(f.Rarity, s.Rarity);
+        Assert.Equal(common.Definition.Modifiers.Count, Items.Effects(common).Count);
+        Assert.True(Items.Effects(mythical).Count > Items.Effects(common).Count);
     }
 
     [Fact]
     public void LazyAndFastWeaponModifiers_PullProjectileStatsInOppositeDirections()
     {
-        var definition = Items.DefinitionsByName["Iron Sword"];
-        var lazy = new ItemDrop(definition, "Epic", "S", "Lazy");
-        var fast = new ItemDrop(definition, "Epic", "S", "Fast");
-        var equipmentLazy = new ItemDrop?[] { lazy };
-        var equipmentFast = new ItemDrop?[] { fast };
+        // Modifiers are no longer individually rolled onto a drop -- this
+        // now pins the shared catalog entries themselves (see Items.Modifiers)
+        // rather than round-tripping through a specific item's ladder.
+        var lazy = Items.ModifiersByName["Lazy"];
+        var fast = Items.ModifiersByName["Fast"];
+        double LazyMult(string stat) => lazy.StatModifiers.Single(m => m.Stat == stat).Multiplier;
+        double FastMult(string stat) => fast.StatModifiers.Single(m => m.Stat == stat).Multiplier;
 
-        Assert.True(Items.AdjustStat("Bullet Speed", 4, equipmentLazy) < Items.AdjustStat("Bullet Speed", 4, equipmentFast));
-        Assert.True(Items.AdjustStat("Bullet Range", 250, equipmentLazy) > Items.AdjustStat("Bullet Range", 250, equipmentFast));
-        Assert.True(Items.AdjustStat("Bullet Damage", 100, equipmentLazy) > Items.AdjustStat("Bullet Damage", 100, equipmentFast));
+        Assert.True(LazyMult("Bullet Speed") < FastMult("Bullet Speed"));
+        Assert.True(LazyMult("Bullet Range") > FastMult("Bullet Range"));
+        Assert.True(LazyMult("Bullet Damage") > FastMult("Bullet Damage"));
     }
 
     [Fact]
@@ -129,17 +130,36 @@ public class ItemsTests
     {
         foreach (string slot in new[] { "armor", "ring", "accessory" })
         {
-            var exclusive = Items.Affixes.Where(affix => affix.SlotType == slot).ToList();
-            Assert.True(exclusive.Count >= 2, $"{slot} needs at least two exclusive affixes.");
-            Assert.All(exclusive, affix => Assert.True(affix.Modifiers.Count >= 2,
-                $"{affix.Name} should demonstrate at least two stat changes."));
+            var exclusive = Items.Modifiers.Where(modifier => modifier.SlotType == slot).ToList();
+            Assert.True(exclusive.Count >= 2, $"{slot} needs at least two exclusive Modifiers.");
+            Assert.All(exclusive, modifier => Assert.True(modifier.StatModifiers.Count >= 2,
+                $"{modifier.Name} should demonstrate at least two stat changes."));
         }
     }
 
     [Fact]
-    public void Serialize_RoundTripsGradeAndModifier()
+    public void EveryItem_HasAFourRungModifierLadderDrawnFromItsOwnSlotPool()
     {
-        var original = new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Legendary", "B", "Lazy");
+        // Ties the shared catalog to the per-item authoring: every regular
+        // (non-Unique) item's ladder is exactly four entries long, and every
+        // entry actually belongs to that item's own slot (never a wildcard
+        // roll, since Modifiers are assigned at authoring time now).
+        foreach (var definition in Items.Definitions)
+        {
+            Assert.Equal(4, definition.ModifierLadder.Count);
+            Assert.All(definition.ModifierLadder, name =>
+            {
+                Assert.True(Items.ModifiersByName.TryGetValue(name, out var modifier),
+                    $"{definition.Name}'s ladder references unknown Modifier '{name}'.");
+                Assert.Equal(definition.SlotType, modifier!.SlotType);
+            });
+        }
+    }
+
+    [Fact]
+    public void Serialize_RoundTripsRarityAndCoreForge()
+    {
+        var original = new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Legendary");
 
         var restored = Items.Deserialize(Items.Serialize(original));
 
@@ -147,16 +167,19 @@ public class ItemsTests
     }
 
     [Fact]
-    public void Deserialize_OldTwoFieldSaveMigratesWithoutNerfingExistingItem()
+    public void Deserialize_OldFourFieldSaveMigratesWithoutError()
     {
+        // An old save's Grade/Modifier fields (see StoredItemData's doc
+        // comment) still deserialize without throwing -- they're just
+        // ignored, since the new system has nothing to restore them into.
         var stored = System.Text.Json.JsonSerializer.Deserialize<StoredItemData>(
-            "{\"Name\":\"Iron Sword\",\"Rarity\":\"Epic\"}");
+            "{\"Name\":\"Iron Sword\",\"Rarity\":\"Epic\",\"Grade\":\"S\",\"Modifier\":\"Lazy\"}");
 
         var restored = Items.Deserialize(stored);
 
         Assert.NotNull(restored);
-        Assert.Equal("S", restored!.Grade);
-        Assert.Equal("Balanced", restored.Modifier);
+        Assert.Equal("Iron Sword", restored!.Name);
+        Assert.Equal("Epic", restored.Rarity);
     }
 
     [Fact]
@@ -183,13 +206,13 @@ public class ItemsTests
     [Fact]
     public void RollCoreForge_RequiresHardModeAndUsesTheActivePathsCore()
     {
-        var epic = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Epic", "S", "Balanced");
-        Assert.Null(Items.RollCoreForge(epic, hardMode: false, "touch", new Random(1)).CoreForge);
+        var epic = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Epic");
+        Assert.Null(Items.RollCoreForge(epic, hardModeActive: false, "touch", new Random(1)).CoreForge);
 
         foreach (var core in Items.CoreForges)
         {
             var rolls = Enumerable.Range(0, 1_000)
-                .Select(_ => Items.RollCoreForge(epic, hardMode: true, core.PathKey, new Random(_ + 10)))
+                .Select(_ => Items.RollCoreForge(epic, hardModeActive: true, core.PathKey, new Random(_ + 10)))
                 .Where(drop => drop.CoreForge is not null)
                 .ToList();
             Assert.NotEmpty(rolls);
@@ -213,8 +236,8 @@ public class ItemsTests
     [Fact]
     public void GenerateDrops_CoreForgesOnlyEligibleItemsInHardModeForThatPath()
     {
-        var normal = Items.GenerateDrops(5_000, new Random(12), hardMode: false, pathKey: "touch");
-        var hard = Items.GenerateDrops(5_000, new Random(12), hardMode: true, pathKey: "touch");
+        var normal = Items.GenerateDrops(5_000, new Random(12), hardModeActive: false, pathKey: "touch");
+        var hard = Items.GenerateDrops(5_000, new Random(12), hardModeActive: true, pathKey: "touch");
 
         Assert.All(normal, drop => Assert.Null(drop.CoreForge));
         var coreDrops = hard.Where(drop => drop.CoreForge is not null).ToList();
@@ -227,11 +250,16 @@ public class ItemsTests
     }
 
     [Fact]
-    public void CoreForgeBonuses_AreExactAndDoNotShrinkWithGrade()
+    public void CoreForgeBonuses_AreExactAndDoNotShrinkWithRarity()
     {
+        // Epic and Legendary rather than Epic/Mythical: Iron Sword's fourth
+        // (Mythical-only) ladder rung is "Godly", which also touches Bullet
+        // Count -- comparing against Mythical would make Effects() report
+        // two separate Bullet Count rows (Godly's and the core's) instead of
+        // one, which isn't what this test is checking.
         var definition = Items.DefinitionsByName["Iron Sword"];
-        var fAche = new ItemDrop(definition, "Epic", "F", "Balanced", "ache");
-        var sAche = new ItemDrop(definition, "Mythical", "S", "Balanced", "ache");
+        var fAche = new ItemDrop(definition, "Epic", "ache");
+        var sAche = new ItemDrop(definition, "Legendary", "ache");
 
         var fBonus = Items.Effects(fAche).Single(effect => effect.Stat == "Bullet Count");
         var sBonus = Items.Effects(sAche).Single(effect => effect.Stat == "Bullet Count");
@@ -262,7 +290,7 @@ public class ItemsTests
     [Fact]
     public void Serialize_RoundTripsCoreForgeIdentity()
     {
-        var original = new ItemDrop(Items.DefinitionsByName["Iron Spear"], "Legendary", "A", "Fast", "chronos");
+        var original = new ItemDrop(Items.DefinitionsByName["Iron Spear"], "Legendary", "chronos");
 
         var restored = Items.Deserialize(Items.Serialize(original));
 
@@ -325,7 +353,7 @@ public class ItemsTests
     }
 
     [Fact]
-    public void RollUniqueDrop_CanDropForItsBossKey_WithUniqueRarityAndIndependentGrade()
+    public void RollUniqueDrop_CanDropForItsBossKey_WithUniqueRarity()
     {
         var rng = new Random(7);
         var drops = Enumerable.Range(0, 500).Select(_ => Items.RollUniqueDrop("rot", rng)).Where(drop => drop is not null).ToList();
@@ -335,15 +363,11 @@ public class ItemsTests
         {
             Assert.Equal("Unique", drop!.Rarity);
             Assert.Equal("Bow of Dread", drop.Name);
-            Assert.Contains(drop.Grade, Items.GradeOrder);
-            Assert.Contains(Items.AffixesFor("weapon"), affix => affix.Name == drop.Modifier);
+            // Uniques sit outside the ModifierLadder system entirely -- their
+            // power is already fully baked into their own base Modifiers and
+            // EffectIds, and Rarity never moves off "Unique".
+            Assert.Empty(drop.Definition.ModifierLadder);
         });
-    }
-
-    [Fact]
-    public void RarityPower_UniqueContributesFullPowerBeforeIndependentGradeScaling()
-    {
-        Assert.Equal(1.0, Items.RarityPower("Unique"));
     }
 
     [Fact]

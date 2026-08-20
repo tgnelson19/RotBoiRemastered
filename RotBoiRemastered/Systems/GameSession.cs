@@ -660,6 +660,13 @@ public sealed class GameSession
             new Rectangle(0, 0, ScreenWidth, ScreenHeight));
     }
 
+    public void DrawRaisedScenery(SpriteBatch spriteBatch, GraphicsDevice graphicsDevice)
+    {
+        _arenaRenderer.DrawRaisedSceneryOnly(spriteBatch, Camera, PlayerWorldCenter,
+            ScreenShake, new Rectangle(0, 0, ScreenWidth, ScreenHeight),
+            (float)State.RunTimeSeconds, _visualDensity.Optional, _roomVisualEnergy);
+    }
+
     private string ActiveLightingPathKey =>
         CampaignActivity == Systems.CampaignActivity.Aphantasia
             ? "aphantasia"
@@ -775,7 +782,7 @@ public sealed class GameSession
                 new Vector2((float)State.DX, (float)State.DY) * .08f);
         }
         if (traveled >= 1)
-            GameProfile.IncrementQuest("distance_traveled", (long)Math.Round(traveled));
+            GameProfile.IncrementQuest("distance_traveled", (long)Math.Round(traveled), State);
         RefreshPathFog();
     }
 
@@ -933,7 +940,7 @@ public sealed class GameSession
                     State.BulletColor, currPierce, (float)currDamage, currCrit, State.BulletEdgeColor, State.BulletDesign));
             }
             Player.MarkFired();
-            GameProfile.IncrementQuest("shots_fired", currProjectileCount);
+            GameProfile.IncrementQuest("shots_fired", currProjectileCount, State);
         }
         else if (State.AttackCooldownTimer > 0)
         {
@@ -2091,7 +2098,7 @@ public sealed class GameSession
                 if (result.Applied && !result.Killed)
                 {
                     StatusEffects.RollPlayerHit(enemy, bullet, State.Equipment.Values, State.ProjectileCount, rng);
-                    if (State.Equipment.GetValueOrDefault("weapon") is { Definition.EffectIds.Count: > 0 } weapon)
+                    if (State.Equipment.GetValueOrDefault("weapon") is { } weapon && Items.ActiveEffectIds(weapon).Count > 0)
                         UniqueEffects.OnPlayerHit(enemy, bullet, weapon, State, rng);
                 }
                 if (result.Applied)
@@ -2114,9 +2121,9 @@ public sealed class GameSession
                         (int)(bullet.WorldX * 31 + bullet.WorldY * 17 + enemy.Hp),
                         _visualDensity.Optional,
                         bulletBias * 1.2f);
-                    GameProfile.IncrementQuest("damage_dealt", Math.Max(0, (long)Math.Round(result.Amount)));
+                    GameProfile.IncrementQuest("damage_dealt", Math.Max(0, (long)Math.Round(result.Amount)), State);
                     if (bullet.IsCritical)
-                        GameProfile.IncrementQuest("critical_hits");
+                        GameProfile.IncrementQuest("critical_hits", state: State);
                 }
                 if (enemy.TransitionCleanupRequested)
                 {
@@ -2150,7 +2157,8 @@ public sealed class GameSession
                 (int)(enemy.WorldX * 13 + enemy.WorldY * 29 + State.NumOfEnemiesKilled),
                 _visualDensity.Optional);
             State.NumOfEnemiesKilled += 1;
-            GameProfile.IncrementQuest("enemies_defeated");
+            GameProfile.IncrementQuest("enemies_defeated", state: State);
+            GameProfile.IncrementQuest($"kills_sense_{CampaignActivitySense ?? GamePaths.Active().Key}", state: State);
             State.ExperienceList.Add(new ExperienceBubble(
                 enemy.WorldX, enemy.WorldY,
                 State.XpMult * (enemy.ExpValue * (State.CurrentStage * State.ExperienceStageMod)),
@@ -2185,23 +2193,28 @@ public sealed class GameSession
                     ? Items.RollDropCount(rng)
                     : Items.RollPathDropCount(rng);
             string dropPath = CampaignActivitySense ?? GamePaths.Active().Key;
-            var drops = Items.GenerateDrops(regularDropCount, rng, State.HardMode, dropPath,
-                State.NewGamePlusLevel);
+            var drops = Items.GenerateDrops(regularDropCount, rng, State.AnyHardModeActive, dropPath,
+                State.NewGamePlusLevel, State.IsTrueHardMode);
             if (defeatedBossKey is not null && Items.RollUniqueDrop(defeatedBossKey, rng, State.NewGamePlusLevel) is { } uniqueDrop)
                 drops.Add(uniqueDrop);
             if (drops.Count > 0)
+            {
                 SpawnLootCrate(enemy.WorldX, enemy.WorldY, drops);
+                EmitDropFanfare(new Vector2(enemy.WorldX + enemy.Size / 2f, enemy.WorldY + enemy.Size / 2f), drops);
+            }
 
             if (defeatedBossKey is not null)
             {
-                GameProfile.IncrementQuest("bosses_defeated");
+                GameProfile.IncrementQuest("bosses_defeated", state: State);
                 if (defeatedBossKey == "aphantasia")
                 {
                     State.GameCompleted = true;
                     Aphantasia? defeatedAphantasia = enemy as Aphantasia;
-                    CampaignProgression.CompleteAphantasia(
-                        defeatedAphantasia?.CapturedNoHealing ?? State.NoHealing,
-                        defeatedAphantasia?.CapturedNoExtract ?? State.NoExtract);
+                    bool capturedNoHealing = defeatedAphantasia?.CapturedNoHealing ?? State.NoHealing;
+                    bool capturedNoExtract = defeatedAphantasia?.CapturedNoExtract ?? State.NoExtract;
+                    CampaignProgression.CompleteAphantasia(capturedNoHealing, capturedNoExtract);
+                    if (capturedNoHealing && capturedNoExtract)
+                        MetaProgression.RecordCoreOfTheVoidDefeat();
                     FinalizeSuccessfulRun(RunOutcomes.AphantasiaDefeated,
                         completed: true);
                 }
@@ -2879,7 +2892,7 @@ public sealed class GameSession
         int count = 3 + bonusItems + rng.Next(2);
         int rewardTier = Math.Max(1,
             run.FloorNumber >= 8 ? 3 : run.FloorNumber >= 5 ? 2 : run.FloorNumber >= 3 ? 1 : 0);
-        var drops = Items.GenerateDrops(count, rng, State.HardMode, run.CurrentSenseKey, rewardTier);
+        var drops = Items.GenerateDrops(count, rng, State.AnyHardModeActive, run.CurrentSenseKey, rewardTier, State.IsTrueHardMode);
         if (drops.Count > 0 && drops[0].Rarity is "Common" or "Rare")
             drops[0] = drops[0] with { Rarity = "Epic" };
         float size = Simulation.TileSize * 1.15f;
@@ -2889,6 +2902,7 @@ public sealed class GameSession
             drops,
             run.CurrentSenseKey);
         State.LootCrateList.Add(chest);
+        EmitDropFanfare(room.WorldCenter, drops);
     }
 
     private void EnterPathMajorBossInstance(Random rng)
@@ -3027,7 +3041,7 @@ public sealed class GameSession
         State.PendingLevelUps += 1;
         State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
         State.FillHealthForMilestone();
-        GameProfile.IncrementQuest("levels_gained");
+        GameProfile.IncrementQuest("levels_gained", state: State);
         return true;
     }
 
@@ -3349,6 +3363,56 @@ public sealed class GameSession
             if (evictable is not null)
                 State.LootCrateList.Remove(evictable);
         }
+    }
+
+    private static readonly IReadOnlyList<string> DropFanfareRarityOrder =
+        new[] { "Common", "Rare", "Epic", "Legendary", "Mythical", "Unique" };
+
+    /// <summary>
+    /// Bit-themed rarity fanfare fired the instant a drop lands, not when the
+    /// crate is later opened -- Common/Rare stay silent (the crate itself is
+    /// tell enough), but Epic and up throw an immediate burst of pixel-shard
+    /// debris that scales up in count/speed/lifetime through
+    /// Legendary/Mythical/Unique, so a great pull reads as a moment before
+    /// you've walked over to open anything. Reuses BitVfxSystem's existing
+    /// pixel-debris primitive (see Entities/BitVfxSystem.cs) rather than a
+    /// new sprite/particle type, matching the rest of the game's chunky,
+    /// digital-artifact visual language -- and keeps this purely additive:
+    /// no gameplay state, just accent-colored debris keyed off the best
+    /// rarity among what just dropped.
+    /// </summary>
+    private void EmitDropFanfare(Vector2 worldPosition, IReadOnlyList<ItemDrop> drops)
+    {
+        if (drops.Count == 0)
+            return;
+        string best = drops
+            .Select(drop => drop.Rarity)
+            .OrderByDescending(rarity => DropFanfareRarityOrder.ToList().IndexOf(rarity))
+            .First();
+        (int count, float speed, float lifetime) tuning = best switch
+        {
+            "Epic" => (14, 2.4f, .55f),
+            "Legendary" => (22, 3.1f, .75f),
+            "Mythical" => (30, 3.8f, .95f),
+            "Unique" => (42, 4.6f, 1.2f),
+            _ => (0, 0f, 0f),
+        };
+        if (tuning.count == 0)
+            return;
+        Color accent = UiTheme.RarityColors.GetValueOrDefault(best, UiTheme.Gold);
+        int seed = (int)(worldPosition.X * 7 + worldPosition.Y * 13 + tuning.count);
+        _visualEffects.EmitBurst(
+            worldPosition,
+            accent,
+            UiTheme.Cream,
+            tuning.count,
+            tuning.speed * Simulation.TileSize * .12f,
+            tuning.lifetime,
+            BitVfxLayer.World,
+            seed,
+            _visualDensity.Optional,
+            gravity: -Simulation.TileSize * .01f,
+            primitive: VfxPrimitive.Shard);
     }
 
     /// <summary>Ported from character.py's crateInteractionForPlayer(). The drag-in-progress guard is dropped (InformationSheet's drag UI is deferred).</summary>
@@ -4395,7 +4459,7 @@ public sealed class GameSession
             || FooterHud.Contains(mousePosition) || InformationSheet.DragInProgress)
             return;
         var center = mousePosition.ToVector2();
-        Color color = State.AutoFire || InputState.MouseDown ? UiTheme.Cream : UiTheme.Text;
+        Color color = State.AutoFire || InputState.MouseDown || InputState.ControllerFireHeld ? UiTheme.Cream : UiTheme.Text;
         Primitives2D.FillRect(spriteBatch, new Rectangle(mousePosition.X - 3, mousePosition.Y - 3, 6, 6), UiTheme.Ink);
         Primitives2D.RectOutline(spriteBatch, new Rectangle(mousePosition.X - 3, mousePosition.Y - 3, 6, 6), color, 1);
         const int gap = 7, length = 8;
@@ -4516,7 +4580,7 @@ public sealed class GameSession
             UiTheme.PanelRaised, UiTheme.Cream,
             shadow: 7, composite: PathRun is not null);
         string headline = CampaignActivity == Systems.CampaignActivity.Aphantasia
-            ? State.NoHealing && State.NoExtract
+            ? State.IsTrueHardMode
                 ? "THE CORE OF THE VOID ENDED"
                 : "APHANTASIA ENDED"
             : PathRun is not null

@@ -68,6 +68,40 @@ public sealed class RunResultReportTests
     }
 
     [Fact]
+    public void Capture_SurfacesQuestsCompletedDuringTheRun()
+    {
+        GameProfileData original = GameProfile.Profile;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            var state = new RunState { RunOutcome = "RUN COMPLETE" };
+            GameProfile.IncrementQuest("enemies_defeated", 50, state);
+
+            RunResultReport report = RunResultReport.Capture(state, "sound",
+                retained: true, rewards: null);
+
+            QuestCompletionSummary quest = Assert.Single(report.CompletedQuests);
+            Assert.Equal("First Steps", quest.Name);
+            Assert.Equal(1, quest.Reward);
+        }
+        finally
+        {
+            GameProfile.Profile = original;
+        }
+    }
+
+    [Fact]
+    public void Capture_WithNoQuestCompletionsLeavesCompletedQuestsEmpty()
+    {
+        var state = new RunState { RunOutcome = "DEFEATED" };
+
+        RunResultReport report = RunResultReport.Capture(state, "sound",
+            retained: false, rewards: null);
+
+        Assert.Empty(report.CompletedQuests);
+    }
+
+    [Fact]
     public void CaptureSeparatesFieldAndBossTimeAndNamesTheDungeon()
     {
         var state = new RunState

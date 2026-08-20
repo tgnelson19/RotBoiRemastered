@@ -111,7 +111,7 @@ public sealed class TitleScreen
     private void DrawQuitConfirmation(SpriteBatch spriteBatch, Rectangle frame,
         Point mouse, bool mouseDown, float scale, float animation)
     {
-        Primitives2D.FillRect(spriteBatch, frame, new Color(0, 0, 0, 190));
+        UiTheme.DrawScrim(spriteBatch, frame);
         int width = Math.Min(frame.Width - 20, Math.Max(240, (int)(410 * scale)));
         int height = Math.Min(frame.Height - 20, Math.Max(130, (int)(165 * scale)));
         var modal = new Rectangle(frame.Center.X - width / 2,

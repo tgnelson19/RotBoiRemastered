@@ -27,7 +27,7 @@ public sealed class CosmeticsTests : IDisposable
     {
         Assert.Equal("reference", Cosmetics.SelectedProjectile.Id);
         Assert.Equal("bulb", Cosmetics.SelectedDesign.Id);
-        Assert.Equal(10, Cosmetics.ProjectileDesigns.Count);
+        Assert.Equal(17, Cosmetics.ProjectileDesigns.Count);
         Assert.Contains(Cosmetics.ProjectileDesigns, design => design.Id == "prism");
         Assert.Contains(Cosmetics.ProjectileDesigns, design => design.Id == "sigil");
     }
@@ -56,5 +56,50 @@ public sealed class CosmeticsTests : IDisposable
     {
         Assert.False(Cosmetics.Select("design", "not-a-design"));
         Assert.Equal("bulb", GameProfile.Profile.ProjectileDesign);
+    }
+
+    [Fact]
+    public void LaunchCatalogEntries_AreAlwaysUnlockedOnAFreshProfile()
+    {
+        Assert.True(Cosmetics.IsUnlocked("core", "emerald"));
+        Assert.True(Cosmetics.IsUnlocked("edge", "gold"));
+        Assert.True(Cosmetics.IsUnlocked("projectile", "arcane"));
+        Assert.True(Cosmetics.IsUnlocked("design", "lance"));
+    }
+
+    [Fact]
+    public void GatedCosmetic_IsLockedUntilItsConditionIsMet_ThenSelectable()
+    {
+        Assert.False(Cosmetics.IsUnlocked("core", "coral"));
+        Assert.False(Cosmetics.Select("core", "coral"));
+        Assert.Equal("Extract from one run.", Cosmetics.LockDescription("core", "coral"));
+
+        GameProfile.Profile.QuestProgress["runs_extracted"] = 1;
+
+        Assert.True(Cosmetics.IsUnlocked("core", "coral"));
+        Assert.True(Cosmetics.Select("core", "coral"));
+        Assert.Equal("coral", GameProfile.Profile.PlayerCoreColor);
+    }
+
+    [Fact]
+    public void TierThreeCosmetics_HideTheirUnlockHintAsQuestionMarks()
+    {
+        Assert.Equal(Cosmetics.LockedHint, Cosmetics.LockDescription("core", "voidbloom"));
+        Assert.Equal(Cosmetics.LockedHint, Cosmetics.LockDescription("design", "halo"));
+        Assert.False(Cosmetics.IsUnlocked("core", "voidbloom"));
+        Assert.False(Cosmetics.IsUnlocked("design", "halo"));
+
+        GameProfile.Profile.DefeatedCoreOfTheVoid = true;
+
+        Assert.True(Cosmetics.IsUnlocked("core", "voidbloom"));
+        Assert.True(Cosmetics.IsUnlocked("design", "halo"));
+    }
+
+    [Fact]
+    public void GrandfatheredSelection_StaysUnlockedEvenIfItsConditionIsNeverMet()
+    {
+        GameProfile.Profile.UnlockedCosmetics.Add("core:coral");
+        Assert.True(Cosmetics.IsUnlocked("core", "coral"));
+        Assert.True(Cosmetics.Select("core", "coral"));
     }
 }

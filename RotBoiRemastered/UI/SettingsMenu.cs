@@ -61,8 +61,7 @@ public sealed class SettingsMenu
     {
         _controls.Clear();
         _focus.BeginFrame();
-        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight),
-            new Color(3, 5, 8, 205));
+        UiTheme.DrawScrim(spriteBatch, new Rectangle(0, 0, screenWidth, screenHeight));
 
         float scale = Scale(screenWidth, screenHeight);
         _drawScale = scale;
@@ -244,7 +243,6 @@ public sealed class SettingsMenu
     private List<SettingRow> RowsForCategory()
     {
         GameProfileData profile = GameProfile.Profile;
-        static string OnOff(bool value) => value ? "ON" : "OFF";
         return _category switch
         {
             "gameplay" => new List<SettingRow>
@@ -281,6 +279,8 @@ public sealed class SettingsMenu
         };
     }
 
+    private static string OnOff(bool value) => value ? "ON" : "OFF";
+
     private static SettingRow FooterRow(int index)
     {
         string id = GameProfile.Profile.FooterStats[index];
@@ -291,9 +291,14 @@ public sealed class SettingsMenu
 
     private static List<SettingRow> ControlsRows()
     {
+        GameProfileData controlsProfile = GameProfile.Profile;
         var rows = new List<SettingRow>
         {
-            new("manual", "FIELD MANUAL", "", "WASD move // mouse/right stick aim // Space/A dash // Tab/View dossier", UiTheme.Cream),
+            new("manual", "FIELD MANUAL", "", "WASD move // mouse aim // Space dash // Tab dossier", UiTheme.Cream),
+            new("setting:ControllerSupportBeta", "BETA CONTROLLER SUPPORT",
+                OnOff(controlsProfile.ControllerSupportBeta),
+                "Right trigger fires; right stick aims a reticle orbiting the player. Off by default.",
+                UiTheme.Gold),
         };
         rows.AddRange(Keybinds.Actions.Select(action => new SettingRow(
             $"binding:{action.Id}", action.Label.ToUpperInvariant(),
@@ -339,7 +344,7 @@ public sealed class SettingsMenu
     private void DrawConfirmation(SpriteBatch spriteBatch, Rectangle root,
         Point mouse, bool mouseDown, float scale, float animationTime)
     {
-        Primitives2D.FillRect(spriteBatch, root, new Color(0, 0, 0, 185));
+        UiTheme.DrawScrim(spriteBatch, root);
         int width = Math.Min(root.Width - 24, Math.Max(250, (int)(430 * scale)));
         int height = Math.Min(root.Height - 24, Math.Max(140, (int)(180 * scale)));
         var modal = new Rectangle(root.Center.X - width / 2, root.Center.Y - height / 2,
@@ -508,7 +513,7 @@ public sealed class SettingsMenu
         GameProfileData profile = GameProfile.Profile;
         if (key is "CasualMode" or "AutoFire" or "TutorialHints" or "AimGuide"
             or "DamageNumbers" or "HighContrast" or "Fullscreen" or "VSync"
-            or "DevUnlockTesting" or "DeveloperArmory")
+            or "DevUnlockTesting" or "DeveloperArmory" or "ControllerSupportBeta")
         {
             GameProfile.Toggle(key);
             return;

@@ -41,6 +41,34 @@ public class MetaProgressionTests : IDisposable
     }
 
     [Fact]
+    public void CompletingQuest_RecordsItOnTheActiveRunStateForTheDebrief()
+    {
+        var state = new RunState();
+
+        GameProfile.IncrementQuest("enemies_defeated", 49, state);
+
+        Assert.Empty(state.QuestsCompletedThisRun);
+
+        GameProfile.IncrementQuest("enemies_defeated", 1, state);
+
+        Assert.Equal(new[] { "first_steps" }, state.QuestsCompletedThisRun);
+
+        // Crossing the same counter again must not re-record an
+        // already-completed quest on a later debrief.
+        GameProfile.IncrementQuest("enemies_defeated", 1, state);
+
+        Assert.Equal(new[] { "first_steps" }, state.QuestsCompletedThisRun);
+    }
+
+    [Fact]
+    public void CompletingQuest_WithNoRunStateDoesNotThrow()
+    {
+        GameProfile.IncrementQuest("enemies_defeated", 100);
+
+        Assert.Contains("first_steps", GameProfile.Profile.CompletedQuests);
+    }
+
+    [Fact]
     public void PurchasedSkill_AppliesEveryNewRun()
     {
         GameProfile.Profile.SoulTokens = 1;
@@ -115,6 +143,52 @@ public class MetaProgressionTests : IDisposable
         Assert.Equal(0, GameProfile.Profile.MindTokens);
         Assert.Equal(0, GameProfile.Profile.PathMastery.GetValueOrDefault(NewGamePlus.DungeonKey));
         Assert.Equal(0, NewGamePlus.UnlockedLevel(NewGamePlus.DungeonKey));
+    }
+
+    [Fact]
+    public void RunExtractedWithoutTouchingTheForge_FlagsTheNoReforgeCosmeticUnlock()
+    {
+        var state = new RunState();
+
+        MetaProgression.RecordExtraction(state, "sound", completed: false);
+
+        Assert.True(GameProfile.Profile.NoReforgeRunCompleted);
+    }
+
+    [Fact]
+    public void RunExtractedAfterUsingTheForge_LeavesTheNoReforgeFlagUnset()
+    {
+        var state = new RunState();
+        state.ReforgeUsedThisRun = true;
+
+        MetaProgression.RecordExtraction(state, "sound", completed: false);
+
+        Assert.False(GameProfile.Profile.NoReforgeRunCompleted);
+    }
+
+    [Fact]
+    public void RunExtractedInHardMode_FlagsTheHardModeCosmeticUnlock()
+    {
+        var state = new RunState();
+        state.SetHardMode(true);
+
+        MetaProgression.RecordExtraction(state, "sound", completed: false);
+
+        Assert.True(GameProfile.Profile.HardModeRunCompleted);
+    }
+
+    [Fact]
+    public void RecordCoreOfTheVoidDefeat_SetsTheFlagOnceAndSaves()
+    {
+        Assert.False(GameProfile.Profile.DefeatedCoreOfTheVoid);
+
+        MetaProgression.RecordCoreOfTheVoidDefeat();
+
+        Assert.True(GameProfile.Profile.DefeatedCoreOfTheVoid);
+
+        // Calling again must not throw or double-save in a way that breaks state.
+        MetaProgression.RecordCoreOfTheVoidDefeat();
+        Assert.True(GameProfile.Profile.DefeatedCoreOfTheVoid);
     }
 
     [Fact]

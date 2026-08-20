@@ -10,9 +10,13 @@ namespace RotBoiRemastered.UI;
 public enum ReforgeOutcome { StillOpen, Closed }
 
 /// <summary>
-/// Full-screen, combat-pausing forge where collected Fragments can improve an
-/// equipped item's grade or replace its affix. Rarity is intentionally never
-/// written by this class.
+/// Full-screen, combat-pausing forge where collected Fragments raise an
+/// equipped item's Rarity. Rarity is now the item's only power dial (Grade
+/// is gone) and Modifiers are never rerolled -- an item's ModifierLadder is
+/// fixed at authoring time (see ItemDefinition.ModifierLadder), so the one
+/// thing left for Fragments to buy here is climbing that same ladder by
+/// spending them to raise Rarity a step, which is exactly what "the item
+/// itself holds the power, Reforge structures the build" means in practice.
 /// </summary>
 public sealed class ReforgeHandler
 {
@@ -24,7 +28,6 @@ public sealed class ReforgeHandler
     private float _scale;
     private readonly Dictionary<string, Rectangle> _slotRects = new();
     private Rectangle _upgradeRect;
-    private Rectangle _rerollRect;
     private Rectangle _backRect;
     private string? _selectedSlot;
 
@@ -49,10 +52,9 @@ public sealed class ReforgeHandler
         for (int index = 0; index < SlotOrder.Length; index++)
             _slotRects[SlotOrder[index]] = new Rectangle(startX + index * (slotSize + gap), slotY, slotSize, slotSize);
 
-        int actionWidth = Math.Min(Px(300), (screenWidth - Px(80)) / 2);
+        int actionWidth = Math.Min(Px(360), screenWidth - Px(80));
         int actionY = screenHeight - Px(116);
-        _upgradeRect = new Rectangle(screenWidth / 2 - actionWidth - Px(10), actionY, actionWidth, Px(58));
-        _rerollRect = new Rectangle(screenWidth / 2 + Px(10), actionY, actionWidth, Px(58));
+        _upgradeRect = new Rectangle(screenWidth / 2 - actionWidth / 2, actionY, actionWidth, Px(58));
         _backRect = new Rectangle(Px(24), Px(24), Px(145), Px(44));
     }
 
@@ -69,28 +71,15 @@ public sealed class ReforgeHandler
         return _selectedSlot is null ? null : state.Equipment.GetValueOrDefault(_selectedSlot);
     }
 
-    public bool TryUpgradeGrade(RunState state)
+    public bool TryUpgradeRarity(RunState state)
     {
         var item = SelectedItem(state);
-        if (item is null || _selectedSlot is null || Items.GradeUpgradeCost(item) is not int cost || state.Fragments < cost)
+        if (item is null || _selectedSlot is null || Items.RarityUpgradeCost(item) is not int cost || state.Fragments < cost)
             return false;
         state.Fragments -= cost;
-        state.Equipment[_selectedSlot] = Items.UpgradeGrade(item);
+        state.Equipment[_selectedSlot] = Items.UpgradeRarity(item);
         state.CombinePlayerStats();
-        return true;
-    }
-
-    public bool TryRerollModifier(RunState state, Random? rng = null)
-    {
-        var item = SelectedItem(state);
-        if (item is null || _selectedSlot is null)
-            return false;
-        int cost = Items.ModifierRerollCost(item);
-        if (state.Fragments < cost)
-            return false;
-        state.Fragments -= cost;
-        state.Equipment[_selectedSlot] = Items.RerollModifier(item, rng);
-        state.CombinePlayerStats();
+        state.ReforgeUsedThisRun = true;
         return true;
     }
 
@@ -111,9 +100,7 @@ public sealed class ReforgeHandler
             }
         }
         if (_upgradeRect.Contains(mousePosition))
-            TryUpgradeGrade(state);
-        else if (_rerollRect.Contains(mousePosition))
-            TryRerollModifier(state, rng);
+            TryUpgradeRarity(state);
         return ReforgeOutcome.StillOpen;
     }
 
@@ -133,7 +120,7 @@ public sealed class ReforgeHandler
             accentColor: UiTheme.Cream, keyHint: "ESC", textSize: Px(12));
         UiTheme.DrawText(spriteBatch, "THE GOLDEN FORGE", Px(34), UiTheme.Gold,
             new Vector2(_screenWidth / 2f, Px(30)), "midtop");
-        UiTheme.DrawText(spriteBatch, "SPEND 5 FRAGMENTS // GRADE OR MODIFIER // RARITY IS PERMANENT", Px(12), UiTheme.Muted,
+        UiTheme.DrawText(spriteBatch, $"SPEND {Items.ReforgeFragmentCost} FRAGMENTS // RAISE RARITY // MODIFIERS UNLOCK AS YOU CLIMB", Px(12), UiTheme.Muted,
             new Vector2(_screenWidth / 2f, Px(79)), "midtop");
         UiTheme.DrawTag(spriteBatch, $"FRAGMENTS  {state.Fragments:N0}",
             new Vector2(_screenWidth - Px(210), Px(31)), UiTheme.Gold, Px(11));
@@ -167,33 +154,29 @@ public sealed class ReforgeHandler
         if (selectedItem is not null)
             DrawSelectedItem(spriteBatch, selectedItem);
 
-        int? upgradeCost = selectedItem is null ? null : Items.GradeUpgradeCost(selectedItem);
-        bool canUpgrade = upgradeCost is int gradeCost && state.Fragments >= gradeCost;
-        bool canReroll = selectedItem is not null && state.Fragments >= Items.ModifierRerollCost(selectedItem);
+        int? upgradeCost = selectedItem is null ? null : Items.RarityUpgradeCost(selectedItem);
+        bool canUpgrade = upgradeCost is int cost && state.Fragments >= cost;
         string upgradeLabel = selectedItem is null ? "NO ITEM SELECTED"
-            : upgradeCost is int cost ? $"GRADE {selectedItem.Grade} → {Items.UpgradeGrade(selectedItem).Grade}  //  {cost} FRAGMENTS"
-            : "GRADE S // MAXIMUM";
-        string rerollLabel = selectedItem is null ? "NO ITEM SELECTED"
-            : $"REROLL {selectedItem.Modifier.ToUpperInvariant()}  //  {Items.ModifierRerollCost(selectedItem)} FRAGMENTS";
+            : upgradeCost is int fragCost ? $"RAISE RARITY: {selectedItem.Rarity.ToUpperInvariant()} → {Items.UpgradeRarity(selectedItem).Rarity.ToUpperInvariant()}  //  {fragCost} FRAGMENTS"
+            : $"{selectedItem.Rarity.ToUpperInvariant()} // MAXIMUM RARITY";
         UiTheme.DrawButton(spriteBatch, _upgradeRect, upgradeLabel, mousePosition, mouseDown, canUpgrade,
-            UiTheme.Gold, textSize: Px(13));
-        UiTheme.DrawButton(spriteBatch, _rerollRect, rerollLabel, mousePosition, mouseDown, canReroll,
-            UiTheme.Purple, textSize: Px(13));
+            UiTheme.Gold, textSize: Px(14));
     }
 
     private void DrawSelectedItem(SpriteBatch spriteBatch, ItemDrop item)
     {
         int top = Px(310);
-        int width = Math.Min(Px(720), _screenWidth - Px(80));
-        var rect = new Rectangle((_screenWidth - width) / 2, top, width, Px(225));
+        int width = Math.Min(Px(760), _screenWidth - Px(80));
+        int ladderHeight = ItemCards.MeasureModifierLadder(Px(11), item);
+        var rect = new Rectangle((_screenWidth - width) / 2, top, width, Px(150) + ladderHeight);
         Color rarity = UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border);
-        Color grade = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
         UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, rarity, shadow: 7);
         UiTheme.DrawText(spriteBatch, item.DisplayName.ToUpperInvariant(), Px(24), UiTheme.Text,
             new Vector2(rect.X + Px(20), rect.Y + Px(15)));
-        UiTheme.DrawText(spriteBatch, $"{item.Rarity.ToUpperInvariant()} RARITY  //  GRADE {item.Grade} ({Items.GradePower(item.Grade):P0} STATS)",
-            Px(11), grade, new Vector2(rect.X + Px(20), rect.Y + Px(51)));
+        UiTheme.DrawText(spriteBatch,
+            $"{item.Rarity.ToUpperInvariant()} RARITY  //  {Items.ModifierUnlockCount(item.Rarity)} OF {item.Definition.ModifierLadder.Count} MODIFIERS UNLOCKED",
+            Px(11), rarity, new Vector2(rect.X + Px(20), rect.Y + Px(51)));
 
         var core = Items.CoreForgeFor(item);
         if (core is not null)
@@ -201,12 +184,6 @@ public sealed class ReforgeHandler
             Color coreColor = GamePaths.PathsByKey[core.PathKey].Accent;
             UiTheme.DrawTag(spriteBatch, core.DisplayName, new Vector2(rect.Right - Px(170), rect.Y + Px(20)), coreColor, Px(10));
         }
-
-        var affix = Items.ModifierDefinition(item);
-        UiTheme.DrawText(spriteBatch, $"{affix.Name.ToUpperInvariant()} MODIFIER", Px(15), UiTheme.Purple,
-            new Vector2(rect.X + Px(20), rect.Y + Px(82)));
-        UiTheme.DrawWrappedText(spriteBatch, affix.Description, Px(11), UiTheme.Cream,
-            new Vector2(rect.X + rect.Width * .245f, rect.Y + Px(135)), rect.Width * .45f);
 
         var effects = Items.Effects(item);
         int columnX = rect.Center.X + Px(20);
@@ -220,5 +197,11 @@ public sealed class ReforgeHandler
                 new Vector2(rect.Right - Px(20), rowY), "topright");
             rowY += Px(23);
         }
+
+        // The Modifier/Signature unlock ladder for this item, at the bottom
+        // of the panel -- exactly where the venture asked for it, and this
+        // is Reforge's own natural home for it, since raising Rarity here is
+        // literally what climbs the ladder being shown.
+        ItemCards.DrawModifierLadder(spriteBatch, new Vector2(rect.X + Px(20), rect.Y + Px(150)), Px(11), item);
     }
 }

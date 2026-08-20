@@ -33,6 +33,15 @@ public sealed class GameProfileData
     public bool AimGuide { get; set; }
     public bool HighContrast { get; set; }
     /// <summary>
+    /// Gamepad input is fully inert until this is on: RotBoiGame.CollectInput
+    /// polls the pad every frame regardless, but only writes real values into
+    /// InputState's Controller*/Ui* fields when this is true, so a plugged-in
+    /// controller can't nudge movement, menus, or firing while it's off.
+    /// Defaults off while the right-trigger-fire / orbiting-reticle aim
+    /// scheme is new and unproven.
+    /// </summary>
+    public bool ControllerSupportBeta { get; set; }
+    /// <summary>
     /// Density of optional ambience, trails, and debris. Essential combat
     /// telegraphs and basic pose animation deliberately ignore this value.
     /// </summary>
@@ -60,6 +69,21 @@ public sealed class GameProfileData
     public bool NoExtractEnabled { get; set; }
     public bool DevUnlockTesting { get; set; }
     public bool DeveloperArmory { get; set; }
+    /// <summary>Set by MetaProgression.RecordExtraction when a run ends (extract or full clear) without ever using the Golden Forge. Feeds the "Never use a reforge token and complete a run" cosmetic unlock.</summary>
+    public bool NoReforgeRunCompleted { get; set; }
+    /// <summary>Set by MetaProgression.RecordExtraction when a run ends (extract or full clear) while Hard Mode (no healing) was active.</summary>
+    public bool HardModeRunCompleted { get; set; }
+    /// <summary>Set when Aphantasia is defeated in Phase 4 with both Hard Mode braziers (no healing, no extract) lit -- "Aphantasia, Core of The Void" (True Hard Mode). See MetaProgression.RecordCoreOfTheVoidDefeat.</summary>
+    public bool DefeatedCoreOfTheVoid { get; set; }
+    /// <summary>
+    /// Cosmetic unlock cache, formatted "{category}:{id}" (e.g. "core:emerald"). Populated by
+    /// GameProfile.Normalize's grandfather step for whatever a save already has equipped, so an
+    /// existing player never loses access to a look they were already wearing. Cosmetics.IsUnlocked
+    /// also checks each option's own unlock condition live, so this list only needs to carry
+    /// grandfathered entries -- earned unlocks stay unlocked because their underlying counters
+    /// and flags are themselves permanent.
+    /// </summary>
+    public List<string> UnlockedCosmetics { get; set; } = new();
 
     /// <summary>Action id -> key code (as int) or null for unbound. See Keybinds.cs.</summary>
     public Dictionary<string, int?> Keybinds { get; set; } = new();
@@ -103,10 +127,12 @@ public sealed class GameProfileData
 }
 
 /// <summary>
-/// Persisted item identity. Grade and Modifier were added after the original
-/// two-field save shape; their defaults deliberately preserve the old item's
-/// authored strength and avoid inventing an affix when an existing save is
-/// migrated.
+/// Persisted item identity. Grade and Modifier are legacy fields from before
+/// the rarity-ladder rework (Items.cs no longer has a Grade concept, and
+/// Modifiers are no longer individually rolled/stored -- see
+/// ItemDefinition.ModifierLadder) -- kept here only so an existing save file
+/// with those properties still deserializes instead of throwing; Items.Deserialize
+/// never reads them.
 /// </summary>
 public sealed record StoredItemData(
     string Name,
@@ -240,6 +266,21 @@ public static class GameProfile
         profile.NewGamePlusUnlocked ??= new();
         profile.SelectedNewGamePlus ??= new();
         profile.RecentBossEncounters ??= new();
+        profile.UnlockedCosmetics ??= new();
+        // Grandfather whatever's currently equipped, so a wardrobe gated after this save was
+        // created never locks a look the player already had. Duplicates are harmless (Select
+        // and IsUnlocked both do a simple Contains check) but avoided anyway for a tidy save file.
+        foreach (string entry in new[]
+        {
+            $"core:{profile.PlayerCoreColor}",
+            $"edge:{profile.PlayerEdgeColor}",
+            $"projectile:{profile.ProjectileColor}",
+            $"design:{profile.ProjectileDesign}",
+        })
+        {
+            if (!profile.UnlockedCosmetics.Contains(entry))
+                profile.UnlockedCosmetics.Add(entry);
+        }
         foreach (string key in profile.SkillLevels.Keys.ToList())
         {
             if (!MetaProgression.SkillNodesByKey.TryGetValue(key, out SkillNode? node))
@@ -380,10 +421,20 @@ public static class GameProfile
         SaveProfile();
     }
 
-    public static void IncrementQuest(string counter, long amount = 1)
+    /// <summary>
+    /// Bumps a lifetime quest counter. When <paramref name="state"/> is the
+    /// active run's RunState, any quest that becomes ready as a result is
+    /// recorded on it so the end-of-run debrief can call it out; pass null
+    /// (the default) from contexts with no active run, such as The Mind's
+    /// DPS effigy.
+    /// </summary>
+    public static void IncrementQuest(string counter, long amount = 1, RunState? state = null)
     {
         Profile.QuestProgress[counter] = Math.Max(0, Profile.QuestProgress.GetValueOrDefault(counter) + amount);
-        MetaProgression.CompleteReadyQuests();
+        var completed = MetaProgression.CompleteReadyQuests();
+        if (state is not null)
+            foreach (var quest in completed)
+                state.QuestsCompletedThisRun.Add(quest.Key);
     }
 
     public static void RecordDummyDps(double dps)
@@ -394,12 +445,12 @@ public static class GameProfile
         SaveProfile();
     }
 
-    public static void DiscoverItem(string name)
+    public static void DiscoverItem(string name, RunState? state = null)
     {
         if (Profile.DiscoveredItems.Contains(name))
             return;
         Profile.DiscoveredItems.Add(name);
-        IncrementQuest("items_found");
+        IncrementQuest("items_found", state: state);
     }
 
     /// <summary>

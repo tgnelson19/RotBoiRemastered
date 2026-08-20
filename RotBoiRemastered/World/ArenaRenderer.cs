@@ -888,7 +888,10 @@ public sealed class ArenaRenderer
         Vector2 playerWorldPosition,
         Vector2 screenShake,
         Rectangle viewport,
-        bool drawRaisedScenery = true)
+        bool drawRaisedScenery = true,
+        float visualTime = 0f,
+        float visualIntensity = 1f,
+        IReadOnlyDictionary<int, float>? roomVisualEnergy = null)
     {
         if (_bakedGround is null || _bakedFor is null)
             return;
@@ -906,6 +909,34 @@ public sealed class ArenaRenderer
             graphicsDevice.ScissorRectangle = previousScissor;
             return;
         }
+
+        DrawRaisedSceneryOnly(
+            spriteBatch,
+            camera,
+            playerWorldPosition,
+            screenShake,
+            viewport,
+            visualTime,
+            visualIntensity,
+            roomVisualEnergy);
+
+        spriteBatch.End();
+        graphicsDevice.ScissorRectangle = previousScissor;
+    }
+
+    /// <summary>Draws only the raised-scenery portion of the arena pass.</summary>
+    public void DrawRaisedSceneryOnly(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle viewport,
+        float visualTime = 0f,
+        float visualIntensity = 1f,
+        IReadOnlyDictionary<int, float>? roomVisualEnergy = null)
+    {
+        if (_bakedFor is null)
+            return;
 
         var visibility = camera.LogicalViewport(viewport);
         visibility.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
@@ -957,15 +988,14 @@ public sealed class ArenaRenderer
             var palette = _bakedFor.Palettes[item.Biome];
             if (item.Kind == 0)
                 DrawCameraFacingWall(spriteBatch, camera, playerWorldPosition,
-                    screenShake, item.X, item.Y, item.Tile, palette);
+                    screenShake, item.X, item.Y, item.Tile, palette,
+                    visualTime, visualIntensity);
             else if (item.Kind == 1)
                 DrawRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.X, item.Y, item.Biome, palette);
             else if (item.PathDecoration is not null)
-                DrawPathRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.PathDecoration, palette);
+                DrawPathRaisedDecoration(spriteBatch, camera, playerWorldPosition, screenShake, item.PathDecoration, palette, visualTime, visualIntensity,
+                    roomVisualEnergy?.GetValueOrDefault(item.PathDecoration.RoomId, .42f) ?? .42f);
         }
-
-        spriteBatch.End();
-        graphicsDevice.ScissorRectangle = previousScissor;
     }
 
     /// <summary>

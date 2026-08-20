@@ -64,17 +64,15 @@ public sealed class NewGamePlusTests : IDisposable
     }
 
     [Fact]
-    public void LootRolls_ShiftTowardHigherGradesAndRaritiesAtNewGamePlusSeven()
+    public void LootRolls_ShiftTowardHigherRaritiesAtNewGamePlusSeven()
     {
+        // Grade is gone -- Rarity is the only loot-roll axis New Game Plus
+        // still has to shift.
         const int rolls = 30_000;
-        Random normalGradeRng = new(140), plusGradeRng = new(140);
         Random normalRarityRng = new(240), plusRarityRng = new(240);
-        double AverageGrade(Random rng, int level) => Enumerable.Range(0, rolls)
-            .Average(_ => Items.GradeOrder.ToList().IndexOf(Items.RollGrade(rng, level)));
         double AverageRarity(Random rng, int level) => Enumerable.Range(0, rolls)
             .Average(_ => Upgrades.RarityOrder.ToList().IndexOf(Items.RollItemRarity(rng, level)));
 
-        Assert.True(AverageGrade(plusGradeRng, 7) > AverageGrade(normalGradeRng, 0) + 1.3);
         Assert.True(AverageRarity(plusRarityRng, 7) > AverageRarity(normalRarityRng, 0) + .65);
     }
 
@@ -124,17 +122,15 @@ public sealed class NewGamePlusTests : IDisposable
     }
 
     [Fact]
-    public void GenerateDrops_PassesNewGamePlusThroughRarityGradeAndCorePipelines()
+    public void GenerateDrops_PassesNewGamePlusThroughRarityAndCorePipelines()
     {
-        var normal = Items.GenerateDrops(10_000, new Random(990), hardMode: true, pathKey: "touch",
+        var normal = Items.GenerateDrops(10_000, new Random(990), hardModeActive: true, pathKey: "touch",
             newGamePlusLevel: 0);
-        var plusSeven = Items.GenerateDrops(10_000, new Random(990), hardMode: true, pathKey: "touch",
+        var plusSeven = Items.GenerateDrops(10_000, new Random(990), hardModeActive: true, pathKey: "touch",
             newGamePlusLevel: 7);
 
         Assert.True(plusSeven.Count(drop => drop.CoreForge is not null)
             > normal.Count(drop => drop.CoreForge is not null) * 4);
-        Assert.True(plusSeven.Average(drop => Items.GradeOrder.ToList().IndexOf(drop.Grade))
-            > normal.Average(drop => Items.GradeOrder.ToList().IndexOf(drop.Grade)) + 1.2);
         Assert.True(plusSeven.Average(drop => Upgrades.RarityOrder.ToList().IndexOf(drop.Rarity))
             > normal.Average(drop => Upgrades.RarityOrder.ToList().IndexOf(drop.Rarity)) + .6);
     }

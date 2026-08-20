@@ -25,14 +25,22 @@ public class EquipmentBalanceTests : IDisposable
 
     private static ItemDrop Epic(string name) => new(Items.DefinitionsByName[name], "Epic");
     private static ItemDrop EpicCore(string core) =>
-        new(Items.DefinitionsByName["Iron Sword"], "Epic", "S", "Balanced", core);
+        new(Items.DefinitionsByName["Iron Sword"], "Epic", core);
+
+    // Common, not Epic: this test checks each weapon's own authored identity
+    // (Definition.Modifiers) against its siblings' in isolation. At Epic,
+    // each weapon's ModifierLadder unlocks 2 rungs that can shuffle the
+    // damage/range spectrum out of its authored order -- Common is the one
+    // Rarity guaranteed to unlock none of them. Scoped to this test only, so
+    // it doesn't disturb the other tests that reuse Epic()/EpicCore().
+    private static ItemDrop Common(string name) => new(Items.DefinitionsByName[name], "Common");
 
     [Fact]
     public void WeaponArchetypes_FollowDamageAndRangeSpectrum()
     {
         string[] names = { "Iron Dagger", "Iron Sword", "Iron Spear", "Hunting Bow", "Ash Wand" };
-        var damage = names.Select(name => Items.AdjustStat("Bullet Damage", 100, new ItemDrop?[] { Epic(name) })).ToArray();
-        var range = names.Select(name => Items.AdjustStat("Bullet Range", 250, new ItemDrop?[] { Epic(name) })).ToArray();
+        var damage = names.Select(name => Items.AdjustStat("Bullet Damage", 100, new ItemDrop?[] { Common(name) })).ToArray();
+        var range = names.Select(name => Items.AdjustStat("Bullet Range", 250, new ItemDrop?[] { Common(name) })).ToArray();
 
         Assert.True(damage.SequenceEqual(damage.OrderDescending()));
         Assert.True(range.SequenceEqual(range.Order()));
@@ -64,9 +72,10 @@ public class EquipmentBalanceTests : IDisposable
     public void Grimsbane_CarriesBleed_AtUniqueRarityAndDefaultSGrade()
     {
         var grimsbane = new ItemDrop(Items.UniquesByName["Grimsbane"], "Unique");
-        // The explicit constructor defaults to S grade, while Unique rarity
-        // contributes power 1.0, so the authored chance comes through
-        // unscaled. Naturally dropped uniques still roll F-S like every item.
+        // Uniques carry their authored numbers exactly as written -- there's
+        // no Rarity/Grade power curve left to scale them, and a Unique's
+        // Rarity never changes -- so the authored chance always comes
+        // through unscaled.
         double authoredChance = grimsbane.Definition.StatusChances!["bleed"];
         Assert.Equal(authoredChance, Items.StatusChances(new ItemDrop?[] { grimsbane }).GetValueOrDefault("bleed"));
     }

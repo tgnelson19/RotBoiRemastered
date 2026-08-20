@@ -73,9 +73,12 @@ public static class MetaProgression
         new QuestDefinition("living_weapon", "DPS", "Living Weapon", "Deal 250,000 damage to the DPS effigy.", "dummy_damage", 250000, 2),
     };
 
-    public static void CompleteReadyQuests(bool save = true)
+    public static readonly IReadOnlyDictionary<string, QuestDefinition> QuestsByKey = Quests.ToDictionary(quest => quest.Key);
+
+    /// <summary>Returns the quests newly completed by this call, if any, so a caller mid-run can attribute the reward to the active RunState for its debrief.</summary>
+    public static IReadOnlyList<QuestDefinition> CompleteReadyQuests(bool save = true)
     {
-        bool changed = false;
+        List<QuestDefinition>? completed = null;
         foreach (var quest in Quests)
         {
             if (GameProfile.Profile.CompletedQuests.Contains(quest.Key)
@@ -83,10 +86,11 @@ public static class MetaProgression
                 continue;
             GameProfile.Profile.CompletedQuests.Add(quest.Key);
             GameProfile.Profile.MindTokens += quest.Reward;
-            changed = true;
+            (completed ??= new List<QuestDefinition>()).Add(quest);
         }
-        if (changed && save)
+        if (completed is not null && save)
             GameProfile.SaveProfile();
+        return (IReadOnlyList<QuestDefinition>?)completed ?? Array.Empty<QuestDefinition>();
     }
 
     public static bool PurchaseSkill(string key)
@@ -167,13 +171,21 @@ public static class MetaProgression
         GameProfile.Profile.ExtractedRuns.Insert(0, run);
         if (GameProfile.Profile.ExtractedRuns.Count > 10)
             GameProfile.Profile.ExtractedRuns.RemoveRange(10, GameProfile.Profile.ExtractedRuns.Count - 10);
-        GameProfile.IncrementQuest("runs_extracted");
+        GameProfile.IncrementQuest("runs_extracted", state: state);
+        // A run "completing" (extracting or fully clearing, the only two ways this method is
+        // ever called) without touching the Golden Forge, or while Hard Mode was active, are
+        // both cosmetic-unlock conditions -- see Cosmetics.cs. Once true these stay true, so
+        // only ever set, never clear.
+        if (!state.ReforgeUsedThisRun)
+            GameProfile.Profile.NoReforgeRunCompleted = true;
+        if (state.HardMode)
+            GameProfile.Profile.HardModeRunCompleted = true;
         if (completed && grantCompletionRewards)
         {
             GameProfile.Profile.MindTokens += PathCompletionTokenReward
                 * (state.HardMode ? 2 : 1)
                 * NewGamePlus.RewardMultiplier(state.NewGamePlusLevel);
-            GameProfile.IncrementQuest("path_clears");
+            GameProfile.IncrementQuest("path_clears", state: state);
             GameProfile.Profile.PathMastery[path] = GameProfile.Profile.PathMastery.GetValueOrDefault(path) + 1;
             NewGamePlus.RecordCompletion(path, state.NewGamePlusLevel);
         }
@@ -186,6 +198,18 @@ public static class MetaProgression
             newGamePlusBefore,
             GameProfile.Profile.NewGamePlusUnlocked.GetValueOrDefault(path),
             EquipmentRetained: true);
+    }
+
+    /// <summary>
+    /// Called when Aphantasia is defeated in Phase 4 with both Hard Mode braziers lit ("Aphantasia,
+    /// Core of The Void" -- True Hard Mode). The rarest cosmetic tier is gated on this alone.
+    /// </summary>
+    public static void RecordCoreOfTheVoidDefeat()
+    {
+        if (GameProfile.Profile.DefeatedCoreOfTheVoid)
+            return;
+        GameProfile.Profile.DefeatedCoreOfTheVoid = true;
+        GameProfile.SaveProfile();
     }
 
     private static string StateCompletionOutcome(string outcome) =>

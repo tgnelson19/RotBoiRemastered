@@ -180,6 +180,17 @@ public sealed class Menus
         UiTheme.DrawText(spriteBatch, ng, 8 * scale,
             unlocked ? UiTheme.Green : UiTheme.Muted,
             new Vector2(panel.X + pad, rewardY + 69 * scale));
+        if (report.CompletedQuests.Count > 0)
+        {
+            const int maxNamed = 2;
+            string quests = "QUEST COMPLETE  //  " + string.Join("  //  ",
+                report.CompletedQuests.Take(maxNamed)
+                    .Select(quest => $"{quest.Name.ToUpperInvariant()} +{quest.Reward}"));
+            if (report.CompletedQuests.Count > maxNamed)
+                quests += $"  //  +{report.CompletedQuests.Count - maxNamed} MORE";
+            UiTheme.DrawText(spriteBatch, quests, 8 * scale, UiTheme.Gold,
+                new Vector2(panel.X + pad, rewardY + 91 * scale));
+        }
     }
 
     private static string TimeLabel(double seconds) =>

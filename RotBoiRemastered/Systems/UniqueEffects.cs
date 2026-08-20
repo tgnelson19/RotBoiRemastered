@@ -3,15 +3,17 @@ using RotBoiRemastered.Entities;
 namespace RotBoiRemastered.Systems;
 
 /// <summary>
-/// Bespoke on-hit behavior for unique weapons (see Items.Uniques),
-/// dispatched by ItemDefinition.EffectIds -- the counterpart to
-/// StatusEffects.RollPlayerHit, which only knows how to apply the same
-/// handful of generic, chance-driven ailments any item can roll into via
-/// Items.StatusChances. Each EffectId is a one-off hook instead: add a case
-/// here (and, if it leans on a new status kind like "dread" below, a case in
-/// StatusEffects.Update/DamageMultiplier too) for each new named effect,
-/// rather than trying to force every future effect into the generic
-/// chance-dictionary shape that's shared across ordinary items.
+/// Bespoke on-hit behavior for unique weapons (see Items.Uniques) and,
+/// since the rarity-ladder rework, for a regular item's Legendary/Mythical-
+/// only Signature (see ItemSignatureDefinition) -- dispatched by
+/// Items.ActiveEffectIds, the counterpart to StatusEffects.RollPlayerHit,
+/// which only knows how to apply the same handful of generic, chance-driven
+/// ailments any item can carry via Items.StatusChances. Each EffectId is a
+/// one-off hook instead: add a case here (and, if it leans on a new status
+/// kind like "dread" below, a case in StatusEffects.Update/DamageMultiplier
+/// too) for each new named effect, rather than trying to force every future
+/// effect into the generic chance-dictionary shape that's shared across
+/// ordinary items.
 ///
 /// A weapon can list more than one EffectId -- OnPlayerHit runs every one of
 /// them on every non-killing hit, so e.g. Bow of Dread stacks a
@@ -20,11 +22,11 @@ namespace RotBoiRemastered.Systems;
 /// </summary>
 public static class UniqueEffects
 {
-    /// <summary>Called from GameSession.HandleDamagingEnemies right alongside StatusEffects.RollPlayerHit, once per non-killing hit, only when the equipped weapon has at least one EffectId.</summary>
+    /// <summary>Called from GameSession.HandleDamagingEnemies right alongside StatusEffects.RollPlayerHit, once per non-killing hit, only when Items.ActiveEffectIds(weapon) is non-empty.</summary>
     public static void OnPlayerHit(Enemy enemy, Bullet bullet, ItemDrop weapon, RunState state, Random? rng = null)
     {
         rng ??= Random.Shared;
-        foreach (var effectId in weapon.Definition.EffectIds ?? Array.Empty<string>())
+        foreach (var effectId in Items.ActiveEffectIds(weapon))
         {
             switch (effectId)
             {
@@ -60,6 +62,19 @@ public static class UniqueEffects
                     // duration refreshes on every hit, so sustained fire
                     // keeps racking stacks up but stopping lets them decay.
                     StatusEffects.Apply(enemy, "bane", duration: 4.0);
+                    break;
+
+                case "forge_touched_crit_fragment":
+                    // Iron Sword's Legendary/Mythical Signature ("Forge-
+                    // Touched") -- a small, critical-hit-only chance to
+                    // conjure a Fragment directly into the player's pocket.
+                    // Deliberately a flat, low, crit-gated roll (not a
+                    // guaranteed proc): this is meant to be a nice thematic
+                    // tie-in to the Golden Forge/Reforge economy this same
+                    // Signature is themed around, not a primary income
+                    // source that would make the item mandatory.
+                    if (bullet.IsCritical && rng.NextDouble() <= .05)
+                        state.Fragments += 1;
                     break;
             }
         }

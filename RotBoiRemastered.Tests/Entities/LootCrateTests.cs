@@ -62,7 +62,7 @@ public class LootCrateTests
     [Fact]
     public void CoreForgedCrate_UsesItsPathAccentAndReportsSpecialContents()
     {
-        var core = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Epic", "S", "Balanced", "rot");
+        var core = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Epic", "rot");
         var crate = new LootCrate(0, 0, new[] { core, Drop("Legendary") });
 
         Assert.True(crate.ContainsCoreForged);

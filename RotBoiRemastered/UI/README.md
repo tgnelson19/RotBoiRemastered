@@ -9,10 +9,14 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   `ItemCards.cs`.
 - `ItemCards.cs` <- `itemCards.py`. **Done** -- procedural slot-type icons
   and rarity-backed mini card chrome. Core-Forged cards retain rarity fill
-  while adding a pulsing path-colored outline and badge. Known difference: pygame's
-  `border_radius` (rounded corners) has no `Primitives2D` equivalent yet, so
-  the card and armor-icon corners render sharp instead of rounded (also
-  true of `StatCards.cs`'s card chrome).
+  while adding a pulsing path-colored outline and badge. `Primitives2D` has
+  since grown `FillRoundedRect`/`RoundedRectOutline`, so card and
+  armor-icon corners round via the shared `UiTheme.CardCornerRadius(width)`
+  helper (also used identically by `StatCards.cs`'s card chrome) rather
+  than each file computing its own radius. Small UI chrome (equipment/
+  stash/icon slots) rounds through the separate `UiTheme.SmallCornerRadius`
+  helper -- `UiTheme.DrawPanel`/`DrawFramedPanel` menu chrome stays
+  deliberately hard-cornered.
 - `LevelingHandler.cs` <- `levelingHandler.py`. **Done** -- upgrade-card
   draft screen, reroll button, stat-preview/recommendation logic.
 - `ReforgeHandler.cs`. **Done** -- full-screen equipped-item selection with
@@ -146,9 +150,9 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
   in `selectBountyTarget()` are dropped too -- no current `Enemy` type sets
   either (both were always their Python default), so
   `GameSession.SelectBountyTarget` reads `ExpValue`/`Family` directly.
-- Known rendering gap shared with `ItemCards.cs`/`StatCards.cs`: pygame's
-  `border_radius` (rounded corners) has no `Primitives2D` equivalent yet,
-  so equipment/loot slot boxes render sharp-cornered instead of rounded.
+- Equipment/loot slot boxes round their corners through the shared
+  `UiTheme.SmallCornerRadius` helper, same as `ItemCards.cs`/`StatCards.cs`'s
+  `UiTheme.CardCornerRadius` -- see the `ItemCards.cs` entry above.
 
 ## Still not in UI/ (HUD-overlay functions layered on top of the sheet)
 

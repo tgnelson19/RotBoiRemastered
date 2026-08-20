@@ -633,8 +633,8 @@ internal static class SoulVisualRenderer
     private static void DrawVestmentMirror(SpriteBatch spriteBatch, Vector2 at, Color color, float time, float wake)
     {
         var mirror = new Rectangle((int)at.X - 28, (int)at.Y - 47, 56, 68);
-        Primitives2D.FillRoundedRect(spriteBatch, mirror, new Color(28, 37, 54), 16);
-        Primitives2D.RoundedRectOutline(spriteBatch, mirror, color * wake, 4, 16);
+        Primitives2D.FillRoundedRect(spriteBatch, mirror, new Color(28, 37, 54), UiTheme.LargeCornerRadiusPx);
+        Primitives2D.RoundedRectOutline(spriteBatch, mirror, color * wake, 4, UiTheme.LargeCornerRadiusPx);
         float phase = MathF.Floor(time * 4f) * MathF.PI / 4f;
         Vector2 projectile = at + new Vector2(MathF.Cos(phase) * 9, -14 + MathF.Sin(phase) * 4);
         Primitives2D.FillPolygon(spriteBatch, new[]

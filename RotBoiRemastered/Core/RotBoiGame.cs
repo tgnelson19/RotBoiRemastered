@@ -333,67 +333,112 @@ public class RotBoiGame : Game
         InputState.ScrollWheelDelta = mouseState.ScrollWheelValue - _previousScrollWheelValue;
         _previousScrollWheelValue = mouseState.ScrollWheelValue;
 
+        // Always poll (cheap, and keeps _previousGamePadState's edge-detection
+        // baseline correct) but only let a controller actually do anything
+        // -- movement, menu navigation, firing -- once the player has opted
+        // into Settings' beta controller support. Otherwise every
+        // Controller*/Ui* field stays neutral, same as no pad connected.
         var gamePadState = GamePad.GetState(PlayerIndex.One);
-        var left = gamePadState.ThumbSticks.Left;
-        var right = gamePadState.ThumbSticks.Right;
-        InputState.ControllerMove = left.Length() > .2f ? new Vector2(left.X, -left.Y) : Vector2.Zero;
-        InputState.ControllerAim = right.Length() > .25f ? new Vector2(right.X, -right.Y) : Vector2.Zero;
-        InputState.ControllerDashPressed = gamePadState.Buttons.A == ButtonState.Pressed
-            && _previousGamePadState.Buttons.A == ButtonState.Released;
-        InputState.ControllerAutofirePressed = gamePadState.Buttons.X == ButtonState.Pressed
-            && _previousGamePadState.Buttons.X == ButtonState.Released;
-        InputState.ControllerInteractPressed = gamePadState.Buttons.B == ButtonState.Pressed
-            && _previousGamePadState.Buttons.B == ButtonState.Released;
-        InputState.ControllerPausePressed = gamePadState.Buttons.Start == ButtonState.Pressed
-            && _previousGamePadState.Buttons.Start == ButtonState.Released;
-        InputState.ControllerViewPressed = gamePadState.Buttons.Back == ButtonState.Pressed
-            && _previousGamePadState.Buttons.Back == ButtonState.Released;
-        InputState.ControllerConfirmPressed = gamePadState.Buttons.A == ButtonState.Pressed
-            && _previousGamePadState.Buttons.A == ButtonState.Released;
-        InputState.ControllerBackPressed = gamePadState.Buttons.B == ButtonState.Pressed
-            && _previousGamePadState.Buttons.B == ButtonState.Released;
-        InputState.ControllerDpadUpPressed = gamePadState.DPad.Up == ButtonState.Pressed
-            && _previousGamePadState.DPad.Up == ButtonState.Released;
-        InputState.ControllerDpadDownPressed = gamePadState.DPad.Down == ButtonState.Pressed
-            && _previousGamePadState.DPad.Down == ButtonState.Released;
-        InputState.ControllerDpadLeftPressed = gamePadState.DPad.Left == ButtonState.Pressed
-            && _previousGamePadState.DPad.Left == ButtonState.Released;
-        InputState.ControllerDpadRightPressed = gamePadState.DPad.Right == ButtonState.Pressed
-            && _previousGamePadState.DPad.Right == ButtonState.Released;
-        int uiX = gamePadState.DPad.Left == ButtonState.Pressed ? -1
-            : gamePadState.DPad.Right == ButtonState.Pressed ? 1
-            : left.X < -.55f ? -1 : left.X > .55f ? 1 : 0;
-        int uiY = gamePadState.DPad.Up == ButtonState.Pressed ? -1
-            : gamePadState.DPad.Down == ButtonState.Pressed ? 1
-            : left.Y > .55f ? -1 : left.Y < -.55f ? 1 : 0;
-        // Prefer the stronger stick axis so a diagonal does not double-step.
-        if (uiX != 0 && uiY != 0)
+        if (GameProfile.Profile.ControllerSupportBeta)
         {
-            if (Math.Abs(left.X) >= Math.Abs(left.Y)) uiY = 0;
-            else uiX = 0;
+            var left = gamePadState.ThumbSticks.Left;
+            var right = gamePadState.ThumbSticks.Right;
+            InputState.ControllerMove = left.Length() > .2f ? new Vector2(left.X, -left.Y) : Vector2.Zero;
+            InputState.ControllerAim = right.Length() > .25f
+                ? Vector2.Normalize(new Vector2(right.X, -right.Y))
+                : Vector2.Zero;
+            InputState.ControllerFireHeld = gamePadState.Triggers.Right > .35f;
+            InputState.ControllerDashPressed = gamePadState.Buttons.A == ButtonState.Pressed
+                && _previousGamePadState.Buttons.A == ButtonState.Released;
+            InputState.ControllerAutofirePressed = gamePadState.Buttons.X == ButtonState.Pressed
+                && _previousGamePadState.Buttons.X == ButtonState.Released;
+            InputState.ControllerInteractPressed = gamePadState.Buttons.B == ButtonState.Pressed
+                && _previousGamePadState.Buttons.B == ButtonState.Released;
+            InputState.ControllerPausePressed = gamePadState.Buttons.Start == ButtonState.Pressed
+                && _previousGamePadState.Buttons.Start == ButtonState.Released;
+            InputState.ControllerViewPressed = gamePadState.Buttons.Back == ButtonState.Pressed
+                && _previousGamePadState.Buttons.Back == ButtonState.Released;
+            InputState.ControllerConfirmPressed = gamePadState.Buttons.A == ButtonState.Pressed
+                && _previousGamePadState.Buttons.A == ButtonState.Released;
+            InputState.ControllerBackPressed = gamePadState.Buttons.B == ButtonState.Pressed
+                && _previousGamePadState.Buttons.B == ButtonState.Released;
+            InputState.ControllerDpadUpPressed = gamePadState.DPad.Up == ButtonState.Pressed
+                && _previousGamePadState.DPad.Up == ButtonState.Released;
+            InputState.ControllerDpadDownPressed = gamePadState.DPad.Down == ButtonState.Pressed
+                && _previousGamePadState.DPad.Down == ButtonState.Released;
+            InputState.ControllerDpadLeftPressed = gamePadState.DPad.Left == ButtonState.Pressed
+                && _previousGamePadState.DPad.Left == ButtonState.Released;
+            InputState.ControllerDpadRightPressed = gamePadState.DPad.Right == ButtonState.Pressed
+                && _previousGamePadState.DPad.Right == ButtonState.Released;
+            int uiX = gamePadState.DPad.Left == ButtonState.Pressed ? -1
+                : gamePadState.DPad.Right == ButtonState.Pressed ? 1
+                : left.X < -.55f ? -1 : left.X > .55f ? 1 : 0;
+            int uiY = gamePadState.DPad.Up == ButtonState.Pressed ? -1
+                : gamePadState.DPad.Down == ButtonState.Pressed ? 1
+                : left.Y > .55f ? -1 : left.Y < -.55f ? 1 : 0;
+            // Prefer the stronger stick axis so a diagonal does not double-step.
+            if (uiX != 0 && uiY != 0)
+            {
+                if (Math.Abs(left.X) >= Math.Abs(left.Y)) uiY = 0;
+                else uiX = 0;
+            }
+            var uiDirection = new Point(uiX, uiY);
+            bool uiPulse = false;
+            if (uiDirection != Point.Zero)
+            {
+                if (uiDirection != _uiRepeatDirection)
+                {
+                    uiPulse = true;
+                    _uiNextRepeat = _uiNavigationClock + .38;
+                }
+                else if (_uiNavigationClock >= _uiNextRepeat)
+                {
+                    uiPulse = true;
+                    _uiNextRepeat = _uiNavigationClock + .09;
+                }
+            }
+            _uiRepeatDirection = uiDirection;
+            InputState.UiUpPressed = uiPulse && uiY < 0;
+            InputState.UiDownPressed = uiPulse && uiY > 0;
+            InputState.UiLeftPressed = uiPulse && uiX < 0;
+            InputState.UiRightPressed = uiPulse && uiX > 0;
         }
-        var uiDirection = new Point(uiX, uiY);
-        bool uiPulse = false;
-        if (uiDirection != Point.Zero)
+        else
         {
-            if (uiDirection != _uiRepeatDirection)
-            {
-                uiPulse = true;
-                _uiNextRepeat = _uiNavigationClock + .38;
-            }
-            else if (_uiNavigationClock >= _uiNextRepeat)
-            {
-                uiPulse = true;
-                _uiNextRepeat = _uiNavigationClock + .09;
-            }
+            InputState.ControllerMove = Vector2.Zero;
+            InputState.ControllerAim = Vector2.Zero;
+            InputState.ControllerFireHeld = false;
+            InputState.ControllerDashPressed = false;
+            InputState.ControllerAutofirePressed = false;
+            InputState.ControllerInteractPressed = false;
+            InputState.ControllerPausePressed = false;
+            InputState.ControllerViewPressed = false;
+            InputState.ControllerConfirmPressed = false;
+            InputState.ControllerBackPressed = false;
+            InputState.ControllerDpadUpPressed = false;
+            InputState.ControllerDpadDownPressed = false;
+            InputState.ControllerDpadLeftPressed = false;
+            InputState.ControllerDpadRightPressed = false;
+            InputState.UiUpPressed = false;
+            InputState.UiDownPressed = false;
+            InputState.UiLeftPressed = false;
+            InputState.UiRightPressed = false;
+            _uiRepeatDirection = Point.Zero;
         }
-        _uiRepeatDirection = uiDirection;
-        InputState.UiUpPressed = uiPulse && uiY < 0;
-        InputState.UiDownPressed = uiPulse && uiY > 0;
-        InputState.UiLeftPressed = uiPulse && uiX < 0;
-        InputState.UiRightPressed = uiPulse && uiX > 0;
         _previousGamePadState = gamePadState;
     }
+
+    /// <summary>
+    /// Beta controller aim scheme: the right stick's direction
+    /// (InputState.ControllerAim) places an orbiting reticle a fixed
+    /// distance from the player rather than acting as a free-roaming
+    /// virtual mouse position -- firing is the right trigger
+    /// (InputState.ControllerFireHeld), decoupled from stick deflection.
+    /// </summary>
+    private const float ControllerAimRadiusPx = 150f;
+
+    private static Vector2 ControllerAimTarget(Vector2 origin, int viewportWidth, int viewportHeight) =>
+        origin + InputState.ControllerAim * (ControllerAimRadiusPx * UiTheme.DisplayScale(viewportWidth, viewportHeight));
 
     /// <summary>Ported from main.py's update_input_toggles().</summary>
     private void UpdateInputToggles()
@@ -498,6 +543,7 @@ public class RotBoiGame : Game
         session.RecordControllerActivity(
             InputState.ControllerMove != Vector2.Zero
             || InputState.ControllerAim != Vector2.Zero
+            || InputState.ControllerFireHeld
             || quickLootConsumed
             || InputState.ControllerDpadUpPressed
             || InputState.ControllerDpadDownPressed
@@ -510,16 +556,12 @@ public class RotBoiGame : Game
             InputState.ControllerMove);
 
         var mouseScreen = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
-        bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
-        if (controllerFiring)
-        {
-            var origin = session.Camera.Lock;
-            mouseScreen = origin + new Vector2(InputState.ControllerAim.X * GraphicsDevice.Viewport.Width,
-                InputState.ControllerAim.Y * GraphicsDevice.Viewport.Height);
-        }
+        if (InputState.ControllerAim != Vector2.Zero)
+            mouseScreen = ControllerAimTarget(session.Camera.Lock, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+        InputState.EffectiveAimPosition = new Point((int)mouseScreen.X, (int)mouseScreen.Y);
         session.HandleBulletCreation(mouseScreen, InputState.MouseDown,
             session.InformationSheet.DragInProgress || session.FooterHud.Contains(InputState.MousePosition),
-            controllerFiring: controllerFiring);
+            controllerFiring: InputState.ControllerFireHeld);
         session.UpdateBullets();
 
         session.HandleEnemyCreation(interactPressed:
@@ -729,10 +771,9 @@ public class RotBoiGame : Game
         if (!_soulHub.OverlayOpen && !_soulHub.IsEnteringPortal)
         {
             var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
-            bool controllerFiring = InputState.ControllerAim.LengthSquared() > .0625f;
-            if (controllerFiring)
-                aim = session.Camera.Lock + InputState.ControllerAim * GraphicsDevice.Viewport.Width;
-            session.HandleBulletCreation(aim, InputState.MouseDown, session.InformationSheet.DragInProgress, controllerFiring: controllerFiring);
+            if (InputState.ControllerAim != Vector2.Zero)
+                aim = ControllerAimTarget(session.Camera.Lock, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
+            session.HandleBulletCreation(aim, InputState.MouseDown, session.InformationSheet.DragInProgress, controllerFiring: InputState.ControllerFireHeld);
             session.UpdateBullets();
         }
         // Always ticks, even mid-overlay/confirm/animation, so the portal
@@ -863,7 +904,7 @@ public class RotBoiGame : Game
         session.DrawBossPortalIndicator(_spriteBatch);
         session.DrawExpeditionHint(_spriteBatch);
         session.DrawFooter(_spriteBatch, InputState.MousePosition);
-        session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
+        session.DrawAimReticle(_spriteBatch, InputState.EffectiveAimPosition);
         session.DrawEntrySplash(_spriteBatch);
         _spriteBatch.End();
     }
@@ -960,7 +1001,7 @@ public class RotBoiGame : Game
     {
         var session = _session!;
         GraphicsDevice.Clear(Color.Black);
-        session.DrawBackgroundFull(_spriteBatch, GraphicsDevice);
+        session.DrawBackground(_spriteBatch, GraphicsDevice);
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
         session.DrawBullets(_spriteBatch);
         // Stations/portals draw first, then the player on top of them (not
@@ -969,6 +1010,7 @@ public class RotBoiGame : Game
         _soulHub.DrawWorld(_spriteBatch, session, InputState.MousePosition, InputState.MouseDown);
         session.DrawPlayer(_spriteBatch, _soulHub.PlayerDrawScale);
         session.DrawDamageTexts(_spriteBatch);
+        session.DrawRaisedScenery(_spriteBatch, GraphicsDevice);
         _soulHub.DrawMindFog(_spriteBatch, session);
         _spriteBatch.End();
 

@@ -4,7 +4,16 @@ using RotBoiRemastered.Core;
 
 namespace RotBoiRemastered.UI;
 
-/// <summary>A reusable Dissonance-inspired title band for entering a world or mode.</summary>
+/// <summary>
+/// A reusable title card for entering a world or mode (a Sense/Path, the
+/// Dungeon, Aphantasia, the Body/Soul campaign). Framed with the same
+/// bracket-corner + cycling per-Sense segment chrome as GameSession's boss
+/// name banner, floor title banner, and run-complete banner (all built on
+/// <see cref="UiTheme.DrawLivingPanel"/>/<see cref="UiTheme.DrawCompositePanel"/>)
+/// instead of a one-off flat band, so every "title card" moment in the game
+/// reads as one family. The headline is a fixed, stable engrave (an Ink
+/// drop-shadow behind a solid accent-colored copy) -- no per-frame jitter.
+/// </summary>
 public sealed class ModeEntrySplash
 {
     public const double Duration = 3.6;
@@ -31,18 +40,16 @@ public sealed class ModeEntrySplash
         float alpha = (float)Math.Clamp(Math.Min(elapsed / .45, Remaining / .75), 0, 1);
         float scale = UiTheme.DisplayScale(width, height);
         int bandHeight = Math.Max(150, (int)(height * .31f));
-        int y = height / 2 - bandHeight / 2;
-        Primitives2D.FillRect(spriteBatch, new Rectangle(0, y, width, bandHeight), UiTheme.Void * (.88f * alpha));
-        float reveal = MathHelper.SmoothStep(0, 1, (float)Math.Clamp(elapsed / .7, 0, 1));
-        float lineWidth = width * .32f * reveal;
+        var band = new Rectangle(0, height / 2 - bandHeight / 2, width, bandHeight);
+
+        UiTheme.DrawCompositePanel(spriteBatch, band, (float)elapsed,
+            fill: UiTheme.Void * (.88f * alpha), border: Accent * alpha, shadow: 0);
+
         Vector2 center = new(width / 2f, height / 2f - 15 * scale);
-        Primitives2D.Line(spriteBatch, center + new Vector2(-lineWidth, 47 * scale),
-            center + new Vector2(lineWidth, 47 * scale), Accent * alpha, Math.Max(2, (int)(3 * scale)));
-        int jitter = ((int)(elapsed * 20) % 13 == 0) ? Math.Max(1, (int)(2 * scale)) : 0;
         UiTheme.DrawText(spriteBatch, Title.ToUpperInvariant(), 42 * scale, UiTheme.Ink * alpha,
             center + new Vector2(5 * scale, 6 * scale), "center");
         UiTheme.DrawText(spriteBatch, Title.ToUpperInvariant(), 42 * scale, Accent * alpha,
-            center + new Vector2(jitter, 0), "center");
+            center, "center");
         UiTheme.DrawText(spriteBatch, Flavor, 12 * scale, UiTheme.Cream * alpha,
             center + new Vector2(0, 77 * scale), "center");
     }

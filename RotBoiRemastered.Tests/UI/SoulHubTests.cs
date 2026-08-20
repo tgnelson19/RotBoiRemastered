@@ -46,9 +46,8 @@ public sealed class SoulHubTests
                 SoulHub.DeveloperArmoryItems.Count);
             Assert.True(SoulHub.TakeArmoryItem(session, 0));
             ItemDrop item = Assert.IsType<ItemDrop>(session.State.Inventory[0]);
-            Assert.Equal("S", item.Grade);
-            Assert.Equal("Godly", item.Modifier);
             Assert.Equal("Mythical", item.Rarity);
+            Assert.Equal(item.Definition.ModifierLadder.Count, Items.ModifierUnlockCount(item.Rarity));
 
             int uniqueIndex = SoulHub.DeveloperArmoryItems.Count - 1;
             Assert.True(SoulHub.TakeArmoryItem(session, uniqueIndex));

@@ -77,7 +77,12 @@ public sealed class LevelingHandler
     {
         _screenWidth = screenWidth;
         _screenHeight = screenHeight;
-        _tileSize = Math.Min(screenWidth, screenHeight) / 20f;
+        // Resolution scaling is already baked into min(width, height)/20; layer
+        // on just the GuiScale accessibility factor (same clamp UiTheme.DisplayScale
+        // applies) so this screen's card sizing keeps pace with every other menu's
+        // response to the GUI SCALE setting instead of ignoring it.
+        float guiScale = (float)Math.Clamp(GameProfile.Profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
+        _tileSize = Math.Min(screenWidth, screenHeight) / 20f * guiScale;
 
         float cardWidth = (screenWidth - _tileSize * 5) / 3f;
         float cardHeight = screenHeight * 0.62f;

@@ -199,7 +199,7 @@ public static class StatCards
         string mathType, bool hovered = false)
     {
         Color rarityColor = UiTheme.RarityColors.TryGetValue(rarity, out var color) ? color : UiTheme.Border;
-        int cornerRadius = Math.Max(2, rect.Width / 8);
+        int cornerRadius = UiTheme.CardCornerRadius(rect.Width);
         var shadow = new Rectangle(rect.X + Math.Max(2, rect.Width / 12), rect.Y + Math.Max(2, rect.Width / 12), rect.Width, rect.Height);
         Primitives2D.FillRoundedRect(spriteBatch, shadow, UiTheme.Shadow, cornerRadius);
         Color fill = hovered ? UiTheme.Lighten(rarityColor, 24) : rarityColor;

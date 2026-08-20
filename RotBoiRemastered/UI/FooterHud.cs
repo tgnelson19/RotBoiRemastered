@@ -344,9 +344,9 @@ public sealed class FooterHud
             }
             else
             {
-                Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, Math.Max(2, (int)(4 * scale)));
+                Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, UiTheme.SmallCornerRadius(scale));
                 Primitives2D.RoundedRectOutline(spriteBatch, rect,
-                    hovered ? UiTheme.Cream : UiTheme.Border, Math.Max(1, (int)(2 * scale)), Math.Max(2, (int)(4 * scale)));
+                    hovered ? UiTheme.Cream : UiTheme.Border, Math.Max(1, (int)(2 * scale)), UiTheme.SmallCornerRadius(scale));
                 UiTheme.DrawText(spriteBatch, EquipmentLabels[index], 7 * scale, UiTheme.Muted,
                     rect.Center.ToVector2(), "center");
             }
@@ -396,9 +396,9 @@ public sealed class FooterHud
             else
             {
                 Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink,
-                    Math.Max(2, (int)(3 * scale)));
+                    UiTheme.SmallCornerRadius(scale));
                 Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Border * .6f,
-                    1, Math.Max(2, (int)(3 * scale)));
+                    1, UiTheme.SmallCornerRadius(scale));
             }
             if (selected)
                 Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream,
@@ -419,10 +419,10 @@ public sealed class FooterHud
             else
             {
                 Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink,
-                    Math.Max(2, (int)(3 * scale)));
+                    UiTheme.SmallCornerRadius(scale));
                 Primitives2D.RoundedRectOutline(spriteBatch, rect,
                     hovered ? UiTheme.Purple : UiTheme.Border, Math.Max(1, (int)(1.5f * scale)),
-                    Math.Max(2, (int)(3 * scale)));
+                    UiTheme.SmallCornerRadius(scale));
                 UiTheme.DrawText(spriteBatch, (index + 1).ToString(), 5.5 * scale, UiTheme.Muted,
                     rect.Center.ToVector2(), "center");
             }
@@ -489,7 +489,7 @@ public sealed class FooterHud
         {
             StatDisplayDefinition definition = definitions[index];
             Rectangle rect = layout.StatSlots[index];
-            int radius = Math.Max(2, (int)(3 * scale));
+            int radius = UiTheme.SmallCornerRadius(scale);
             Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, radius);
             Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Border * .72f,
                 Math.Max(1, (int)scale), radius);
@@ -548,21 +548,46 @@ public sealed class FooterHud
             layout.Experience.Center.ToVector2(), "center", bold: ready);
     }
 
+    /// <summary>
+    /// Sized to its actual wrapped description (see <see cref="UiTheme.WrapLines"/>)
+    /// rather than a fixed height -- a long unique's description used to run
+    /// past the panel's own border instead of wrapping. Anchored above the
+    /// cursor by default (hotbar/equipment slots live at the bottom of the
+    /// screen), and <see cref="UiTheme.ClampTooltipRect"/> then pushes it
+    /// further up -- or, if it still doesn't fully fit, as far up as
+    /// `bounds` allows -- so the whole card, including every description
+    /// line, always stays on screen instead of clipping off the top.
+    /// </summary>
     private static void DrawTooltip(SpriteBatch spriteBatch, ItemDrop item, Point mouse, float scale, Rectangle bounds)
     {
         int width = Math.Min((int)(300 * scale), bounds.Width - 12);
-        int height = Math.Max(58, (int)(78 * scale));
-        int x = Math.Clamp(mouse.X - width / 2, 6, Math.Max(6, bounds.Right - width - 6));
-        int y = Math.Max(6, mouse.Y - height - (int)(14 * scale));
-        var rect = new Rectangle(x, y, width, height);
+        float padding = 10 * scale;
+        float descriptionTop = 48 * scale;
+        float descriptionLineHeight = 12 * scale;
+        var descriptionLines = UiTheme.WrapLines(item.Definition.Description, 7 * scale, width - padding * 2);
+        int ladderRowSize = (int)(7 * scale);
+        int ladderHeight = ItemCards.MeasureModifierLadder(ladderRowSize, item);
+        int height = Math.Max((int)(58 * scale),
+            (int)(descriptionTop + descriptionLines.Count * descriptionLineHeight + 8 * scale)
+                + ladderHeight + (ladderHeight > 0 ? (int)(10 * scale) : 0));
+        int x = mouse.X - width / 2;
+        int y = mouse.Y - height - (int)(14 * scale);
+        var rect = UiTheme.ClampTooltipRect(new Rectangle(x, y, width, height), bounds, 6);
         Color rarity = UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border);
         UiTheme.DrawFramedPanel(spriteBatch, rect, UiTheme.PanelRaised, rarity, shadow: 5);
         UiTheme.DrawText(spriteBatch, item.DisplayName.ToUpperInvariant(), 10 * scale, UiTheme.Text,
-            new Vector2(rect.X + 10 * scale, rect.Y + 9 * scale));
+            new Vector2(rect.X + padding, rect.Y + 9 * scale));
         UiTheme.DrawText(spriteBatch,
-            $"{item.Rarity.ToUpperInvariant()}  //  GRADE {item.Grade}  //  {item.Modifier.ToUpperInvariant()}",
-            7 * scale, rarity, new Vector2(rect.X + 10 * scale, rect.Y + 29 * scale));
-        UiTheme.DrawText(spriteBatch, item.Definition.Description, 7 * scale, UiTheme.Muted,
-            new Vector2(rect.X + 10 * scale, rect.Bottom - 9 * scale), "bottomleft");
+            $"{item.Rarity.ToUpperInvariant()}  //  {Items.ModifierUnlockCount(item.Rarity)}/{item.Definition.ModifierLadder.Count} MODIFIERS",
+            7 * scale, rarity, new Vector2(rect.X + padding, rect.Y + 29 * scale));
+        float descriptionBottom = rect.Y + descriptionTop;
+        for (int index = 0; index < descriptionLines.Count; index++)
+        {
+            UiTheme.DrawText(spriteBatch, descriptionLines[index], 7 * scale, UiTheme.Muted,
+                new Vector2(rect.X + padding, descriptionBottom + index * descriptionLineHeight));
+        }
+        descriptionBottom += descriptionLines.Count * descriptionLineHeight;
+        if (ladderHeight > 0)
+            ItemCards.DrawModifierLadder(spriteBatch, new Vector2(rect.X + padding, descriptionBottom + 10 * scale), ladderRowSize, item);
     }
 }

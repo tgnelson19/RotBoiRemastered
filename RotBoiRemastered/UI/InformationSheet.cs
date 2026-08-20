@@ -213,7 +213,7 @@ public sealed class InformationSheet
             return false;
         ItemDrop? displaced = state.Equipment[equipmentKey];
         state.Equipment[equipmentKey] = item;
-        GameProfile.DiscoverItem(item.Name);
+        GameProfile.DiscoverItem(item.Name, state);
         ReturnDisplacedToCrate(state, new CrateDragSource(crate, lootIndex), displaced);
         state.CombinePlayerStats();
         return true;
@@ -867,7 +867,7 @@ public sealed class InformationSheet
         string? rating, string? helpText, Point mousePosition)
     {
         var iconRect = new Rectangle(rect.X + Px(10), y - Px(3), Px(24), Px(24));
-        Primitives2D.FillRoundedRect(spriteBatch, iconRect, UiTheme.Ink, Px(3));
+        Primitives2D.FillRoundedRect(spriteBatch, iconRect, UiTheme.Ink, Px(UiTheme.SmallCornerRadiusPx));
         StatCards.DrawStatSymbol(spriteBatch, symbol, Inflated(iconRect, -Px(4), -Px(4)), UiTheme.Cream);
         var labelRect = DrawSheetText(spriteBatch, label, Px(9), UiTheme.Muted, new Vector2(iconRect.Right + Px(7), y));
         DrawSheetText(spriteBatch, value, Px(10), UiTheme.Text, new Vector2(iconRect.Right + Px(7), y + Px(12)));
@@ -1077,12 +1077,8 @@ public sealed class InformationSheet
         }
     }
 
-    private static Rectangle ClampToBounds(Rectangle rect, Rectangle bounds)
-    {
-        int x = Math.Clamp(rect.X, bounds.X, Math.Max(bounds.X, bounds.Right - rect.Width));
-        int y = Math.Clamp(rect.Y, bounds.Y, Math.Max(bounds.Y, bounds.Bottom - rect.Height));
-        return new Rectangle(x, y, rect.Width, rect.Height);
-    }
+    /// <summary>Thin wrapper kept for call-site familiarity; the actual "stretch upward instead of clipping" logic lives in <see cref="UiTheme.ClampTooltipRect"/> so every tooltip in the game shares it.</summary>
+    private static Rectangle ClampToBounds(Rectangle rect, Rectangle bounds) => UiTheme.ClampTooltipRect(rect, bounds);
 
     /// <summary>Breaks text into lines no wider than maxWidth at fontSize, so callers can size a panel to the wrapped line count before drawing rather than letting long text run past a fixed-height box.</summary>
     private List<string> WrapText(string text, double fontSize, int maxWidth)
@@ -1140,16 +1136,18 @@ public sealed class InformationSheet
         // instead of running past the panel's right edge, and the panel is
         // sized to actually fit however many lines that took.
         var descriptionLines = WrapText($"“{item.Definition.Description}”", Px(10), width - Px(30));
-        // A unique's EffectFlavorText callout (see ItemDefinition's doc
-        // comment) sits where the StatusChances "X% ON HIT" rows go, for
-        // signature effects like Grimsbane's Bane stacking that aren't
-        // chance-based and so never generate one of those rows themselves.
-        var effectFlavorLines = item.Definition.EffectFlavorText is { } effectFlavorText
+        // A unique's (or, once Legendary/Mythical unlocks it, a regular
+        // item's Signature's) EffectFlavorText callout sits where the
+        // StatusChances "X% ON HIT" rows go, for signature effects like
+        // Grimsbane's Bane stacking that aren't chance-based and so never
+        // generate one of those rows themselves.
+        var effectFlavorLines = Items.ActiveEffectFlavorText(item) is { } effectFlavorText
             ? WrapText(effectFlavorText, Px(11), width - Px(32))
             : new List<string>();
         int effectFlavorHeight = effectFlavorLines.Count > 0 ? effectFlavorLines.Count * Px(15) + Px(10) : 0;
+        int ladderHeight = ItemCards.MeasureModifierLadder(Px(10), item);
         int height = headerHeight + effects.Count * rowHeight + statuses.Count * Px(30) + effectFlavorHeight
-            + Px(34) + descriptionLines.Count * Px(14);
+            + Px(34) + descriptionLines.Count * Px(14) + ladderHeight + Px(ladderHeight > 0 ? 14 : 0);
         var rect = new Rectangle(mousePosition.X - width - Px(12), mousePosition.Y + Px(10), width, height);
         rect = ClampToBounds(rect, new Rectangle(0, 0, _screenWidth, _totalHeight));
         Color rarity = UiTheme.RarityColors.TryGetValue(item.Rarity, out var rarityColor) ? rarityColor : UiTheme.Border;
@@ -1170,8 +1168,8 @@ public sealed class InformationSheet
             ItemCards.DrawUniqueSheen(spriteBatch, symbolRect);
         DrawSheetText(spriteBatch, item.DisplayName.ToUpperInvariant(), Px(15), UiTheme.Text,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(14)));
-        Color gradeColor = UiTheme.GradeColors.GetValueOrDefault(item.Grade, UiTheme.Gold);
-        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  GRADE {item.Grade}  //  {item.Modifier.ToUpperInvariant()}", Px(9), gradeColor,
+        int unlockedModifiers = Items.ModifierUnlockCount(item.Rarity);
+        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {unlockedModifiers}/{item.Definition.ModifierLadder.Count} MODIFIERS UNLOCKED", Px(9), rarity,
             new Vector2(symbolRect.Right + Px(11), rect.Y + Px(40)));
         if (coreForge is not null)
             DrawSheetText(spriteBatch, $"✦  {coreForge.DisplayName.ToUpperInvariant()}  //  HARD MODE FORGED", Px(9), coreColor ?? UiTheme.Gold,
@@ -1215,6 +1213,14 @@ public sealed class InformationSheet
         for (int index = 0; index < descriptionLines.Count; index++)
             DrawSheetText(spriteBatch, descriptionLines[index], Px(10), UiTheme.Cream,
                 new Vector2(rect.X + Px(15), y + Px(12) + index * Px(14)));
+        y += Px(12) + descriptionLines.Count * Px(14);
+
+        if (ladderHeight > 0)
+        {
+            y += Px(6);
+            Primitives2D.Line(spriteBatch, new Vector2(rect.X + Px(12), y), new Vector2(rect.Right - Px(12), y), UiTheme.Border, 1);
+            ItemCards.DrawModifierLadder(spriteBatch, new Vector2(rect.X + Px(15), y + Px(8)), Px(9), item);
+        }
     }
 
     /// <summary>
@@ -1574,16 +1580,16 @@ public sealed class InformationSheet
                 _inspectionSource = focusId;
             }
             if (_loadoutFocus.IsFocused(focusId))
-                Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(4));
+                Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(UiTheme.SmallCornerRadiusPx));
             return;
         }
-        Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, Px(4));
+        Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, Px(UiTheme.SmallCornerRadiusPx));
         bool incompatible = _draggingItem is not null && focusId.StartsWith("equipment:")
             && EquipmentSlotTypes.GetValueOrDefault(focusId[10..]) != _draggingItem.SlotType;
         Primitives2D.RoundedRectOutline(spriteBatch, rect,
-            incompatible ? UiTheme.Shadow : rect.Contains(mousePosition) ? UiTheme.Cream : UiTheme.Border, Px(2), Px(4));
+            incompatible ? UiTheme.Shadow : rect.Contains(mousePosition) ? UiTheme.Cream : UiTheme.Border, Px(2), Px(UiTheme.SmallCornerRadiusPx));
         if (_loadoutFocus.IsFocused(focusId))
-            Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(4));
+            Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(UiTheme.SmallCornerRadiusPx));
     }
 
     public static IReadOnlyList<(string Stat, double Delta)> ItemEffectDeltas(
@@ -1611,8 +1617,8 @@ public sealed class InformationSheet
         ItemDrop? item = _draggingItem ?? _inspectionItem;
         int width = Px(240);
         var pane = new Rectangle(loadout.Right - width - Px(16), loadout.Y + Px(10), width, Px(126));
-        Primitives2D.FillRoundedRect(spriteBatch, pane, UiTheme.Ink, Px(4));
-        Primitives2D.RoundedRectOutline(spriteBatch, pane, item is null ? UiTheme.Border : UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border), Px(1), Px(4));
+        Primitives2D.FillRoundedRect(spriteBatch, pane, UiTheme.Ink, Px(UiTheme.SmallCornerRadiusPx));
+        Primitives2D.RoundedRectOutline(spriteBatch, pane, item is null ? UiTheme.Border : UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border), Px(1), Px(UiTheme.SmallCornerRadiusPx));
         if (item is null)
         {
             DrawSheetText(spriteBatch, "INSPECT AN ITEM", Px(9), UiTheme.Muted,
@@ -1622,7 +1628,7 @@ public sealed class InformationSheet
 
         DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(9), UiTheme.Text,
             new Vector2(pane.X + Px(9), pane.Y + Px(8)));
-        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {item.Grade}  //  {item.Modifier.ToUpperInvariant()}",
+        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {Items.ModifierUnlockCount(item.Rarity)}/{item.Definition.ModifierLadder.Count} MODIFIERS",
             Px(7), UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Muted),
             new Vector2(pane.X + Px(9), pane.Y + Px(25)));
         string targetKey = item.SlotType == "accessory" ? "accessory_1" : item.SlotType;
@@ -1662,7 +1668,7 @@ public sealed class InformationSheet
             int column = index % columns, row = index / columns;
             var cell = new Rectangle(rect.X + Px(14) + column * (cellWidth + cellGap),
                 startY + row * Px(72), cellWidth, Px(64));
-            Primitives2D.FillRoundedRect(spriteBatch, cell, UiTheme.Panel, Px(4));
+            Primitives2D.FillRoundedRect(spriteBatch, cell, UiTheme.Panel, Px(UiTheme.SmallCornerRadiusPx));
             var icon = new Rectangle(cell.X + Px(8), cell.Y + Px(9), Px(28), Px(28));
             StatDisplayDefinition definition = rows[index];
             StatCards.DrawStatSymbol(spriteBatch, definition.IconKey, icon, UiTheme.Cream);
@@ -1990,7 +1996,7 @@ public sealed class InformationSheet
             {
                 var displaced = state.Equipment[targetKey];
                 state.Equipment[targetKey] = item;
-                GameProfile.DiscoverItem(item.Name);
+                GameProfile.DiscoverItem(item.Name, state);
                 ReturnDisplacedToCrate(state, crateSource, displaced);
             }
             else if (source is InventoryDragSource equipFromStash)
@@ -2038,7 +2044,7 @@ public sealed class InformationSheet
             {
                 var displaced = state.Inventory[targetInventoryIndex];
                 state.Inventory[targetInventoryIndex] = item;
-                GameProfile.DiscoverItem(item.Name);
+                GameProfile.DiscoverItem(item.Name, state);
                 ReturnDisplacedToCrate(state, crateSource, displaced);
             }
             else if (source is VaultDragSource stashFromVault)
@@ -2090,7 +2096,7 @@ public sealed class InformationSheet
                 // Not reachable today (no loot crates exist in the Soul, the only place
                 // vaultSlotRects is ever populated), but handled properly rather than left
                 // as a silent duplication bug if that ever changes.
-                GameProfile.DiscoverItem(item.Name);
+                GameProfile.DiscoverItem(item.Name, state);
                 ReturnDisplacedToCrate(state, vaultFromCrate, displaced);
             }
             MetaProgression.SyncCarriedItems(state);
