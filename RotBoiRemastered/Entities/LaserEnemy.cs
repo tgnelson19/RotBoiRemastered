@@ -47,7 +47,7 @@ public sealed class LaserEnemy : WanderingRangedEnemy
                 centerX, centerY, direction, speed: 0,
                 damage: Damage * (count == 1 ? .7f : .48f),
                 size: Size * (Tier != "large" ? .16f : .2f),
-                travelRange: Simulation.TileSize * 17f, color: UiTheme.Red,
+                travelRange: Simulation.TileSize * 17f, color: Color,
                 path: "laser", lifetime: lifetime, angularSpeed: angularSpeed,
                 owner: $"laser_{Tier}", ignoreWalls: true);
             laser.TelegraphDuration = telegraph;

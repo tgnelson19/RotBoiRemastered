@@ -59,9 +59,11 @@ upgrade symbols and rarity colors remain consistent between drafting and the dos
 ## The Mind and permanent progression
 
 Choose **Enter Mind** from the title screen to visit an authored sanctuary with
-three distinct beats: a quiet southern chapel lined with purpose-built utility
-shrines, a short passage where masonry dissolves into braided soul currents, and
-a five-branch crown surrounding the always-open Dungeon portal. The Vault
+three distinct beats: a quiet central chapel lined with purpose-built utility
+shrines, a passage where masonry dissolves into braided soul currents, and five
+widely separated arena bubbles surrounding the always-open Dungeon portal. Touch
+sits far left, Sight upper-left, Sound at the crown, Chemesthesis upper-right,
+and Phantasia lower-right. The Vault
 Reliquary keeps ten permanent item slots and statistics for the ten
 most recent extracted runs. The DPS effigy shows hit numbers, current rolling DPS,
 session best, and the all-time record. The Vow Lectern's 24 objectives award Mind
@@ -69,22 +71,27 @@ Tokens; the Mind Rose spends those tokens on twelve simple, rankable permanent
 upgrades. The Vestment Mirror offers persistent player Core and Edge colors plus
 two-tone projectile palettes and projectile silhouettes.
 
-Five compact walled branches lead to immediately available Sound, Touch, Sight,
+Five cleanly separated bubble branches lead to immediately available Sound, Touch, Sight,
 Chemesthesis, and Phantasia arenas with their own procedural silhouettes and
 ambient vocabulary. These are the primary standalone runs: completing an arena
 awards its silver statue, a Mind Token, mastery, and the next NG+ tier. Cleared
-paths wake permanent architectural details, additional mastery enriches them to
-a bounded cap, and selected NG+ tiers add corruption seams and square motes. Optional
+paths grow permanent, color-matched living conduits from their bubbles to the
+Body/Soul door; additional mastery enriches them to a bounded cap, and selected
+NG+ tiers add corruption seams and square motes. Optional
 chapel dust, tunnel motes, and secondary branch effects follow the visual-effects
 intensity setting without hiding portal silhouettes or interaction prompts.
 
-Collecting all five silver statues opens the northern Body/Soul campaign gate.
+Collecting all five silver statues opens the Body/Soul campaign bubble below
+The Mind's home chapel. Each completed Soul finale adds three broader, faster
+pulsing tentacles in that sense's color throughout The Mind.
 Completing The Body continues immediately into The Soul as the second half of
 the same expedition. The player keeps their current level, temporary build,
 health, equipment, inventory, challenge flags, and elapsed time; The Soul has no
 standalone entrance in The Mind. Each completed Soul finale awards its sense's
-gold statue. Collecting all five gold statues opens Aphantasia beyond the next
-northern wall. Defeating Aphantasia erects an animated light-and-dark trophy at
+gold statue. Collecting all five gold statues opens the leftward route from the
+Body/Soul bubble to Aphantasia: a braid of void-dark tentacles ending in a
+rotating, pulsing rainbow corona. Defeating Aphantasia erects an animated
+light-and-dark trophy at
 the central chapel crossing in The Mind. A No Healing victory marks it with
 blood, a No Extract victory fractures it, and defeating her with both braziers
 active transforms it into the animated rainbow version. Challenge treatments
@@ -92,8 +99,10 @@ accumulate across victories, while the rainbow form records the combined trial.
 
 After defeating a path's midpoint boss, the pause menu and `R` offer extraction;
 the ten-floor Dungeon unlocks extraction after floor five, and expeditions unlock it
-after their first guardian. Completing a path banks it automatically. The debrief
-shows field/boss time, build, rewards, unlocks, and retained or lost gear; the Mind
+after their first guardian. Completing a path banks it automatically. Successful
+runs use a full debrief showing field/boss time, build, rewards, unlocks, and
+retained gear. Defeat instead leaves the combat world moving beneath a compact
+"Returning to the Void" banner with Enter Mind, Play Again, and Title actions. The Mind
 Vault moves surviving equipment into permanent storage. Selecting a stored
 item prepares that copy for the next run; it leaves storage when the run begins.
 Dying destroys carried items. A confirmed restart retains the current loadout;
@@ -175,6 +184,11 @@ tracked in [`docs/path-dungeon-iterations.md`](docs/path-dungeon-iterations.md).
 The five-pass Malady/Dissonance-based boss review and its completed final
 implementation pass are tracked separately in
 [`docs/path-boss-iterations.md`](docs/path-boss-iterations.md).
+All hostile lasers share one five-strand flowing tentacle presentation. Their
+warning projection remains collision-free; after it completes, the visible and
+dangerous beam rapidly sprouts from its source together. Strands inherit their
+emitter's authored color, while Aphantasia's lasers continuously pulse through
+a moving rainbow.
 
 ## Run locally
 

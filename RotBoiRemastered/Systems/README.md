@@ -38,7 +38,8 @@ port first since they were deliberately kept pygame-free in the Python original.
   ported from `characterStats.py`'s `player_build_snapshot()`.
   `HardMode` is captured from the profile at run reset. It suppresses passive
   vitality recovery, lifesteal, and healing from maximum-health changes;
-  `FillHealthForMilestone` is the single gameplay heal used when buying a level.
+  `FillHealthForMilestone` restores the player at purchased level-ups and boss
+  phase/subphase checkpoints, giving Hard Mode discrete recovery windows.
   The run also owns a separate Fragment count and live Fragment pickups. This
   forge currency resets with the run and never enters the stored-EXP economy.
 - `GameSession.cs` <- `character.py`'s "handling*"/"update*"/"draw*" free

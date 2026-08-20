@@ -201,12 +201,12 @@ public class BattlegroundTests
     {
         var soul = Battleground.GenerateSoul();
 
-        Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.NexusTile), 1, 23);
+        Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.NexusTile), 35, 45);
         foreach (Point portal in SoulLayout.PortalTiles.Values)
-            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, portal), 1, 52);
+            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, portal), 45, 95);
         foreach (Point station in SoulLayout.StationTiles.Values)
-            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, station), 0, 18);
-        Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.DummyTile), 1, 18);
+            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, station), 0, 20);
+        Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.DummyTile), 1, 20);
     }
 
     [Fact]
@@ -308,17 +308,31 @@ public class BattlegroundTests
     }
 
     [Fact]
-    public void Mind_EndgameGatesFormASequentialSightCoreAphantasiaSpine()
+    public void Mind_LayoutMatchesTheFiveBubbleCrownAndLowerEndgameBranch()
     {
-        Assert.Equal(SoulLayout.PortalTiles["sight"].X, SoulLayout.CorePortalTile.X);
-        Assert.Equal(SoulLayout.CorePortalTile.X, SoulLayout.AphantasiaPortalTile.X);
-        Assert.True(SoulLayout.PortalTiles["sight"].Y > SoulLayout.CorePortalTile.Y);
-        Assert.True(SoulLayout.CorePortalTile.Y > SoulLayout.AphantasiaPortalTile.Y);
+        Point touch = SoulLayout.PortalTiles["touch"];
+        Point sight = SoulLayout.PortalTiles["sight"];
+        Point sound = SoulLayout.PortalTiles["sound"];
+        Point chemesthesis = SoulLayout.PortalTiles["chemesthesis"];
+        Point phantasia = SoulLayout.PortalTiles["phantasia"];
+
+        Assert.True(touch.X < sight.X && sight.X < SoulLayout.NexusTile.X);
+        Assert.True(sound.Y < sight.Y && sight.Y < SoulLayout.NexusTile.Y);
+        Assert.Equal(SoulLayout.NexusTile.X, sound.X);
+        Assert.True(chemesthesis.X > SoulLayout.NexusTile.X);
+        Assert.Equal(sight.Y, chemesthesis.Y);
+        Assert.True(phantasia.X > chemesthesis.X);
+        Assert.True(phantasia.Y > chemesthesis.Y);
+
+        Assert.Equal(SoulLayout.SpawnTile.X, SoulLayout.CorePortalTile.X);
+        Assert.True(SoulLayout.CorePortalTile.Y > SoulLayout.SpawnTile.Y);
+        Assert.Equal(SoulLayout.CorePortalTile.Y, SoulLayout.AphantasiaPortalTile.Y);
+        Assert.True(SoulLayout.AphantasiaPortalTile.X < SoulLayout.CorePortalTile.X);
 
         var sensesOnly = SoulLayout.PortalTiles.Keys.ToHashSet();
         HashSet<Point> beforeCore = ReachableTiles(
             SoulLayout.BuildTiles(sensesOnly), SoulLayout.SpawnTile);
-        Assert.Contains(SoulLayout.PortalTiles["sight"], beforeCore);
+        Assert.All(SoulLayout.PortalTiles.Values, portal => Assert.Contains(portal, beforeCore));
         Assert.DoesNotContain(SoulLayout.CorePortalTile, beforeCore);
         Assert.DoesNotContain(SoulLayout.AphantasiaPortalTile, beforeCore);
 

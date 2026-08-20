@@ -66,10 +66,20 @@ public enum AphantasiaSurvivalKind
     VoidFinale,
 }
 
+[Flags]
+public enum AphantasiaSpecialAttack
+{
+    None = 0,
+    DoubleHelix = 1,
+    Laser = 2,
+    Bomb = 4,
+}
+
 public sealed record AphantasiaPattern(
     string Key,
     string Label,
-    AphantasiaMovementMode Movement);
+    AphantasiaMovementMode Movement,
+    AphantasiaSpecialAttack SpecialAttack);
 
 public sealed record AphantasiaPatternDefinition(
     int Index,
@@ -111,9 +121,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 {
     public const string EssenceName = "Aphantasia, Essence of Darkness";
     public const string CoreName = "Aphantasia, Core of The Void";
-    public const int BaseBarHealth = 346_000;
-    public const int BaseMiniHealth = 18_230;
-    public const int EmpoweredMiniHealth = 58_505;
+    public const int BaseBarHealth = 1_038_000;
+    public const int BaseMiniHealth = 54_690;
+    public const int EmpoweredMiniHealth = 175_515;
     public const float MiniPathedRadiusRatio = .76f;
     public const int CompactPathedPatternWeight = 2;
     public const int ExpandedPathedPatternWeight = 3;
@@ -122,47 +132,52 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double SequenceTransitionDuration = .55;
     public const double DamageWindowDuration = 5.0;
     public const double EarlySurvivalDuration = 30.0;
-    public const double PhaseThreeSurvivalDuration = 40.0;
-    public const double PhaseFourFinaleDuration = 60.0;
+    public const double PhaseThreeSurvivalDuration = 30.0;
+    public const double PhaseFourFinaleDuration = 30.0;
     public const double TesseractTransitionDuration = 5.0;
-    public const int ActiveThreatSoftCap = 320;
+    public const int ProjectileCapacityMultiplier = 5;
+    public const int ActiveThreatSoftCap = 320 * ProjectileCapacityMultiplier;
     public const int PerimeterThreatReserve = 24;
     public const double PerimeterPressureCadence = 1.8;
     public const int PerimeterPressureCount = 8;
     public const float MinimumProjectileSizeTiles = .25f;
+    public const double HelixFireCadence = .68;
+    public const double PhaseHandoffDuration = 7.0;
+    public const double CombatPhraseDuration = 6.0;
+    public const double CombatPhraseBreathDuration = .8;
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseOnePatterns =
     [
-        new("ordered_bloom", "ORDERED BLOOM", AphantasiaMovementMode.Standing),
-        new("horizon_ellipse", "HORIZON ELLIPSE", AphantasiaMovementMode.Pathed),
-        new("tidal_pursuit", "TIDAL PURSUIT", AphantasiaMovementMode.Chase),
+        new("ordered_bloom", "ORDERED BLOOM", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.DoubleHelix),
+        new("horizon_ellipse", "HORIZON ELLIPSE", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.Laser),
+        new("tidal_pursuit", "TIDAL PURSUIT", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.Bomb),
     ];
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseTwoPatterns =
     [
-        new("broken_bloom", "BROKEN BLOOM", AphantasiaMovementMode.Standing),
-        new("erratic_eight", "ERRATIC EIGHT", AphantasiaMovementMode.Pathed),
-        new("undertow", "UNDERTOW", AphantasiaMovementMode.Chase),
+        new("broken_bloom", "BROKEN BLOOM", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.Bomb),
+        new("erratic_eight", "ERRATIC EIGHT", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.DoubleHelix),
+        new("undertow", "UNDERTOW", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.Laser),
     ];
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseThreePatterns =
     [
-        new("prism_bloom", "PRISM BLOOM", AphantasiaMovementMode.Standing),
-        new("lattice_curtain", "LATTICE CURTAIN", AphantasiaMovementMode.Standing),
-        new("tesseract_eight", "TESSERACT EIGHT", AphantasiaMovementMode.Pathed),
-        new("folding_perimeter", "FOLDING PERIMETER", AphantasiaMovementMode.Pathed),
-        new("ribbon_pursuit", "RIBBON PURSUIT", AphantasiaMovementMode.Chase),
-        new("satellite_spiral", "SATELLITE SPIRAL", AphantasiaMovementMode.Chase),
+        new("prism_bloom", "PRISM BLOOM", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.DoubleHelix),
+        new("lattice_curtain", "LATTICE CURTAIN", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.Laser),
+        new("tesseract_eight", "TESSERACT EIGHT", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.Bomb),
+        new("folding_perimeter", "FOLDING PERIMETER", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.Laser),
+        new("ribbon_pursuit", "RIBBON PURSUIT", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.Bomb),
+        new("satellite_spiral", "SATELLITE SPIRAL", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.DoubleHelix),
     ];
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseFourPatterns =
     [
-        new("portal_constellation", "PORTAL CONSTELLATION", AphantasiaMovementMode.Standing),
-        new("void_clock", "NESTED VOID CLOCK", AphantasiaMovementMode.Standing),
-        new("pane_procession", "DRIFTING PANE PROCESSION", AphantasiaMovementMode.Pathed),
-        new("portal_lattice", "FOLDING PORTAL LATTICE", AphantasiaMovementMode.Pathed),
-        new("portal_wake", "PORTAL WAKE PURSUIT", AphantasiaMovementMode.Chase),
-        new("tesseract_hunt", "COLLAPSING TESSERACT HUNT", AphantasiaMovementMode.Chase),
+        new("portal_constellation", "PORTAL CONSTELLATION", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.Bomb),
+        new("void_clock", "NESTED VOID CLOCK", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.Laser),
+        new("pane_procession", "DRIFTING PANE PROCESSION", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.DoubleHelix),
+        new("portal_lattice", "FOLDING PORTAL LATTICE", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.Laser),
+        new("portal_wake", "PORTAL WAKE PURSUIT", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.Bomb),
+        new("tesseract_hunt", "COLLAPSING TESSERACT HUNT", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.DoubleHelix),
     ];
 
     public static IReadOnlyList<AphantasiaPattern> AllPatterns { get; } =
@@ -221,6 +236,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private int _barMaxHp;
     private bool _displayZeroHealth;
     private bool _finalDeathReady;
+    private int _regularVolleyCount;
+    private double _helixFireRemaining = .2;
+    private readonly double[] _halfPressureRemaining = [.35, .78];
+    private int _halfVolleySerial;
+    private double _subphaseCombatElapsed;
+    private bool _phraseWasBreathing;
+    private double _phaseHandoffRemaining;
+    private int _survivalGridVolleyCount;
 
     public BossPresentationProfile PresentationProfile { get; } =
         BossPresentationProfile.For(BossMotionTheme.Phantasia, BossVisualTier.Finale);
@@ -237,8 +260,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public AphantasiaSurvivalKind SurvivalKind { get; private set; }
     public double SurvivalRemaining { get; private set; }
     public double SurvivalDuration { get; private set; }
-    public bool PresentationSurvivalActive =>
-        EncounterState is AphantasiaEncounterState.Survival
+    public bool PresentationSurvivalActive => !PhaseHandoffActive
+        && EncounterState is AphantasiaEncounterState.Survival
             or AphantasiaEncounterState.MiniExecution
             or AphantasiaEncounterState.Finale;
     public bool Dying => EncounterState == AphantasiaEncounterState.Dying;
@@ -305,6 +328,21 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public string DisplayName => Phase == 4 ? CoreName : EssenceName;
     public double FinaleRemaining => EncounterState == AphantasiaEncounterState.Finale
         ? SurvivalRemaining : 0;
+    public float SurvivalTimerProgress => PresentationSurvivalActive && SurvivalDuration > 0
+        ? Math.Clamp(1f - (float)(SurvivalRemaining / SurvivalDuration), 0f, 1f)
+        : 0f;
+    public bool PhaseHandoffActive => _phaseHandoffRemaining > 0;
+    private bool CombatPhraseBreathing => EncounterState == AphantasiaEncounterState.Combat
+        && _subphaseCombatElapsed >= SubphaseDeclarationDuration
+        && (_subphaseCombatElapsed - SubphaseDeclarationDuration) % CombatPhraseDuration
+            >= CombatPhraseDuration - CombatPhraseBreathDuration;
+    private bool CombatDeclarationActive => EncounterState == AphantasiaEncounterState.Combat
+        && _subphaseCombatElapsed < SubphaseDeclarationDuration;
+    private bool CombatFiringPaused => CombatDeclarationActive || CombatPhraseBreathing;
+    public double PhaseHandoffRemaining => _phaseHandoffRemaining;
+    public float PhaseHandoffProgress => PhaseHandoffActive
+        ? 1f - (float)(_phaseHandoffRemaining / PhaseHandoffDuration)
+        : 1f;
     public float DisplayedHp => _displayZeroHealth ? 0 : Math.Max(0, Hp);
     public float DisplayedMaxHp => Math.Max(1, _barMaxHp > 0 ? _barMaxHp : MaxHp);
     public float ArenaLightIntensity => TrueLight ? 1.2f : TrueDark ? .86f : Phase == 4 ? .95f : 1f;
@@ -378,7 +416,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         Light = NewMini("THE LIGHT", new Color(245, 228, 136));
         Dark = NewMini("THE DARK", new Color(43, 69, 166));
         CenterBody();
-        StartNextSubphase(revivePair: true);
+        StartNextSubphase(revivePair: true, beginHandoff: false);
     }
 
     public override bool ReceivesKnockback => false;
@@ -441,6 +479,12 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             return;
         }
 
+        if (PhaseHandoffActive)
+        {
+            UpdatePhaseHandoff(dt);
+            return;
+        }
+
         if (Dying)
         {
             _deathRemaining = Math.Max(0, _deathRemaining - dt);
@@ -458,6 +502,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             or AphantasiaEncounterState.Finale)
         {
             UpdatePerimeterPressure(context, dt);
+            UpdateArenaHalfPressure(context, dt);
+            UpdateHelixStream(context, dt);
         }
 
         switch (EncounterState)
@@ -482,12 +528,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void UpdateCombat(EnemyUpdateContext context, double dt)
     {
+        _subphaseCombatElapsed += dt;
         _subphaseRemaining -= dt;
         if (_damageWindowOpened)
             _damageWindowRemaining = Math.Max(0, _damageWindowRemaining - dt);
         UpdateMovement(context, dt);
-        bool declarationActive = _stateElapsed < SubphaseDeclarationDuration;
-        UpdateMinis(context, dt, hazardsOnly: false, allowFire: !declarationActive);
+        bool declarationActive = CombatDeclarationActive;
+        bool breathing = CombatPhraseBreathing;
+        UpdateMinis(context, dt, hazardsOnly: false,
+            allowFire: !declarationActive && !breathing);
 
         if (Phase <= 2 && !Light.Alive && !Dark.Alive && !_damageWindowOpened)
         {
@@ -495,9 +544,24 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             _damageWindowRemaining = DamageWindowDuration;
         }
 
-        _attackRemaining -= dt;
-        if (_attackRemaining <= 0)
-            FireCurrentPattern(context);
+        if (!breathing)
+            _attackRemaining -= dt;
+        if (breathing)
+        {
+            _phraseWasBreathing = true;
+        }
+        else if (!declarationActive)
+        {
+            if (_phraseWasBreathing)
+            {
+                _phraseWasBreathing = false;
+                FireCurrentPattern(context, phraseAccent: true);
+            }
+            else if (_attackRemaining <= 0)
+            {
+                FireCurrentPattern(context);
+            }
+        }
 
         if (Phase <= 2 && _damageWindowOpened)
         {
@@ -530,8 +594,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _stateElapsed = 0;
         _displayZeroHealth = false;
         Hp = _barMaxHp;
-        TransitionCleanupRequested = true;
-        StartNextSubphase(revivePair: Phase == 3);
+        StartNextSubphase(revivePair: Phase == 3, beginHandoff: false);
     }
 
     private void UpdateSurvival(EnemyUpdateContext context, double dt)
@@ -567,7 +630,6 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void EndSurvival()
     {
-        TransitionCleanupRequested = true;
         AphantasiaSurvivalKind completed = SurvivalKind;
         SurvivalKind = AphantasiaSurvivalKind.None;
         SurvivalRemaining = 0;
@@ -609,7 +671,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         }
 
         if (!Light.Alive && !Dark.Alive)
+        {
             BeginFinale(AphantasiaSurvivalKind.EssenceFinale, PhaseThreeSurvivalDuration);
+            BeginPhaseHandoff();
+        }
     }
 
     private void UpdateFinale(EnemyUpdateContext context, double dt)
@@ -638,6 +703,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         {
             BeginDeath();
         }
+        BeginPhaseHandoff();
     }
 
     private bool PrepareSequenceStage(int desiredStage, double dt)
@@ -647,10 +713,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         {
             _sequenceStage = desiredStage;
             _survivalMovement = desiredStage;
+            _regularVolleyCount = 0;
+            _helixFireRemaining = .2;
             _sequenceTransitionRemaining = SequenceTransitionDuration;
             _attackRemaining = SequenceTransitionDuration;
             _perimeterPressureRemaining = 0;
-            TransitionCleanupRequested = true;
             return false;
         }
         if (_sequenceTransitionRemaining <= 0)
@@ -788,25 +855,301 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         for (int index = 0; index < count; index++)
         {
             float fraction = count == 1 ? .5f : (float)index / (count - 1);
-            string path = ReferenceEquals(mini, Dark) && index % 2 == 0 ? "sine" : "linear";
+            string path = index % 2 == (ReferenceEquals(mini, Dark) ? 0 : 1)
+                ? "sine" : "linear";
             AddShot(staged, mini.Position, aim - spread / 2f + fraction * spread,
                 speed, mini.Empowered ? .34f : .26f, mini.Accent,
                 $"mini_{(ReferenceEquals(mini, Light) ? "light" : "dark")}",
-                path, path == "sine" ? Simulation.TileSize * .52f : 0f, 8f);
+                path, path == "sine" ? Simulation.TileSize * .52f : 0f, 8f,
+                shape: "diamond");
         }
         CommitVolley(sink);
     }
 
-    private void FireCurrentPattern(EnemyUpdateContext context)
+    private void FireCurrentPattern(EnemyUpdateContext context, bool phraseAccent = false)
     {
         List<EnemyProjectile> staged = BeginVolley();
+        Vector2 center = BossCenter;
+        Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
         if (Phase <= 2)
             FireEssencePattern(context, staged);
         else if (Phase == 3)
             FireTesseractPattern(context, staged);
         else
             FireVoidPattern(context, staged);
+
+        _regularVolleyCount++;
+        FireBaselineBossAttack(staged, center, player, _regularVolleyCount);
+        AddBossSpecialAttack(staged, center, player, _regularVolleyCount);
+        if (phraseAccent)
+            FirePhraseAccent(staged, center, player);
         CommitVolley(context.ProjectileSink);
+    }
+
+    private void FireBaselineBossAttack(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 player, int volley)
+    {
+        float aim = AngleTo(origin, player);
+        switch (volley % 3)
+        {
+            case 0:
+                AddShot(sink, origin, aim, 1.55f, .24f, PhaseAccent,
+                    "baseline_straight", "linear", 0f, 8f);
+                break;
+            case 1:
+                for (int side = -1; side <= 1; side += 2)
+                    AddShot(sink, origin, aim + side * .08f, 1.28f, .24f,
+                        PhaseAccent, "baseline_sine", "sine",
+                        side * Simulation.TileSize * .46f, 8f,
+                        frequency: .031f);
+                break;
+            default:
+                FireFan(sink, origin, aim, 5, .72f, 1.12f,
+                    PhaseAccent, "baseline_shotgun");
+                break;
+        }
+    }
+
+    private void FirePhraseAccent(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 player)
+    {
+        float aim = AngleTo(origin, player);
+        switch (Phase)
+        {
+            case 1:
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    AddShot(sink, origin, aim + side * .16f, 1.72f, .24f,
+                        side < 0 ? Light.Accent : Dark.Accent,
+                        "order_accent_straight", "linear", 0f, 8f,
+                        shape: "needle");
+                    AddShot(sink, origin, aim + side * .29f, .82f, .31f,
+                        side < 0 ? Light.Accent : Dark.Accent,
+                        "order_accent_wave", "sine",
+                        side * Simulation.TileSize * .72f, 9f,
+                        frequency: .014f, shape: "crescent");
+                }
+                break;
+            case 2:
+                for (int index = 0; index < 5; index++)
+                {
+                    if (index == 2)
+                        continue;
+                    float offset = (index - 2) * .17f + (index % 2 == 0 ? .05f : -.04f);
+                    AddShot(sink, origin, aim + offset,
+                        index % 2 == 0 ? 1.68f : .74f,
+                        index % 2 == 0 ? .22f : .34f,
+                        index % 2 == 0 ? Light.Accent : Dark.Accent,
+                        "fracture_accent", index % 2 == 0 ? "linear" : "sine",
+                        index % 2 == 0 ? 0f : Simulation.TileSize * .38f,
+                        9f, frequency: .052f,
+                        shape: index % 2 == 0 ? "needle" : "crescent");
+                }
+                break;
+            case 3:
+                for (int axis = 0; axis < 4; axis++)
+                {
+                    float direction = axis * MathF.PI / 2f
+                        + (_regularVolleyCount % 2) * MathF.PI / 4f;
+                    AddShot(sink, origin, direction, 1.46f, .25f,
+                        axis % 2 == 0 ? Light.Accent : Dark.Accent,
+                        "refraction_accent", "linear", 0f, 8f,
+                        shape: "needle");
+                }
+                break;
+            default:
+                for (int side = -2; side <= 2; side++)
+                    AddShot(sink, origin, aim + side * .11f,
+                        side == 0 ? .64f : 1.88f,
+                        side == 0 ? .42f : .2f,
+                        Rainbow(side / 5f + (float)_visualTime * .05f),
+                        "void_accent", "linear", 0f, 8f,
+                        shape: side == 0 ? "orbit_core" : "needle",
+                        speedDecay: side == 0 ? .22f : 0f,
+                        preserveAuthoredLifetime: side == 0);
+                break;
+        }
+    }
+
+    private void AddBossSpecialAttack(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 player, int volley)
+    {
+        AphantasiaSpecialAttack specials = ActiveSpecialAttacks();
+        if (specials.HasFlag(AphantasiaSpecialAttack.Laser) && volley % 3 == 0)
+            FireAphantasiaLaser(sink, origin, player);
+        if (specials.HasFlag(AphantasiaSpecialAttack.Bomb) && volley % 4 == 0)
+            FireAphantasiaBomb(sink, origin, player);
+    }
+
+    private AphantasiaSpecialAttack ActiveSpecialAttacks()
+    {
+        if (EncounterState is AphantasiaEncounterState.Survival
+            or AphantasiaEncounterState.Finale)
+        {
+            return (SequenceStage % 4) switch
+            {
+                0 => AphantasiaSpecialAttack.DoubleHelix,
+                1 => AphantasiaSpecialAttack.Laser,
+                2 => AphantasiaSpecialAttack.Bomb,
+                _ => AphantasiaSpecialAttack.None,
+            };
+        }
+        return EncounterState == AphantasiaEncounterState.Combat
+            ? CurrentPattern.SpecialAttack
+            : AphantasiaSpecialAttack.None;
+    }
+
+    private void FireDoubleHelixPair(List<EnemyProjectile> sink, Vector2 origin,
+        float direction, string source)
+    {
+        float amplitude = Simulation.TileSize * .72f;
+        float size = Simulation.TileSize * .27f;
+        float range = DistanceToArenaEdge(origin, direction) + size;
+        const float helixSpeed = 2.05f;
+        float lifetime = range
+            / (.52f * (float)Simulation.ReferenceFps * helixSpeed) + 1f;
+        foreach ((float signedAmplitude, Color color, string strand) in new[]
+        {
+            (amplitude, Light.Accent, "light"),
+            (-amplitude, Dark.Accent, "dark"),
+        })
+        {
+            sink.Add(new EnemyProjectile(
+                origin.X - size / 2f, origin.Y - size / 2f,
+                direction, helixSpeed, Damage * .56f, size,
+                travelRange: range, color: color, shape: "crescent",
+                path: "sine", amplitude: signedAmplitude, frequency: .027f,
+                lifetime: lifetime, owner: $"aphantasia_double_helix_{source}_{strand}",
+                ignoreWalls: true));
+        }
+    }
+
+    private void BeginPhaseHandoff()
+    {
+        _phaseHandoffRemaining = Math.Max(
+            _phaseHandoffRemaining,
+            PhaseHandoffDuration);
+        MilestoneHealRequested = true;
+    }
+
+    private void UpdatePhaseHandoff(double dt)
+    {
+        _phaseHandoffRemaining = Math.Max(0, _phaseHandoffRemaining - dt);
+        Vector2 current = BossCenter;
+        float blend = 1f - MathF.Exp(-2.25f * (float)dt);
+        current = Vector2.Lerp(current, ArenaCenter, blend);
+        WorldX = current.X - Size / 2f;
+        WorldY = current.Y - Size / 2f;
+        if (_phaseHandoffRemaining <= 0)
+            CenterBody();
+    }
+
+    private void UpdateHelixStream(EnemyUpdateContext context, double dt)
+    {
+        if (CombatFiringPaused)
+            return;
+        if (!ActiveSpecialAttacks().HasFlag(AphantasiaSpecialAttack.DoubleHelix))
+            return;
+        _helixFireRemaining -= dt;
+        if (_helixFireRemaining > 0)
+            return;
+        _helixFireRemaining = HelixFireCadence;
+        AphantasiaMini? sourceMini = Phase switch
+        {
+            1 when Light.Alive => Light,
+            2 when Dark.Alive => Dark,
+            3 when Light.Empowered && Light.Alive => Light,
+            3 when Dark.Empowered && Dark.Alive => Dark,
+            3 when Light.Alive => Light,
+            _ => null,
+        };
+        if (sourceMini is null && Phase < 4)
+            sourceMini = Light.Alive ? Light : Dark.Alive ? Dark : null;
+        Vector2 origin = sourceMini?.Position ?? BossCenter;
+        string source = sourceMini is null ? "boss"
+            : ReferenceEquals(sourceMini, Light) ? "light" : "dark";
+        Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
+        List<EnemyProjectile> staged = BeginVolley();
+        FireDoubleHelixPair(staged, origin, AngleTo(origin, player), source);
+        CommitVolley(context.ProjectileSink);
+    }
+
+    private void FireAphantasiaLaser(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 player)
+    {
+        float direction = AngleTo(origin, player);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            var laser = new EnemyProjectile(
+                origin.X, origin.Y, direction + side * .18f, 0f,
+                Damage * .78f, Simulation.TileSize * .28f,
+                travelRange: ArenaRadius * 1.95f,
+                color: side < 0 ? Light.Accent : Dark.Accent,
+                shape: "diamond", path: "laser", lifetime: 2.6f,
+                angularSpeed: side * .09f,
+                owner: $"aphantasia_laser_{(side < 0 ? "light" : "dark")}")
+            {
+            TelegraphDuration = 1f,
+            };
+            sink.Add(laser);
+        }
+    }
+
+    private void FireAphantasiaBomb(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 player)
+    {
+        float offsetAngle = (float)_visualTime * .83f;
+        Vector2 target = player + new Vector2(MathF.Cos(offsetAngle), MathF.Sin(offsetAngle))
+            * Simulation.TileSize * 1.25f;
+        float size = Simulation.TileSize * .62f;
+        sink.Add(new EnemyProjectile(
+            origin.X - size / 2f, origin.Y - size / 2f,
+            AngleTo(origin, target), .7f, Damage * .82f, size,
+            travelRange: ArenaRadius * 2f, color: Rainbow((float)_visualTime * .1f),
+            shape: "orbit_core", path: "bomb", lifetime: 4f,
+            owner: "aphantasia_bomb", ignoreWalls: true, target: target)
+        {
+            FuseDuration = 1.7f,
+            BlastRadius = Simulation.TileSize * 1.8f,
+            BurstCount = 10,
+            BurstDamage = Damage * .68f,
+            BurstRangeTiles = 18f,
+            ThreatReservationCost = 10,
+        });
+    }
+
+    private void FireArenaLaserGrid(List<EnemyProjectile> sink, bool diagonal)
+    {
+        float[] laneOffsets = [-.54f, -.18f, .18f, .54f];
+        float[] directions = diagonal
+            ? [MathF.PI / 4f, 3f * MathF.PI / 4f]
+            : [0f, MathF.PI / 2f];
+        string orientation = diagonal ? "anticardinal" : "cardinal";
+        foreach (float direction in directions)
+        {
+            Vector2 heading = new(MathF.Cos(direction), MathF.Sin(direction));
+            Vector2 perpendicular = new(-heading.Y, heading.X);
+            foreach (float laneRatio in laneOffsets)
+            {
+                float offset = laneRatio * ArenaRadius;
+                float halfChord = MathF.Sqrt(Math.Max(0f,
+                    ArenaRadius * ArenaRadius - offset * offset));
+                Vector2 origin = ArenaCenter + perpendicular * offset
+                    - heading * halfChord * .96f;
+                var laser = new EnemyProjectile(
+                    origin.X, origin.Y, direction, 0f, Damage * .7f,
+                    Simulation.TileSize * .25f,
+                    travelRange: halfChord * 1.92f,
+                    color: Rainbow(laneRatio + (float)_visualTime * .05f),
+                    shape: "diamond", path: "laser", lifetime: 2.8f,
+                    owner: $"aphantasia_edge_grid_{orientation}")
+                {
+                    TelegraphDuration = 1.15f,
+                    OriginTelegraphDuration = .45f,
+                };
+                sink.Add(laser);
+            }
+        }
     }
 
     private void FireEssencePattern(EnemyUpdateContext context, List<EnemyProjectile> sink)
@@ -816,38 +1159,95 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         int pattern = _patternIndex;
         bool darkDensity = TrueDark;
         bool lightTempo = TrueLight;
+        if (Phase == 1)
+        {
+            switch (pattern)
+            {
+                case 0:
+                    FireOrderedRing(sink, center, lightTempo ? 10 : darkDensity ? 18 : 14,
+                        spin, lightTempo ? 1.72f : darkDensity ? .82f : 1.16f,
+                        .27f, "ordered_bloom_outer", sineEvery: 4);
+                    FireOrderedRing(sink, center, lightTempo ? 6 : 8,
+                        -spin * .72f, lightTempo ? 1.18f : .72f,
+                        .31f, "ordered_bloom_inner", sineEvery: 4);
+                    _attackRemaining = lightTempo ? .56 : darkDensity ? .82 : .68;
+                    break;
+                case 1:
+                    FireOrderedCurtain(sink,
+                        vertical: (_regularVolleyCount & 1) == 0,
+                        reverse: (_regularVolleyCount & 2) != 0,
+                        lanes: darkDensity ? 13 : 10,
+                        speed: lightTempo ? 1.7f : darkDensity ? .78f : 1.08f,
+                        owner: "horizon_ordered");
+                    FireOrderedRing(sink, center, 8, -spin, 1.02f, .24f,
+                        "horizon_center", sineEvery: 0);
+                    _attackRemaining = lightTempo ? .62 : .78;
+                    break;
+                default:
+                    Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
+                    float aim = AngleTo(center, player);
+                    int pairs = lightTempo ? 2 : darkDensity ? 4 : 3;
+                    for (int pair = 0; pair < pairs; pair++)
+                    {
+                        float offset = (pair - (pairs - 1) / 2f) * .22f;
+                        Color color = pair % 2 == 0 ? Light.Accent : Dark.Accent;
+                        AddShot(sink, center, aim + offset - .055f, 1.88f, .22f,
+                            color, "tidal_straight", "linear", 0f, 8f,
+                            shape: "needle");
+                        AddShot(sink, center, aim + offset + .055f, .78f, .31f,
+                            color, "tidal_wave", "sine",
+                            (pair % 2 == 0 ? 1f : -1f) * Simulation.TileSize * .74f,
+                            10f, frequency: .014f, shape: "crescent");
+                    }
+                    _attackRemaining = lightTempo ? .48 : darkDensity ? .72 : .6;
+                    break;
+            }
+            return;
+        }
+
         if (pattern == 0)
         {
-            int count = lightTempo ? 10 : darkDensity ? 22 : 16;
-            FireRing(sink, center, count, spin, lightTempo ? 2.05f : darkDensity ? .72f : 1.18f,
-                darkDensity ? .23f : .3f, "essence_bloom", alternating: true);
-            _attackRemaining = lightTempo ? .42 : darkDensity ? .7 : .56;
+            int count = lightTempo ? 12 : darkDensity ? 22 : 18;
+            FireBrokenRing(sink, center, count, spin,
+                lightTempo ? 1.72f : darkDensity ? .7f : 1.04f,
+                darkDensity ? .29f : .25f, "broken_bloom");
+            FireBrokenRing(sink, center, Math.Max(8, count / 2), -spin * 1.34f,
+                lightTempo ? .84f : 1.38f, .22f, "broken_bloom_echo");
+            _attackRemaining = lightTempo ? .52 : darkDensity ? .76 : .62;
         }
         else if (pattern == 1)
         {
-            FireEdgeCurtain(sink, vertical: ((int)(_stateElapsed * 2) & 1) == 0,
-                reverse: Phase == 2 && ((int)_stateElapsed & 1) != 0,
-                lanes: darkDensity ? 13 : 9,
-                speed: lightTempo ? 1.95f : darkDensity ? .72f : 1.15f,
-                owner: "essence_horizon");
-            FireRing(sink, center, lightTempo ? 7 : 11, -spin, 1.0f, .24f,
-                "essence_cross", alternating: false);
-            _attackRemaining = lightTempo ? .46 : .72;
+            FireFracturedCurtain(sink,
+                vertical: (_regularVolleyCount & 1) == 0,
+                reverse: (_regularVolleyCount & 2) != 0,
+                lanes: darkDensity ? 15 : 11,
+                owner: "erratic_eight");
+            FireBrokenRing(sink, center, lightTempo ? 8 : 11, -spin,
+                lightTempo ? 1.55f : .82f, .24f,
+                "erratic_eight_cross");
+            _attackRemaining = lightTempo ? .5 : .72;
         }
         else
         {
             Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
             float aim = AngleTo(center, player);
-            int ribbons = lightTempo ? 5 : darkDensity ? 11 : 7;
-            for (int index = 0; index < ribbons; index++)
+            int pellets = (_regularVolleyCount & 1) == 0 ? 5 : 9;
+            float spread = pellets == 5 ? .68f : 1.24f;
+            for (int index = 0; index < pellets; index++)
             {
-                float offset = (index - (ribbons - 1) / 2f) * .13f;
-                AddShot(sink, center, aim + offset, lightTempo ? 2.2f : .9f,
-                    .24f + index % 3 * .05f, index % 2 == 0 ? Light.Accent : Dark.Accent,
-                    "essence_wake", index % 2 == 0 ? "sine" : "linear",
-                    Simulation.TileSize * .44f, 9f);
+                float fraction = pellets == 1 ? .5f : index / (float)(pellets - 1);
+                bool curl = index % 2 != 0;
+                AddShot(sink, center, aim - spread / 2f + fraction * spread
+                        + (index % 3 - 1) * .025f,
+                    curl ? .76f : 1.62f,
+                    curl ? .34f : .22f,
+                    index % 2 == 0 ? Light.Accent : Dark.Accent,
+                    "undertow", curl ? "sine" : "linear",
+                    curl ? (index % 4 < 2 ? 1f : -1f) * Simulation.TileSize * .42f : 0f,
+                    9f, frequency: curl ? .052f : .035f,
+                    shape: "diamond");
             }
-            _attackRemaining = lightTempo ? .34 : darkDensity ? .58 : .46;
+            _attackRemaining = pellets == 5 ? .48 : .72;
         }
     }
 
@@ -858,8 +1258,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         switch (_patternIndex)
         {
             case 0:
-                FireRing(sink, center, 18, spin, 1.0f, .26f, "prism_outer", true);
-                FireRing(sink, center, 11, -spin * 1.4f, 1.48f, .34f, "prism_inner", true);
+                FireOrderedRing(sink, center, 18, spin, .94f, .27f,
+                    "prism_outer", sineEvery: 3);
+                FireOrderedRing(sink, center, 10, -spin * 1.4f, 1.52f, .32f,
+                    "prism_inner", sineEvery: 5);
                 _attackRemaining = .62;
                 break;
             case 1:
@@ -870,12 +1272,17 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             case 2:
                 FireRing(sink, center, 12, spin, 1.25f, .25f, "eight_spoke", false);
                 FireEdgeCurtain(sink, ((int)_stateElapsed & 1) == 0, false, 7, 1.05f, "eight_fold");
+                FireRefractorPair(sink, center,
+                    new Vector2(context.PlayerWorldX, context.PlayerWorldY));
                 _attackRemaining = .66;
                 break;
             case 3:
+                float foldRotation = (_regularVolleyCount & 1) == 0
+                    ? 0f
+                    : MathF.PI / 4f;
                 for (int side = 0; side < 4; side++)
                 {
-                    float angle = side * MathF.PI / 2f + spin;
+                    float angle = side * MathF.PI / 2f + foldRotation;
                     Vector2 origin = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ArenaRadius * .84f;
                     FireFan(sink, origin, angle + MathF.PI, 7, .68f, .88f,
                         side % 2 == 0 ? Light.Accent : Dark.Accent, "folding_inward");
@@ -883,8 +1290,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 _attackRemaining = .82;
                 break;
             case 4:
-                FireAimedRibbon(sink, center, new Vector2(context.PlayerWorldX, context.PlayerWorldY),
-                    9, 1.16f, "ribbon_chase");
+                FireMirroredRibbon(sink, center,
+                    new Vector2(context.PlayerWorldX, context.PlayerWorldY));
                 _attackRemaining = .48;
                 break;
             default:
@@ -914,8 +1321,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 _attackRemaining = 1.4;
                 break;
             case 1:
-                FireRing(sink, center, 12, spin, .74f, .42f, "void_clock", true);
-                FirePortalSeed(sink, center, -spin, .4f, "clock_hand");
+                FireOrderedRing(sink, center, 10, spin, 1.76f, .2f,
+                    "void_clock_needles", sineEvery: 0);
+                FireVoidAnchor(sink, center, -spin);
+                if ((_regularVolleyCount & 1) == 0)
+                    FirePortalSeed(sink, center, spin + MathF.PI, .42f, "clock_hand");
                 _attackRemaining = .9;
                 break;
             case 2:
@@ -962,6 +1372,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 FireGrandChoiceStage(sink, elapsed, player);
                 break;
         }
+        _regularVolleyCount++;
+        AddBossSpecialAttack(sink, BossCenter, player, _regularVolleyCount);
+        AddSurvivalLaserGrid(sink);
         CommitVolley(context.ProjectileSink);
     }
 
@@ -977,6 +1390,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         {
             FireEssenceFinaleStage(sink, elapsed);
         }
+        _regularVolleyCount++;
+        AddBossSpecialAttack(sink, BossCenter,
+            new Vector2(context.PlayerWorldX, context.PlayerWorldY),
+            _regularVolleyCount);
+        AddSurvivalLaserGrid(sink);
         CommitVolley(context.ProjectileSink);
     }
 
@@ -985,12 +1403,12 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         switch (SequenceStage)
         {
             case 0:
-                FireRing(sink, ArenaCenter, 16, (float)elapsed * .23f,
-                    .92f, .25f, "first_eclipse_ordered", true);
+                FireOrderedRing(sink, ArenaCenter, 16, (float)elapsed * .23f,
+                    .92f, .25f, "first_eclipse_ordered", sineEvery: 4);
                 _attackRemaining = .64;
                 break;
             case 1:
-                FireEdgeCurtain(sink, true, ((int)elapsed & 1) == 0,
+                FireOrderedCurtain(sink, true, ((int)elapsed & 1) == 0,
                     12, .82f, "first_eclipse_vertical");
                 _attackRemaining = .74;
                 break;
@@ -1002,9 +1420,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 _attackRemaining = .68;
                 break;
             default:
-                FireEdgeCurtain(sink, true, ((int)elapsed & 1) == 0,
+                FireOrderedCurtain(sink, true, ((int)elapsed & 1) == 0,
                     10, .9f, "first_eclipse_cross_v");
-                FireEdgeCurtain(sink, false, ((int)elapsed & 1) != 0,
+                FireOrderedCurtain(sink, false, ((int)elapsed & 1) != 0,
                     10, .9f, "first_eclipse_cross_h");
                 _attackRemaining = .82;
                 break;
@@ -1022,8 +1440,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 _attackRemaining = .58;
                 break;
             case 1:
-                FireEdgeCurtain(sink, ((int)elapsed & 1) == 0,
-                    ((int)(elapsed * 1.5) & 1) == 0, 13, .9f,
+                FireFracturedCurtain(sink, ((int)elapsed & 1) == 0,
+                    ((int)(elapsed * 1.5) & 1) == 0, 13,
                     "second_eclipse_staggered");
                 FireBrokenRing(sink, ArenaCenter, 9, -(float)elapsed * .43f,
                     1.18f, .22f, "second_eclipse_offset");
@@ -1157,15 +1575,20 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void UpdatePerimeterPressure(EnemyUpdateContext context, double dt)
     {
+        if (Phase <= 2 || CombatFiringPaused)
+            return;
         _perimeterPressureRemaining -= dt;
         if (_perimeterPressureRemaining > 0)
             return;
         _perimeterPressureRemaining = PerimeterPressureCadence;
         List<EnemyProjectile> staged = BeginVolley();
         float rotation = (float)_visualTime * .17f;
-        for (int index = 0; index < PerimeterPressureCount; index++)
+        int projectileCount = Phase == 3
+            ? PerimeterPressureCount / 2
+            : PerimeterPressureCount;
+        for (int index = 0; index < projectileCount; index++)
         {
-            float angle = rotation + index * MathF.Tau / PerimeterPressureCount;
+            float angle = rotation + index * MathF.Tau / projectileCount;
             Vector2 origin = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
                 * ArenaRadius * .93f;
             float opposite = angle + MathF.PI + MathF.Sin(rotation * 1.7f + index) * .24f;
@@ -1180,6 +1603,74 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         CommitVolley(context.ProjectileSink);
     }
 
+    private void AddSurvivalLaserGrid(List<EnemyProjectile> sink)
+    {
+        if (Phase < 3 || EncounterState is not (AphantasiaEncounterState.Survival
+            or AphantasiaEncounterState.Finale))
+            return;
+        _survivalGridVolleyCount++;
+        if (_survivalGridVolleyCount % 6 != 0)
+            return;
+        FireArenaLaserGrid(sink,
+            diagonal: (_survivalGridVolleyCount / 6) % 2 == 0);
+    }
+
+    private void UpdateArenaHalfPressure(EnemyUpdateContext context, double dt)
+    {
+        if (Phase <= 2 || CombatFiringPaused)
+            return;
+        for (int half = 0; half < 2; half++)
+        {
+            _halfPressureRemaining[half] -= dt;
+            if (_halfPressureRemaining[half] > 0)
+                continue;
+
+            // Each side rolls its own cadence and projectile grammar. This
+            // deliberately makes adjacent lanes disagree about speed, scale,
+            // pellet count, and oscillation instead of mirroring one pattern.
+            double cadence = .42 + _rng.NextDouble() * 1.18;
+            if (Phase == 3)
+                cadence *= 2;
+            _halfPressureRemaining[half] = cadence;
+            int bulletCount = new[] { 1, 1, 3, 5 }[_rng.Next(4)];
+            float speed = .46f + (float)_rng.NextDouble() * 1.72f;
+            float sizeTiles = .18f + (float)_rng.NextDouble() * .48f;
+            bool sinusoidal = _rng.Next(3) != 0;
+            float amplitude = sinusoidal
+                ? Simulation.TileSize * (.18f + (float)_rng.NextDouble() * .92f)
+                : 0f;
+            float frequency = sinusoidal
+                ? .009f + (float)_rng.NextDouble() * .058f
+                : .035f;
+            float boundaryAngle = half == 0
+                ? MathF.PI / 2f + (float)_rng.NextDouble() * MathF.PI
+                : -MathF.PI / 2f + (float)_rng.NextDouble() * MathF.PI;
+            Vector2 origin = ArenaCenter
+                + new Vector2(MathF.Cos(boundaryAngle), MathF.Sin(boundaryAngle))
+                * ArenaRadius * .92f;
+            Vector2 player = new(context.PlayerWorldX, context.PlayerWorldY);
+            float aim = AngleTo(origin, Vector2.Lerp(ArenaCenter, player, .38f));
+            float spread = bulletCount == 1 ? 0f
+                : .22f + (float)_rng.NextDouble() * .62f;
+            string owner = $"half_{half}_volley_{_halfVolleySerial++}";
+            List<EnemyProjectile> staged = BeginVolley();
+            for (int pellet = 0; pellet < bulletCount; pellet++)
+            {
+                float fraction = bulletCount == 1 ? .5f
+                    : pellet / (float)(bulletCount - 1);
+                AddShot(staged, origin,
+                    aim - spread / 2f + fraction * spread,
+                    speed * (.9f + pellet % 2 * .13f),
+                    sizeTiles * (.88f + pellet % 3 * .12f),
+                    half == 0 ? Light.Accent : Dark.Accent,
+                    owner, sinusoidal ? "sine" : "linear",
+                    amplitude * (pellet % 2 == 0 ? 1f : -1f), 14f,
+                    frequency: frequency);
+            }
+            CommitVolley(context.ProjectileSink);
+        }
+    }
+
     private void FireRing(List<EnemyProjectile> sink, Vector2 origin, int count,
         float rotation, float speed, float size, string owner, bool alternating)
     {
@@ -1192,6 +1683,25 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 speed * (.88f + index % 3 * .08f), size * (.82f + index % 4 * .12f),
                 color, owner, index % 4 == 0 ? "sine" : "linear",
                 Simulation.TileSize * .34f, 10f);
+        }
+    }
+
+    private void FireOrderedRing(List<EnemyProjectile> sink, Vector2 origin, int count,
+        float rotation, float speed, float size, string owner, int sineEvery)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            bool sinusoidal = sineEvery > 0 && index % sineEvery == 0;
+            AddShot(sink, origin, rotation + index * MathF.Tau / count,
+                speed, size,
+                index % 2 == 0 ? Light.Accent : Dark.Accent,
+                owner, sinusoidal ? "sine" : "linear",
+                sinusoidal
+                    ? (index % (sineEvery * 2) == 0 ? 1f : -1f)
+                        * Simulation.TileSize * .62f
+                    : 0f,
+                10f, frequency: sinusoidal ? .014f : .035f,
+                shape: sinusoidal ? "crescent" : "needle");
         }
     }
 
@@ -1219,7 +1729,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             float fraction = count == 1 ? .5f : (float)index / (count - 1);
             AddShot(sink, origin, direction - spread / 2f + fraction * spread,
                 speed, .25f + index % 3 * .05f, color, owner,
-                index % 3 == 0 ? "sine" : "linear", Simulation.TileSize * .38f, 9f);
+                index % 3 == 0 ? "sine" : "linear", Simulation.TileSize * .38f, 9f,
+                shape: "diamond");
         }
     }
 
@@ -1265,6 +1776,103 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         }
     }
 
+    private void FireOrderedCurtain(List<EnemyProjectile> sink, bool vertical,
+        bool reverse, int lanes, float speed, string owner)
+    {
+        int movingGap = (_regularVolleyCount / 2) % Math.Max(1, lanes);
+        for (int index = 0; index < lanes; index++)
+        {
+            if (index == movingGap || index == (movingGap + 1) % lanes)
+                continue;
+            float across = -ArenaRadius * .82f + ArenaRadius * 1.64f
+                * (index + .5f) / lanes;
+            Vector2 origin = vertical
+                ? ArenaCenter + new Vector2(across,
+                    reverse ? ArenaRadius * .92f : -ArenaRadius * .92f)
+                : ArenaCenter + new Vector2(
+                    reverse ? ArenaRadius * .92f : -ArenaRadius * .92f, across);
+            float direction = vertical
+                ? reverse ? -MathF.PI / 2f : MathF.PI / 2f
+                : reverse ? MathF.PI : 0f;
+            bool sinusoidal = index % 4 == 0;
+            AddShot(sink, origin, direction, speed, .25f,
+                index % 2 == 0 ? Light.Accent : Dark.Accent,
+                owner, sinusoidal ? "sine" : "linear",
+                sinusoidal ? Simulation.TileSize * .5f : 0f,
+                12f, frequency: sinusoidal ? .014f : .035f,
+                shape: sinusoidal ? "crescent" : "needle");
+        }
+    }
+
+    private void FireMirroredRibbon(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 target)
+    {
+        float aim = AngleTo(origin, target);
+        for (int lane = -2; lane <= 2; lane++)
+        {
+            float offset = lane * .13f;
+            for (int mirror = -1; mirror <= 1; mirror += 2)
+            {
+                AddShot(sink, origin, aim + offset + mirror * .035f,
+                    mirror < 0 ? 1.34f : .96f,
+                    mirror < 0 ? .22f : .28f,
+                    mirror < 0 ? Light.Accent : Dark.Accent,
+                    "ribbon_pursuit_mirror", "sine",
+                    mirror * Simulation.TileSize * (.38f + Math.Abs(lane) * .08f),
+                    10f, frequency: mirror < 0 ? .026f : .038f,
+                    shape: "crescent");
+            }
+        }
+    }
+
+    private void FireRefractorPair(List<EnemyProjectile> sink, Vector2 origin,
+        Vector2 target)
+    {
+        float aim = AngleTo(origin, target);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            AddShot(sink, origin, aim + side * .2f, 1.08f, .36f,
+                side < 0 ? Light.Accent : Dark.Accent,
+                "refractor", "linear", 0f, 12f,
+                shape: "star", splitCount: 3, splitProgress: .5f,
+                splitSpeedScale: 1.12f, splitSpread: .84f,
+                splitChildLifetime: 9f, splitTelegraphStartRatio: .55f);
+        }
+    }
+
+    private void FireFracturedCurtain(List<EnemyProjectile> sink, bool vertical,
+        bool reverse, int lanes, string owner)
+    {
+        int firstGap = (_regularVolleyCount * 3) % Math.Max(1, lanes);
+        for (int index = 0; index < lanes; index++)
+        {
+            if (index == firstGap || index == (firstGap + 1) % lanes
+                || (index + _regularVolleyCount) % 7 == 3)
+                continue;
+            float across = -ArenaRadius * .82f + ArenaRadius * 1.64f
+                * (index + .5f) / lanes;
+            Vector2 origin = vertical
+                ? ArenaCenter + new Vector2(across,
+                    reverse ? ArenaRadius * .92f : -ArenaRadius * .92f)
+                : ArenaCenter + new Vector2(
+                    reverse ? ArenaRadius * .92f : -ArenaRadius * .92f, across);
+            float direction = vertical
+                ? reverse ? -MathF.PI / 2f : MathF.PI / 2f
+                : reverse ? MathF.PI : 0f;
+            bool slowCurl = index % 2 != 0;
+            AddShot(sink, origin, direction + (index % 3 - 1) * .035f,
+                slowCurl ? .72f : 1.58f,
+                slowCurl ? .34f : .22f,
+                slowCurl ? Dark.Accent : Light.Accent,
+                owner, slowCurl ? "sine" : "linear",
+                slowCurl
+                    ? (index % 4 < 2 ? 1f : -1f) * Simulation.TileSize * .4f
+                    : 0f,
+                12f, frequency: slowCurl ? .052f : .035f,
+                shape: slowCurl ? "crescent" : "needle");
+        }
+    }
+
     private void FireEdgePortals(List<EnemyProjectile> sink, bool vertical, string owner)
     {
         for (int index = -2; index <= 2; index++)
@@ -1302,9 +1910,24 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         sink.Add(portal);
     }
 
+    private void FireVoidAnchor(List<EnemyProjectile> sink, Vector2 origin,
+        float direction)
+    {
+        AddShot(sink, origin, direction, 1.35f, .64f,
+            Rainbow(direction / MathF.Tau + (float)_visualTime * .04f),
+            "void_anchor", "linear", 0f, 5.5f,
+            shape: "orbit_core", speedDecay: .32f,
+            preserveAuthoredLifetime: true);
+    }
+
     private void AddShot(List<EnemyProjectile> sink, Vector2 origin, float direction,
         float speed, float sizeTiles, Color color, string owner, string path,
-        float amplitude, float lifetime, bool deliberatelyShortRange = false)
+        float amplitude, float lifetime, bool deliberatelyShortRange = false,
+        float frequency = .035f, string? shape = null, float speedDecay = 0f,
+        bool preserveAuthoredLifetime = false, int splitCount = 0,
+        float splitProgress = 0f, float splitSpeedScale = 1.08f,
+        float? splitSpread = null, float? splitChildLifetime = null,
+        float splitTelegraphStartRatio = 1f)
     {
         float size = Simulation.TileSize
             * Math.Max(MinimumProjectileSizeTiles, sizeTiles);
@@ -1315,13 +1938,28 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         float requiredLifetime = travelRange
             / Math.Max(.01f, speed * .52f * (float)Simulation.ReferenceFps * .88f)
             + .75f;
-        sink.Add(new EnemyProjectile(
+        string projectileShape = shape ?? (path == "sine" ? "crescent" : "needle");
+        var projectile = new EnemyProjectile(
             origin.X - size / 2f, origin.Y - size / 2f,
             direction, speed, Damage * .62f, size,
             travelRange: travelRange, color: color,
-            shape: "diamond", path: path, amplitude: amplitude,
-            lifetime: deliberatelyShortRange ? lifetime : Math.Max(lifetime, requiredLifetime),
-            owner: $"aphantasia_{owner}", ignoreWalls: true));
+            shape: projectileShape, path: path, amplitude: amplitude, frequency: frequency,
+            lifetime: deliberatelyShortRange || preserveAuthoredLifetime
+                ? lifetime
+                : Math.Max(lifetime, requiredLifetime),
+            speedDecay: speedDecay,
+            owner: $"aphantasia_{owner}", ignoreWalls: true);
+        if (splitCount > 1)
+        {
+            projectile.SplitCount = splitCount;
+            projectile.SplitAt = travelRange * Math.Clamp(splitProgress, .05f, .95f);
+            projectile.SplitSpeedScale = splitSpeedScale;
+            projectile.SplitSpread = splitSpread;
+            projectile.SplitChildLifetime = splitChildLifetime;
+            projectile.ThreatReservationCost = splitCount;
+            projectile.SplitTelegraphStartRatio = splitTelegraphStartRatio;
+        }
+        sink.Add(projectile);
     }
 
     private float DistanceToArenaEdge(Vector2 origin, float direction)
@@ -1354,17 +1992,32 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 activeCost += Math.Max(1, projectile.ThreatReservationCost);
             }
         }
-        int stagedCost = 0;
-        foreach (EnemyProjectile projectile in _volleyScratch)
-            stagedCost += Math.Max(1, projectile.ThreatReservationCost);
         bool perimeterVolley = _volleyScratch.Count > 0
             && _volleyScratch.All(projectile =>
                 projectile.Owner == "aphantasia_perimeter_drift");
         int volleyCap = perimeterVolley
             ? ActiveThreatSoftCap
             : ActiveThreatSoftCap - PerimeterThreatReserve;
-        if (activeCost + stagedCost <= volleyCap)
-            sink.AddRange(_volleyScratch);
+        foreach (EnemyProjectile projectile in _volleyScratch)
+        {
+            int projectileCost = Math.Max(1, projectile.ThreatReservationCost);
+            while (activeCost + projectileCost > volleyCap)
+            {
+                EnemyProjectile? longestLasting = sink
+                    .Where(candidate => !candidate.RemFlag
+                        && candidate.Owner?.StartsWith("aphantasia_", StringComparison.Ordinal) == true)
+                    .MaxBy(candidate => candidate.Age);
+                if (longestLasting is null)
+                    break;
+                sink.Remove(longestLasting);
+                activeCost -= Math.Max(1, longestLasting.ThreatReservationCost);
+            }
+            if (activeCost + projectileCost <= volleyCap)
+            {
+                sink.Add(projectile);
+                activeCost += projectileCost;
+            }
+        }
         _volleyScratch.Clear();
     }
 
@@ -1400,7 +2053,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _ => PhaseFourPatterns,
     };
 
-    private void StartNextSubphase(bool revivePair)
+    private void StartNextSubphase(bool revivePair, bool beginHandoff = true)
     {
         IReadOnlyList<AphantasiaPattern> pool = PatternPool();
         if (_patternBagPhase != Phase)
@@ -1416,6 +2069,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _damageWindowRemaining = 0;
         _damageWindowOpened = false;
         _attackRemaining = SubphaseDeclarationDuration;
+        _regularVolleyCount = 0;
+        _helixFireRemaining = .2;
+        _subphaseCombatElapsed = 0;
+        _phraseWasBreathing = false;
         _stateElapsed = 0;
         if (revivePair)
             ReviveMiniPair();
@@ -1424,6 +2081,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             Light.Aggressive = _rng.Next(2) == 0;
             Dark.Aggressive = _rng.Next(2) == 0;
         }
+        if (beginHandoff)
+            BeginPhaseHandoff();
     }
 
     private void RefillPatternBag(IReadOnlyList<AphantasiaPattern> pool)
@@ -1487,7 +2146,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private bool MiniCanTakeDamage(AphantasiaMini mini)
     {
-        if (!mini.Alive || Dying || EntranceRemaining > 0)
+        if (!mini.Alive || Dying || PhaseHandoffActive || EntranceRemaining > 0)
             return false;
         if (Phase <= 2)
             return EncounterState == AphantasiaEncounterState.Combat;
@@ -1528,7 +2187,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         if (partId is "dark" or "mini:dark")
             return DamageMini(Dark, amount);
         if (EncounterState != AphantasiaEncounterState.Combat
-            || EntranceRemaining > 0 || Dying)
+            || EntranceRemaining > 0 || PhaseHandoffActive || Dying)
             return new HitResult(false, false, 0, true);
         if (Phase <= 2 && (Light.Alive || Dark.Alive || !DamageWindowActive))
             return new HitResult(false, false, 0, true);
@@ -1588,7 +2247,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             if (floor == 1)
                 _displayZeroHealth = true;
             gate();
-            TransitionCleanupRequested = true;
+            BeginPhaseHandoff();
         }
         return new HitResult(applied > 0, false, applied, applied <= 0);
     }
@@ -1616,8 +2275,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _stateElapsed = 0;
         if (Phase == 2)
         {
-            TransitionCleanupRequested = true;
-            StartNextSubphase(revivePair: true);
+            StartNextSubphase(revivePair: true, beginHandoff: false);
         }
     }
 
@@ -1631,6 +2289,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _attackRemaining = SequenceTransitionDuration;
         _sequenceStage = -1;
         _sequenceTransitionRemaining = 0;
+        _survivalGridVolleyCount = 0;
         _damageWindowRemaining = 0;
         ReviveMiniPair();
         Light.Aggressive = true;
@@ -1673,8 +2332,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _attackRemaining = SequenceTransitionDuration;
         _sequenceStage = -1;
         _sequenceTransitionRemaining = 0;
+        _survivalGridVolleyCount = 0;
         _displayZeroHealth = true;
-        TransitionCleanupRequested = true;
     }
 
     private void BeginDeath()
@@ -1685,7 +2344,6 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _stateElapsed = 0;
         _displayZeroHealth = true;
         Hp = 1;
-        TransitionCleanupRequested = true;
     }
 
     public override bool IsDead() => _finalDeathReady && Hp <= 0;
@@ -1716,13 +2374,13 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             Dark.PermanentlyDestroyed = true;
         }
         if (Phase != 2) // SetPhase starts Phase 2 immediately for the shared-bar handoff.
-            StartNextSubphase(revivePair: Phase < 4);
+            StartNextSubphase(revivePair: Phase < 4, beginHandoff: false);
     }
 
     public void DebugAdvanceSubPhase()
     {
         bool revivePair = !Light.Alive && !Dark.Alive;
-        StartNextSubphase(revivePair);
+        StartNextSubphase(revivePair, beginHandoff: false);
         Light.Vulnerable = MiniCanTakeDamage(Light);
         Dark.Vulnerable = MiniCanTakeDamage(Dark);
     }
@@ -1813,6 +2471,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             new Vector2(WorldX + Size / 2f, WorldY + Size / 2f),
             playerWorldPosition, screenShake);
         DrawBossBody(spriteBatch, center);
+        if (!PhaseHandoffActive && CombatDeclarationActive)
+            DrawSubphaseDeclaration(spriteBatch, center);
+        if (PhaseHandoffActive)
+            DrawPhaseHandoff(spriteBatch, center);
         if (DamageWindowActive)
         {
             float pulse = .5f + .5f * MathF.Sin((float)_visualTime * 10f);
@@ -2089,6 +2751,95 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         Primitives2D.CircleOutline(spriteBatch, center,
             ArenaRadius + 18f + MathF.Sin((float)_visualTime * .35f) * 6f,
             accent * .42f, 3);
+
+        if (PresentationSurvivalActive && SurvivalDuration > 0)
+        {
+            const int timerSegments = 144;
+            float timerRadius = ArenaRadius - 13f;
+            Primitives2D.CircleOutline(spriteBatch, center, timerRadius,
+                UiTheme.Ink * .88f, 18);
+            int completedSegments = Math.Clamp(
+                (int)MathF.Ceiling(timerSegments * SurvivalTimerProgress),
+                0, timerSegments);
+            for (int index = 0; index < completedSegments; index++)
+            {
+                float startAngle = -MathF.PI / 2f + index * MathF.Tau / timerSegments;
+                float endAngle = -MathF.PI / 2f + (index + 1.08f) * MathF.Tau / timerSegments;
+                Vector2 start = center + new Vector2(MathF.Cos(startAngle), MathF.Sin(startAngle))
+                    * timerRadius;
+                Vector2 end = center + new Vector2(MathF.Cos(endAngle), MathF.Sin(endAngle))
+                    * timerRadius;
+                Primitives2D.Line(spriteBatch, start, end,
+                    Rainbow(index / (float)timerSegments + (float)_visualTime * .025f), 10);
+            }
+        }
+    }
+
+    private void DrawSubphaseDeclaration(SpriteBatch spriteBatch, Vector2 center)
+    {
+        float progress = Math.Clamp(
+            (float)(_subphaseCombatElapsed / SubphaseDeclarationDuration), 0f, 1f);
+        float radius = Size * (1.18f - progress * .42f);
+        Color accent = Phase <= 2
+            ? Color.Lerp(Light.Accent, Dark.Accent, .5f + .5f
+                * MathF.Sin((float)_visualTime * 5f))
+            : Rainbow((float)_visualTime * .12f + _patternIndex * .11f);
+        Primitives2D.CircleOutline(spriteBatch, center, radius,
+            UiTheme.Ink, 8, 32);
+        Primitives2D.CircleOutline(spriteBatch, center, radius,
+            accent, 4, 32);
+        int spokes = Phase switch
+        {
+            1 => 4,
+            2 => 5,
+            3 => 8,
+            _ => 6,
+        };
+        float rotation = Phase == 2
+            ? MathF.Sin((float)_visualTime * 8f) * .22f
+            : (float)_visualTime * (Phase >= 3 ? .42f : .18f);
+        for (int index = 0; index < spokes; index++)
+        {
+            float angle = rotation + index * MathF.Tau / spokes;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Primitives2D.Line(spriteBatch,
+                center + direction * radius * .72f,
+                center + direction * radius,
+                index % 2 == 0 ? Light.Accent : Dark.Accent,
+                3);
+        }
+    }
+
+    private void DrawPhaseHandoff(SpriteBatch spriteBatch, Vector2 center)
+    {
+        float flash = .35f + .25f * MathF.Sin((float)_visualTime * 8.5f);
+        Color rainbow = Rainbow((float)_visualTime * .18f);
+        Color dullRainbow = Color.Lerp(new Color(58, 55, 68), rainbow, .48f);
+        Primitives2D.FillCircle(spriteBatch, center, Size * .5f,
+            dullRainbow * flash);
+        Primitives2D.CircleOutline(spriteBatch, center, Size * .52f,
+            UiTheme.Ink, 9);
+        Primitives2D.CircleOutline(spriteBatch, center, Size * .52f,
+            dullRainbow, 4);
+
+        for (int crack = 0; crack < 9; crack++)
+        {
+            float angle = crack * MathF.Tau / 9f + .17f;
+            Vector2 radial = new(MathF.Cos(angle), MathF.Sin(angle));
+            Vector2 tangent = new(-radial.Y, radial.X);
+            Vector2[] points =
+            [
+                center + radial * Size * .08f,
+                center + radial * Size * .22f
+                    + tangent * MathF.Sin(crack * 2.4f) * Size * .045f,
+                center + radial * Size * .36f
+                    - tangent * MathF.Cos(crack * 1.7f) * Size * .055f,
+                center + radial * Size * .5f,
+            ];
+            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink, 7);
+            Primitives2D.Polyline(spriteBatch, points, false,
+                Rainbow(crack / 9f + (float)_visualTime * .12f) * .78f, 3);
+        }
     }
 
     private static Color Rainbow(float phase)

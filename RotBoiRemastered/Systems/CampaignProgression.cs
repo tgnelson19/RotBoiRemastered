@@ -189,10 +189,8 @@ public static class CampaignDevOverrides
         if (PortalUnlocks.Remove(key))
             return;
         PortalUnlocks.Add(key);
-        // The endgame entrances are physically arranged in one line. A dev
-        // override for a later chamber opens its prerequisite corridor too.
-        if (key is "core" or "aphantasia")
-            PortalUnlocks.Add("sight");
+        // Aphantasia branches directly from the Body / Soul bubble, so a dev
+        // override for it must also open that prerequisite corridor.
         if (key == "aphantasia")
             PortalUnlocks.Add("core");
     }

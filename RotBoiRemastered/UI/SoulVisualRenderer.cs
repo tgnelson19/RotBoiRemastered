@@ -121,7 +121,8 @@ internal static class SoulVisualRenderer
         string? enteringPortal,
         double portalAnimationStart)
     {
-        if (portals.TryGetValue(SoulHub.BodyPortalKey, out Vector2 composite))
+        if (CampaignProgression.PortalUnlocked("body")
+            && portals.TryGetValue(SoulHub.BodyPortalKey, out Vector2 composite))
         {
             SoulPortalPresentationState state = ResolvePortalState(
                 SoulHub.BodyPortalKey, nearbyPortal, confirmingPortal, enteringPortal);
@@ -907,9 +908,9 @@ internal static class SoulVisualRenderer
         Primitives2D.FillCircle(spriteBatch, center, corePulse,
             Color.Lerp(UiTheme.Purple, UiTheme.Gold, .45f + completed * .06f));
         Primitives2D.CircleOutline(spriteBatch, center, radius * .32f, UiTheme.Cream * .72f * wake, 3);
-        UiTheme.DrawText(spriteBatch, "THE BODY", 12, UiTheme.Gold,
+        UiTheme.DrawText(spriteBatch, "THE BODY / THE SOUL", 12, UiTheme.Gold,
             new Vector2(center.X, center.Y + radius + 15), "midtop");
-        UiTheme.DrawText(spriteBatch, "RANDOMIZED PATH  //  TEN FLOORS", 8, UiTheme.Cream,
+        UiTheme.DrawText(spriteBatch, "CAMPAIGN DESCENT", 8, UiTheme.Cream,
             new Vector2(center.X, center.Y + radius + 34), "midtop");
         if (state == SoulPortalPresentationState.Approached)
             UiTheme.DrawText(spriteBatch, "F  //  TRAVERSE", 10, UiTheme.Gold,

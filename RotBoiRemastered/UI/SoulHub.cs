@@ -372,14 +372,32 @@ public class SoulHub
         }
         if (!mousePressed)
             return null;
-        foreach (var (key, rect) in _targets.ToArray())
+        string? clickedTarget = ClickTargetAt(_targets, mouse,
+            overlayOpen: _overlay is not null);
+        if (clickedTarget is not null)
+            ActivateTarget(session, clickedTarget);
+        return null;
+    }
+
+    internal static string? ClickTargetAt(
+        IEnumerable<KeyValuePair<string, Rectangle>> targets,
+        Point mouse,
+        bool overlayOpen)
+    {
+        foreach ((string key, Rectangle rect) in targets)
         {
-            if (!rect.Contains(mouse)) continue;
-            ActivateTarget(session, key);
-            break;
+            if (overlayOpen && !IsOverlayTarget(key))
+                continue;
+            if (rect.Contains(mouse))
+                return key;
         }
         return null;
     }
+
+    private static bool IsOverlayTarget(string key) =>
+        key.StartsWith("skill:", StringComparison.Ordinal)
+        || key.StartsWith("cosmetic:", StringComparison.Ordinal)
+        || key.StartsWith("armory:", StringComparison.Ordinal);
 
     private void HandleOverlayControllerInput(GameSession session)
     {
@@ -396,9 +414,7 @@ public class SoulHub
     }
 
     private List<string> OrderedOverlayTargets() => _targets
-        .Where(pair => pair.Key.StartsWith("skill:", StringComparison.Ordinal)
-            || pair.Key.StartsWith("cosmetic:", StringComparison.Ordinal)
-            || pair.Key.StartsWith("armory:", StringComparison.Ordinal))
+        .Where(pair => IsOverlayTarget(pair.Key))
         .OrderBy(pair => pair.Value.Y)
         .ThenBy(pair => pair.Value.X)
         .Select(pair => pair.Key)
@@ -480,7 +496,7 @@ public class SoulHub
 
     private void RebuildMind(GameSession session)
     {
-        session.ResetAll(Battleground.GenerateMind());
+        session.RefreshMindBattleground(Battleground.GenerateMind());
         Enter(session);
     }
 
@@ -523,6 +539,7 @@ public class SoulHub
         float visualIntensity = (float)GameProfile.Profile.VisualEffectsIntensity;
         SoulVisualRenderer.DrawEnvironment(
             spriteBatch, session, (float)_seconds, visualIntensity, _pathPortalWorld);
+        DrawMindProgressionTentacles(spriteBatch, session, (float)_seconds, visualIntensity);
         var screen = session.Camera.WorldToScreen(_dummyWorld, session.PlayerWorldCenter, Vector2.Zero);
         Color effigyBody = _dummyHitFlash > 0 ? UiTheme.Cream : new Color(64, 50, 68);
         var body = new Rectangle((int)screen.X - 25, (int)screen.Y - 22, 50, 69);
@@ -563,6 +580,8 @@ public class SoulHub
         SoulVisualRenderer.DrawStations(
             spriteBatch, session, (float)_seconds, _stationWorld,
             NearbyStation(session), _overlay);
+        DrawCompositePathPortal(spriteBatch, session, NearbyPathPortal(session),
+            (float)_seconds);
         SoulVisualRenderer.DrawPortals(
             spriteBatch, session, (float)_seconds, _pathPortalWorld,
             NearbyPathPortal(session), _confirmingPortalKey, _enteringPortalKey,
@@ -572,6 +591,144 @@ public class SoulHub
         // Statues belong to the world layer so unexplored, wall-sealed wings
         // remain genuinely concealed by The Mind's fog of war.
         DrawCampaignStatues(spriteBatch, session);
+    }
+
+    /// <summary>
+    /// Permanent campaign progress is written into The Mind itself. Silver
+    /// arena clears grow one living conduit toward the Body / Soul door;
+    /// gold Soul clears strengthen that sense with three faster, broader
+    /// strands. Once every gold clear exists, a void braid opens leftward to
+    /// Aphantasia and its mouth flowers into a rotating rainbow corona.
+    /// </summary>
+    private void DrawMindProgressionTentacles(SpriteBatch spriteBatch,
+        GameSession session, float time, float intensity)
+    {
+        // These strands communicate permanent progression, so their authored
+        // silhouettes remain readable even at the minimum optional-VFX level.
+        float effects = .24f + Math.Clamp(intensity, 0f, 1f) * .76f;
+        Vector2 door = SoulLayout.TileWorldCenter(SoulLayout.BodyDoorTile);
+        for (int index = 0; index < GamePaths.Paths.Count; index++)
+        {
+            GamePath path = GamePaths.Paths[index];
+            if (!_pathPortalWorld.TryGetValue(path.Key, out Vector2 portal))
+                continue;
+
+            if (EffectiveStatue(path.Key, StatueMaterial.Silver).Unlocked)
+            {
+                float side = index - (GamePaths.Paths.Count - 1) * .5f;
+                Vector2 control = Vector2.Lerp(portal, door, .52f)
+                    + new Vector2(side * Simulation.TileSize * 1.15f, 0);
+                DrawLivingTentacle(spriteBatch, session, portal, control, door,
+                    path.Accent, index * .83f, time, 6f, 2.25f, effects);
+            }
+
+            if (!EffectiveStatue(path.Key, StatueMaterial.Gold).Unlocked)
+                continue;
+            for (int strand = 0; strand < 3; strand++)
+            {
+                float spread = strand - 1f;
+                Vector2 start = Vector2.Lerp(portal,
+                    SoulLayout.TileWorldCenter(SoulLayout.NexusTile), .16f * strand);
+                Vector2 end = door + new Vector2(
+                    (index - 2f) * Simulation.TileSize * .78f,
+                    spread * Simulation.TileSize * 1.65f);
+                Vector2 control = Vector2.Lerp(start, end, .46f)
+                    + new Vector2(spread * Simulation.TileSize * 5.2f,
+                        -Simulation.TileSize * (2.2f + strand));
+                DrawLivingTentacle(spriteBatch, session, start, control, end,
+                    path.Accent, index * 1.19f + strand * 2.07f, time,
+                    10f, 5.1f, effects);
+            }
+        }
+
+        if (!CampaignProgression.PortalUnlocked("aphantasia"))
+            return;
+
+        Vector2 body = SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile);
+        Vector2 aphantasia = SoulLayout.TileWorldCenter(SoulLayout.AphantasiaPortalTile);
+        for (int strand = 0; strand < 5; strand++)
+        {
+            float lane = strand - 2f;
+            Vector2 control = Vector2.Lerp(body, aphantasia, .5f)
+                + new Vector2(0, lane * Simulation.TileSize * .48f);
+            Color voidColor = Color.Lerp(new Color(7, 5, 14),
+                new Color(70, 31, 91), strand / 4f);
+            DrawLivingTentacle(spriteBatch, session, body, control, aphantasia,
+                voidColor, strand * 1.31f, time, 11f, 3.8f, effects,
+                voided: true);
+        }
+        DrawAphantasiaRainbowCorona(spriteBatch, session, aphantasia, time, effects);
+    }
+
+    private static void DrawLivingTentacle(SpriteBatch spriteBatch,
+        GameSession session, Vector2 start, Vector2 control, Vector2 end,
+        Color color, float phase, float time, float width, float speed,
+        float intensity, bool voided = false)
+    {
+        const int segments = 40;
+        Vector2? previous = null;
+        for (int segment = 0; segment <= segments; segment++)
+        {
+            float amount = segment / (float)segments;
+            Vector2 point = Quadratic(start, control, end, amount);
+            Vector2 tangent = Quadratic(start, control, end,
+                Math.Min(1f, amount + 1f / segments)) - point;
+            if (tangent.LengthSquared() > .001f)
+                tangent.Normalize();
+            Vector2 normal = new(-tangent.Y, tangent.X);
+            float oscillation = MathF.Sin(amount * MathF.Tau * 3.1f
+                - time * speed + phase) * Simulation.TileSize
+                * (voided ? .13f : .19f) * MathF.Sin(amount * MathF.PI);
+            Vector2 screen = WorldToScreen(point + normal * oscillation, session);
+            if (previous.HasValue)
+            {
+                float pulse = .5f + .5f * MathF.Sin(time * speed
+                    - amount * 15f + phase);
+                int bodyWidth = Math.Max(2, (int)MathF.Round(width * (.72f + pulse * .34f)));
+                Primitives2D.Line(spriteBatch, previous.Value + new Vector2(0, 5),
+                    screen + new Vector2(0, 5), UiTheme.Shadow * (.58f * intensity), bodyWidth + 6);
+                Primitives2D.Line(spriteBatch, previous.Value, screen,
+                    color * ((voided ? .58f : .42f + pulse * .5f) * intensity), bodyWidth);
+                if (!voided)
+                    Primitives2D.Line(spriteBatch, previous.Value - new Vector2(0, 1),
+                        screen - new Vector2(0, 1),
+                        Color.Lerp(color, Color.White, .62f) * (pulse * .5f * intensity),
+                        Math.Max(1, bodyWidth / 4));
+            }
+            previous = screen;
+        }
+    }
+
+    private static void DrawAphantasiaRainbowCorona(SpriteBatch spriteBatch,
+        GameSession session, Vector2 world, float time, float intensity)
+    {
+        Vector2 center = WorldToScreen(world, session);
+        const int arms = 12;
+        float baseRadius = Simulation.TileSize * 1.05f;
+        for (int arm = 0; arm < arms; arm++)
+        {
+            float angle = time * (arm % 2 == 0 ? .72f : -.54f)
+                + arm * MathF.Tau / arms;
+            float pulse = .78f + .22f * MathF.Sin(time * 5.4f + arm * .91f);
+            Color color = RainbowColor(arm / (float)arms + time * .08f);
+            Vector2 inner = center + Direction(angle) * baseRadius * .48f;
+            Vector2 bend = center + Direction(angle + .42f) * baseRadius * 1.22f * pulse;
+            Vector2 outer = center + Direction(angle + .18f) * baseRadius * 1.85f * pulse;
+            Vector2 previous = inner;
+            for (int segment = 1; segment <= 8; segment++)
+            {
+                float amount = segment / 8f;
+                Vector2 next = Quadratic(inner, bend, outer, amount);
+                Primitives2D.Line(spriteBatch, previous + new Vector2(0, 3),
+                    next + new Vector2(0, 3), UiTheme.Shadow * (.6f * intensity), 9);
+                Primitives2D.Line(spriteBatch, previous, next,
+                    color * ((.58f + pulse * .36f) * intensity),
+                    Math.Max(2, 7 - segment / 2));
+                previous = next;
+            }
+        }
+        Primitives2D.CircleOutline(spriteBatch, center, baseRadius * 1.18f,
+            RainbowColor(time * .12f) * intensity, 4);
     }
 
     /// <summary>
@@ -1392,6 +1549,9 @@ public class SoulHub
         .5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau / 3f),
         .5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau * 2f / 3f));
 
+    private static Vector2 Direction(float angle) =>
+        new(MathF.Cos(angle), MathF.Sin(angle));
+
     private void DrawDevTestingToggle(SpriteBatch spriteBatch, GameSession session,
         Point mouse, bool mouseDown)
     {
@@ -1525,6 +1685,10 @@ public class SoulHub
                 continue;
             Vector2 screen = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
             bool unlocked = CampaignProgression.PortalUnlocked(gate);
+            // The unlocked Body / Soul rose is fully rendered by
+            // SoulVisualRenderer. This method supplies its locked door only.
+            if (key == BodyPortalKey && unlocked)
+                continue;
             float radius = Simulation.TileSize * .72f;
             Primitives2D.FillCircle(spriteBatch, screen, radius * .8f, UiTheme.Ink);
             Primitives2D.CircleOutline(spriteBatch, screen, radius,

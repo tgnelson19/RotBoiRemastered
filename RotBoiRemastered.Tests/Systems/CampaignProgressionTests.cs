@@ -212,12 +212,10 @@ public sealed class CampaignProgressionTests : IDisposable
     public void DevEndgameOverridesOpenTheirPhysicalPrerequisiteCorridors()
     {
         CampaignDevOverrides.TogglePortal("core");
-        Assert.Contains("sight", CampaignDevOverrides.PortalUnlocks);
         Assert.Contains("core", CampaignDevOverrides.PortalUnlocks);
 
         CampaignDevOverrides.Reset();
         CampaignDevOverrides.TogglePortal("aphantasia");
-        Assert.Contains("sight", CampaignDevOverrides.PortalUnlocks);
         Assert.Contains("core", CampaignDevOverrides.PortalUnlocks);
         Assert.Contains("aphantasia", CampaignDevOverrides.PortalUnlocks);
     }

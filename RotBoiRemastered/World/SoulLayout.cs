@@ -10,38 +10,35 @@ namespace RotBoiRemastered.World;
 /// </summary>
 internal static class SoulLayout
 {
-    public const int Width = 79;
-    public const int NorthExpansionTiles = 30;
-    // The authored chapel reaches row 79. The old 81-row map left only one
-    // void tile below it, making the southern alcove visibly touch the finite
-    // map edge. Match the generous top/side breathing room instead.
-    public const int Height = 97 + NorthExpansionTiles;
+    public const int Width = 119;
+    public const int Height = 130;
     public const int MinimumBoundaryBufferTiles = 12;
     public const int SelectionAreaScale = 2;
-    public static readonly Point SpawnTile = AuthoredTile(39, 65);
-    public static readonly Point NexusTile = AuthoredTile(39, 43);
-    public static readonly Point TunnelSouthTile = AuthoredTile(39, 56);
-    public static readonly Point DummyTile = AuthoredTile(50, 58);
+    public static readonly Point SpawnTile = new(59, 78);
+    public static readonly Point NexusTile = new(59, 38);
+    public static readonly Point TunnelSouthTile = new(59, 68);
+    public static readonly Point BodyDoorTile = new(59, 92);
+    public static readonly Point DummyTile = new(72, 72);
     /// <summary>
     /// Center of the safe chapel crossing. The Aphantasia victory trophy is
     /// decorative rather than colliding, so the wide nave remains navigable.
     /// </summary>
-    public static readonly Point AphantasiaStatueTile = AuthoredTile(39, 67);
-    // These two chambers occupy the newly added northern rows rather than
-    // shifting with the legacy chapel.
-    public static readonly Point CorePortalTile = new(39, 31);
-    public static readonly Point AphantasiaPortalTile = new(39, 17);
+    public static readonly Point AphantasiaStatueTile = new(59, 80);
+    // Legacy name retained for source compatibility: this is the campaign's
+    // combined Body / Soul entrance, below The Mind's home chapel.
+    public static readonly Point CorePortalTile = new(59, 112);
+    public static readonly Point AphantasiaPortalTile = new(37, 112);
 
     public static readonly IReadOnlyDictionary<string, Point> StationTiles =
         new Dictionary<string, Point>
         {
-            ["storage"] = AuthoredTile(30, 70),
-            ["quests"] = AuthoredTile(30, 64),
-            ["skills"] = AuthoredTile(39, 75),
-            ["wardrobe"] = AuthoredTile(48, 64),
-            ["hard_mode"] = AuthoredTile(48, 70),
-            ["no_extract"] = AuthoredTile(47, 73),
-            ["developer_armory"] = AuthoredTile(35, 75),
+            ["storage"] = new(48, 84),
+            ["quests"] = new(48, 76),
+            ["skills"] = new(59, 89),
+            ["wardrobe"] = new(70, 76),
+            ["hard_mode"] = new(70, 84),
+            ["no_extract"] = new(68, 87),
+            ["developer_armory"] = new(54, 89),
         };
 
     /// <summary>
@@ -52,11 +49,11 @@ internal static class SoulLayout
     public static readonly IReadOnlyDictionary<string, Point> PortalOffsets =
         new Dictionary<string, Point>
         {
-            ["sound"] = new(-10, -4),
-            ["touch"] = new(-5, -9),
-            ["sight"] = new(0, -13),
-            ["chemesthesis"] = new(5, -9),
-            ["phantasia"] = new(10, -4),
+            ["touch"] = new(-21, 4),
+            ["sight"] = new(-12, -7),
+            ["sound"] = new(0, -10),
+            ["chemesthesis"] = new(12, -7),
+            ["phantasia"] = new(19, 5),
         };
 
     public static readonly IReadOnlyDictionary<string, Point> PortalTiles =
@@ -69,7 +66,8 @@ internal static class SoulLayout
     public static readonly IReadOnlySet<string> AllGateKeys =
         PortalOffsets.Keys.Concat(["core", "aphantasia"]).ToHashSet();
 
-    public static Point AuthoredTile(int x, int y) => new(x, y + NorthExpansionTiles);
+    /// <summary>Maps legacy non-colliding chapel art into the wider layout.</summary>
+    public static Point AuthoredTile(int x, int y) => new(x + 20, y + 13);
 
     public static Vector2 TileWorldCenter(Point tile) => new(
         (tile.X + .5f) * Battleground.TileSize,
@@ -85,42 +83,42 @@ internal static class SoulLayout
             for (int x = 0; x < Width; x++)
                 grid[y, x] = TileType.OuterVoid;
 
-        // Main chapel nave and its softer apse/alcove silhouette.
-        PaintRect(grid, 26, 58 + NorthExpansionTiles, 52, 75 + NorthExpansionTiles, TileType.BuildingFloor);
-        PaintEllipse(grid, AuthoredTile(39, 57), 9, 6, TileType.BuildingFloor);
-        PaintEllipse(grid, AuthoredTile(27, 64), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, AuthoredTile(27, 70), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, AuthoredTile(51, 64), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, AuthoredTile(51, 70), 4, 4, TileType.BuildingFloor);
-        PaintEllipse(grid, AuthoredTile(39, 75), 6, 4, TileType.BuildingFloor);
+        // Main home chapel and its balanced utility alcoves.
+        PaintRect(grid, 46, 69, 72, 87, TileType.BuildingFloor);
+        PaintEllipse(grid, new Point(59, 68), 9, 6, TileType.BuildingFloor);
+        PaintEllipse(grid, new Point(47, 76), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, new Point(47, 84), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, new Point(71, 76), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, new Point(71, 84), 4, 4, TileType.BuildingFloor);
+        PaintEllipse(grid, new Point(59, 89), 6, 4, TileType.BuildingFloor);
         PaintEllipse(grid, DummyTile, 5, 4, TileType.BuildingFloor);
 
         // A quiet processional aisle ties every utility shrine to the apse.
-        PaintRect(grid, 38, 55 + NorthExpansionTiles, 40, 76 + NorthExpansionTiles, TileType.Road);
-        PaintLine(grid, AuthoredTile(29, 67), AuthoredTile(49, 67), 1, TileType.Road);
+        PaintRect(grid, 58, 66, 60, 90, TileType.Road);
+        PaintCapsule(grid, new Point(49, 80), new Point(69, 80), 1.45f, TileType.Road);
 
         // The short transition remains physically legible at 0% VFX.
-        PaintLine(grid, TunnelSouthTile, NexusTile, 3, TileType.Road);
+        PaintCapsule(grid, TunnelSouthTile, NexusTile, 3.25f, TileType.Road);
 
         // Composite dais and five compact, genuinely separated Path branches.
         PaintEllipse(grid, NexusTile, 5, 5, TileType.BuildingFloor);
         PaintRing(grid, NexusTile, 3.1f, 4.25f, TileType.Road);
         foreach (Point portal in PortalTiles.Values)
         {
-            PaintLine(grid, NexusTile, portal, 2, TileType.Road);
-            PaintEllipse(grid, portal, 3, 3, TileType.BuildingFloor);
-            PaintRing(grid, portal, 1.55f, 2.55f, TileType.Road);
+            PaintCapsule(grid, NexusTile, portal, 2.35f, TileType.Road);
+            PaintEllipse(grid, portal, 4, 4, TileType.BuildingFloor);
+            PaintRing(grid, portal, 2.2f, 3.55f, TileType.Road);
         }
 
-        // The endgame now forms one northbound spine beyond the central
-        // Sight chamber: Sight -> Core -> Aphantasia.
-        Point sightPortal = PortalTiles["sight"];
-        PaintLine(grid, sightPortal, CorePortalTile, 2, TileType.Road);
-        PaintEllipse(grid, CorePortalTile, 3, 3, TileType.BuildingFloor);
-        PaintRing(grid, CorePortalTile, 1.55f, 2.55f, TileType.Road);
-        PaintLine(grid, CorePortalTile, AphantasiaPortalTile, 2, TileType.Road);
-        PaintEllipse(grid, AphantasiaPortalTile, 3, 3, TileType.BuildingFloor);
-        PaintRing(grid, AphantasiaPortalTile, 1.55f, 2.55f, TileType.Road);
+        // Campaign progression leaves the home base downward. The five arena
+        // clears open the Body / Soul door; five Soul finales then open the
+        // short, leftward void walk to Aphantasia.
+        PaintCapsule(grid, BodyDoorTile, CorePortalTile, 2.35f, TileType.Road);
+        PaintEllipse(grid, CorePortalTile, 4, 4, TileType.BuildingFloor);
+        PaintRing(grid, CorePortalTile, 2.2f, 3.55f, TileType.Road);
+        PaintCapsule(grid, CorePortalTile, AphantasiaPortalTile, 2.35f, TileType.Road);
+        PaintEllipse(grid, AphantasiaPortalTile, 4, 4, TileType.BuildingFloor);
+        PaintRing(grid, AphantasiaPortalTile, 2.2f, 3.55f, TileType.Road);
 
         // Grow a one-tile masonry shell around the authored walkable mask.
         // Computing the mask first prevents the shell from recursively
@@ -152,7 +150,7 @@ internal static class SoulLayout
                 if (!unlockedPaths.Contains(sense))
                     SealBranch(grid, portal);
             if (!unlockedPaths.Contains("core"))
-                SealCorridor(grid, PortalTiles["sight"], CorePortalTile, .55f);
+                SealCorridor(grid, BodyDoorTile, CorePortalTile, .38f);
             if (!unlockedPaths.Contains("aphantasia"))
                 SealCorridor(grid, CorePortalTile, AphantasiaPortalTile, .55f);
         }
@@ -210,17 +208,24 @@ internal static class SoulLayout
         }
     }
 
-    private static void PaintLine(TileType[,] grid, Point start, Point end, int halfWidth, TileType tile)
+    private static void PaintCapsule(TileType[,] grid, Point start, Point end,
+        float radius, TileType tile)
     {
-        int steps = Math.Max(Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y));
-        for (int step = 0; step <= steps; step++)
-        {
-            int x = (int)MathF.Round(MathHelper.Lerp(start.X, end.X, step / (float)Math.Max(1, steps)));
-            int y = (int)MathF.Round(MathHelper.Lerp(start.Y, end.Y, step / (float)Math.Max(1, steps)));
-            for (int oy = -halfWidth; oy <= halfWidth; oy++)
-                for (int ox = -halfWidth; ox <= halfWidth; ox++)
-                    grid[y + oy, x + ox] = tile;
-        }
+        Vector2 a = start.ToVector2();
+        Vector2 segment = end.ToVector2() - a;
+        float lengthSquared = Math.Max(.001f, segment.LengthSquared());
+        int left = Math.Max(0, (int)MathF.Floor(Math.Min(start.X, end.X) - radius));
+        int right = Math.Min(Width - 1, (int)MathF.Ceiling(Math.Max(start.X, end.X) + radius));
+        int top = Math.Max(0, (int)MathF.Floor(Math.Min(start.Y, end.Y) - radius));
+        int bottom = Math.Min(Height - 1, (int)MathF.Ceiling(Math.Max(start.Y, end.Y) + radius));
+        for (int y = top; y <= bottom; y++)
+            for (int x = left; x <= right; x++)
+            {
+                Vector2 point = new(x, y);
+                float amount = Math.Clamp(Vector2.Dot(point - a, segment) / lengthSquared, 0f, 1f);
+                if (Vector2.DistanceSquared(point, a + segment * amount) <= radius * radius)
+                    grid[y, x] = tile;
+            }
     }
 
     private static void PaintRing(TileType[,] grid, Point center, float innerRadius, float outerRadius, TileType tile)

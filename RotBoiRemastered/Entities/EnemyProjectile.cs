@@ -29,6 +29,10 @@ public sealed class EnemyProjectile
     private const float HostileSpeedScale = .52f;
     private const float DissonanceDamageScale = 1.3f;
     public const float MaximumLaserLifetime = 3f;
+    public const float LaserSproutDuration = .16f;
+    public const int LaserTentacleCount = 5;
+    public const float LaserVisualWidthScale = 1.65f;
+    public const float MinimumLaserVisualWidth = 14f;
 
     public float WorldX { get; set; }
     public float WorldY { get; set; }
@@ -168,6 +172,41 @@ public sealed class EnemyProjectile
         ? new Vector2(OriginX, OriginY)
         : new Vector2(OriginX + Size / 2f, OriginY + Size / 2f);
 
+    /// <summary>
+    /// The warning still consumes the full authored telegraph. Once it ends,
+    /// the dangerous and visible beam grows together from its source over a
+    /// very short ease rather than popping across the arena in one frame.
+    /// </summary>
+    internal float LaserSproutProgress
+    {
+        get
+        {
+            if (Path != "laser")
+                return 1f;
+            float linear = Math.Clamp(
+                (Age - TelegraphDuration) / LaserSproutDuration, 0f, 1f);
+            return linear * linear * (3f - 2f * linear);
+        }
+    }
+
+    internal bool UsesRainbowLaserTentacles =>
+        Path == "laser"
+        && Owner?.StartsWith("aphantasia_", StringComparison.Ordinal) == true;
+
+    internal Color LaserTentacleColor(int strand, float along = 0f)
+    {
+        if (!UsesRainbowLaserTentacles)
+            return Color;
+        float phase = Age * .34f + strand / (float)LaserTentacleCount
+            + along * .42f;
+        float pulse = .78f + .22f * MathF.Sin(
+            Age * 8.4f + strand * 1.17f - along * 5.2f);
+        return new Color(
+            Math.Clamp((.5f + .5f * MathF.Sin(phase * MathF.Tau)) * pulse, 0f, 1f),
+            Math.Clamp((.5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau / 3f)) * pulse, 0f, 1f),
+            Math.Clamp((.5f + .5f * MathF.Sin(phase * MathF.Tau + MathF.Tau * 2f / 3f)) * pulse, 0f, 1f));
+    }
+
     public void RequireOriginTelegraph(float duration) =>
         OriginTelegraphDuration = Math.Max(OriginTelegraphDuration, duration);
 
@@ -187,8 +226,9 @@ public sealed class EnemyProjectile
     {
         if (Path == "laser" && Age >= TelegraphDuration)
         {
-            float endX = WorldX + MathF.Cos(Direction) * RemainingRange;
-            float endY = WorldY + MathF.Sin(Direction) * RemainingRange;
+            float activeRange = RemainingRange * LaserSproutProgress;
+            float endX = WorldX + MathF.Cos(Direction) * activeRange;
+            float endY = WorldY + MathF.Sin(Direction) * activeRange;
             float x = Math.Min(WorldX, endX), y = Math.Min(WorldY, endY);
             float w = Math.Max(Size, Math.Abs(endX - WorldX)), h = Math.Max(Size, Math.Abs(endY - WorldY));
             return new Rectangle((int)x, (int)y, (int)w, (int)h);
@@ -216,10 +256,12 @@ public sealed class EnemyProjectile
         }
         if (Path == "laser")
         {
-            if (Age < TelegraphDuration)
+            float sprout = LaserSproutProgress;
+            if (Age < TelegraphDuration || sprout <= .001f)
                 return false;
             var start = new Vector2(WorldX, WorldY);
-            var end = new Vector2(WorldX + MathF.Cos(Direction) * RemainingRange, WorldY + MathF.Sin(Direction) * RemainingRange);
+            float activeRange = RemainingRange * sprout;
+            var end = new Vector2(WorldX + MathF.Cos(Direction) * activeRange, WorldY + MathF.Sin(Direction) * activeRange);
             var inflated = rect;
             inflated.Inflate((int)Size, (int)Size);
             return SegmentIntersectsRect(start, end, inflated);
@@ -408,7 +450,8 @@ public sealed class EnemyProjectile
         }
         if (Path == "laser")
         {
-            DrawLaser(spriteBatch, camera, playerWorldPosition, screenShake);
+            DrawLaser(spriteBatch, camera, playerWorldPosition, screenShake,
+                highContrast);
             return;
         }
         if (Path == "bank")
@@ -1080,48 +1123,135 @@ public sealed class EnemyProjectile
             Primitives2D.RectOutline(spriteBatch, InflateF(slab, 4, 4), UiTheme.Cream, 3);
     }
 
-    private void DrawLaser(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    private void DrawLaser(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake, bool highContrast)
     {
-        Vector2 start = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var endWorld = new Vector2(WorldX + MathF.Cos(Direction) * RemainingRange, WorldY + MathF.Sin(Direction) * RemainingRange);
-        Vector2 end = camera.WorldToScreen(endWorld, playerWorldPosition, screenShake);
+        Vector2 origin = new(WorldX, WorldY);
+        Vector2 heading = new(MathF.Cos(Direction), MathF.Sin(Direction));
+        Vector2 normal = new(-heading.Y, heading.X);
+        Vector2 start = camera.WorldToScreen(origin, playerWorldPosition, screenShake);
+        float visualWidth = Math.Max(MinimumLaserVisualWidth,
+            camera.WorldVectorToScreen(normal * Size).Length()
+                * LaserVisualWidthScale);
 
         if (Age < TelegraphDuration)
         {
             float progress = Age / Math.Max(.01f, TelegraphDuration);
-            int pulse = 2 + (int)((1 - progress) * 3);
-            Primitives2D.Line(spriteBatch, start, end, Color, pulse);
+            DrawLaserTentacleCluster(spriteBatch, camera, playerWorldPosition,
+                screenShake, origin, heading, normal, RemainingRange,
+                visualWidth * .95f, telegraph: true, highContrast);
             for (int step = 0; step < 5; step++)
             {
-                var marker = new Vector2((start.X * (4 - step) + end.X * step) / 4f, (start.Y * (4 - step) + end.Y * step) / 4f);
-                Primitives2D.FillCircle(spriteBatch, marker, 3, UiTheme.Cream);
+                Vector2 markerWorld = origin + heading * RemainingRange * (step / 4f);
+                Vector2 marker = camera.WorldToScreen(markerWorld,
+                    playerWorldPosition, screenShake);
+                float markerRadius = 5f + (1f - progress) * 2f;
+                Primitives2D.FillCircle(spriteBatch, marker + new Vector2(2, 3),
+                    markerRadius + 2f, UiTheme.Shadow * .72f);
+                Primitives2D.FillCircle(spriteBatch, marker,
+                    markerRadius, UiTheme.Cream);
             }
+            Primitives2D.FillCircle(spriteBatch, start,
+                Math.Max(5f, visualWidth * .26f),
+                highContrast ? UiTheme.Cream : Color.Lerp(Color, UiTheme.Cream, .28f));
         }
         else
         {
-            int width = Math.Max(8, (int)(Size * (1.15f + .18f * MathF.Sin(Age * 18f))));
-            Primitives2D.Line(spriteBatch, start, end, UiTheme.Ink, width + 8);
-            Primitives2D.Line(spriteBatch, start, end, Color, width);
-            Color coreColor = Illusory ? UiTheme.Muted : UiTheme.Cream;
-            Primitives2D.Line(spriteBatch, start, end, coreColor, Math.Max(2, width / 3));
-            Primitives2D.FillCircle(spriteBatch, start, Math.Max(4, width / 2), Color);
-            Primitives2D.CircleOutline(spriteBatch, start, Math.Max(5, width / 2), UiTheme.Ink, 2, 18);
-            Primitives2D.FillCircle(spriteBatch, end, Math.Max(3, width / 3), coreColor);
-            float intensity = (float)GameProfile.Profile.VisualEffectsIntensity;
-            int packets = (int)MathF.Ceiling(5 * intensity);
-            for (int index = 0; index < packets; index++)
-            {
-                float phase = (Age * (1.7f + index * .08f) + index / (float)Math.Max(1, packets)) % 1f;
-                Vector2 packet = Vector2.Lerp(start, end, phase);
-                int packetSize = Math.Max(2, width / 5);
-                Primitives2D.FillRect(spriteBatch,
-                    new Rectangle((int)packet.X - packetSize / 2,
-                        (int)packet.Y - packetSize / 2, packetSize, packetSize),
-                    coreColor * (.75f * VisualAnimation.SeamFade(phase)));
-            }
+            float sprout = LaserSproutProgress;
+            float activeRange = RemainingRange * sprout;
+            DrawLaserTentacleCluster(spriteBatch, camera, playerWorldPosition,
+                screenShake, origin, heading, normal, activeRange,
+                visualWidth, telegraph: false, highContrast);
+            Vector2 end = camera.WorldToScreen(origin + heading * activeRange,
+                playerWorldPosition, screenShake);
+            Color sourceColor = UsesRainbowLaserTentacles
+                ? LaserTentacleColor(0) : Color;
+            sourceColor = Color.Lerp(sourceColor, UiTheme.Cream, .12f);
+            Primitives2D.FillCircle(spriteBatch, start,
+                Math.Max(4f, visualWidth * .46f), sourceColor);
+            Primitives2D.CircleOutline(spriteBatch, start,
+                Math.Max(5f, visualWidth * .5f), UiTheme.Ink, 2, 18);
+            Primitives2D.FillCircle(spriteBatch, end,
+                Math.Max(3f, visualWidth * .2f),
+                UsesRainbowLaserTentacles ? LaserTentacleColor(4, 1f) : UiTheme.Cream);
             if (TruthMarked)
-                Primitives2D.FillCircle(spriteBatch, start, Math.Max(3, width / 3), UiTheme.Cream);
+                Primitives2D.FillCircle(spriteBatch, start,
+                    Math.Max(3f, visualWidth * .26f), UiTheme.Cream);
         }
+    }
+
+    private void DrawLaserTentacleCluster(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake, Vector2 origin,
+        Vector2 heading, Vector2 normal, float range, float width,
+        bool telegraph, bool highContrast)
+    {
+        const int segments = 34;
+        float vfx = .62f + .38f * Math.Clamp(
+            (float)GameProfile.Profile.VisualEffectsIntensity, 0f, 1f);
+        int seed = StableLaserSeed();
+        for (int strand = 0; strand < LaserTentacleCount; strand++)
+        {
+            float lane = strand - (LaserTentacleCount - 1) * .5f;
+            float strandPhase = seed * .017f + strand * 1.37f;
+            Vector2? previous = null;
+            for (int segment = 0; segment <= segments; segment++)
+            {
+                float amount = segment / (float)segments;
+                float envelope = MathF.Sin(amount * MathF.PI);
+                float flowing = MathF.Sin(amount * MathF.Tau * 3.15f
+                    - Age * (telegraph ? 5.2f : 10.8f) + strandPhase);
+                float laneOffset = lane * width * .18f * envelope;
+                float waveOffset = flowing * width * (telegraph ? .14f : .22f)
+                    * envelope;
+                Vector2 world = origin + heading * (range * amount)
+                    + normal * (laneOffset + waveOffset);
+                Vector2 screen = camera.WorldToScreen(world,
+                    playerWorldPosition, screenShake);
+                if (previous.HasValue)
+                {
+                    float pulse = .5f + .5f * MathF.Sin(
+                        Age * (telegraph ? 6.2f : 13.5f)
+                        - amount * 13f + strandPhase);
+                    int strandWidth = telegraph
+                        ? Math.Max(2, (int)MathF.Round(width * (.1f + pulse * .035f)))
+                        : Math.Max(3, (int)MathF.Round(width
+                            * (.17f + pulse * .08f)));
+                    Color strandColor = LaserTentacleColor(strand, amount);
+                    if (Illusory)
+                        strandColor = Color.Lerp(strandColor, UiTheme.Muted, .68f);
+                    else
+                        strandColor = Color.Lerp(strandColor, UiTheme.Cream,
+                            telegraph ? .3f : .08f + pulse * .1f);
+                    float alpha = telegraph
+                        ? (.48f + pulse * .38f) * vfx
+                        : (.78f + pulse * .22f) * vfx;
+                    Primitives2D.Line(spriteBatch,
+                        previous.Value + new Vector2(0, telegraph ? 2 : 4),
+                        screen + new Vector2(0, telegraph ? 2 : 4),
+                        UiTheme.Shadow * (telegraph ? .3f : .72f),
+                        strandWidth + (telegraph ? 4 : 7));
+                    Primitives2D.Line(spriteBatch, previous.Value, screen,
+                        strandColor * alpha, strandWidth);
+                    if (!telegraph && (strand == 2 || highContrast))
+                        Primitives2D.Line(spriteBatch,
+                            previous.Value - new Vector2(0, 1),
+                            screen - new Vector2(0, 1),
+                            Color.Lerp(strandColor, UiTheme.Cream, .72f)
+                                * (.3f + pulse * .35f),
+                            Math.Max(1, strandWidth / 3));
+                }
+                previous = screen;
+            }
+        }
+    }
+
+    private int StableLaserSeed()
+    {
+        int value = (int)MathF.Abs(OriginX * .17f + OriginY * .11f);
+        if (Owner is not null)
+            foreach (char character in Owner)
+                value = unchecked(value * 31 + character);
+        return value & 0x7fffffff;
     }
 
     private static Rectangle InflateF(Rectangle rect, float dx, float dy)

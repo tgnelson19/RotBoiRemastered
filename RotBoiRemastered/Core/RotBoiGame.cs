@@ -229,7 +229,7 @@ public class RotBoiGame : Game
                 UpdatePaused();
                 break;
             case GameState.Results:
-                UpdateResults();
+                UpdateResults(gameTime);
                 break;
             case GameState.Soul:
                 UpdateSoul(gameTime);
@@ -586,6 +586,7 @@ public class RotBoiGame : Game
         {
             CaptureRunResult(retained: false, rewards: null);
             MetaProgression.ClearCarriedItems();
+            _menus.BeginResults();
             State = GameState.Results;
             return;
         }
@@ -594,6 +595,7 @@ public class RotBoiGame : Game
                 InputState.ControllerConfirmPressed))
         {
             CaptureRunResult(retained: true, session.LastRunRewardSummary);
+            _menus.BeginResults();
             State = GameState.Results;
             return;
         }
@@ -706,8 +708,19 @@ public class RotBoiGame : Game
         }
     }
 
-    private void UpdateResults()
+    private void UpdateResults(GameTime gameTime)
     {
+        if (_session is not null
+            && ResultsWorldContinues(_resultReport?.Outcome))
+        {
+            // Let the defeated scene breathe behind the banner. No new waves,
+            // player attacks, pickups, rewards, or damage are processed here.
+            _session.UpdateEnemies();
+            _session.UpdateEnemyProjectiles();
+            _session.UpdateVisualEffects(gameTime.ElapsedGameTime.TotalSeconds);
+            _session.UpdateDamageTexts();
+            _session.AdvancePlayerVisuals(gameTime.ElapsedGameTime.TotalSeconds);
+        }
         var action = _menus.HandleResults(InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
         switch (action)
         {
@@ -731,6 +744,9 @@ public class RotBoiGame : Game
             }
         }
     }
+
+    internal static bool ResultsWorldContinues(string? outcome) =>
+        outcome == RunOutcomes.Defeated;
 
     private void UpdateSoul(GameTime gameTime)
     {
@@ -843,6 +859,7 @@ public class RotBoiGame : Game
     {
         if (_session is null)
             return;
+        _menus.BeginResults();
         State = GameState.Results;
     }
 
@@ -872,7 +889,7 @@ public class RotBoiGame : Game
     /// scissor-clipped SpriteBatch.Begin/End pair and must run before this
     /// method's own Begin() -- see its doc comment.
     /// </summary>
-    private void DrawGameRun()
+    private void DrawGameRun(bool drawHud = true)
     {
         var session = _session!;
         GraphicsDevice.Clear(Color.Black);
@@ -897,16 +914,19 @@ public class RotBoiGame : Game
         session.DrawBossArenaOcclusion(_spriteBatch);
         _spriteBatch.End();
 
-        _spriteBatch.Begin();
-        session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);
-        BountyInfo? bounty = session.SelectBountyTarget();
-        session.DrawBountyIndicator(_spriteBatch, bounty);
-        session.DrawBossPortalIndicator(_spriteBatch);
-        session.DrawExpeditionHint(_spriteBatch);
-        session.DrawFooter(_spriteBatch, InputState.MousePosition);
-        session.DrawAimReticle(_spriteBatch, InputState.EffectiveAimPosition);
-        session.DrawEntrySplash(_spriteBatch);
-        _spriteBatch.End();
+        if (drawHud)
+        {
+            _spriteBatch.Begin();
+            session.DrawCombatOverlays(_spriteBatch, InputState.MousePosition);
+            BountyInfo? bounty = session.SelectBountyTarget();
+            session.DrawBountyIndicator(_spriteBatch, bounty);
+            session.DrawBossPortalIndicator(_spriteBatch);
+            session.DrawExpeditionHint(_spriteBatch);
+            session.DrawFooter(_spriteBatch, InputState.MousePosition);
+            session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
+            session.DrawEntrySplash(_spriteBatch);
+            _spriteBatch.End();
+        }
     }
 
     private void DrawDossier()
@@ -973,9 +993,12 @@ public class RotBoiGame : Game
 
     private void DrawResults()
     {
-        GraphicsDevice.Clear(Color.Black);
         RunResultReport report = _resultReport
             ?? CaptureRunResult(retained: true, _session!.LastRunRewardSummary);
+        if (ResultsWorldContinues(report.Outcome) && _session is not null)
+            DrawGameRun(drawHud: false);
+        else
+            GraphicsDevice.Clear(Color.Black);
         _spriteBatch.Begin();
         _menus.DrawResults(_spriteBatch, GraphicsDevice.Viewport.Width,
             GraphicsDevice.Viewport.Height, report, InputState.MousePosition,

@@ -433,7 +433,10 @@ public sealed class RunState
 
     public void SetNewGamePlusLevel(int level) => NewGamePlusLevel = NewGamePlus.ClampLevel(level);
 
-    /// <summary>The only full restore used by Hard Mode: run start and purchased level-ups.</summary>
+    /// <summary>
+    /// Full restore used by explicit milestones: run start, purchased
+    /// level-ups, and Hard Mode boss phase/subphase checkpoints.
+    /// </summary>
     public void FillHealthForMilestone()
     {
         HealthPoints = MaxHealthPoints;

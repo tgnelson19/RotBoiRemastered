@@ -104,6 +104,37 @@ public class MenusTests : IDisposable
         Assert.Equal(MenuAction.None, result);
     }
 
+    [Theory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    [InlineData(800, 600)]
+    public void DeathBanner_RemainsCompactAndContainsAllExistingActions(
+        int width, int height)
+    {
+        DeathBannerLayout layout = Menus.CalculateDeathBannerLayout(width, height);
+
+        Assert.True(layout.Banner.Width < width * .9f);
+        Assert.True(layout.Banner.Height < height * .7f);
+        Assert.True(new Rectangle(0, 0, width, height).Contains(layout.Banner));
+        Assert.True(layout.Banner.Contains(layout.EnterMind));
+        Assert.True(layout.Banner.Contains(layout.Retry));
+        Assert.True(layout.Banner.Contains(layout.Title));
+        Assert.False(layout.EnterMind.Intersects(layout.Retry));
+        Assert.False(layout.Retry.Intersects(layout.Title));
+    }
+
+    [Fact]
+    public void BeginResults_RestartsTheBannerRevealClock()
+    {
+        var menus = new Menus();
+        menus.AdvancePresentation(1.25);
+        Assert.True(menus.ResultsPresentationSeconds > 0);
+
+        menus.BeginResults();
+
+        Assert.Equal(0, menus.ResultsPresentationSeconds);
+    }
+
     [Fact]
     public void TitleScreen_EnterRoutesThroughTheSoul()
     {
