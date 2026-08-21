@@ -87,6 +87,8 @@ public sealed class Rot : PathChaseBoss
     private int _lastBurrowDeclaration;
     private Vector2 _burrowDestination;
     private double _burrowRemaining;
+    private float _graspAngle;
+    private double _graspVisualRemaining;
 
     public RotBurrowState BurrowState { get; private set; }
     public Vector2 BurrowMudCenter => _burrowDestination;
@@ -395,6 +397,43 @@ public sealed class Rot : PathChaseBoss
         }
     }
 
+    private void GraspReach(List<EnemyProjectile> sink, float playerX, float playerY, string suffix)
+    {
+        // Rot's other attacks radiate outward or sit in place; this is its
+        // one attack about reach -- a slow, heavy grasp toward wherever the
+        // player was standing when it committed, sold visually by a tendril
+        // (DrawTentacleSpike, see DrawBossBody) layered over the segments.
+        var origin = Center();
+        var target = new Vector2(playerX, playerY);
+        Vector2 toward = target - origin;
+        if (toward.LengthSquared() < .001f)
+            toward = new Vector2(MathF.Cos(SafeCorridorAngle), MathF.Sin(SafeCorridorAngle));
+        toward.Normalize();
+        float direction = MathF.Atan2(toward.Y, toward.X);
+        const int segments = 6;
+        float segmentLength = Simulation.TileSize * 1.35f;
+        for (int index = 0; index < segments; index++)
+        {
+            Vector2 position = origin + toward * segmentLength * (index + 1);
+            float size = Size * (.16f + index * .012f);
+            sink.Add(new EnemyProjectile(
+                position.X - size / 2f, position.Y - size / 2f,
+                direction, 0f, 520, size,
+                travelRange: 1f, color: new Color(78, 64, 38), shape: "diamond", path: "bank",
+                lifetime: 7.5f, owner: $"rot_touch_{suffix}_segment_{index}", ignoreWalls: true)
+            {
+                TelegraphDuration = 1.3f,
+                OriginTelegraphDuration = 1.3f,
+                Affliction = "slow",
+                AfflictionDuration = 1.4,
+                AfflictionStrength = .14,
+                Exposure = .6,
+            });
+        }
+        _graspAngle = direction;
+        _graspVisualRemaining = 1.3 + .6;
+    }
+
     private void SporeSpiral(List<EnemyProjectile> sink, int count, string suffix)
     {
         var center = Center();
@@ -406,7 +445,7 @@ public sealed class Rot : PathChaseBoss
                 center.X - size / 2f, center.Y - size / 2f,
                 direction, .42f + .04f * (index % 2), 470, size,
                 travelRange: ArenaRadius * 1.8f, color: PhaseAccent,
-                shape: index % 2 == 0 ? "diamond" : "square", path: "sine",
+                shape: "spore", path: "sine",
                 amplitude: Simulation.TileSize * (.8f + .16f * (index % 3)),
                 frequency: .038f + .006f * (index % 2), lifetime: 10f,
                 owner: $"rot_touch_{suffix}", ignoreWalls: true)
@@ -503,6 +542,9 @@ public sealed class Rot : PathChaseBoss
         }
         PressureRake(sink, playerX, playerY,
             Phase == 7 ? "burial_rake" : $"{PhaseLabel.ToLowerInvariant().Replace(' ', '_')}_rake");
+        if (Phase >= 3 && PatternRotation % 3 == 0)
+            GraspReach(sink, playerX, playerY,
+                Phase == 7 ? "burial_grasp" : $"{PhaseLabel.ToLowerInvariant().Replace(' ', '_')}_grasp");
         PatternRotation++;
         PhaseDeclarations++;
         MarkAttack(.7f);
@@ -512,6 +554,7 @@ public sealed class Rot : PathChaseBoss
     {
         double dt = Seconds();
         ReliefPulseRemaining = Math.Max(0.0, ReliefPulseRemaining - dt);
+        _graspVisualRemaining = Math.Max(0.0, _graspVisualRemaining - dt);
         if (BurrowState != RotBurrowState.Surface)
         {
             UpdateBurrow(dt);
@@ -649,6 +692,8 @@ public sealed class Rot : PathChaseBoss
     {
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         Vector2 center = screen + new Vector2(Size / 2f, Size / 2f);
+        DrawCornerGrowth(spriteBatch, camera, playerWorldPosition, screenShake);
+        DrawSafeCorridorGlow(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawBurialStrata(spriteBatch, camera, playerWorldPosition, screenShake);
         DrawBurrowMud(spriteBatch, camera, playerWorldPosition, screenShake);
         if (Dying)
@@ -678,10 +723,32 @@ public sealed class Rot : PathChaseBoss
         else if (BurrowState == RotBurrowState.Rising)
             sink += Size * .82f * BossAnimation.SmoothStep(
                 (float)(_burrowRemaining / .7));
+
+        // Rot does not spin -- it lists, the way something heavy shifts its
+        // weight through mud: long stillness, then one slow weighted turn
+        // that settles with a bit of overshoot before holding again.
+        const float ListInterval = 4.6f;
+        const float ListAngle = MathF.PI / 5f;
+        float listIndex = MathF.Floor(seconds / ListInterval);
+        float listLocalT = (seconds - listIndex * ListInterval) / ListInterval;
+        float listSwingT = Math.Clamp(listLocalT / .55f, 0f, 1f);
+        float listSettle = BossAnimation.EaseOutBack(listSwingT, overshoot: 1.1f);
+        float bodyYaw = MathHelper.Lerp(listIndex * ListAngle, (listIndex + 1) * ListAngle, listSettle);
+        float swingPhase = MathF.Sin(listSwingT * MathF.PI);
+        float bodyRoll = swingPhase * .34f;
+        float bodyPitch = .46f + BossAnimation.Sine(seconds, 18f) * .18f;
+
         var poolBack = new Rectangle((int)(center.X - Size * .88f), (int)(center.Y + Size * .08f),
             (int)(Size * 1.76f), (int)(Size * .58f));
         Primitives2D.FillEllipse(spriteBatch, new Rectangle(poolBack.X + 8, poolBack.Y + 9, poolBack.Width, poolBack.Height), UiTheme.Shadow);
         Primitives2D.FillEllipse(spriteBatch, poolBack, new Color(68, 64, 35));
+        if (listSwingT < .45f)
+        {
+            // A squelch ring on the mud as Rot's weight shifts.
+            float squelchFade = 1f - listSwingT / .45f;
+            Primitives2D.EllipseOutline(spriteBatch, poolBack,
+                new Color(139, 111, 58) * (squelchFade * .5f), 2);
+        }
         for (int bubble = 0; bubble < 5; bubble++)
         {
             float cycle = BossAnimation.LoopPhase(seconds,
@@ -729,15 +796,59 @@ public sealed class Rot : PathChaseBoss
                 Math.Max(1, droplet), particle * fade);
         }
 
+        // A biased cluster of matter falling toward the same growth side as
+        // the body's bulges, instead of the ambient scatter's pure symmetry.
+        const float GrowthBiasAngleForDroplets = MathF.PI * .78f;
+        int growthDroplets = Math.Min(Phase - 1, 5);
+        for (int index = 0; index < growthDroplets; index++)
+        {
+            float fall = BossAnimation.LoopPhase(seconds, 4.1f + index * .29f, index * .19f);
+            float fade = BossAnimation.SeamFade(fall, .16f);
+            float spread = .1f + index * .03f;
+            float x = MathF.Cos(GrowthBiasAngleForDroplets) * Size * .3f
+                + MathF.Sin(index * 2.7f) * Size * spread;
+            var point = center + new Vector2(x, -Size * .5f + fall * Size * .78f + sink);
+            float droplet = Size * (.03f + (index % 2) * .01f) * fade;
+            Color particle = index % 2 == 0 ? new Color(116, 79, 43) : new Color(76, 91, 43);
+            Primitives2D.FillCircle(spriteBatch, point, Math.Max(1, droplet), particle * fade);
+        }
+
         if (!BurrowUntargetable)
         {
             Vector2 cubeCenter = center + new Vector2(0, sink - Size * .08f);
+
+            // Absorbed matter accumulates toward one fixed side across the
+            // fight rather than scattering symmetrically -- Rot visibly
+            // grows a bulge of everything it has folded into itself.
+            const float GrowthBiasAngle = MathF.PI * .78f;
+            int bulges = Math.Min(Phase - 1, 5);
+            for (int bulge = 0; bulge < bulges; bulge++)
+            {
+                float bulgeSpread = .16f + bulge * .05f;
+                float bulgeAngle = GrowthBiasAngle + (bulge % 2 == 0 ? 1f : -1f) * bulgeSpread;
+                float bulgeRadius = Size * (.30f + bulge * .035f);
+                Vector2 bulgePoint = cubeCenter + new Vector2(
+                    MathF.Cos(bulgeAngle), MathF.Sin(bulgeAngle) * .6f) * bulgeRadius;
+                float bulgeSize = Size * (.09f - bulge * .008f);
+                Color bulgeColor = bulge % 2 == 0
+                    ? new Color(91, 61, 37)
+                    : new Color(48, 76, 42);
+                Primitives2D.FillCircle(spriteBatch, bulgePoint, Math.Max(2, bulgeSize), bulgeColor);
+            }
+
             BossVisuals.RotatingCube3D(spriteBatch, cubeCenter, Size * .36f,
                 new Color(91, 61, 37), new Color(48, 76, 42),
                 Color.Lerp(new Color(73, 101, 48), PhaseAccent, .25f),
-                seconds * MathF.Tau / 13.5f,
-                .48f + BossAnimation.Sine(seconds, 18f) * .32f,
-                BossAnimation.Sine(seconds, 22f, .2f) * .24f);
+                bodyYaw, bodyPitch, bodyRoll);
+        }
+
+        if (_graspVisualRemaining > 0)
+        {
+            float graspAlpha = (float)Math.Clamp(_graspVisualRemaining / .6, 0, 1);
+            Primitives2D.DrawTentacleSpike(spriteBatch, center, _graspAngle,
+                Size * 1.65f, Size * .1f, 0f, 0f, seconds, segments: 18,
+                darken: .2f, alpha: .78f * graspAlpha,
+                themeColor: new Color(88, 70, 40));
         }
 
         // The foreground pool masks the cube at the floor plane; the visual
@@ -776,6 +887,63 @@ public sealed class Rot : PathChaseBoss
             Primitives2D.EllipseOutline(spriteBatch, ripple,
                 new Color(139, 111, 58) * (fade * (.48f - ring * .14f)), 2);
         }
+    }
+
+    private static readonly Vector2[] CornerSigns =
+    {
+        new(-1, -1), new(1, -1), new(1, 1), new(-1, 1),
+    };
+
+    private void DrawCornerGrowth(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        // The square arena is otherwise featureless. Mold/vine growth creeps
+        // out from each corner and visibly advances with Phase, the same
+        // environmental-storytelling language as the finale's burial strata,
+        // just gated on Phase instead of FinaleProgress.
+        int stages = Math.Max(0, Phase - 1);
+        if (stages == 0)
+            return;
+        float seconds = VisualAgeSeconds;
+        for (int corner = 0; corner < CornerSigns.Length; corner++)
+        {
+            Vector2 cornerWorld = ArenaCenter + CornerSigns[corner] * ArenaRadius;
+            Vector2 cornerScreen = camera.WorldToScreen(cornerWorld, playerWorldPosition, screenShake);
+            Vector2 inward = -CornerSigns[corner];
+            for (int stage = 0; stage < stages; stage++)
+            {
+                float reach = Simulation.TileSize * (.7f + stage * .55f);
+                float sway = BossAnimation.Sine(seconds, 4.2f + stage * .3f, corner * .7f + stage * .4f) * 6f;
+                float lateral = (stage % 2 == 0 ? 1f : -1f) * Simulation.TileSize * .3f;
+                Vector2 point = cornerScreen
+                    + new Vector2(inward.X, inward.Y) * reach
+                    + new Vector2(-inward.Y, inward.X) * (lateral + sway);
+                float clusterSize = 5f + stage * 1.4f;
+                Color growthColor = stage % 2 == 0
+                    ? new Color(93, 128, 58) * .62f
+                    : new Color(63, 78, 40) * .62f;
+                Primitives2D.FillCircle(spriteBatch, point, clusterSize, growthColor);
+            }
+        }
+    }
+
+    private void DrawSafeCorridorGlow(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        // The safe-corridor/relief mechanic previously had no telegraph on
+        // the arena itself -- only a reactive pulse on the body after the
+        // reward fired. This lights the actual wall segment, brightening as
+        // ReliefProgress builds toward the reward.
+        if (!_corridorInitialized)
+            return;
+        Vector2 left = SquareBankPoint(SafeCorridorAngle - .3f);
+        Vector2 right = SquareBankPoint(SafeCorridorAngle + .3f);
+        Vector2 leftScreen = camera.WorldToScreen(left, playerWorldPosition, screenShake);
+        Vector2 rightScreen = camera.WorldToScreen(right, playerWorldPosition, screenShake);
+        float build = ReliefProgress / (float)ReliefStepsNeeded;
+        float pulse = .5f + .5f * BossAnimation.Sine(VisualAgeSeconds, 2.2f);
+        Color glow = PhaseAccent * (.22f + build * .4f + pulse * .12f);
+        Primitives2D.Line(spriteBatch, leftScreen, rightScreen, glow, 6);
     }
 
     private void DrawBurialStrata(SpriteBatch spriteBatch, Camera camera,

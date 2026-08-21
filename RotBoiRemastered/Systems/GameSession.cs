@@ -1722,7 +1722,7 @@ public sealed class GameSession
                     && !fog.IsWorldAreaVisible(projectile.WorldRect()))
                 || !IsWorldAreaNearViewport(
                     Camera, PlayerWorldCenter, ScreenShake,
-                    viewport, projectile.WorldRect()))
+                    viewport, projectile.VisualCullRect()))
             {
                 continue;
             }
@@ -1743,7 +1743,7 @@ public sealed class GameSession
                     && !fog.IsWorldAreaVisible(projectile.WorldRect()))
                 || !IsWorldAreaNearViewport(
                     Camera, PlayerWorldCenter, ScreenShake,
-                    viewport, projectile.WorldRect()))
+                    viewport, projectile.VisualCullRect()))
             {
                 continue;
             }
@@ -1924,7 +1924,7 @@ public sealed class GameSession
                     && !fog.IsWorldAreaVisible(projectile.WorldRect()))
                 || !IsWorldAreaNearViewport(
                     Camera, PlayerWorldCenter, ScreenShake,
-                    viewport, projectile.WorldRect()))
+                    viewport, projectile.VisualCullRect()))
             {
                 continue;
             }
@@ -1964,7 +1964,7 @@ public sealed class GameSession
                 if (projectile.Path != "pool"
                     && IsWorldAreaNearViewport(
                         Camera, PlayerWorldCenter, ScreenShake,
-                        viewport, projectile.WorldRect()))
+                        viewport, projectile.VisualCullRect()))
                 {
                     projectile.Draw(
                         spriteBatch,

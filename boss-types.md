@@ -1,5 +1,87 @@
 # Boss encounters
 
+## Lore: the senses and the Cores
+
+The game's overarching theme is the senses: Sight, Sound, Touch, Chemesthesis
+(smell/taste), and Phantasia. Each content path's midpoint and finale embody
+its sense; the true end-game boss, reachable only after all five senses are
+mastered and the Body/Soul campaign is cleared, is **Aphantasia** — the
+absence of the other five.
+
+Five ancient rulers, the Cores, hold the sensory lands, ordered here from
+oldest to youngest:
+
+- **Rot, the Core of Touch**, has existed longer than any other Core. He has
+  killed many great challengers through the eons, though as of late he has
+  lost his luster: he now sluggishly drags his unwieldy body through his
+  domain with no concern for his own kin, trampling them and adding their
+  matter to his own.
+- **Dissonance, the Core of Sound**, is the second oldest. He is a little
+  slower than most, yet wiser, and fabricates enormous, structured attacks
+  that trap his enemies. He is unliked by the other Cores for his lack of
+  compassion and lives a lonely life.
+- **Chronos** currently rules the land of Sight, having conquered the entire
+  sense with wondrous, still not fully understood abilities. **Valia, Queen
+  of Sight**, had been a strong contender and was clearly more powerful
+  than Chronos — many wars were fought and won against Chronos through sheer
+  determination and grit — but all fell in awe at the sight of Chronos's
+  signature lightning, which pierces time and space itself. With a single
+  bolt, Valia was nowhere left to be found, and the only thing remaining on
+  the battlefield was Chronos: the Core Slayer.
+- **Malady, the Core of Phantasia**, is the youngest of the Cores. She holds
+  less contempt for those who enter her domain than the others do, but
+  still knows her life must be protected — her vibrant and beautiful
+  displays confuse and disorient those who challenge her. Despite her youth,
+  she is by far the strongest of all the Cores.
+- **Ache is no Core at all.** She was born from the cesspool that the land of
+  Chemesthesis became after the death of **The Core Forgotten**, its
+  original ruler, and is an amalgam of pure chaos — unable even to aim in her
+  enemies' direction, she simply launches volleys of erratic fire and rot to
+  overwhelm them until they inevitably die. Many have held the title of
+  ruler over Chemesthesis's chaotic eons, but Ache has earned hers: Queen of
+  Chemesthesis.
+
+**Aphantasia** is the true final boss. No one knows where it came from; the
+Cores locked it away, and it festers in the darkness awaiting anyone daring
+enough to challenge it. Rumor holds that The Core Forgotten discovered some
+hidden truth about Aphantasia and locked the door behind themself while
+pursuing answers. Aphantasia is accompanied by its physical projections, The
+Light and The Dark; a world unlike any other sits on the far side of The
+Soul. Its true form — revealed only at the very end — is **Aphantasia, the
+Core of the Void**: a vibrant, flowing rainbow ribbon encircling a blackened
+tesseract of sheer power and rage. None have seen her, nor ever will;
+Aphantasia destroys everything before her with extravagant tendrils of light
+and darkness.
+
+**Lore-release discipline:** this story is drip-fed to the player through
+run and campaign milestones, never dumped up front. Aphantasia's own flavor
+text and lore stay hidden until *after* her fight has ended, and the Core of
+the Void flavor text specifically stays withheld until **True Hard Mode**
+Aphantasia (No Healing and No Extract together) has been completed. Any new
+lore content — item flavor text, quest text, Mind Rose entries, trophy
+descriptions, and so on — should follow the same gating rather than exposing
+later-game truths early.
+
+### Future arc: The Core Forgotten (development note, not yet released)
+
+The Core Forgotten's true identity is planned for the game's next end-game
+arc, once that content actually begins development: they are eventually to
+be revealed as **Sting, Emperor of Chemesthesis** — Chemesthesis's original
+ruler before whatever cataclysm killed them and produced Ache from the
+aftermath. Until that arc ships, The Core Forgotten must stay unnamed and
+mysterious on every player-facing surface (flavor text, quest text, Mind
+Rose entries, dialogue). Treat this note the same way as the Aphantasia
+gating above: it records design intent for future passes, not content to
+surface early.
+
+Note for implementers: the codebase already has a legacy `Sting` boss class,
+registered only as an old debug/profile-compatibility final-boss key from
+before the Path system existed. It carries no lore weight today and is not
+the Sting described above. If it is ever repurposed for this future
+Chemesthesis arc, retire or rename its current Touch/legacy-compatibility
+association first so it doesn't imply a lore connection to Valia, Queen of
+Sight, or the Sight path.
+
 ## Dungeon Guardian and Boss Overhaul (current contract)
 
 The runtime now uses `BossEncounterCatalog`, `BossArenaDefinition`,
@@ -80,7 +162,7 @@ and only coarse phase pips distinguish its state.
 
 ## Dissonance — level 20
 
-Dissonance is the oldest ancient core and the true name of the original nine-phase encounter.
+Dissonance is the second-oldest of the ancient Cores and the true name of the original nine-phase encounter.
 Sound once let humanity coordinate and build; repetition without intent reduced that gift
 to a wearing drone. The encounter therefore presents Dissonance as a respectful warden
 testing whether an emissary can still distinguish meaning from imitation.
@@ -359,7 +441,7 @@ conventional bullet volleys. Their clean corridor turns with geological inertia 
 few deposits instead of snapping to the player. Attack geometry always uses the real
 player position even while Rot's body follows its extremely slow authored path.
 
-Rot's second-oldest status is expressed through inertia instead of ornament. Its damage
+Rot's status as the oldest of all the Cores is expressed through inertia instead of ornament. Its damage
 movements alternate exact stillness with slow square traversal. Miasma adds a deliberate
 burrow after every second committed declaration: Rot sinks for 0.7 seconds, remains
 untargetable beneath the floor for 1.0 second while a harmless destination mud pool grows,
@@ -409,9 +491,13 @@ related to the player's square body but enlarged and rotating on three axes. Bre
 elliptical auras and sparse square motes oscillate around it; there is no clock face or
 literal lens to compete with attack telegraphs.
 
-Chronos defeated Queen Valia by degrading reaction rather than concealing intent. The
-phase sequence repeatedly shows complete routes, makes the player solve them while tired,
-then introduces the same single Thorn of Time that pierced the former ruler's core.
+Chronos conquered Sight by degrading reaction rather than concealing intent. Valia, Queen
+of Sight, had been the stronger of the two and won many wars through sheer
+determination and grit — until a single bolt of Chronos's signature lightning pierced
+time and space itself and Valia was nowhere left to be found, leaving Chronos the sole
+survivor and the Core Slayer. The phase sequence repeatedly shows complete routes, makes
+the player solve them while tired, then introduces the same single Thorn of Time that
+pierced Valia's core.
 
 Chronos has five damage movements and two survival movements:
 

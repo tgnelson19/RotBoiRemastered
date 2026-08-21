@@ -47,6 +47,28 @@ public sealed class AphantasiaTests
         Assert.Fail("Aphantasia did not reach the expected state within the bounded simulation.");
     }
 
+    /// <summary>
+    /// Crosses whatever HP gate is currently active using hits that each
+    /// stay under the damage cap (a single hit at or above 1/4-or-1/2 of
+    /// the active bar now shields the boss for
+    /// <see cref="Aphantasia.DamageCapInvincibilityDuration"/> seconds
+    /// instead of firing the gate immediately) -- so tests that just want
+    /// "cross the floor right now" can keep asserting on the immediate
+    /// post-hit state.
+    /// </summary>
+    private static HitResult DealDamageBelowTheCap(
+        Aphantasia boss, string partId = "body")
+    {
+        double increment = boss.MaxHp * .1;
+        HitResult result = new(false, false, 0, true);
+        for (int attempt = 0; attempt < 20
+            && boss.EncounterState == AphantasiaEncounterState.Combat; attempt++)
+        {
+            result = boss.TakeDamage(increment, partId);
+        }
+        return result;
+    }
+
     private static void OpenDamageWindow(
         Aphantasia boss, EnemyUpdateContext context)
     {
@@ -200,24 +222,26 @@ public sealed class AphantasiaTests
     }
 
     [Theory]
-    [InlineData(1, 30.0)]
-    [InlineData(2, 30.0)]
+    [InlineData(1, 20.0)]
+    [InlineData(2, 20.0)]
     [InlineData(3, 30.0)]
+    [InlineData(4, 30.0)]
     public void MidpointSurvivals_UseTheirAuthoredDurations(
         int phase, double expectedSeconds)
     {
-        Aphantasia boss = MakeBoss();
+        Aphantasia boss = MakeBoss(noHealing: true, noExtract: true);
         boss.DebugSetPhase(phase);
 
         boss.DebugStartSurvival();
 
         Assert.Equal(expectedSeconds, boss.SurvivalRemaining);
+        Assert.Equal(AphantasiaEncounterState.Survival, boss.EncounterState);
         Assert.True(boss.TakeDamage(1, "body").Blocked);
     }
 
     [Theory]
-    [InlineData(1, .75, 30.0)]
-    [InlineData(2, .25, 30.0)]
+    [InlineData(1, .75, 20.0)]
+    [InlineData(2, .25, 20.0)]
     [InlineData(3, .50, 30.0)]
     public void HealthGates_StartTheCorrectMidpointSurvival(
         int phase, double floorRatio, double expectedSeconds)
@@ -228,7 +252,7 @@ public sealed class AphantasiaTests
         if (phase <= 2)
             OpenDamageWindow(boss, Context(boss, arena));
 
-        HitResult result = boss.TakeDamage(boss.MaxHp * 2.0, "body");
+        HitResult result = DealDamageBelowTheCap(boss);
 
         Assert.True(result.Applied);
         Assert.Equal((int)Math.Round(boss.MaxHp * floorRatio), boss.Hp);
@@ -246,23 +270,23 @@ public sealed class AphantasiaTests
         boss.DebugSetPhase(1);
 
         OpenDamageWindow(boss, context);
-        boss.TakeDamage(boss.MaxHp * 2.0, "body");
+        DealDamageBelowTheCap(boss);
         AdvanceUntil(boss, context, () =>
             boss.EncounterState == AphantasiaEncounterState.Combat
             && boss.SurvivalKind == AphantasiaSurvivalKind.None);
         OpenDamageWindow(boss, context);
-        boss.TakeDamage(boss.MaxHp * 2.0, "body");
+        DealDamageBelowTheCap(boss);
 
         Assert.Equal(2, boss.Phase);
         Assert.Equal((int)Math.Round(boss.MaxHp * .5), boss.Hp);
 
         OpenDamageWindow(boss, context);
-        boss.TakeDamage(boss.MaxHp * 2.0, "body");
+        DealDamageBelowTheCap(boss);
         AdvanceUntil(boss, context, () =>
             boss.EncounterState == AphantasiaEncounterState.Combat
             && boss.SurvivalKind == AphantasiaSurvivalKind.None);
         OpenDamageWindow(boss, context);
-        boss.TakeDamage(boss.MaxHp * 2.0, "body");
+        DealDamageBelowTheCap(boss);
         Assert.Equal(AphantasiaEncounterState.Transforming, boss.EncounterState);
         AdvanceUntil(boss, context, () =>
             boss.Phase == 3
@@ -278,7 +302,7 @@ public sealed class AphantasiaTests
 
     [Theory]
     [InlineData(3, 30.0)]
-    [InlineData(4, 30.0)]
+    [InlineData(4, 45.0)]
     public void Finales_UsePhaseSpecificDurations(int phase, double expectedSeconds)
     {
         Aphantasia boss = MakeBoss(noHealing: true, noExtract: true);
@@ -480,13 +504,14 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void PatternBags_FavorPathedMovementAndAvoidImmediateRepeats()
+    public void PatternBags_CoverEachSubphaseExactlyOncePerCycleAndAvoidImmediateRepeats()
     {
         foreach (int phase in Enumerable.Range(1, 4))
         {
             Aphantasia boss = MakeBoss(noHealing: true, noExtract: true);
             boss.DebugSetPhase(phase);
             int count = Aphantasia.PatternSelectionCycleCount(phase);
+            Assert.Equal(PatternsForPhase(phase).Count, count);
             var cycle = new List<string> { boss.CurrentPattern.Key };
             for (int index = 1; index < count; index++)
             {
@@ -494,14 +519,10 @@ public sealed class AphantasiaTests
                 cycle.Add(boss.CurrentPattern.Key);
             }
 
-            Assert.All(PatternsForPhase(phase), pattern => Assert.Contains(pattern.Key, cycle));
-            int pathedSelections = cycle.Count(key => PatternsForPhase(phase)
-                .Single(pattern => pattern.Key == key).Movement == AphantasiaMovementMode.Pathed);
-            Assert.Equal(phase <= 2 ? 2 : 6, pathedSelections);
-            Assert.True(pathedSelections > cycle.Count(key => PatternsForPhase(phase)
-                .Single(pattern => pattern.Key == key).Movement == AphantasiaMovementMode.Standing));
-            Assert.True(pathedSelections > cycle.Count(key => PatternsForPhase(phase)
-                .Single(pattern => pattern.Key == key).Movement == AphantasiaMovementMode.Chase));
+            // Every subphase in the phase appears exactly once per cycle --
+            // a pure shuffle of the pool, no pattern favored or repeated.
+            Assert.Equal(PatternsForPhase(phase).Select(pattern => pattern.Key).OrderBy(key => key),
+                cycle.OrderBy(key => key));
             Assert.DoesNotContain(Enumerable.Range(1, cycle.Count - 1),
                 index => cycle[index] == cycle[index - 1]);
             string finalPattern = cycle[^1];
@@ -663,6 +684,8 @@ public sealed class AphantasiaTests
                 { "RADIANT LANES", "DARK CURLS", "DIVIDED HORIZON", "CHOOSE THE SURVIVOR" }),
             (Phase: 3, Finale: true, Labels: new[]
                 { "PRISM BLOOM", "FOLDING VERTICAL", "FOLDING HORIZONTAL", "DANCING LATTICE", "TESSERACT CONVERGENCE" }),
+            (Phase: 4, Finale: false, Labels: new[]
+                { "PORTAL EQUINOX", "DRIFTING LATTICE", "FRACTURED CONSTELLATION", "VOID CONVERGENCE" }),
             (Phase: 4, Finale: true, Labels: new[]
                 { "PORTAL CONSTELLATION", "NESTED VOID CLOCK", "PANE PROCESSION", "FOLDING PORTAL LATTICE", "PORTAL WAKE", "COLLAPSING TESSERACT" }),
         };
@@ -877,7 +900,7 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void BossLasersProvideAFullSecondCollisionFreeIndicator()
+    public void BossLasersProvideAOneAndAHalfSecondCollisionFreeIndicator()
     {
         Battleground arena = MakeArena();
         var boss = new Aphantasia(1000, 1000, arena, new Random(619));
@@ -891,7 +914,7 @@ public sealed class AphantasiaTests
         List<EnemyProjectile> lasers = context.ProjectileSink.Where(projectile =>
             projectile.Owner?.StartsWith("aphantasia_laser_") == true).ToList();
         Assert.NotEmpty(lasers);
-        Assert.All(lasers, laser => Assert.Equal(1f, laser.TelegraphDuration));
+        Assert.All(lasers, laser => Assert.Equal(1.5f, laser.TelegraphDuration));
         EnemyProjectile warning = lasers[0];
         Assert.False(warning.Collides(new Rectangle(
             (int)warning.WorldX, (int)warning.WorldY, 20, 20)));
@@ -1034,7 +1057,7 @@ public sealed class AphantasiaTests
         EnemyUpdateContext context = Context(boss, arena);
         Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
         Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
-        Assert.True(boss.TakeDamage(boss.MaxHp, "body").Applied);
+        Assert.True(DealDamageBelowTheCap(boss).Applied);
         context.ProjectileSink.Clear();
 
         Assert.Equal(AphantasiaEncounterState.Survival, boss.EncounterState);
@@ -1137,7 +1160,7 @@ public sealed class AphantasiaTests
 
         Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
         Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
-        Assert.True(boss.TakeDamage(boss.MaxHp, "body").Applied);
+        Assert.True(DealDamageBelowTheCap(boss).Applied);
         session.UpdateEnemies();
 
         Assert.Equal(expectFullHealth
@@ -1167,8 +1190,8 @@ public sealed class AphantasiaTests
         List<EnemyProjectile> clockVolley = context.ProjectileSink.Where(projectile =>
             projectile.Owner?.Contains("void_clock") == true
             || projectile.Owner?.Contains("portal_clock_hand") == true).ToList();
-        Assert.Equal(11, clockVolley.Count);
-        Assert.Equal(18, clockVolley.Sum(projectile => projectile.ThreatReservationCost));
+        Assert.Equal(13, clockVolley.Count);
+        Assert.Equal(20, clockVolley.Sum(projectile => projectile.ThreatReservationCost));
         Assert.Single(clockVolley,
             projectile => projectile.Owner?.Contains("portal_clock_hand") == true);
     }
@@ -1214,6 +1237,7 @@ public sealed class AphantasiaTests
     [InlineData(2, false)]
     [InlineData(3, false)]
     [InlineData(3, true)]
+    [InlineData(4, false)]
     [InlineData(4, true)]
     public void AuthoredSequences_ThreatenCenterAndOuterPositionsWithoutOverflow(
         int phase, bool finale)

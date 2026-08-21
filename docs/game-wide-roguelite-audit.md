@@ -9,6 +9,10 @@ Last updated: 2026-08-13
 - Fresh-profile viability is the baseline. Skills and vaulted gear add options, not prerequisites.
 - The five arena runs are the standalone product loop. Body/Soul, the Dungeon, challenges,
   Aphantasia, mastery, cosmetics, and NG+ are replay depth.
+- Full 100% core-content completion (all five senses plus Body/Soul) targets roughly three
+  hours end to end. The game should not feel sluggish or infinite unless a player chooses to
+  chase post-game content; Aphantasia, NG+, Hard Mode, and additional Core-themed bosses that
+  expand on each sense's theme are that optional depth, not the main line.
 - Danger, friendly fire, pickups, rarity, interaction, and boss state keep universal meanings
   while each sense owns its palette, geometry, projectiles, architecture, and boss motif.
 

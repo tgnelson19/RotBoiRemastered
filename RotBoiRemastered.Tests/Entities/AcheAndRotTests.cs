@@ -525,6 +525,40 @@ public class AcheTests
     }
 
     [Fact]
+    public void NerveBreakEruptsInASixShotOverreactionCascade()
+    {
+        Simulation.ResetForTests();
+        var battleground = MakeBattleground();
+        var boss = new Ache(1000, 1000, battleground, new Random(40));
+        var afflictions = new BossAfflictions();
+        var openingContext = Context(boss, battleground);
+        ClearOpening(boss, openingContext);
+
+        for (int index = 0; index < Ache.NerveBreaksNeeded; index++)
+        {
+            var vent = boss.CleansingVents[index];
+            afflictions.Apply("slow", 1.0, .1, exposure: 1.2);
+            var ventContext = new EnemyUpdateContext
+            {
+                PlayerWorldX = vent.X,
+                PlayerWorldY = vent.Y,
+                Battleground = battleground,
+                BossAfflictions = afflictions,
+                ProjectileSink = openingContext.ProjectileSink,
+            };
+            boss.Update(ventContext);
+            boss.TakeDamage(1000, "crystal:0");
+        }
+        Assert.Equal(1, boss.NerveBreakTriggers);
+
+        boss.Update(openingContext);
+
+        var cascade = openingContext.ProjectileSink
+            .Where(shot => shot.Owner == "ache_chemesthesis_overreaction_cascade").ToList();
+        Assert.Equal(6, cascade.Count);
+    }
+
+    [Fact]
     public void LaterActsGrowTelegraphedCompressionWallsThatMoveInward()
     {
         var battleground = MakeBattleground();
@@ -1106,6 +1140,29 @@ public class RotTests
                 owner is "rot_touch_floor_lava" or "rot_touch_bomb"),
             $"Phase {phase} did not carry a sludge bank or falling mass to the outer edge.");
         Assert.Equal(0, pressure.OverflowCount);
+    }
+
+    [Fact]
+    public void GraspReachDeclaresATelegraphedSixSegmentReachTowardThePlayer()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Rot(1000, 1000, battleground, new Random(17));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(3);
+
+        StepRot(boss, context);
+
+        var segments = context.ProjectileSink
+            .Where(shot => shot.Owner?.Contains("_grasp_segment_") == true).ToList();
+        Assert.Equal(6, segments.Count);
+        Assert.All(segments, segment =>
+        {
+            Assert.Equal("bank", segment.Path);
+            Assert.True(segment.TelegraphDuration >= 1.3f);
+            Assert.True(segment.Damage >= 500);
+            Assert.StartsWith("rot_touch_", segment.Owner);
+        });
     }
 
     [Fact]

@@ -43,6 +43,14 @@ discard cycle.
 
 ## Recommended game design
 
+Note: the confirmed design direction is the lighter per-level draft already
+shipped and documented in `README.md`'s "Design pillars" — three randomly
+generated stat upgrades on level-up, imperfectly balanced on purpose (damage
+is usually strongest, speed/defense help newcomers, and veterans can build
+off-meta around the imbalance). The active deck/hand/energy system proposed
+below remains a bigger, unadopted alternative recorded for reference, not a
+confirmed next step; treat it as backlog inspiration rather than a directive.
+
 ### 1. Make cards active decisions
 
 Keep aiming and movement real-time, but give the player a small hand of active cards.

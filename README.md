@@ -1,11 +1,36 @@
 # RotBoi Remastered
 
-A 2D arena roguelite built with C#, MonoGame, and .NET 9. Move through the arena,
+A 2D arena roguelike bullet hell built with C#, MonoGame, and .NET 9, themed
+around the five senses — Sight, Sound, Touch, Chemesthesis, and Phantasia —
+with Aphantasia as its climactic end-game boss. Move through the arena,
 aim with the mouse, collect experience, and draft upgrade cards that shape each
 run into a focused build. The red edge-of-screen
 bounty arrow points toward the highest-value living patrol or elite target.
 Normal standalone arena paths target a complete 25-35 minute run; the campaign,
 Dungeon, challenges, and NG+ provide longer-term mastery rather than prerequisites.
+
+## Design pillars
+
+- **Roguelike bullet hell.** A run is a sequence of progressively harder
+  content until the player is satisfied they've beaten the game. NG+ (per
+  path, up to NG+7) and Hard Mode (No Healing / No Extract) exist purely as
+  additional challenge for veterans who want more, not as prerequisites.
+- **Extraction risk/reward.** Outside of an active No Extract brazier, a run
+  can be banked at The Mind with its gear intact once extraction is
+  available. Dying instead strips whatever is equipped. This is deliberate
+  risk management: the player has to weigh whether their current gear is
+  worth risking against the reward of pushing further.
+- **Light deckbuilding via leveling.** Every level-up during a run offers
+  three randomly generated stat upgrades. The balance is intentionally
+  imperfect — raw damage is usually the strongest pick for most players —
+  but extra speed or defense can help newer players navigate the game, and
+  veterans can build interesting, off-meta playstyles around them.
+- **A roughly three-hour core loop.** A player pursuing 100% run success
+  across the five senses and the Body/Soul campaign should finish the core
+  content end to end in about three hours. The game should not feel
+  sluggish or infinite unless a player chooses to keep going. Aphantasia,
+  NG+, Hard Mode, and additional Core-themed bosses that expand on each
+  sense's theme are that optional post-game depth, not the main line.
 
 ## Controls
 

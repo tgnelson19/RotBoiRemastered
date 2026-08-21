@@ -320,6 +320,12 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     private (float X, float Y)? _mirrorJumpTarget;
     private Vector2? _mirrorJumpEchoOrigin;
 
+    // Soft-tether satellite lag: each of the four orbiting cubes eases toward
+    // the shared lockstep angle at its own rate instead of moving in perfect
+    // unison, so they read as pulled by sound rather than clockwork.
+    private readonly float[] _satelliteLagAngle = new float[OrbitingCubeCount];
+    private bool _satelliteLagInitialized;
+
     public Dissonance(float worldX, float worldY, float awarenessRange, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, .72f, Simulation.TileSize * 1.9f, UiTheme.Purple, 550, 150000, 900, 5, awarenessRange, "dissonance")
     {
@@ -364,6 +370,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         _ambientParticleCooldown -= dt;
         _motionTrailCooldown -= dt;
         ShakeStrength = Math.Max(0.0, ShakeStrength - 16 * dt);
+        UpdateSatelliteLag(dt);
         if (_ambientParticleCooldown <= 0)
         {
             var center = Center();
@@ -395,6 +402,27 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         foreach (var ghost in MotionTrail)
             ghost.Life -= (float)dt;
         MotionTrail.RemoveAll(g => g.Life <= 0);
+    }
+
+    private void UpdateSatelliteLag(double dt)
+    {
+        float lockstepPhase = Age * .006f * .28f;
+        for (int index = 0; index < _satelliteLagAngle.Length; index++)
+        {
+            float target = index * MathF.Tau / _satelliteLagAngle.Length + lockstepPhase;
+            if (!_satelliteLagInitialized)
+            {
+                _satelliteLagAngle[index] = target;
+                continue;
+            }
+            // Wrap the shortest way around so the lag never spins the long
+            // way when the lockstep angle crosses the +-pi seam.
+            float delta = MathF.Atan2(MathF.Sin(target - _satelliteLagAngle[index]),
+                MathF.Cos(target - _satelliteLagAngle[index]));
+            float rate = .12f + index * .03f;
+            _satelliteLagAngle[index] += delta * Math.Min(1f, rate * (float)(dt * 60.0));
+        }
+        _satelliteLagInitialized = true;
     }
 
     /// <summary>Pure function GameSession calls once per frame (when this boss is RunState.ActiveBoss) instead of this class writing a screen-shake global directly. See class doc comment.</summary>
@@ -1828,7 +1856,12 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         double transition = phase > 1 ? Math.Max(0.0, 1.0 - PhaseElapsed) : 0.0;
         double staggerWobble = IsStaggered ? Math.Sin(age * .09) * .12 : 0.0;
         double yaw = age * (.0075 + phase * .00055) + transition * transition * Math.PI + staggerWobble;
-        double pitch = .42 + Math.Sin(age * (.0055 + phase * .0002)) * .16 + transition * .22;
+        // A resonating beat layered on top of the composed spin -- the faces
+        // catch a pulse rather than the body only ever rotating rigidly.
+        double beatSeconds = age / Math.Max(1.0, Simulation.FrameRate);
+        double beat = BossAnimation.EaseInOutSine(
+            (float)BossAnimation.CosinePulse((float)beatSeconds, 1.4f, phase * .07f));
+        double pitch = .42 + Math.Sin(age * (.0055 + phase * .0002)) * .16 + transition * .22 + beat * .05;
         for (int index = 0; index < 8; index++)
         {
             float x = index is 1 or 2 or 5 or 6 ? 1 : -1;
@@ -2151,6 +2184,36 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         return runeName;
     }
 
+    /// <summary>
+    /// The Jera finale's "grand staff": <see cref="JeraChordRingCount"/> already
+    /// tracks 1..9 remembered runes across the phase-9 survival window with no
+    /// visual consumer -- this renders that count as a row of rune glyphs that
+    /// fills in left-to-right, reusing <see cref="DrawRune"/>'s existing
+    /// runePhaseOverride plumbing for each remembered rune in order.
+    /// </summary>
+    private void DrawJeraGrandStaff(SpriteBatch spriteBatch)
+    {
+        if (Phase != 9 || !SurvivalActive)
+            return;
+        var viewport = spriteBatch.GraphicsDevice.Viewport;
+        int lit = JeraChordRingCount;
+        float y = viewport.Height * .09f;
+        float left = viewport.Width * .28f;
+        float right = viewport.Width * .72f;
+        float runeRadius = Math.Max(10f, viewport.Width * .018f);
+        Primitives2D.Line(spriteBatch, new Vector2(left - runeRadius, y), new Vector2(right + runeRadius, y),
+            UiTheme.Ink * .5f, 2);
+        for (int index = 1; index <= MaximumJeraChordRings; index++)
+        {
+            float t = (index - 1) / (float)(MaximumJeraChordRings - 1);
+            var point = new Vector2(MathHelper.Lerp(left, right, t), y);
+            if (index <= lit)
+                DrawRune(spriteBatch, point, runeRadius, index);
+            else
+                Primitives2D.CircleOutline(spriteBatch, point, runeRadius * .6f, UiTheme.Muted * .35f, 2, 16);
+        }
+    }
+
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         DrawMotionTrail(spriteBatch, camera, playerWorldPosition, screenShake);
@@ -2217,13 +2280,13 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             rect.Inflate(-(int)(Size * .12f), (int)(Size * .16f));
 
         var rectCenter = rect.Center.ToVector2();
+        DrawSoundPulse(spriteBatch, rectCenter);
         DrawCubeAura(spriteBatch, rectCenter, PhaseAccent);
         // Four gently depth-scaled satellites make the oldest core feel composed:
         // its power is ordered around it rather than sprayed outward as debris.
         float orbitSpread = SurvivalActive ? 1.35f : 1f;
         DrawSatelliteChord(spriteBatch, rectCenter, orbitSpread);
-        BossVisuals.OrbitingCubes(spriteBatch, rectCenter, Age, OrbitingCubeCount, Size * .78f, Size * .16f,
-            new Color(105, 75, 196), new Color(64, 142, 214), orbitSpread, .28f, frontLayer: false);
+        DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: false);
         PopulateCubeGeometry(
             rectCenter,
             Size * .43f,
@@ -2272,16 +2335,25 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
                 _drawShadowFace,
                 UiTheme.Shadow);
         }
+        float beatPulse = BossAnimation.CosinePulse(VisualAgeSeconds, 1.4f, Phase * .07f);
+        bool resolving = PerfectBreakFlash > 0;
         for (int faceIndex = 0;
              faceIndex < _drawProjectedFaces.Length;
              faceIndex++)
         {
             Vector2[] points = _drawProjectedFaces[faceIndex];
-            int shimmer = (int)(8 * (1 + Math.Sin(Age * .025 + faceIndex * 1.7)));
+            int shimmer = (int)(8 * (1 + Math.Sin(Age * .025 + faceIndex * 1.7)) + beatPulse * 10);
             Color ancestralFace = faceIndex % 2 == 0 ? new Color(91, 62, 181) : new Color(51, 120, 198);
-            var faceColor = HitFlash > 0 || IsStaggered
-                ? UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer)
-                : UiTheme.Lighten(Color.Lerp(ancestralFace, PhaseAccent, .12f), 5 + faceIndex * 5 + shimmer);
+            Color faceColor;
+            if (resolving)
+                // A perfect stagger reads as the dissonant chord actually
+                // resolving: every face briefly settles on one clean accent
+                // instead of the usual alternating purple/blue + flicker.
+                faceColor = UiTheme.Lighten(PhaseAccent, 10 + shimmer);
+            else if (HitFlash > 0 || IsStaggered)
+                faceColor = UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer);
+            else
+                faceColor = UiTheme.Lighten(Color.Lerp(ancestralFace, PhaseAccent, .12f), 5 + faceIndex * 5 + shimmer);
             Primitives2D.FillPolygonSpan(spriteBatch, points, faceColor);
             Primitives2D.PolygonOutlineSpan(
                 spriteBatch,
@@ -2307,9 +2379,9 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         string runeName = DrawRune(spriteBatch, rectCenter, coreRadius, deathRune);
         UiTheme.DrawText(spriteBatch, runeName, Math.Max(8, Size * .075), PhaseAccent,
             new Vector2(rect.Center.X, core.Bottom + Size * .045f), "midtop");
-        BossVisuals.OrbitingCubes(spriteBatch, rectCenter, Age, OrbitingCubeCount, Size * .78f, Size * .16f,
-            new Color(105, 75, 196), new Color(64, 142, 214), orbitSpread, .28f, frontLayer: true);
+        DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: true);
 
+        DrawJeraGrandStaff(spriteBatch);
         if (PhaseAnnouncementTimer > 0)
             DrawPhaseAnnouncement(spriteBatch, rect);
         if (ActTransitionTimer > 0)
@@ -2318,14 +2390,47 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             DrawPerfectBreak(spriteBatch);
     }
 
+    /// <summary>
+    /// A soundwave ripple on each attack declaration, reusing the base
+    /// class's existing <see cref="Enemy.VisualAttackPulse"/> signal (no new
+    /// state) -- distinct from Aphantasia's rainbow motif and Ache's jagged
+    /// motif, kept to Dissonance's own purple/blue/gold/red palette.
+    /// </summary>
+    private void DrawSoundPulse(SpriteBatch spriteBatch, Vector2 center)
+    {
+        float pulse = VisualAttackPulse;
+        if (pulse <= 0f)
+            return;
+        float radius = Size * (.55f + (1f - pulse) * .9f);
+        Primitives2D.CircleOutline(spriteBatch, center, radius, PhaseAccent * (pulse * .35f),
+            Math.Max(1, (int)(3 * pulse)), 40);
+    }
+
+    /// <summary>Replaces the two <see cref="BossVisuals.OrbitingCubes"/> calls: same visuals, but angle comes from the per-satellite soft-tether lag (<see cref="UpdateSatelliteLag"/>) instead of a shared lockstep phase.</summary>
+    private void DrawLaggedSatellites(SpriteBatch spriteBatch, Vector2 center, float spread, bool frontLayer)
+    {
+        for (int index = 0; index < _satelliteLagAngle.Length; index++)
+        {
+            float angle = _satelliteLagAngle[index];
+            bool inFront = MathF.Sin(angle) >= 0;
+            if (inFront != frontLayer)
+                continue;
+            float localRadius = Size * .78f * spread * (1f + .08f * MathF.Sin(Age * .017f + index * 1.7f));
+            var point = center + new Vector2(MathF.Cos(angle) * localRadius, MathF.Sin(angle) * localRadius * .56f);
+            float depthScale = .78f + .24f * (.5f + .5f * MathF.Sin(angle));
+            BossVisuals.Cube(spriteBatch, point, Size * .16f * depthScale,
+                index % 2 == 0 ? new Color(105, 75, 196) : new Color(64, 142, 214),
+                new Color(64, 142, 214), angle);
+        }
+    }
+
     private void DrawSatelliteChord(SpriteBatch spriteBatch, Vector2 center,
         float spread)
     {
         Span<Vector2> satellites = stackalloc Vector2[OrbitingCubeCount];
-        float phase = Age * .006f * .28f;
         for (int index = 0; index < satellites.Length; index++)
         {
-            float angle = index * MathF.Tau / satellites.Length + phase;
+            float angle = _satelliteLagAngle[index];
             float radius = Size * .78f * spread
                 * (1f + .08f * MathF.Sin(Age * .017f + index * 1.7f));
             satellites[index] = center + new Vector2(MathF.Cos(angle) * radius,

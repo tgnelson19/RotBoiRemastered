@@ -24,6 +24,99 @@ public static class Primitives2D
     private static Texture2D Pixel => _pixel ?? throw new InvalidOperationException(
         "Primitives2D.Initialize(GraphicsDevice) must be called once (from LoadContent) before drawing.");
 
+    /// <summary>
+    /// A cycling rainbow color from three phase-shifted sine waves -- the
+    /// game's shared "this is Aphantasia-flavored" cue, originally authored
+    /// in Aphantasia.cs and pulled up here so other modules (portal/hub
+    /// decoration in particular) can share the exact same palette instead of
+    /// re-deriving it.
+    /// </summary>
+    public static Color Rainbow(float phase)
+    {
+        phase -= MathF.Floor(phase);
+        float r = .5f + .5f * MathF.Sin((phase + 0f) * MathF.Tau);
+        float g = .5f + .5f * MathF.Sin((phase + 1f / 3f) * MathF.Tau);
+        float b = .5f + .5f * MathF.Sin((phase + 2f / 3f) * MathF.Tau);
+        return new Color(r, g, b);
+    }
+
+    /// <summary>
+    /// One curved, oscillating spike rooted at <paramref name="center"/> and
+    /// growing out to <paramref name="length"/> -- the same underlying
+    /// technique as a boss laser's tentacle cluster: a many-segment polyline
+    /// wiggling laterally off a straight heading, drawn as a dark
+    /// shadow-offset underlay, a rainbow-cycling stroke, and a thin bright
+    /// highlight down the middle. Unlike a laser -- anchored at both ends,
+    /// so its wiggle tapers to zero at both -- a spike is only rooted at the
+    /// base, so the wiggle ramps from stillness at the root to its widest,
+    /// whipping motion at the free tip, and the stroke tapers from a fat
+    /// base to a narrow point rather than staying a constant width. Shared
+    /// (rather than living on Aphantasia itself) so smaller, simpler
+    /// instances of the same spike can decorate the Aphantasia portal in
+    /// The Mind -- pass a lower <paramref name="segments"/> for those.
+    /// </summary>
+    /// <param name="darken">
+    /// 0 draws the spike at full color; higher values (up to 1) blend its
+    /// stroke and highlight toward near-black.
+    /// </param>
+    /// <param name="alpha">
+    /// 0-1 opacity multiplier. Combined with <paramref name="darken"/> and
+    /// evaluating the whole call at an earlier <paramref name="time"/>, this
+    /// is how a motion-trail echo of the spike is drawn: since every point
+    /// on the spike is a pure function of <paramref name="time"/>, "what it
+    /// looked like 50ms ago" is just this same call with time - .05, some
+    /// darken, and reduced alpha -- no separate history buffer needed.
+    /// Critically, this has to actually carry alpha and not just darken the
+    /// hue: a fast, high-frequency wiggle sampled only ~80ms apart produces
+    /// echoes whose peaks and troughs land at different points along the
+    /// spike, so several opaque echoes stacked up don't blend into a soft
+    /// trail -- each one fully overwrites the last wherever they cross,
+    /// producing a rigid, ladder-like interference pattern instead (this is
+    /// what was actually being seen as "non-wiggling root/claw" tentacles:
+    /// not a second decoration, just opaque echoes of this same spike).
+    /// True transparency lets the blend soften that into an actual trail.
+    /// </param>
+    public static void DrawTentacleSpike(SpriteBatch spriteBatch, Vector2 center, float baseAngle,
+        float length, float width, float phase, float colorPhase, float time, int segments = 22,
+        float darken = 0f, float alpha = 1f, Color? themeColor = null)
+    {
+        // Mirrors UiTheme.Shadow/UiTheme.Cream by value rather than
+        // reference -- Core can't depend on UI (UiTheme itself calls into
+        // Primitives2D), so the two colors this needs are inlined here.
+        var shadowTone = new Color(8, 9, 12);
+        Vector2 heading = new(MathF.Cos(baseAngle), MathF.Sin(baseAngle));
+        Vector2 normal = new(-heading.Y, heading.X);
+        Vector2? previous = null;
+        for (int segment = 0; segment <= segments; segment++)
+        {
+            float amount = segment / (float)segments;
+            float wiggleEnvelope = amount * amount;
+            float wiggle = MathF.Sin(amount * MathF.Tau * 2.2f - time * 4.4f + phase)
+                * width * 1.4f * wiggleEnvelope;
+            Vector2 point = center + heading * (length * amount) + normal * wiggle;
+            if (previous.HasValue)
+            {
+                int strokeWidth = Math.Max(2, (int)(width * (1f - amount * .85f)));
+                // A fixed theme color instead of the rainbow cycle -- for
+                // duller, simpler tentacles (e.g. the sense portals in The
+                // Mind) that shouldn't compete with Aphantasia's rainbow.
+                Color strandColor = themeColor ?? Rainbow(colorPhase + amount * .45f - time * .12f);
+                if (darken > 0f)
+                    strandColor = Color.Lerp(strandColor, shadowTone, darken);
+                Line(spriteBatch,
+                    previous.Value + new Vector2(2, 3), point + new Vector2(2, 3),
+                    shadowTone * (.55f * alpha), strokeWidth + 4);
+                Line(spriteBatch, previous.Value, point, strandColor * alpha, strokeWidth);
+                if (segment % 3 == 0)
+                    Line(spriteBatch,
+                        previous.Value - new Vector2(0, 1), point - new Vector2(0, 1),
+                        Color.Lerp(strandColor, new Color(239, 211, 142), .6f * (1f - darken)) * alpha,
+                        Math.Max(1, strokeWidth / 3));
+            }
+            previous = point;
+        }
+    }
+
     public static void FillRect(SpriteBatch spriteBatch, Rectangle rect, Color color)
     {
         spriteBatch.Draw(Pixel, rect, color);

@@ -132,8 +132,8 @@ deferred alongside `GamePaths.cs`'s existing boss-content gap (see
   inscription, death spectacle, phase-announcement bubble, act-transition
   veil, perfect-break flash, and Jera's progressively assembled nine-rune
   grand staff). Its stable purple/blue faces, deep black core,
-  and four gently orbiting satellite cubes now identify the oldest, composed
-  Keeper of the First Chord; phase accents stay on runes and warning trim.
+  and four gently orbiting satellite cubes now identify the second-oldest,
+  composed Keeper of the First Chord; phase accents stay on runes and warning trim.
   `GameSession.cs` now spawns it on the natural
   level-20 trigger (and the hidden debug-summon hotkey, matching Python:
   the debug key always resolves to the *final* boss, never Beaudis),

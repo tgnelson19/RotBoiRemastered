@@ -600,103 +600,55 @@ public class SoulHub
     /// strands. Once every gold clear exists, a void braid opens leftward to
     /// Aphantasia and its mouth flowers into a rotating rainbow corona.
     /// </summary>
+    /// <summary>
+    /// Portal decoration shares one technique across the whole hub now
+    /// (<see cref="Primitives2D.DrawTentacleSpike"/>, the same wiggling
+    /// spike the Aphantasia portal uses at full scale): every sense portal
+    /// gets its own small radiating cluster once its progression statue
+    /// unlocks it, tuned deliberately duller than Aphantasia's -- fewer
+    /// segments, the sense's own fixed accent color instead of the rainbow
+    /// cycle, and no trailing after-image echoes -- so Aphantasia stays the
+    /// most visually striking portal in the hub and the others read as
+    /// simpler cousins of the same idea rather than a competing style.
+    /// The old strands connecting the Core portal to Aphantasia are gone
+    /// entirely: DrawAphantasiaPortal already draws a full tentacle display
+    /// at that exact spot, so they were purely redundant.
+    /// </summary>
     private void DrawMindProgressionTentacles(SpriteBatch spriteBatch,
         GameSession session, float time, float intensity)
     {
-        // These strands communicate permanent progression, so their authored
+        // These communicate permanent progression, so their authored
         // silhouettes remain readable even at the minimum optional-VFX level.
         float effects = .24f + Math.Clamp(intensity, 0f, 1f) * .76f;
-        Vector2 door = SoulLayout.TileWorldCenter(SoulLayout.BodyDoorTile);
         for (int index = 0; index < GamePaths.Paths.Count; index++)
         {
             GamePath path = GamePaths.Paths[index];
             if (!_pathPortalWorld.TryGetValue(path.Key, out Vector2 portal))
                 continue;
-
-            if (EffectiveStatue(path.Key, StatueMaterial.Silver).Unlocked)
-            {
-                float side = index - (GamePaths.Paths.Count - 1) * .5f;
-                Vector2 control = Vector2.Lerp(portal, door, .52f)
-                    + new Vector2(side * Simulation.TileSize * 1.15f, 0);
-                DrawLivingTentacle(spriteBatch, session, portal, control, door,
-                    path.Accent, index * .83f, time, 6f, 2.25f, effects);
-            }
-
-            if (!EffectiveStatue(path.Key, StatueMaterial.Gold).Unlocked)
+            if (!EffectiveStatue(path.Key, StatueMaterial.Silver).Unlocked)
                 continue;
-            for (int strand = 0; strand < 3; strand++)
+
+            bool gold = EffectiveStatue(path.Key, StatueMaterial.Gold).Unlocked;
+            Vector2 screen = WorldToScreen(portal, session);
+            Color themeColor = path.Accent * effects;
+            int spikeCount = gold ? 7 : 4;
+            float targetLength = Simulation.TileSize * (gold ? 2.2f : 1.5f);
+            float spin = time * .18f * (index % 2 == 0 ? 1f : -1f);
+            for (int spike = 0; spike < spikeCount; spike++)
             {
-                float spread = strand - 1f;
-                Vector2 start = Vector2.Lerp(portal,
-                    SoulLayout.TileWorldCenter(SoulLayout.NexusTile), .16f * strand);
-                Vector2 end = door + new Vector2(
-                    (index - 2f) * Simulation.TileSize * .78f,
-                    spread * Simulation.TileSize * 1.65f);
-                Vector2 control = Vector2.Lerp(start, end, .46f)
-                    + new Vector2(spread * Simulation.TileSize * 5.2f,
-                        -Simulation.TileSize * (2.2f + strand));
-                DrawLivingTentacle(spriteBatch, session, start, control, end,
-                    path.Accent, index * 1.19f + strand * 2.07f, time,
-                    10f, 5.1f, effects);
+                float baseAngle = spike * MathF.Tau / spikeCount + spin;
+                float length = targetLength
+                    * (.85f + .15f * MathF.Sin(time * 1.1f + spike + index));
+                Primitives2D.DrawTentacleSpike(spriteBatch, screen, baseAngle, length,
+                    targetLength * .09f, phase: spike * 1.7f + index,
+                    colorPhase: 0f, time, segments: 14, themeColor: themeColor);
             }
         }
 
         if (!CampaignProgression.PortalUnlocked("aphantasia"))
             return;
-
-        Vector2 body = SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile);
         Vector2 aphantasia = SoulLayout.TileWorldCenter(SoulLayout.AphantasiaPortalTile);
-        for (int strand = 0; strand < 5; strand++)
-        {
-            float lane = strand - 2f;
-            Vector2 control = Vector2.Lerp(body, aphantasia, .5f)
-                + new Vector2(0, lane * Simulation.TileSize * .48f);
-            Color voidColor = Color.Lerp(new Color(7, 5, 14),
-                new Color(70, 31, 91), strand / 4f);
-            DrawLivingTentacle(spriteBatch, session, body, control, aphantasia,
-                voidColor, strand * 1.31f, time, 11f, 3.8f, effects,
-                voided: true);
-        }
         DrawAphantasiaRainbowCorona(spriteBatch, session, aphantasia, time, effects);
-    }
-
-    private static void DrawLivingTentacle(SpriteBatch spriteBatch,
-        GameSession session, Vector2 start, Vector2 control, Vector2 end,
-        Color color, float phase, float time, float width, float speed,
-        float intensity, bool voided = false)
-    {
-        const int segments = 40;
-        Vector2? previous = null;
-        for (int segment = 0; segment <= segments; segment++)
-        {
-            float amount = segment / (float)segments;
-            Vector2 point = Quadratic(start, control, end, amount);
-            Vector2 tangent = Quadratic(start, control, end,
-                Math.Min(1f, amount + 1f / segments)) - point;
-            if (tangent.LengthSquared() > .001f)
-                tangent.Normalize();
-            Vector2 normal = new(-tangent.Y, tangent.X);
-            float oscillation = MathF.Sin(amount * MathF.Tau * 3.1f
-                - time * speed + phase) * Simulation.TileSize
-                * (voided ? .13f : .19f) * MathF.Sin(amount * MathF.PI);
-            Vector2 screen = WorldToScreen(point + normal * oscillation, session);
-            if (previous.HasValue)
-            {
-                float pulse = .5f + .5f * MathF.Sin(time * speed
-                    - amount * 15f + phase);
-                int bodyWidth = Math.Max(2, (int)MathF.Round(width * (.72f + pulse * .34f)));
-                Primitives2D.Line(spriteBatch, previous.Value + new Vector2(0, 5),
-                    screen + new Vector2(0, 5), UiTheme.Shadow * (.58f * intensity), bodyWidth + 6);
-                Primitives2D.Line(spriteBatch, previous.Value, screen,
-                    color * ((voided ? .58f : .42f + pulse * .5f) * intensity), bodyWidth);
-                if (!voided)
-                    Primitives2D.Line(spriteBatch, previous.Value - new Vector2(0, 1),
-                        screen - new Vector2(0, 1),
-                        Color.Lerp(color, Color.White, .62f) * (pulse * .5f * intensity),
-                        Math.Max(1, bodyWidth / 4));
-            }
-            previous = screen;
-        }
     }
 
     private static void DrawAphantasiaRainbowCorona(SpriteBatch spriteBatch,
@@ -727,8 +679,6 @@ public class SoulHub
                 previous = next;
             }
         }
-        Primitives2D.CircleOutline(spriteBatch, center, baseRadius * 1.18f,
-            RainbowColor(time * .12f) * intensity, 4);
     }
 
     /// <summary>
@@ -1677,7 +1627,6 @@ public class SoulHub
         var gates = new[]
         {
             (BodyPortalKey, "THE BODY / THE SOUL", UiTheme.Gold, "body"),
-            (AphantasiaPortalKey, "APHANTASIA", new Color(102, 61, 160), "aphantasia"),
         };
         foreach (var (key, label, color, gate) in gates)
         {
@@ -1708,6 +1657,108 @@ public class SoulHub
                 UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", Fs(8), UiTheme.Cream,
                     new Vector2(screen.X, screen.Y + radius + 23), "midtop");
         }
+        DrawAphantasiaPortal(spriteBatch, session, nearbyPortal, time);
+    }
+
+    /// <summary>
+    /// Aphantasia's gate gets its own treatment rather than the plain
+    /// ink-disc-with-outline every other campaign gate shares: a true void
+    /// core with a scatter of tiny stars (the same "leads somewhere else
+    /// entirely" language as the boss's own void vortex finale), a
+    /// rainbow-cycling rim instead of a flat color, and a handful of tiny,
+    /// simplified tentacle spikes (<see cref="Primitives2D.DrawTentacleSpike"/>,
+    /// the same routine the boss itself uses at full scale) curling around
+    /// it. Meant to make this gate read as a preview of the fight behind it,
+    /// not a recolored copy of every other portal in the hub.
+    /// </summary>
+    private void DrawAphantasiaPortal(SpriteBatch spriteBatch, GameSession session,
+        string? nearbyPortal, float time)
+    {
+        if (!_pathPortalWorld.TryGetValue(AphantasiaPortalKey, out Vector2 world))
+            return;
+        Vector2 screen = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
+        bool unlocked = CampaignProgression.PortalUnlocked("aphantasia");
+        float radius = Simulation.TileSize * .78f;
+        Color accent = new(102, 61, 160);
+
+        // Tusks draw first, before the portal's own disc -- so the disc that
+        // follows paints over their roots, and only the length that grows
+        // out past the disc's edge is visible. They read as rooted behind
+        // the portal, rising from the floor around it, rather than floating
+        // on top of its face.
+        if (unlocked)
+        {
+            // Every tentacle here goes through this one loop and this one
+            // call to Primitives2D.DrawTentacleSpike -- there is only ever
+            // one spike routine drawing on this portal, confirmed by
+            // grepping the whole repo and by rendering this exact block in
+            // isolation. What that isolated render showed: the trailing
+            // echoes were fully opaque, and a fast wiggle sampled only
+            // ~80ms apart puts each echo's peaks/troughs at different
+            // points along the spike, so stacking several opaque copies
+            // doesn't blend into a soft trail -- it makes a rigid,
+            // ladder-like interference pattern. That was the "non-wiggling
+            // root/claw" look the whole time, not a second decoration.
+            // Fading each echo's alpha alongside its darken fixes it.
+            const int tuskCount = 9;
+            const int shadowCount = 6;
+            const float shadowDelay = .08f;
+            for (int index = 0; index < tuskCount; index++)
+            {
+                void DrawTusk(float evalTime, float darken, float alpha)
+                {
+                    float angle = index * MathF.Tau / tuskCount + evalTime * .3f;
+                    float length = radius * (3f + .8f * MathF.Sin(evalTime * 1.6f + index));
+                    Primitives2D.DrawTentacleSpike(spriteBatch, screen, angle, length,
+                        radius * .32f, phase: index * 2.3f, colorPhase: index / (float)tuskCount,
+                        time: evalTime, segments: 48, darken: darken, alpha: alpha);
+                }
+
+                for (int shadow = shadowCount; shadow >= 1; shadow--)
+                {
+                    float t = shadow / (float)(shadowCount + 1);
+                    DrawTusk(time - shadow * shadowDelay, darken: t, alpha: 1f - t * .85f);
+                }
+                DrawTusk(time, darken: 0f, alpha: 1f);
+            }
+        }
+
+        // Opacity gradient instead of one flat-filled disc: layered from the
+        // widest, most transparent ring down to the smallest, most opaque
+        // one, so alpha compounds toward the center and the edge fades
+        // rather than cutting off sharply.
+        const int discGradientSteps = 8;
+        for (int step = discGradientSteps; step >= 1; step--)
+        {
+            float t = step / (float)discGradientSteps;
+            Primitives2D.FillCircle(spriteBatch, screen, radius * .82f * t,
+                new Color(6, 5, 11) * (1f - t * t));
+        }
+        for (int index = 0; index < 10; index++)
+        {
+            float starAngle = index * 2.399963f; // golden angle -- an even, non-repeating scatter
+            float starRadius = radius * (.15f + (index % 5) * .13f);
+            Vector2 star = screen + new Vector2(MathF.Cos(starAngle), MathF.Sin(starAngle)) * starRadius;
+            float twinkle = .4f + .6f * (.5f + .5f * MathF.Sin(time * 3f + index * 1.7f));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)star.X - 1, (int)star.Y - 1, 2, 2),
+                UiTheme.Cream * (twinkle * (unlocked ? 1f : .35f)));
+        }
+
+        if (!unlocked)
+        {
+            Primitives2D.Line(spriteBatch, screen + new Vector2(-radius, -radius),
+                screen + new Vector2(radius, radius), UiTheme.Red * .75f, 4);
+            Primitives2D.Line(spriteBatch, screen + new Vector2(radius, -radius),
+                screen + new Vector2(-radius, radius), UiTheme.Red * .75f, 4);
+        }
+        UiTheme.DrawText(spriteBatch, unlocked ? "APHANTASIA" : "APHANTASIA // SEALED", Fs(8),
+            unlocked ? accent : UiTheme.Muted,
+            new Vector2(screen.X, screen.Y + radius + 7), "midtop");
+        if (unlocked && nearbyPortal == AphantasiaPortalKey
+            && _confirmingPortalKey != AphantasiaPortalKey && _enteringPortalKey is null)
+            UiTheme.DrawText(spriteBatch, "F / B  //  ENTER", Fs(8), UiTheme.Cream,
+                new Vector2(screen.X, screen.Y + radius + 23), "midtop");
     }
 
     private void DrawCompositePathPortal(

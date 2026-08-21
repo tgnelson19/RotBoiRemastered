@@ -73,6 +73,47 @@ public class EnemyProjectileTests
     }
 
     [Fact]
+    public void Laser_VisualCullRect_SpansFullRange_DuringTelegraph()
+    {
+        // Regression test: the telegraph draws its tentacle cluster and range
+        // markers across the whole beam before it fires (DrawLaser), but
+        // WorldRect() intentionally stays a tiny box at the spawn point during
+        // the telegraph so wall-hit checks in Update() don't fire early. Screen
+        // culling has to look at the full sweep instead, or a laser spawned far
+        // from the player -- with its warning sweeping in toward them -- gets
+        // the whole telegraph culled off screen, leaving nothing to dodge once
+        // the beam actually fires.
+        var projectile = new EnemyProjectile(0, 0, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 2000)
+        {
+            TelegraphDuration = 1f,
+        };
+
+        Rectangle tinyDuringTelegraph = projectile.WorldRect();
+        Rectangle cullRect = projectile.VisualCullRect();
+
+        Assert.True(tinyDuringTelegraph.Width < 20);
+        Assert.True(cullRect.Width >= 1900);
+
+        // Player standing far down the beam's path, nowhere near the origin.
+        var farPlayer = new Rectangle(1800, -50, 100, 100);
+        Assert.False(tinyDuringTelegraph.Intersects(farPlayer));
+        Assert.True(cullRect.Intersects(farPlayer));
+    }
+
+    [Fact]
+    public void Laser_VisualCullRect_MatchesWorldRect_OnceFiring()
+    {
+        var projectile = new EnemyProjectile(0, 0, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 2000)
+        {
+            TelegraphDuration = 0f,
+        };
+
+        Assert.Equal(projectile.WorldRect(), projectile.VisualCullRect());
+    }
+
+    [Fact]
     public void Laser_LifetimeAndWallCollisionCannotBeOptedOutOf()
     {
         var projectile = new EnemyProjectile(

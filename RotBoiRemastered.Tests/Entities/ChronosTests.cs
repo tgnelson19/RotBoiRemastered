@@ -404,6 +404,51 @@ public class ChronosTests
         Assert.NotEmpty(threats);
     }
 
+    [Fact]
+    public void ParallaxDeclaresARotatingClockHandSweep()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Chronos(1000, 1000, battleground, new Random(11));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(5);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 3 &&
+             !context.ProjectileSink.Any(shot => shot.Owner?.Contains("chronos_sweep_parallax") == true); tick++)
+            boss.Update(context);
+
+        var sweep = Assert.Single(context.ProjectileSink,
+            shot => shot.Owner?.Contains("chronos_sweep_parallax") == true);
+        Assert.Equal("laser", sweep.Path);
+        Assert.NotEqual(0f, sweep.AngularSpeed);
+        Assert.True(sweep.TelegraphDuration >= 1.5f);
+    }
+
+    [Fact]
+    public void KingsAttritionEventuallyDeclaresAFastNarrowClockHandSweep()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Chronos(1000, 1000, battleground, new Random(13));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(7);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 12 &&
+             !context.ProjectileSink.Any(shot => shot.Owner?.Contains("chronos_sweep_attrition") == true); tick++)
+        {
+            boss.Update(context);
+            foreach (var projectile in context.ProjectileSink)
+                projectile.Update(battleground, casualMode: false);
+            context.ProjectileSink.RemoveAll(projectile => projectile.RemFlag);
+        }
+
+        var sweep = Assert.Single(context.ProjectileSink,
+            shot => shot.Owner?.Contains("chronos_sweep_attrition") == true);
+        Assert.Equal("laser", sweep.Path);
+        Assert.True(sweep.Damage >= 900);
+        Assert.NotEqual(0f, sweep.AngularSpeed);
+    }
+
     private static float NormalizeAngle(float angle)
     {
         while (angle > MathF.PI)

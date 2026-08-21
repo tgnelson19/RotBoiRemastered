@@ -63,6 +63,7 @@ public enum AphantasiaSurvivalKind
     SecondEclipse,
     GrandChoice,
     EssenceFinale,
+    VoidEclipse,
     VoidFinale,
 }
 
@@ -125,15 +126,25 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const int BaseMiniHealth = 54_690;
     public const int EmpoweredMiniHealth = 175_515;
     public const float MiniPathedRadiusRatio = .76f;
-    public const int CompactPathedPatternWeight = 2;
-    public const int ExpandedPathedPatternWeight = 3;
     public const double SubphaseDuration = 40.0;
     public const double SubphaseDeclarationDuration = .9;
     public const double SequenceTransitionDuration = .55;
     public const double DamageWindowDuration = 5.0;
-    public const double EarlySurvivalDuration = 30.0;
+    public const double EarlySurvivalDuration = 20.0;
     public const double PhaseThreeSurvivalDuration = 30.0;
-    public const double PhaseFourFinaleDuration = 30.0;
+    public const double PhaseFourSurvivalDuration = 30.0;
+    public const double PhaseFourFinaleDuration = 45.0;
+    /// <summary>
+    /// A single hit that deals at least this fraction of the active bar's
+    /// max HP -- 1/2 for the phase 1-2 shared bar, 1/4 for phases 3 and 4 --
+    /// shields the boss and holds the fight open for
+    /// <see cref="DamageCapInvincibilityDuration"/> seconds before the gate
+    /// it would have triggered actually fires.
+    /// </summary>
+    public const double DamageCapSharedPhaseFraction = .5;
+    public const double DamageCapSoloPhaseFraction = .25;
+    public const double DamageCapInvincibilityDuration = 10.0;
+    public const double VoidVortexGrowDuration = 6.0;
     public const double TesseractTransitionDuration = 5.0;
     public const int ProjectileCapacityMultiplier = 5;
     public const int ActiveThreatSoftCap = 320 * ProjectileCapacityMultiplier;
@@ -145,6 +156,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double PhaseHandoffDuration = 7.0;
     public const double CombatPhraseDuration = 6.0;
     public const double CombatPhraseBreathDuration = .8;
+    public const int ArenaWallPanels = 28;
+    public const float ArenaWallHeight = 30f;
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseOnePatterns =
     [
@@ -192,6 +205,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         ["RADIANT LANES", "DARK CURLS", "DIVIDED HORIZON", "CHOOSE THE SURVIVOR"];
     private static readonly IReadOnlyList<string> EssenceFinaleStages =
         ["PRISM BLOOM", "FOLDING VERTICAL", "FOLDING HORIZONTAL", "DANCING LATTICE", "TESSERACT CONVERGENCE"];
+    private static readonly IReadOnlyList<string> VoidEclipseStages =
+        ["PORTAL EQUINOX", "DRIFTING LATTICE", "FRACTURED CONSTELLATION", "VOID CONVERGENCE"];
     private static readonly IReadOnlyList<string> VoidFinaleStages =
         ["PORTAL CONSTELLATION", "NESTED VOID CLOCK", "PANE PROCESSION", "FOLDING PORTAL LATTICE", "PORTAL WAKE", "COLLAPSING TESSERACT"];
 
@@ -208,12 +223,25 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3],
     ];
 
+    /// <summary>Cube-local outward normal for each entry in <see cref="CubeFaces"/>, same order.</summary>
+    private static readonly Vector3[] CubeFaceNormals =
+    [
+        new(0, 0, -1), new(0, 0, 1), new(0, -1, 0),
+        new(0, 1, 0), new(-1, 0, 0), new(1, 0, 0),
+    ];
+
+    /// <summary>Fixed key light used to shade cube faces -- upper-left and slightly toward camera.</summary>
+    private static readonly Vector3 CubeLightDirection = Vector3.Normalize(new Vector3(-.35f, -.55f, .75f));
+
     private readonly Random _rng;
     private readonly List<int> _patternBag = [];
     private readonly List<EnemyProjectile> _volleyScratch = new(64);
     private readonly (string Part, Rectangle Rect)[] _worldHitboxes = new (string, Rectangle)[3];
     private readonly (string Part, Rectangle Rect)[] _screenHitboxes = new (string, Rectangle)[3];
     private readonly Vector2[] _arenaMask = new Vector2[96];
+    private readonly Vector2[] _arenaWallGround = new Vector2[ArenaWallPanels + 1];
+    private readonly Vector2[] _arenaWallCap = new Vector2[ArenaWallPanels + 1];
+    private readonly BiomePalette _wallPalette;
     private int _patternIndex = -1;
     private double _subphaseRemaining;
     private double _damageWindowRemaining;
@@ -221,6 +249,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private double _attackRemaining;
     private double _perimeterPressureRemaining = .8;
     private double _stateElapsed;
+    private float _facingYaw;
     private double _visualTime;
     private double _transitionRemaining;
     private double _deathRemaining;
@@ -232,6 +261,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private bool _firstSurvivalDone;
     private bool _secondSurvivalDone;
     private bool _phaseThreeChoiceDone;
+    private bool _phaseFourSurvivalDone;
+    private double _burstShieldRemaining;
+    private Action? _pendingGate;
+    private bool _pendingGateFloorOne;
     private bool _healthScaleCaptured;
     private int _barMaxHp;
     private bool _displayZeroHealth;
@@ -244,6 +277,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private bool _phraseWasBreathing;
     private double _phaseHandoffRemaining;
     private int _survivalGridVolleyCount;
+    private bool _voidVortexActive;
+    private float _voidVortexProgress;
 
     public BossPresentationProfile PresentationProfile { get; } =
         BossPresentationProfile.For(BossMotionTheme.Phantasia, BossVisualTier.Finale);
@@ -287,7 +322,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     };
     public bool DamageWindowActive => _damageWindowRemaining > 0;
     public bool BossDamageable => EncounterState == AphantasiaEncounterState.Combat
-        && EntranceRemaining <= 0
+        && EntranceRemaining <= 0 && !DamageCapShieldActive
         && (Phase > 2 || !Light.Alive && !Dark.Alive && DamageWindowActive);
     public double DamageWindowRemaining => _damageWindowRemaining;
     public double SubphaseRemaining => _subphaseRemaining;
@@ -308,6 +343,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             return CurrentPattern.Label;
         }
     }
+    public bool DamageCapShieldActive => _burstShieldRemaining > 0;
+    public double DamageCapShieldRemaining => _burstShieldRemaining;
     public string ObjectiveText => EncounterState switch
     {
         AphantasiaEncounterState.Entrance => "THE VOID AWAKENS",
@@ -315,6 +352,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         AphantasiaEncounterState.Dying => "THE VOID COLLAPSES",
         AphantasiaEncounterState.MiniExecution =>
             $"DESTROY {(Light.Alive ? Light.Name : Dark.Name)}",
+        _ when DamageCapShieldActive => $"CORE SHIELDED // {DamageCapShieldRemaining:0.0}s",
         AphantasiaEncounterState.Finale => $"SURVIVE // {SurvivalRemaining:0.0}s",
         AphantasiaEncounterState.Survival when SurvivalKind == AphantasiaSurvivalKind.GrandChoice =>
             SurvivalRemaining > 0 ? $"DESTROY ONE // {SurvivalRemaining:0.0}s" : "CHOOSE NOW",
@@ -351,22 +389,20 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     public static int PatternCountForPhase(int phase) => PatternsForPhase(phase).Count;
 
-    public static int PatternSelectionCycleCount(int phase)
+    /// <summary>
+    /// One full shuffle cycle draws every subphase in the phase's pool
+    /// exactly once, so this is just the pool size -- kept as its own
+    /// method since callers treat it as "how many draws until the set is
+    /// guaranteed exhausted" rather than reaching for <c>.Count</c> directly.
+    /// </summary>
+    public static int PatternSelectionCycleCount(int phase) => phase switch
     {
-        IReadOnlyList<AphantasiaPattern> patterns = phase switch
-        {
-            1 => PhaseOnePatterns,
-            2 => PhaseTwoPatterns,
-            3 => PhaseThreePatterns,
-            4 => PhaseFourPatterns,
-            _ => throw new ArgumentOutOfRangeException(nameof(phase)),
-        };
-        int pathedWeight = patterns.Count <= 3
-            ? CompactPathedPatternWeight
-            : ExpandedPathedPatternWeight;
-        return patterns.Sum(pattern => pattern.Movement == AphantasiaMovementMode.Pathed
-            ? pathedWeight : 1);
-    }
+        1 => PhaseOnePatterns.Count,
+        2 => PhaseTwoPatterns.Count,
+        3 => PhaseThreePatterns.Count,
+        4 => PhaseFourPatterns.Count,
+        _ => throw new ArgumentOutOfRangeException(nameof(phase)),
+    };
 
     public static IReadOnlyList<AphantasiaPatternDefinition> PatternsForPhase(int phase)
     {
@@ -408,6 +444,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             battleground.Height * Simulation.TileSize / 2f);
         ArenaRadius = BossArenaFactory.DefinitionFor("aphantasia").PlayableRadiusTiles
             * Simulation.TileSize;
+        int wallBiome = battleground.BiomeForTile(
+            (int)(ArenaCenter.X / Simulation.TileSize),
+            (int)(ArenaCenter.Y / Simulation.TileSize));
+        _wallPalette = battleground.Palettes[
+            Math.Clamp(wallBiome, 0, battleground.Palettes.Count - 1)];
         CapturedNoHealing = noHealing;
         CapturedNoExtract = noExtract;
         PhaseFourEligible = noHealing && noExtract;
@@ -465,6 +506,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         double dt = Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         _visualTime += dt;
         _stateElapsed += dt;
+
+        // Grows independently of encounter state so the reveal keeps
+        // advancing through the finale's phase handoff and the death
+        // collapse instead of freezing whenever those pause other timers.
+        if (_voidVortexActive && _voidVortexProgress < 1f)
+        {
+            _voidVortexProgress = Math.Clamp(
+                _voidVortexProgress + (float)(dt / VoidVortexGrowDuration), 0f, 1f);
+        }
 
         if (EncounterState == AphantasiaEncounterState.Entrance)
         {
@@ -528,6 +578,20 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void UpdateCombat(EnemyUpdateContext context, double dt)
     {
+        if (_burstShieldRemaining > 0)
+        {
+            _burstShieldRemaining = Math.Max(0, _burstShieldRemaining - dt);
+            if (_burstShieldRemaining <= 0 && _pendingGate is not null)
+            {
+                Action pending = _pendingGate;
+                _pendingGate = null;
+                if (_pendingGateFloorOne)
+                    _displayZeroHealth = true;
+                pending();
+                BeginPhaseHandoff();
+                return;
+            }
+        }
         _subphaseCombatElapsed += dt;
         _subphaseRemaining -= dt;
         if (_damageWindowOpened)
@@ -648,7 +712,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             survivor.Aggressive = true;
             _phaseThreeChoiceDone = true;
         }
-        else
+        else if (completed != AphantasiaSurvivalKind.VoidEclipse)
         {
             ReviveMiniPair();
         }
@@ -755,6 +819,25 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             if (offset.LengthSquared() > limit * limit)
                 offset = Vector2.Normalize(offset) * limit;
             target = ArenaCenter + offset;
+        }
+
+        // Turn the body to face where it's headed -- straight at the player
+        // while chasing, along its current path while pathing -- smoothed
+        // toward the shortest way round rather than snapping. Standing
+        // patterns, and every non-combat state, leave this alone and keep
+        // the plain idle spin DrawBossBody already had.
+        if (mode is AphantasiaMovementMode.Chase or AphantasiaMovementMode.Pathed)
+        {
+            Vector2 aim = mode == AphantasiaMovementMode.Chase
+                ? new Vector2(context.PlayerWorldX, context.PlayerWorldY) - current
+                : target - current;
+            if (aim.LengthSquared() > 1f)
+            {
+                float desiredYaw = MathF.Atan2(aim.Y, aim.X);
+                float turnDelta = MathF.IEEERemainder(desiredYaw - _facingYaw, MathF.Tau);
+                float turnBlend = 1f - MathF.Exp(-3.2f * (float)dt);
+                _facingYaw += turnDelta * turnBlend;
+            }
         }
 
         float rate = mode == AphantasiaMovementMode.Chase ? 1.35f : .82f;
@@ -1085,11 +1168,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 Damage * .78f, Simulation.TileSize * .28f,
                 travelRange: ArenaRadius * 1.95f,
                 color: side < 0 ? Light.Accent : Dark.Accent,
-                shape: "diamond", path: "laser", lifetime: 2.6f,
+                // Lifetime grows by the same amount as the telegraph below,
+                // so the extra warning is pure warning -- the beam still
+                // burns for its original ~1.6s once it actually fires.
+                shape: "diamond", path: "laser", lifetime: 3.1f,
                 angularSpeed: side * .09f,
                 owner: $"aphantasia_laser_{(side < 0 ? "light" : "dark")}")
             {
-            TelegraphDuration = 1f,
+                TelegraphDuration = 1.5f,
             };
             sink.Add(laser);
         }
@@ -1141,10 +1227,13 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                     Simulation.TileSize * .25f,
                     travelRange: halfChord * 1.92f,
                     color: Rainbow(laneRatio + (float)_visualTime * .05f),
-                    shape: "diamond", path: "laser", lifetime: 2.8f,
+                    // Lifetime grows by the same amount as the telegraph
+                    // below, so the extra warning is pure warning -- the beam
+                    // still burns for its original ~1.65s once it fires.
+                    shape: "diamond", path: "laser", lifetime: 3.15f,
                     owner: $"aphantasia_edge_grid_{orientation}")
                 {
-                    TelegraphDuration = 1.15f,
+                    TelegraphDuration = 1.5f,
                     OriginTelegraphDuration = .45f,
                 };
                 sink.Add(laser);
@@ -1316,12 +1405,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         switch (stage)
         {
             case 0:
-                for (int index = 0; index < 5; index++)
-                    FirePortalSeed(sink, center, spin + index * MathF.Tau / 5f, .48f, "constellation");
+                // 5 -> 6 seeds: closes the widest gap in the constellation
+                // fold, which used to leave a walkable wedge between seeds.
+                for (int index = 0; index < 6; index++)
+                    FirePortalSeed(sink, center, spin + index * MathF.Tau / 6f, .48f, "constellation");
                 _attackRemaining = 1.4;
                 break;
             case 1:
-                FireOrderedRing(sink, center, 10, spin, 1.76f, .2f,
+                FireOrderedRing(sink, center, 12, spin, 1.76f, .2f,
                     "void_clock_needles", sineEvery: 0);
                 FireVoidAnchor(sink, center, -spin);
                 if ((_regularVolleyCount & 1) == 0)
@@ -1342,13 +1433,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                     AngleTo(center, new Vector2(context.PlayerWorldX, context.PlayerWorldY)),
                     .62f, "portal_wake");
                 FireAimedRibbon(sink, center, new Vector2(context.PlayerWorldX, context.PlayerWorldY),
-                    5, .86f, "void_pursuit");
+                    6, .86f, "void_pursuit");
                 _attackRemaining = .62;
                 break;
             default:
-                for (int index = 0; index < 3; index++)
-                    FirePortalSeed(sink, center, spin + index * MathF.Tau / 3f, .7f, "tesseract_hunt");
-                FireRing(sink, center, 9, -spin * 2f, 1.42f, .24f, "collapse_ring", true);
+                // 3 -> 4 seeds and 9 -> 11 ring shots: the collapsing-tesseract
+                // finale stage was the easiest one to find a gap in.
+                for (int index = 0; index < 4; index++)
+                    FirePortalSeed(sink, center, spin + index * MathF.Tau / 4f, .7f, "tesseract_hunt");
+                FireRing(sink, center, 11, -spin * 2f, 1.42f, .24f, "collapse_ring", true);
                 _attackRemaining = .7;
                 break;
         }
@@ -1370,6 +1463,12 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 break;
             case AphantasiaSurvivalKind.GrandChoice:
                 FireGrandChoiceStage(sink, elapsed, player);
+                break;
+            case AphantasiaSurvivalKind.VoidEclipse:
+                // Reuses the void finale's own attack pool -- same "typical
+                // fun stuff" repertoire, just as a mid-phase-4 checkpoint
+                // rather than the closing spectacle.
+                FireVoidStage(context, sink, SequenceStage);
                 break;
         }
         _regularVolleyCount++;
@@ -1875,13 +1974,16 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void FireEdgePortals(List<EnemyProjectile> sink, bool vertical, string owner)
     {
-        for (int index = -2; index <= 2; index++)
+        // -3..3 (7 lanes, tightened spacing) instead of -2..2 (5 lanes) --
+        // the wider lane gaps used to leave a walkable corridor along the
+        // edge before each portal's split caught up to it.
+        for (int index = -3; index <= 3; index++)
         {
             Vector2 origin = vertical
-                ? ArenaCenter + new Vector2(index * ArenaRadius * .28f, -ArenaRadius * .86f)
-                : ArenaCenter + new Vector2(-ArenaRadius * .86f, index * ArenaRadius * .28f);
+                ? ArenaCenter + new Vector2(index * ArenaRadius * .2f, -ArenaRadius * .86f)
+                : ArenaCenter + new Vector2(-ArenaRadius * .86f, index * ArenaRadius * .2f);
             float direction = vertical ? MathF.PI / 2f : 0;
-            FirePortalSeed(sink, origin, direction, .44f + (index + 2) * .035f, owner);
+            FirePortalSeed(sink, origin, direction, .44f + (index + 3) * .025f, owner);
         }
     }
 
@@ -2041,6 +2143,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             AphantasiaSurvivalKind.SecondEclipse => SecondEclipseStages,
             AphantasiaSurvivalKind.GrandChoice => GrandChoiceStages,
             AphantasiaSurvivalKind.EssenceFinale => EssenceFinaleStages,
+            AphantasiaSurvivalKind.VoidEclipse => VoidEclipseStages,
             AphantasiaSurvivalKind.VoidFinale => VoidFinaleStages,
             _ => Array.Empty<string>(),
         };
@@ -2085,22 +2188,20 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             BeginPhaseHandoff();
     }
 
+    /// <summary>
+    /// Draws every subphase in the pool exactly once, in a random order
+    /// that never repeats the subphase that was just played (including the
+    /// one that ended the previous cycle, via <paramref name="pool"/>'s
+    /// current <c>_patternIndex</c> passed through as the "previous" seed).
+    /// </summary>
     private void RefillPatternBag(IReadOnlyList<AphantasiaPattern> pool)
     {
         _patternBag.Clear();
-        int pathedWeight = pool.Count <= 3
-            ? CompactPathedPatternWeight
-            : ExpandedPathedPatternWeight;
-        var weighted = new List<int>(PatternSelectionCycleCount(Phase));
+        var remaining = new List<int>(pool.Count);
         for (int index = 0; index < pool.Count; index++)
-        {
-            int weight = pool[index].Movement == AphantasiaMovementMode.Pathed
-                ? pathedWeight : 1;
-            for (int copy = 0; copy < weight; copy++)
-                weighted.Add(index);
-        }
-        if (!TryBuildPatternOrder(weighted, _patternIndex, _patternBag))
-            throw new InvalidOperationException("Unable to arrange Aphantasia's weighted pattern cycle.");
+            remaining.Add(index);
+        if (!TryBuildPatternOrder(remaining, _patternIndex, _patternBag))
+            throw new InvalidOperationException("Unable to arrange Aphantasia's pattern cycle.");
     }
 
     private bool TryBuildPatternOrder(List<int> remaining, int previous,
@@ -2191,6 +2292,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             return new HitResult(false, false, 0, true);
         if (Phase <= 2 && (Light.Alive || Dark.Alive || !DamageWindowActive))
             return new HitResult(false, false, 0, true);
+        if (_burstShieldRemaining > 0)
+            return new HitResult(false, false, 0, true);
 
         int requested = Math.Max(0, (int)Math.Round(amount));
         int floor = 0;
@@ -2233,6 +2336,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             floor = 1;
             gate = BeginMiniExecution;
         }
+        else if (Phase == 4 && !_phaseFourSurvivalDone)
+        {
+            floor = (int)Math.Round(_barMaxHp * .5);
+            gate = () =>
+            {
+                _phaseFourSurvivalDone = true;
+                BeginSurvival(AphantasiaSurvivalKind.VoidEclipse, PhaseFourSurvivalDuration);
+            };
+        }
         else if (Phase == 4)
         {
             floor = 1;
@@ -2244,10 +2356,24 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         int applied = before - Hp;
         if (Hp <= floor && gate is not null)
         {
-            if (floor == 1)
-                _displayZeroHealth = true;
-            gate();
-            BeginPhaseHandoff();
+            // A single hit big enough to blow past the cap for the active
+            // bar shields the boss instead of firing the gate on the spot --
+            // the fight holds open for DamageCapInvincibilityDuration so a
+            // burst nuke can't skip straight through a scripted beat.
+            double capFraction = Phase <= 2 ? DamageCapSharedPhaseFraction : DamageCapSoloPhaseFraction;
+            if (requested >= _barMaxHp * capFraction)
+            {
+                _burstShieldRemaining = DamageCapInvincibilityDuration;
+                _pendingGate = gate;
+                _pendingGateFloorOne = floor == 1;
+            }
+            else
+            {
+                if (floor == 1)
+                    _displayZeroHealth = true;
+                gate();
+                BeginPhaseHandoff();
+            }
         }
         return new HitResult(applied > 0, false, applied, applied <= 0);
     }
@@ -2291,11 +2417,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _sequenceTransitionRemaining = 0;
         _survivalGridVolleyCount = 0;
         _damageWindowRemaining = 0;
-        ReviveMiniPair();
-        Light.Aggressive = true;
-        Dark.Aggressive = true;
-        Light.Vulnerable = false;
-        Dark.Vulnerable = false;
+        if (kind != AphantasiaSurvivalKind.VoidEclipse)
+        {
+            ReviveMiniPair();
+            Light.Aggressive = true;
+            Dark.Aggressive = true;
+            Light.Vulnerable = false;
+            Dark.Vulnerable = false;
+        }
     }
 
     private void BeginTransformation(int targetPhase)
@@ -2334,6 +2463,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _sequenceTransitionRemaining = 0;
         _survivalGridVolleyCount = 0;
         _displayZeroHealth = true;
+        if (kind == AphantasiaSurvivalKind.VoidFinale)
+        {
+            _voidVortexActive = true;
+            _voidVortexProgress = 0f;
+        }
     }
 
     private void BeginDeath()
@@ -2360,9 +2494,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         SurvivalRemaining = 0;
         _displayZeroHealth = false;
         Hp = previousPhase <= 2 && Phase <= 2 ? previousHp : _barMaxHp;
+        _voidVortexActive = false;
+        _voidVortexProgress = 0f;
+        _burstShieldRemaining = 0;
+        _pendingGate = null;
         _firstSurvivalDone = Phase >= 2;
         _secondSurvivalDone = Phase >= 3;
         _phaseThreeChoiceDone = Phase >= 4;
+        _phaseFourSurvivalDone = false;
         if (Phase >= 3)
         {
             ReviveMiniPair();
@@ -2408,7 +2547,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         else if (Phase == 3)
             BeginSurvival(AphantasiaSurvivalKind.GrandChoice, PhaseThreeSurvivalDuration);
         else
-            BeginFinale(AphantasiaSurvivalKind.VoidFinale, PhaseFourFinaleDuration);
+            BeginSurvival(AphantasiaSurvivalKind.VoidEclipse, PhaseFourSurvivalDuration);
     }
 
     public void DebugStartFinale()
@@ -2494,44 +2633,112 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void DrawBossBody(SpriteBatch spriteBatch, Vector2 center)
     {
+        DrawGroundShadow(spriteBatch, center, Size * .5f);
         float pulse = 1f + MathF.Sin((float)_visualTime * 2.1f) * .05f;
+        Color glowColor = TrueLight ? new Color(88, 125, 228)
+            : TrueDark ? new Color(8, 18, 65)
+            : Phase >= 3 ? Rainbow((float)_visualTime * .07f)
+            : PhaseAccent;
+        // Chasing and pathed patterns turn the body to face where it's
+        // headed (see UpdateMovement); standing patterns and every
+        // non-combat state (survival, handoffs, transformation) keep the
+        // plain idle spin. Either way the orbiting decorations always use
+        // `orbitSpin`, never `bodyYaw`, so their orbit and direction never
+        // change with the body's facing.
+        bool facingActive = EncounterState == AphantasiaEncounterState.Combat
+            && CurrentPattern.Movement is AphantasiaMovementMode.Chase or AphantasiaMovementMode.Pathed;
         if (Phase <= 2)
         {
-            float spin = (float)_visualTime * (Phase == 1 ? .82f : .38f);
-            Vector2[] cube = ProjectCube(center, Size * .42f * pulse, spin, spin * .63f);
-            DrawOrbitingCubes(spriteBatch, center, spin, foreground: false);
-            DrawFilledCube(spriteBatch, cube, new Color(3, 14, 58), PhaseAccent);
-            DrawOrbitingCubes(spriteBatch, center, spin, foreground: true);
+            float orbitSpin = (float)_visualTime * (Phase == 1 ? .82f : .38f);
+            float bodyYaw = facingActive ? _facingYaw : orbitSpin;
+            float bodyPitch = bodyYaw * .63f;
+            Vector2[] cube = ProjectCube(center, Size * .42f * pulse, bodyYaw, bodyPitch);
+            DrawOrbitingCubes(spriteBatch, center, orbitSpin, foreground: false);
+            DrawFilledCube(spriteBatch, cube, new Color(3, 14, 58), PhaseAccent, bodyYaw, bodyPitch);
+            DrawOrbitingCubes(spriteBatch, center, orbitSpin, foreground: true);
+            if (facingActive)
+                DrawFacingMarker(spriteBatch, center, Size * .42f * pulse, bodyYaw, bodyPitch);
         }
         else if (Phase == 3 || EncounterState == AphantasiaEncounterState.Transforming)
         {
-            float spin = (float)_visualTime * .31f;
-            Vector2[] outer = ProjectCube(center, Size * .62f * pulse, spin, spin * .71f);
-            DrawWireCube(spriteBatch, outer, rainbow: true, fill: new Color(1, 1, 5) * .92f);
-            Vector2[] inner = ProjectCube(center, Size * .3f, -spin * .72f, spin * .43f);
-            DrawFilledCube(spriteBatch, inner, Rainbow(spin * .08f) * .82f, UiTheme.Cream);
+            float orbitSpin = (float)_visualTime * .31f;
+            float bodyYaw = facingActive ? _facingYaw : orbitSpin;
+            float outerPitch = bodyYaw * .71f;
+            Vector2[] outer = ProjectCube(center, Size * .62f * pulse, bodyYaw, outerPitch);
+            Color outerFill = new(1, 1, 5, 235);
+            // The inner cube genuinely nests inside the shell: the shell's
+            // far side (facing away from camera, toward the floor) draws
+            // first so the solid inner cube covers it, then its near side
+            // (facing the camera) draws last, overlapping the inner cube.
+            DrawWireCubeLayer(spriteBatch, outer, rainbow: true, outerFill,
+                bodyYaw, outerPitch, front: false);
+            Vector2[] inner = ProjectCube(center, Size * .3f, -bodyYaw * .72f, bodyYaw * .43f);
+            DrawFilledCube(spriteBatch, inner, Rainbow(orbitSpin * .08f) * .82f, UiTheme.Cream,
+                -bodyYaw * .72f, bodyYaw * .43f);
+            DrawWireCubeLayer(spriteBatch, outer, rainbow: true, outerFill,
+                bodyYaw, outerPitch, front: true);
+            if (EncounterState == AphantasiaEncounterState.Transforming)
+            {
+                DrawTransformationSweep(spriteBatch, center, Size * .62f * pulse);
+                DrawTransformationTentacles(spriteBatch, center, Size * .62f * pulse);
+            }
+            if (facingActive)
+                DrawFacingMarker(spriteBatch, center, Size * .62f * pulse, bodyYaw, outerPitch);
         }
         else
         {
-            float spin = (float)_visualTime * .46f;
-            DrawSatelliteCube(spriteBatch, center, Size * .34f, Rainbow(spin * .08f));
+            float orbitSpin = (float)_visualTime * .46f;
+            float bodyYaw = facingActive ? _facingYaw : orbitSpin;
+            float bodyPitch = bodyYaw * .6f;
+            // Phase 4 is the true final form -- its border weight is bumped
+            // noticeably past every earlier phase so the core reads heavier
+            // and more final, not just another recolor of the same cube.
+            // It's also real cube geometry now rather than a flat satellite
+            // square, so it can pick up the same chase/pathed facing turn
+            // the earlier phases do.
+            Vector2[] core = ProjectCube(center, Size * .34f, bodyYaw, bodyPitch);
+            DrawFilledCube(spriteBatch, core, Rainbow(orbitSpin * .08f), UiTheme.Cream,
+                bodyYaw, bodyPitch, inkWidth: 8, accentWidth: 4);
+            if (facingActive)
+                DrawFacingMarker(spriteBatch, center, Size * .34f, bodyYaw, bodyPitch);
             for (int index = 0; index < 6; index++)
             {
-                float angle = spin * (index % 2 == 0 ? 1f : -.72f) + index * MathF.Tau / 6f;
-                float radius = Size * (.55f + .16f * MathF.Sin(spin * 1.7f + index));
+                float angle = orbitSpin * (index % 2 == 0 ? 1f : -.72f) + index * MathF.Tau / 6f;
+                float radius = Size * (.55f + .16f * MathF.Sin(orbitSpin * 1.7f + index));
                 Vector2 pane = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
                 float half = Size * (.16f + index % 2 * .04f);
-                Vector2 right = new(MathF.Cos(angle + spin), MathF.Sin(angle + spin));
-                Vector2 down = new(-right.Y, right.X);
-                Color edge = Rainbow(index / 6f + spin * .05f);
-                Primitives2D.FillQuad(spriteBatch,
-                    pane - right * half - down * half * .55f,
-                    pane + right * half - down * half * .55f,
-                    pane + right * half + down * half * .55f,
-                    pane - right * half + down * half * .55f,
-                    new Color(2, 1, 7) * .9f);
-                DrawQuadOutline(spriteBatch, pane, right, down, half, half * .55f, edge, 3);
+                float tumbleYaw = orbitSpin * 1.4f + index * 1.3f;
+                float tumblePitch = orbitSpin * .9f + index * .8f;
+                Color edge = Rainbow(index / 6f + orbitSpin * .05f);
+                Vector2[] paneCube = ProjectCube(pane, half, tumbleYaw, tumblePitch);
+                DrawFilledCube(spriteBatch, paneCube, edge, UiTheme.Cream, tumbleYaw, tumblePitch,
+                    inkWidth: 4, accentWidth: 2);
             }
+        }
+        DrawRimGlow(spriteBatch, center, Size * .5f, Size * .84f, glowColor, hot: Phase >= 3);
+        if (SurvivalKind is AphantasiaSurvivalKind.GrandChoice
+            or AphantasiaSurvivalKind.VoidEclipse or AphantasiaSurvivalKind.VoidFinale)
+            DrawSurvivalTentacles(spriteBatch, center);
+    }
+
+    /// <summary>
+    /// Large flowing tentacles (same technique as the transformation's,
+    /// and as the Aphantasia portal in The Mind) circling the core through
+    /// the Phase 3 and Phase 4 survival sub-phases -- ambient spectacle,
+    /// not a hazard; the actual attacks are the projectiles.
+    /// </summary>
+    private void DrawSurvivalTentacles(SpriteBatch spriteBatch, Vector2 center)
+    {
+        const int spikeCount = 7;
+        float targetLength = ArenaRadius * .2f;
+        float spin = (float)_visualTime * .22f;
+        for (int index = 0; index < spikeCount; index++)
+        {
+            float baseAngle = index * MathF.Tau / spikeCount + spin;
+            float length = targetLength * (.82f + .18f * MathF.Sin((float)_visualTime * 1.1f + index));
+            float width = targetLength * .1f;
+            DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
+                phase: index * 1.9f, colorPhase: index / (float)spikeCount, segments: 40);
         }
     }
 
@@ -2551,8 +2758,19 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 : 0;
             Vector2 at = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle) * .34f)
                 * (Size * .78f + erratic);
-            DrawSatelliteCube(spriteBatch, at, Size * .1f,
-                Rainbow(index / (float)satellites + spin * .04f));
+            // Satellites swinging behind the core sit smaller, dimmer, and
+            // thinner-bordered than the ones swinging in front, so the orbit
+            // reads as passing through the body instead of two flat rings.
+            // Each one tumbles on its own axis (offset by index) rather than
+            // all six spinning in lockstep.
+            float depth = foreground ? 1f : .8f;
+            float alpha = foreground ? 1f : .72f;
+            float tumbleYaw = (float)_visualTime * 1.6f + index * 1.1f;
+            float tumblePitch = (float)_visualTime * 1.1f + index * .7f;
+            Color tint = Rainbow(index / (float)satellites + spin * .04f) * alpha;
+            Vector2[] cube = ProjectCube(at, Size * .1f * depth, tumbleYaw, tumblePitch);
+            DrawFilledCube(spriteBatch, cube, tint, UiTheme.Cream * alpha, tumbleYaw, tumblePitch,
+                inkWidth: foreground ? 4 : 2, accentWidth: foreground ? 2 : 1);
         }
     }
 
@@ -2563,18 +2781,45 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             return;
         Vector2 center = camera.WorldToScreen(mini.Position, playerWorldPosition, screenShake);
         float radius = MiniSize * .45f * (mini.Empowered ? 1.12f : 1f);
-        float spin = (float)_visualTime * (mini.Aggressive ? 1.8f : .72f)
-            * (ReferenceEquals(mini, Light) ? 1 : -1);
-        Vector2 up = new(MathF.Cos(spin - MathF.PI / 2f), MathF.Sin(spin - MathF.PI / 2f));
-        Vector2 right = new(-up.Y, up.X);
-        Primitives2D.FillQuad(spriteBatch,
-            center + up * radius, center + right * radius,
-            center - up * radius, center - right * radius, UiTheme.Ink);
-        Primitives2D.Polyline(spriteBatch,
-            [center + up * radius, center + right * radius, center - up * radius, center - right * radius],
-            true, mini.Accent, mini.Empowered ? 6 : 3);
-        Primitives2D.FillCircle(spriteBatch, center, radius * .2f,
-            mini.Empowered ? UiTheme.Cream : mini.Accent);
+        DrawGroundShadow(spriteBatch, center, radius * 1.35f);
+        float handedness = ReferenceEquals(mini, Light) ? 1f : -1f;
+        float spin = (float)_visualTime * (mini.Aggressive ? 1.8f : .72f) * handedness;
+
+        // The body hovers above its own ground shadow instead of sitting
+        // pinned to it -- every status readout below still anchors to the
+        // true ground point at `center`.
+        float bob = MathF.Sin((float)_visualTime * 2.4f + handedness) * radius * .16f;
+        Vector2 bodyCenter = center + new Vector2(0, -bob - radius * .1f);
+        float pitch = spin * .63f;
+        Vector2[] cube = ProjectCube(bodyCenter, radius, spin, pitch);
+
+        // Light is a solid, opaque shard; Dark is a hollow void-glass shell
+        // -- "solid light vs. hollow shadow" told through construction, not
+        // just color, while both still tumble from the same cube geometry
+        // the boss body itself is built from.
+        if (ReferenceEquals(mini, Light))
+        {
+            DrawFilledCube(spriteBatch, cube, mini.Accent, UiTheme.Cream, spin, pitch,
+                inkWidth: mini.Empowered ? 6 : 4, accentWidth: mini.Empowered ? 3 : 2);
+        }
+        else
+        {
+            DrawWireCube(spriteBatch, cube, rainbow: false, fill: mini.Accent, spin, pitch,
+                edgeColor: Color.Lerp(mini.Accent, UiTheme.Cream, .3f));
+        }
+
+        if (mini.Empowered)
+        {
+            // The survivor now visibly carries a fragment of the twin it
+            // destroyed: a small hollow shell in the absorbed mini's color,
+            // tumbling counter to the outer shell.
+            AphantasiaMini absorbed = ReferenceEquals(mini, Light) ? Dark : Light;
+            float innerYaw = -spin * 1.4f;
+            float innerPitch = -pitch * 1.4f;
+            Vector2[] innerCube = ProjectCube(bodyCenter, radius * .42f, innerYaw, innerPitch);
+            DrawWireCube(spriteBatch, innerCube, rainbow: false, fill: absorbed.Accent,
+                innerYaw, innerPitch, edgeColor: Color.Lerp(absorbed.Accent, UiTheme.Cream, .3f));
+        }
 
         float glyphRadius = radius * 1.28f;
         if (!mini.Vulnerable)
@@ -2613,6 +2858,8 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             Primitives2D.CircleOutline(spriteBatch, center,
                 glyphRadius * (1.28f + empoweredPulse * .12f),
                 Rainbow((float)_visualTime * .1f), 4);
+            DrawRimGlow(spriteBatch, center, glyphRadius * 1.4f, glyphRadius * 2.1f,
+                Rainbow((float)_visualTime * .1f), hot: true);
         }
 
         if (mini.FireCooldown <= .18f)
@@ -2627,6 +2874,18 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         UiTheme.DrawProgress(spriteBatch, bar, mini.HealthRatio, mini.Accent, 8);
     }
 
+    /// <summary>Applies the cube's yaw/pitch rig to one direction, shared by vertex and face-normal transforms.</summary>
+    private static Vector3 RotateYawPitch(Vector3 value, float yaw, float pitch)
+    {
+        float cy = MathF.Cos(yaw), sy = MathF.Sin(yaw);
+        float rx = value.X * cy + value.Z * sy;
+        float rz = -value.X * sy + value.Z * cy;
+        float cp = MathF.Cos(pitch), sp = MathF.Sin(pitch);
+        float ry = value.Y * cp - rz * sp;
+        rz = value.Y * sp + rz * cp;
+        return new Vector3(rx, ry, rz);
+    }
+
     private static Vector2[] ProjectCube(Vector2 center, float extent, float yaw, float pitch)
     {
         var result = new Vector2[8];
@@ -2635,81 +2894,252 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             float x = (index & 1) == 0 ? -1 : 1;
             float y = (index & 2) == 0 ? -1 : 1;
             float z = (index & 4) == 0 ? -1 : 1;
-            float cy = MathF.Cos(yaw), sy = MathF.Sin(yaw);
-            float rx = x * cy + z * sy;
-            float rz = -x * sy + z * cy;
-            float cp = MathF.Cos(pitch), sp = MathF.Sin(pitch);
-            float ry = y * cp - rz * sp;
-            rz = y * sp + rz * cp;
-            float perspective = 1f + rz * .12f;
-            result[index] = center + new Vector2(rx, ry) * extent * perspective;
+            Vector3 rotated = RotateYawPitch(new Vector3(x, y, z), yaw, pitch);
+            float perspective = 1f + rotated.Z * .12f;
+            result[index] = center + new Vector2(rotated.X, rotated.Y) * extent * perspective;
         }
         return result;
     }
 
-    private static void DrawFilledCube(SpriteBatch spriteBatch, Vector2[] points,
-        Color fill, Color edge)
+    private static Vector3 RotatedFaceNormal(int faceIndex, float yaw, float pitch) =>
+        RotateYawPitch(CubeFaceNormals[faceIndex], yaw, pitch);
+
+    /// <summary>Rotated depth of one cube vertex (index encoded the same way as <see cref="ProjectCube"/>). Positive is toward the camera.</summary>
+    private static float CubeVertexDepth(int vertexIndex, float yaw, float pitch)
     {
-        foreach (int[] face in CubeFaces)
+        float x = (vertexIndex & 1) == 0 ? -1 : 1;
+        float y = (vertexIndex & 2) == 0 ? -1 : 1;
+        float z = (vertexIndex & 4) == 0 ? -1 : 1;
+        return RotateYawPitch(new Vector3(x, y, z), yaw, pitch).Z;
+    }
+
+    /// <summary>
+    /// Brightness for one cube face against a fixed upper-left key light, kept
+    /// in a moderate [.5, 1] band on purpose -- unlit faces stay readable
+    /// instead of crushing to black, matching the fight's general preference
+    /// for depth conveyed through color/intensity rather than heavy shadow.
+    /// </summary>
+    private static float FaceLight(int faceIndex, float yaw, float pitch)
+    {
+        float lit = Vector3.Dot(RotatedFaceNormal(faceIndex, yaw, pitch), CubeLightDirection);
+        return .5f + .5f * Math.Clamp(lit, 0f, 1f);
+    }
+
+    private static void DrawFilledCube(SpriteBatch spriteBatch, Vector2[] points,
+        Color fill, Color edge, float yaw, float pitch, int inkWidth = 7, int accentWidth = 3)
+    {
+        for (int index = 0; index < CubeFaces.Length; index++)
+        {
+            int[] face = CubeFaces[index];
+            float light = FaceLight(index, yaw, pitch);
             Primitives2D.FillQuad(spriteBatch, points[face[0]], points[face[1]],
-                points[face[2]], points[face[3]], fill * .72f);
+                points[face[2]], points[face[3]], fill * (light * .8f));
+        }
         foreach (int[] pair in CubeEdges)
         {
-            Primitives2D.Line(spriteBatch, points[pair[0]], points[pair[1]], UiTheme.Ink, 7);
-            Primitives2D.Line(spriteBatch, points[pair[0]], points[pair[1]], edge, 3);
+            Primitives2D.Line(spriteBatch, points[pair[0]], points[pair[1]], UiTheme.Ink, inkWidth);
+            Primitives2D.Line(spriteBatch, points[pair[0]], points[pair[1]], edge, accentWidth);
         }
     }
 
     private static void DrawWireCube(SpriteBatch spriteBatch, Vector2[] points,
-        bool rainbow, Color fill)
+        bool rainbow, Color fill, float yaw, float pitch, Color? edgeColor = null)
     {
-        foreach (int[] face in CubeFaces)
+        DrawWireCubeLayer(spriteBatch, points, rainbow, fill, yaw, pitch, front: false, edgeColor);
+        DrawWireCubeLayer(spriteBatch, points, rainbow, fill, yaw, pitch, front: true, edgeColor);
+    }
+
+    /// <summary>
+    /// Half of a wire cube's faces/edges -- whichever half is on the near
+    /// (front, toward camera) or far (back, toward the floor) side of the
+    /// cube, judged by the same rotated Z depth <see cref="ProjectCube"/>
+    /// already uses for its perspective scale. <see cref="DrawWireCube"/>
+    /// draws both halves back-then-front for its own correct self-occlusion;
+    /// Phase 3's nested cube calls the two halves directly so it can sandwich
+    /// the inner solid cube between them -- the shell's far side sits behind
+    /// the solid, its near side sits in front of it.
+    /// </summary>
+    private static void DrawWireCubeLayer(SpriteBatch spriteBatch, Vector2[] points,
+        bool rainbow, Color fill, float yaw, float pitch, bool front, Color? edgeColor = null)
+    {
+        for (int index = 0; index < CubeFaces.Length; index++)
+        {
+            bool faceFront = RotatedFaceNormal(index, yaw, pitch).Z > 0f;
+            if (faceFront != front)
+                continue;
+            int[] face = CubeFaces[index];
+            float light = FaceLight(index, yaw, pitch);
             Primitives2D.FillQuad(spriteBatch, points[face[0]], points[face[1]],
-                points[face[2]], points[face[3]], fill * .22f);
+                points[face[2]], points[face[3]], fill * (light * .3f));
+        }
         for (int index = 0; index < CubeEdges.Length; index++)
         {
             int[] edge = CubeEdges[index];
-            Color color = rainbow ? Rainbow(index / (float)CubeEdges.Length) : UiTheme.Purple;
+            float depth = (CubeVertexDepth(edge[0], yaw, pitch)
+                + CubeVertexDepth(edge[1], yaw, pitch)) * .5f;
+            if ((depth > 0f) != front)
+                continue;
+            Color color = rainbow ? Rainbow(index / (float)CubeEdges.Length) : edgeColor ?? UiTheme.Purple;
             Primitives2D.Line(spriteBatch, points[edge[0]], points[edge[1]], UiTheme.Ink, 8);
             Primitives2D.Line(spriteBatch, points[edge[0]], points[edge[1]], color, 3);
         }
     }
 
-    private static void DrawSatelliteCube(SpriteBatch spriteBatch, Vector2 center,
-        float extent, Color color)
+    /// <summary>
+    /// A small bright point marking the cube's local "front" (the +Z face's
+    /// outward normal), projected the same way <see cref="ProjectCube"/>
+    /// projects vertices. Only drawn while <c>facingActive</c>, so it swings
+    /// to track the player during Chase and the travel direction during
+    /// Pathed -- a concrete tell for the facing turn beyond the subtler
+    /// lighting shift <see cref="FaceLight"/> already gives it.
+    /// </summary>
+    private void DrawFacingMarker(SpriteBatch spriteBatch, Vector2 center,
+        float extent, float yaw, float pitch)
     {
-        var rect = CenteredRect(center, extent * 2);
-        Primitives2D.FillRect(spriteBatch, rect, UiTheme.Ink);
-        var inner = rect;
-        inner.Inflate(-3, -3);
-        Primitives2D.FillRect(spriteBatch, inner, color);
-        Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, 1);
+        Vector3 rotatedFront = RotateYawPitch(new Vector3(0, 0, 1), yaw, pitch);
+        float perspective = 1f + rotatedFront.Z * .12f;
+        Vector2 tip = center + new Vector2(rotatedFront.X, rotatedFront.Y)
+            * extent * perspective * 1.22f;
+        float pulse = .7f + .3f * MathF.Sin((float)_visualTime * 8f);
+        float dotRadius = Math.Max(3f, extent * .09f) * pulse;
+        Primitives2D.FillCircle(spriteBatch, tip + new Vector2(2, 3), dotRadius, UiTheme.Shadow);
+        Primitives2D.FillCircle(spriteBatch, tip, dotRadius, UiTheme.Cream);
+        Primitives2D.CircleOutline(spriteBatch, tip, Math.Max(4f, extent * .13f), UiTheme.Ink, 2);
     }
 
-    private static void DrawQuadOutline(SpriteBatch spriteBatch, Vector2 center,
-        Vector2 right, Vector2 down, float halfWidth, float halfHeight,
-        Color color, int width)
+    /// <summary>
+    /// Soft ground-contact shadow: a flattened dark ellipse beneath an
+    /// entity, offset down like every other shadow in the game (Player,
+    /// ProjectileVisuals, the laser origin telegraph). Kept translucent
+    /// rather than solid black so it reads as depth, not a hole in the floor.
+    /// </summary>
+    private static void DrawGroundShadow(SpriteBatch spriteBatch, Vector2 center,
+        float radius, float alpha = 1f)
     {
-        Vector2[] points =
-        [
-            center - right * halfWidth - down * halfHeight,
-            center + right * halfWidth - down * halfHeight,
-            center + right * halfWidth + down * halfHeight,
-            center - right * halfWidth + down * halfHeight,
-        ];
-        Primitives2D.Polyline(spriteBatch, points, true, color, width);
+        var rect = new Rectangle(
+            (int)(center.X - radius + radius * .05f),
+            (int)(center.Y - radius * .38f + radius * .16f),
+            (int)(radius * 2f),
+            (int)(radius * .76f));
+        Primitives2D.FillEllipse(spriteBatch, rect, UiTheme.Shadow * (.55f * alpha));
+    }
+
+    /// <summary>
+    /// A soft outward glow -- a handful of widening, fading ring outlines --
+    /// used to sell the boss core and empowered minis as light sources
+    /// against the darkened arena, rather than flat cutouts. Rainbow is
+    /// reserved for this fight's highest-stakes moments (Phase 3+, empowered
+    /// minis), so <paramref name="hot"/> gives those a wider, brighter bloom
+    /// than the plain phase-accent glow -- color intensity standing in for
+    /// urgency rather than more geometry or darker shading.
+    /// </summary>
+    private static void DrawRimGlow(SpriteBatch spriteBatch, Vector2 center,
+        float innerRadius, float outerRadius, Color color, bool hot = false)
+    {
+        int rings = hot ? 6 : 4;
+        float reach = hot ? innerRadius + (outerRadius - innerRadius) * 1.2f : outerRadius;
+        float alphaScale = hot ? .38f : .3f;
+        for (int index = 0; index < rings; index++)
+        {
+            float t = (index + 1) / (float)rings;
+            float radius = MathF.Sin(t * MathF.PI / 2f) * (reach - innerRadius) + innerRadius;
+            float alpha = (1f - t) * alphaScale;
+            Primitives2D.CircleOutline(spriteBatch, center, radius, color * alpha,
+                Math.Max(2, (int)((reach - innerRadius) * .16f)), 32);
+        }
+    }
+
+    /// <summary>
+    /// A single bright point sweeping one and a half laps around the cube
+    /// over the Phase 3 -> 4 transformation, trailing a short rainbow arc.
+    /// Purely decorative -- it sells "becoming" as the tesseract cube swap
+    /// happens, rather than the swap just snapping between two states.
+    /// </summary>
+    private void DrawTransformationSweep(SpriteBatch spriteBatch, Vector2 center, float extent)
+    {
+        float progress = 1f - (float)(_transitionRemaining / TesseractTransitionDuration);
+        float sweepAngle = progress * MathF.Tau * 1.5f;
+        float radius = extent * 1.35f;
+        Color sweepColor = Rainbow(progress * .6f);
+        Primitives2D.Arc(spriteBatch,
+            new Rectangle((int)(center.X - radius), (int)(center.Y - radius),
+                (int)(radius * 2), (int)(radius * 2)),
+            sweepAngle - .6f, sweepAngle,
+            sweepColor, Math.Max(2, (int)(extent * .05f)), 40);
+        Vector2 head = center + new Vector2(MathF.Cos(sweepAngle), MathF.Sin(sweepAngle)) * radius;
+        Primitives2D.FillCircle(spriteBatch, head, Math.Max(3f, extent * .07f), UiTheme.Cream);
+    }
+
+    /// <summary>
+    /// Large flowing tentacles (see <see cref="DrawTentacleSpikeWithTrail"/>,
+    /// same technique the Aphantasia portal in The Mind uses) blooming out
+    /// from the cube and resolving back to nothing over the transformation,
+    /// rather than staying at full length throughout -- energy crackling as
+    /// the tesseract remakes itself, not a plain hold. Covers both the
+    /// Phase 2 -> 3 and Phase 3 -> 4 transitions, since both share this
+    /// same Transforming encounter state.
+    /// </summary>
+    private void DrawTransformationTentacles(SpriteBatch spriteBatch, Vector2 center, float extent)
+    {
+        float progress = Math.Clamp(
+            1f - (float)(_transitionRemaining / TesseractTransitionDuration), 0f, 1f);
+        float bloom = MathF.Sin(progress * MathF.PI);
+        if (bloom <= .02f)
+            return;
+        const int spikeCount = 6;
+        float targetLength = ArenaRadius * .2f;
+        for (int index = 0; index < spikeCount; index++)
+        {
+            float baseAngle = index * MathF.Tau / spikeCount + (float)_visualTime * .5f;
+            float length = targetLength * bloom;
+            float width = targetLength * .11f;
+            DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
+                phase: index * 2.1f, colorPhase: index / (float)spikeCount + progress * .6f,
+                segments: 40);
+        }
+    }
+
+    /// <summary>
+    /// A tentacle spike with trailing after-image echoes -- darkened,
+    /// fading copies of itself evaluated at slightly earlier moments in
+    /// time, exactly like the Aphantasia portal decoration in The Mind
+    /// (same routine, same technique). Every point on a spike is a pure
+    /// function of time, so "what it looked like 50ms ago" is just this
+    /// same call re-evaluated at time - .05 with some darken and reduced
+    /// alpha -- no history buffer needed. The echo alpha is real
+    /// transparency, not just a darker hue: without it, a handful of fully
+    /// opaque echoes of a fast wiggle interfere into a rigid, ladder-like
+    /// pattern instead of blending into a soft trail (this bit the portal
+    /// version before the fix landed there).
+    /// </summary>
+    private void DrawTentacleSpikeWithTrail(SpriteBatch spriteBatch, Vector2 center,
+        float baseAngle, float length, float width, float phase, float colorPhase,
+        int segments = 22, int echoCount = 6, float echoDelay = .08f)
+    {
+        float time = (float)_visualTime;
+        for (int echo = echoCount; echo >= 1; echo--)
+        {
+            float t = echo / (float)(echoCount + 1);
+            Primitives2D.DrawTentacleSpike(spriteBatch, center, baseAngle, length, width,
+                phase, colorPhase, time - echo * echoDelay, segments,
+                darken: t, alpha: 1f - t * .85f);
+        }
+        Primitives2D.DrawTentacleSpike(spriteBatch, center, baseAngle, length, width,
+            phase, colorPhase, time, segments);
     }
 
     private void DrawDeath(SpriteBatch spriteBatch, Vector2 center)
     {
         float progress = 1f - (float)(_deathRemaining / 4.5);
-        for (int index = 0; index < 12; index++)
+        const int spikeCount = 10;
+        for (int index = 0; index < spikeCount; index++)
         {
-            float angle = index * MathF.Tau / 12f + progress * 3.2f;
-            Vector2 end = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
-                * ArenaRadius * (.18f + progress * .75f);
-            Primitives2D.Line(spriteBatch, center, end, UiTheme.Ink, 10);
-            Primitives2D.Line(spriteBatch, center, end, Rainbow(index / 12f + progress), 3);
+            float baseAngle = index * MathF.Tau / spikeCount + progress * 3.2f;
+            float length = ArenaRadius * (.18f + progress * .82f);
+            float width = Size * (.1f + progress * .06f);
+            DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
+                phase: index * 1.7f, colorPhase: index / (float)spikeCount + progress,
+                segments: 40);
         }
         for (int ring = 0; ring < 6; ring++)
             Primitives2D.CircleOutline(spriteBatch, center,
@@ -2728,29 +3158,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 * (ArenaRadius + 8);
         }
         Primitives2D.DrawOutsideArena(spriteBatch, _arenaMask, logicalViewport);
+        DrawDistantFragments(spriteBatch, center);
+        DrawArenaWall(spriteBatch, center);
+        DrawFloorPaneling(spriteBatch, center, PresentationSurvivalActive);
 
-        Color accent = TrueLight ? new Color(88, 125, 228)
-            : TrueDark ? new Color(8, 18, 65)
-            : Phase == 4 ? Rainbow((float)_visualTime * .04f) : PhaseAccent;
-        const int segments = 96;
-        Vector2 previous = default;
-        for (int index = 0; index <= segments; index++)
-        {
-            float angle = index * MathF.Tau / segments;
-            float ocean = MathF.Sin(angle * 7f + (float)_visualTime * .42f) * 8f
-                + MathF.Sin(angle * 13f - (float)_visualTime * .21f) * 4f;
-            Vector2 point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
-                * (ArenaRadius + ocean);
-            if (index > 0)
-            {
-                Primitives2D.Line(spriteBatch, previous, point, UiTheme.Ink, 16);
-                Primitives2D.Line(spriteBatch, previous, point, accent, Phase == 4 ? 5 : 4);
-            }
-            previous = point;
-        }
-        Primitives2D.CircleOutline(spriteBatch, center,
-            ArenaRadius + 18f + MathF.Sin((float)_visualTime * .35f) * 6f,
-            accent * .42f, 3);
+        if (_voidVortexActive)
+            DrawVoidVortex(spriteBatch, center);
+
+        if (Phase >= 3 && PresentationSurvivalActive)
+            DrawSurvivalScreenMood(spriteBatch, logicalViewport);
 
         if (PresentationSurvivalActive && SurvivalDuration > 0)
         {
@@ -2773,6 +3189,238 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                     Rainbow(index / (float)timerSegments + (float)_visualTime * .025f), 10);
             }
         }
+    }
+
+    /// <summary>
+    /// Polar graph-paper paneling over the arena floor -- present the whole
+    /// fight at a barely-there intensity so the room reads as a built
+    /// structure throughout, not something that appears from nothing. A
+    /// survival gate simply intensifies the same rings/spokes into a dull
+    /// rainbow rather than conjuring a new decoration: kept dull and
+    /// low-alpha even then on purpose, since a vibrant rainbow here would
+    /// read as a telegraphed hazard and none of this actually damages the
+    /// player.
+    /// </summary>
+    private void DrawFloorPaneling(SpriteBatch spriteBatch, Vector2 center, bool survivalIntensity)
+    {
+        float ringAlpha = survivalIntensity ? .22f : .07f;
+        float spokeAlpha = survivalIntensity ? .16f : .05f;
+        Color baseTone = _wallPalette.Detail;
+
+        const int rings = 5;
+        for (int ring = 1; ring <= rings; ring++)
+        {
+            float radius = ArenaRadius * (ring / (float)(rings + 1));
+            Color tint = survivalIntensity
+                ? DullRainbow(ring / (float)rings + (float)_visualTime * .015f)
+                : baseTone;
+            Primitives2D.CircleOutline(spriteBatch, center, radius, tint * ringAlpha, 2, 64);
+        }
+        const int spokes = 12;
+        for (int spoke = 0; spoke < spokes; spoke++)
+        {
+            float angle = spoke * MathF.Tau / spokes + (float)_visualTime * .01f;
+            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
+            Color tint = survivalIntensity
+                ? DullRainbow(spoke / (float)spokes + (float)_visualTime * .015f)
+                : baseTone;
+            Primitives2D.Line(spriteBatch, center, center + direction * ArenaRadius,
+                tint * spokeAlpha, 1);
+        }
+    }
+
+    /// <summary>
+    /// Faceted parapet ring: flat panels (not a smooth curve) so the
+    /// boundary reads as built from distinct plates, echoing the boss's
+    /// cube geometry instead of contrasting with it. Extrudes a cap (the
+    /// rim, seen from above) above a ground ring, mirroring the game's
+    /// normal room-wall technique (<see cref="ArenaRenderer.VisibleWallFaces"/>)
+    /// with the same <see cref="_wallPalette"/> colors, which the arena
+    /// previously never touched. Only the near (south-facing) half of the
+    /// ring draws its vertical inner face -- the far half's face falls out
+    /// of view behind its own cap, same as every other wall in the game.
+    /// </summary>
+    private void DrawArenaWall(SpriteBatch spriteBatch, Vector2 center)
+    {
+        Color accent = TrueLight ? new Color(88, 125, 228)
+            : TrueDark ? new Color(8, 18, 65)
+            : Phase == 4 ? Rainbow((float)_visualTime * .04f)
+            : PresentationSurvivalActive ? Color.Lerp(PhaseAccent, DullRainbow((float)_visualTime * .05f), .45f)
+            : PhaseAccent;
+
+        for (int index = 0; index <= ArenaWallPanels; index++)
+        {
+            float angle = index * MathF.Tau / ArenaWallPanels;
+            float ocean = MathF.Sin(angle * 7f + (float)_visualTime * .42f) * 8f
+                + MathF.Sin(angle * 13f - (float)_visualTime * .21f) * 4f;
+            Vector2 ground = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                * (ArenaRadius + ocean);
+            _arenaWallGround[index] = ground;
+            _arenaWallCap[index] = ground - new Vector2(0, ArenaWallHeight);
+        }
+
+        for (int index = 0; index < ArenaWallPanels; index++)
+        {
+            int next = index + 1;
+            float midAngle = (index + .5f) * MathF.Tau / ArenaWallPanels;
+            if (MathF.Sin(midAngle) > .05f)
+            {
+                Primitives2D.FillQuad(spriteBatch,
+                    _arenaWallCap[index], _arenaWallCap[next],
+                    _arenaWallGround[next], _arenaWallGround[index],
+                    _wallPalette.WallFace);
+                Primitives2D.Line(spriteBatch, _arenaWallCap[index], _arenaWallGround[index],
+                    _wallPalette.WallFace * .6f, 2);
+            }
+        }
+
+        // The cap ribbon is visible the whole way around -- near or far,
+        // you're always looking at the rim from inside the room.
+        for (int index = 0; index < ArenaWallPanels; index++)
+        {
+            int next = index + 1;
+            Vector2 start = _arenaWallCap[index];
+            Vector2 end = _arenaWallCap[next];
+            Primitives2D.Line(spriteBatch, start, end, _wallPalette.WallTop, 12);
+            Primitives2D.Line(spriteBatch, start, end, UiTheme.Ink, 6);
+            Primitives2D.Line(spriteBatch, start, end, accent, Phase == 4 ? 5 : 3);
+        }
+
+        Primitives2D.CircleOutline(spriteBatch, center,
+            ArenaRadius + 18f + MathF.Sin((float)_visualTime * .35f) * 6f,
+            accent * .42f, 3);
+    }
+
+    /// <summary>
+    /// A handful of small, slow-drifting wireframe cube fragments in the
+    /// void beyond the arena wall -- debris from the same tesseract,
+    /// adrift in the dark, giving the boundary a sense of scale instead of
+    /// opening onto flat black. Drawn after <see cref="Primitives2D.DrawOutsideArena"/>
+    /// so they show up against that mask instead of being painted over.
+    /// </summary>
+    private void DrawDistantFragments(SpriteBatch spriteBatch, Vector2 center)
+    {
+        foreach ((float angle, float radiusRatio, float size, float spinSeed) in DistantFragments)
+        {
+            float drift = (float)_visualTime * .015f;
+            Vector2 direction = new(MathF.Cos(angle + drift), MathF.Sin(angle + drift));
+            Vector2 at = center + direction * (ArenaRadius * radiusRatio);
+            float yaw = spinSeed + (float)_visualTime * .12f;
+            float pitch = spinSeed * .7f + (float)_visualTime * .08f;
+            DrawDistantFragment(spriteBatch, at, size, yaw, pitch, UiTheme.Purple, .3f);
+        }
+    }
+
+    private static void DrawDistantFragment(SpriteBatch spriteBatch, Vector2 center,
+        float extent, float yaw, float pitch, Color tint, float alpha)
+    {
+        Vector2[] points = ProjectCube(center, extent, yaw, pitch);
+        for (int index = 0; index < CubeFaces.Length; index++)
+        {
+            int[] face = CubeFaces[index];
+            float light = FaceLight(index, yaw, pitch);
+            Primitives2D.FillQuad(spriteBatch, points[face[0]], points[face[1]],
+                points[face[2]], points[face[3]], tint * (light * .5f * alpha));
+        }
+        foreach (int[] edge in CubeEdges)
+            Primitives2D.Line(spriteBatch, points[edge[0]], points[edge[1]], tint * alpha, 1);
+    }
+
+    /// <summary>
+    /// Whole-screen mood for the Phase 3 and Phase 4 survival sub-phases
+    /// (GrandChoice/MiniExecution/EssenceFinale, and VoidFinale). Two
+    /// deliberately gentle layers: a flat, low-alpha dim across the entire
+    /// screen, and a long, soft-edged vignette that leans on a slow rainbow
+    /// wash rather than darkness for its intensity -- there is no hard ring
+    /// anywhere in it, just a wide gradient of thin, faint rings so the
+    /// falloff reads as gradual rather than a sharp cutoff.
+    /// </summary>
+    private void DrawSurvivalScreenMood(SpriteBatch spriteBatch, Rectangle viewport)
+    {
+        Primitives2D.FillRect(spriteBatch, viewport, UiTheme.Scrim * .16f);
+
+        Vector2 center = new(viewport.Center.X, viewport.Center.Y);
+        float outerRadius = MathF.Sqrt(
+            viewport.Width * viewport.Width + viewport.Height * viewport.Height) * .5f;
+        float innerRadius = outerRadius * (Phase >= 4 ? .3f : .42f);
+        float cycleSpeed = Phase >= 4 ? .05f : .03f;
+        float maxAlpha = Phase >= 4 ? .1f : .07f;
+
+        const int rings = 14;
+        for (int ring = 0; ring < rings; ring++)
+        {
+            float t = ring / (float)(rings - 1);
+            float radius = innerRadius + (outerRadius - innerRadius) * t;
+            Color hue = Rainbow((float)_visualTime * cycleSpeed + t * .5f);
+            Color muted = Color.Lerp(hue, UiTheme.Void, .3f);
+            float alpha = t * t * maxAlpha;
+            Primitives2D.CircleOutline(spriteBatch, center, radius, muted * alpha,
+                Math.Max(3, (int)(outerRadius * .1f)), 80);
+        }
+    }
+
+    /// <summary>
+    /// The Phase 4 finale's floor-to-cosmos reveal. A transparent hole opens
+    /// at the arena's center and grows outward over
+    /// <see cref="VoidVortexGrowDuration"/>, replacing the floor within it
+    /// with a static void backdrop, a scattering of star points, and a
+    /// handful of slowly drifting, desaturated nebula blooms. Driven by
+    /// <see cref="_voidVortexProgress"/>, which keeps advancing through the
+    /// phase handoff and the death collapse, so the reveal survives past the
+    /// end of the survival timer rather than snapping shut with it.
+    /// </summary>
+    private void DrawVoidVortex(SpriteBatch spriteBatch, Vector2 center)
+    {
+        if (_voidVortexProgress <= 0f)
+            return;
+        float radius = ArenaRadius * _voidVortexProgress;
+
+        Primitives2D.FillCircle(spriteBatch, center, radius, new Color(6, 5, 14) * .92f);
+
+        foreach (Vector2 offset in VoidStarField)
+        {
+            float starRadiusFraction = offset.Length();
+            if (starRadiusFraction > _voidVortexProgress)
+                continue;
+            Vector2 point = center + offset * ArenaRadius;
+            float twinkle = .5f + .5f * MathF.Sin(
+                (float)_visualTime * 3f + offset.X * 37f + offset.Y * 19f);
+            Primitives2D.FillCircle(spriteBatch, point, 1.3f, Color.White * (.35f + .55f * twinkle));
+        }
+
+        foreach ((Vector2 offset, float blobRadius, Color tint) in VoidNebulae)
+        {
+            if (offset.Length() > _voidVortexProgress + blobRadius)
+                continue;
+            Vector2 drift = new(
+                MathF.Sin((float)_visualTime * .05f + offset.Y * 5f),
+                MathF.Cos((float)_visualTime * .04f + offset.X * 5f));
+            Vector2 point = center + (offset + drift * .015f) * ArenaRadius;
+            Color dusty = Color.Lerp(tint, new Color(18, 15, 28), .7f);
+            Primitives2D.FillCircle(spriteBatch, point, blobRadius * ArenaRadius, dusty * .16f);
+            Primitives2D.FillCircle(spriteBatch, point, blobRadius * ArenaRadius * .55f, dusty * .26f);
+        }
+
+        const int arms = 3;
+        const int armSegments = 26;
+        for (int arm = 0; arm < arms; arm++)
+        {
+            float armOffset = arm * MathF.Tau / arms + (float)_visualTime * .3f;
+            Vector2 previous = center;
+            for (int segment = 1; segment <= armSegments; segment++)
+            {
+                float t = segment / (float)armSegments;
+                float angle = armOffset + t * MathF.Tau * 1.4f;
+                Vector2 point = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                    * (radius * t);
+                Primitives2D.Line(spriteBatch, previous, point,
+                    Rainbow(t + (float)_visualTime * .02f) * (.2f * (1f - t * .4f)), 2);
+                previous = point;
+            }
+        }
+
+        Primitives2D.CircleOutline(spriteBatch, center, radius,
+            new Color(120, 90, 200) * .35f, 2);
     }
 
     private void DrawSubphaseDeclaration(SpriteBatch spriteBatch, Vector2 center)
@@ -2842,12 +3490,77 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         }
     }
 
-    private static Color Rainbow(float phase)
+    private static Color Rainbow(float phase) => Primitives2D.Rainbow(phase);
+
+    /// <summary>
+    /// A darkened, low-saturation cousin of <see cref="Rainbow"/> for
+    /// decorative environment theming that must never be mistaken for a
+    /// telegraphed attack.
+    /// </summary>
+    private static Color DullRainbow(float phase, float alpha = 1f) =>
+        Color.Lerp(new Color(26, 24, 34), Rainbow(phase), .5f) * alpha;
+
+    /// <summary>
+    /// Fixed unit-disc star positions for <see cref="DrawVoidVortex"/>,
+    /// seeded once so the field doesn't reshuffle every frame.
+    /// </summary>
+    private static readonly Vector2[] VoidStarField = BuildVoidStarField(150);
+
+    private static Vector2[] BuildVoidStarField(int count)
     {
-        phase -= MathF.Floor(phase);
-        float r = .5f + .5f * MathF.Sin((phase + 0f) * MathF.Tau);
-        float g = .5f + .5f * MathF.Sin((phase + 1f / 3f) * MathF.Tau);
-        float b = .5f + .5f * MathF.Sin((phase + 2f / 3f) * MathF.Tau);
-        return new Color(r, g, b);
+        var rng = new Random(1337);
+        var stars = new Vector2[count];
+        for (int index = 0; index < count; index++)
+        {
+            float angle = (float)(rng.NextDouble() * MathF.Tau);
+            float radius = MathF.Sqrt((float)rng.NextDouble());
+            stars[index] = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+        }
+        return stars;
+    }
+
+    /// <summary>
+    /// Fixed dusty rainbow nebula blobs (offset, radius, tint) for
+    /// <see cref="DrawVoidVortex"/>, seeded once for the same reason.
+    /// </summary>
+    private static readonly (Vector2 Offset, float Radius, Color Tint)[] VoidNebulae =
+        BuildVoidNebulae();
+
+    private static (Vector2, float, Color)[] BuildVoidNebulae()
+    {
+        var rng = new Random(7331);
+        var nebulae = new (Vector2, float, Color)[6];
+        for (int index = 0; index < nebulae.Length; index++)
+        {
+            float angle = (float)(rng.NextDouble() * MathF.Tau);
+            float radius = .25f + (float)rng.NextDouble() * .55f;
+            Vector2 offset = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+            float blobRadius = .16f + (float)rng.NextDouble() * .14f;
+            nebulae[index] = (offset, blobRadius, Rainbow(index / (float)nebulae.Length));
+        }
+        return nebulae;
+    }
+
+    /// <summary>
+    /// Fixed (angle, radius ratio beyond the wall, size, spin seed) tuples
+    /// for <see cref="DrawDistantFragments"/>, seeded once for the same
+    /// reason as the void star field.
+    /// </summary>
+    private static readonly (float Angle, float RadiusRatio, float Size, float SpinSeed)[] DistantFragments =
+        BuildDistantFragments(9);
+
+    private static (float, float, float, float)[] BuildDistantFragments(int count)
+    {
+        var rng = new Random(4242);
+        var fragments = new (float, float, float, float)[count];
+        for (int index = 0; index < count; index++)
+        {
+            fragments[index] = (
+                (float)(rng.NextDouble() * MathF.Tau),
+                1.15f + (float)rng.NextDouble() * .55f,
+                10f + (float)rng.NextDouble() * 14f,
+                (float)(rng.NextDouble() * MathF.Tau));
+        }
+        return fragments;
     }
 }

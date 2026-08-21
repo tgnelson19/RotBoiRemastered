@@ -447,6 +447,23 @@ public sealed class Chronos : Ishe
         }
     }
 
+    private void ClockHandSweep(List<EnemyProjectile> sink, Vector2 origin, float startDirection,
+        float angularSpeed, float damage, string suffix, float telegraph = 1.6f, float sweepSeconds = 2.2f)
+    {
+        // A literal clock hand: after its telegraph, the beam's direction rotates
+        // continuously (EnemyProjectile's existing laser + angularSpeed support),
+        // giving players a rotating danger zone to route around instead of only
+        // ever dodging a straight, static line.
+        var beam = new EnemyProjectile(origin.X, origin.Y, startDirection, 0f, damage,
+            Size * .1f, travelRange: Simulation.TileSize * 9f, color: PhaseAccent,
+            shape: "laser", path: "laser", lifetime: telegraph + sweepSeconds,
+            angularSpeed: angularSpeed, owner: $"chronos_sweep_{suffix}", ignoreWalls: true)
+        {
+            TelegraphDuration = telegraph,
+        };
+        sink.Add(beam);
+    }
+
     protected override void FirePattern(float playerX, float playerY, List<EnemyProjectile> sink)
     {
         var declaration = new List<EnemyProjectile>(52);
@@ -481,6 +498,8 @@ public sealed class Chronos : Ishe
                 DirectivePair(playerX, playerY, declaration, crossed: PatternRotation % 2 == 0);
                 ScheduleTentacle(.30, PatternRotation * .71f, .76f, 870,
                     "parallax_flail", 1.8f, 7);
+                ClockHandSweep(declaration, center, aimed - 1.75f,
+                    (PatternRotation % 2 == 0 ? 1f : -1f) * .85f, 640, "parallax", 1.6f, 2.6f);
                 scheduleSecondHand = true;
                 break;
             case 6:
@@ -495,7 +514,7 @@ public sealed class Chronos : Ishe
                 break;
             default:
             {
-                int movement = PatternRotation % 4;
+                int movement = PatternRotation % 5;
                 if (movement == 0)
                 {
                     DirectivePair(playerX, playerY, declaration, crossed: true);
@@ -518,6 +537,12 @@ public sealed class Chronos : Ishe
                     for (int index = -1; index <= 1; index++)
                         Tentacle(declaration, aimed + MathF.PI + index * .7f, (index == 0 ? 1 : index) * .62f,
                             920, $"attrition_lash_{index + 1}", 1.55f, 7);
+                    scheduleSecondHand = true;
+                }
+                else if (movement == 4)
+                {
+                    ClockHandSweep(declaration, center, aimed - .55f,
+                        (PatternRotation % 2 == 0 ? 1f : -1f) * 1.35f, 980, "attrition", 1.5f, 1.0f);
                     scheduleSecondHand = true;
                 }
                 else
@@ -603,8 +628,32 @@ public sealed class Chronos : Ishe
         FinishMovementTracking();
     }
 
+    private void DrawSafeRouteTelegraphs(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        // The safe-route mechanic used to be legible only as "the gap in whatever
+        // attack fired" — this draws the actual countdown lane on the arena floor
+        // so standing in it reads as a deliberate choice, not a guess.
+        foreach (var route in _pendingSafeRoutes)
+        {
+            float glow = 1f - Math.Clamp((float)(route.Delay / 2.0), 0f, 1f);
+            if (glow <= 0f)
+                continue;
+            Vector2 left = route.Origin + new Vector2(MathF.Cos(route.Direction - route.HalfWidth),
+                MathF.Sin(route.Direction - route.HalfWidth)) * ArenaRadius;
+            Vector2 right = route.Origin + new Vector2(MathF.Cos(route.Direction + route.HalfWidth),
+                MathF.Sin(route.Direction + route.HalfWidth)) * ArenaRadius;
+            Vector2 originScreen = camera.WorldToScreen(route.Origin, playerWorldPosition, screenShake);
+            Vector2 leftScreen = camera.WorldToScreen(left, playerWorldPosition, screenShake);
+            Vector2 rightScreen = camera.WorldToScreen(right, playerWorldPosition, screenShake);
+            Color laneColor = UiTheme.Cream * (glow * .3f);
+            Primitives2D.Line(spriteBatch, originScreen, leftScreen, laneColor, 2);
+            Primitives2D.Line(spriteBatch, originScreen, rightScreen, laneColor, 2);
+        }
+    }
+
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
+        DrawSafeRouteTelegraphs(spriteBatch, camera, playerWorldPosition, screenShake);
         foreach (var route in _historicalRoutes)
         {
             float fade = (float)(route.Remaining / route.Duration);
@@ -628,20 +677,35 @@ public sealed class Chronos : Ishe
         Color sky = new(103, 197, 231);
         Color ice = new(194, 235, 248);
         float seconds = VisualAgeSeconds;
-        int histories = survival ? 4 : 2;
-        for (int history = histories; history >= 1; history--)
+
+        // The body no longer spins freely: it snaps forward in discrete clock ticks
+        // (a brief eased swing, then a hold) so the boss visibly keeps time rather
+        // than rotating like generic machinery.
+        const float TickInterval = .85f;
+        const float TickAngle = MathF.PI / 3f;
+        float tickIndex = MathF.Floor(seconds / TickInterval);
+        float tickLocalT = (seconds - tickIndex * TickInterval) / TickInterval;
+        float swing = BossAnimation.EaseOutBack(Math.Clamp(tickLocalT / .3f, 0f, 1f));
+        float yaw = MathHelper.Lerp(tickIndex * TickAngle, (tickIndex + 1) * TickAngle, swing);
+        float pitch = .58f + MathF.Sin(seconds * .54f) * .26f;
+        float roll = MathF.Sin(seconds * .39f) * .24f;
+
+        // Afterimage echoes hold each of the body's own recent ticked poses instead
+        // of drifting independently, so the trail reads as "the recent past" rather
+        // than generic motion blur.
+        int echoCount = survival ? 3 : 2;
+        for (int echo = echoCount; echo >= 1; echo--)
         {
-            float phase = BossAnimation.LoopPhase(seconds, 7.2f, history * .17f);
-            float fade = (1f - phase) * (.08f + history * .025f);
-            float offset = Size * (.08f + phase * .42f);
-            Vector2 echo = center + new Vector2(-offset, offset * .34f);
-            float half = Size * (.25f + phase * .12f);
-            Primitives2D.PolygonOutline(spriteBatch, new[]
-            {
-                echo + new Vector2(0, -half), echo + new Vector2(half, 0),
-                echo + new Vector2(0, half), echo + new Vector2(-half, 0),
-            }, sky * fade, Math.Max(1, 3 - history / 2));
+            float echoTickIndex = tickIndex - echo;
+            if (echoTickIndex < 0)
+                continue;
+            float echoYaw = (echoTickIndex + 1) * TickAngle;
+            float echoAlpha = MathHelper.Lerp(.22f, 0f, echo / (float)(echoCount + 1));
+            float echoExtent = Size * .34f * (0.92f - echo * .05f);
+            BossVisuals.RotatingCube3D(spriteBatch, center, echoExtent,
+                sky * echoAlpha, ice * echoAlpha, PhaseAccent * echoAlpha, echoYaw, pitch, roll);
         }
+
         for (int index = 0; index < (FinaleActive ? FinaleMoteCount : AmbientMoteCount); index++)
         {
             float angle = index * 2.399963f + seconds * (index % 2 == 0 ? .36f : -.27f);
@@ -653,9 +717,6 @@ public sealed class Chronos : Ishe
                 moteSize * 2, moteSize * 2), Color.Lerp(sky, UiTheme.Cream, pulse));
         }
 
-        float yaw = seconds * .72f;
-        float pitch = .58f + MathF.Sin(seconds * .54f) * .42f;
-        float roll = MathF.Sin(seconds * .39f) * .24f;
         BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll);
         float sweep = BossAnimation.EaseInOutSine(BossAnimation.LoopPhase(seconds, 3.8f));
         Vector2 sweepStart = center + new Vector2(-Size * .23f, Size * (.16f - sweep * .32f));

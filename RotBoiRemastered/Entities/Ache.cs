@@ -25,6 +25,8 @@ public sealed class CrystalWall
     public double? Hp;
     public double Warning;
     public bool Compression;
+    /// <summary>Purely cosmetic: a brief flash when a neighboring wall breaks, so the remaining walls visibly react rather than just the one that broke.</summary>
+    public double ReactionFlash;
 }
 
 /// <summary>Ported from bossTypes.py's per-instance `cleansingVents` dict literals.</summary>
@@ -186,6 +188,9 @@ public sealed class Ache : Kage
     private int _castsSinceDirectedThreat;
     private readonly List<int> _patternHistory = new();
     private readonly List<ReactiveCounter> _reactiveCounters = new();
+    private float _flinchDirection;
+    private double _flinchRemaining;
+    private bool _overreactionCascadePending;
 
     private readonly record struct ReactiveCounter(double Delay, float Direction, float Damage, string Suffix);
 
@@ -338,6 +343,12 @@ public sealed class Ache : Kage
     {
         double dt = Seconds();
         UpdateReactiveCounters(context.ProjectileSink, dt);
+        _flinchRemaining = Math.Max(0.0, _flinchRemaining - dt);
+        if (_overreactionCascadePending)
+        {
+            FireOverreactionCascade(context.ProjectileSink);
+            _overreactionCascadePending = false;
+        }
         if (!MidpointSurvivalActive)
         {
             base.Update(context);
@@ -431,6 +442,7 @@ public sealed class Ache : Kage
         {
             wall.Remaining = Math.Max(0.0, wall.Remaining - dt);
             wall.Warning = Math.Max(0.0, wall.Warning - dt);
+            wall.ReactionFlash = Math.Max(0.0, wall.ReactionFlash - dt);
             if (wall.Compression && wall.Warning <= 0)
             {
                 float deltaX = center.X - wall.CenterX, deltaY = center.Y - wall.CenterY;
@@ -560,6 +572,10 @@ public sealed class Ache : Kage
             _crystalWalls.RemoveAt(index);
             _consumedCrystalPulse = 1.0;
             NerveBreakProgress++;
+            // The amalgam of chaos reacts as a whole: a broken wall visibly
+            // rattles whatever else is still standing, not just itself.
+            foreach (var remaining in _crystalWalls)
+                remaining.ReactionFlash = .5;
             if (NerveBreakProgress >= NerveBreaksNeeded)
             {
                 NerveBreakProgress = 0;
@@ -569,6 +585,7 @@ public sealed class Ache : Kage
                 StaggerRemaining = StaggerDuration;
                 TransitionCleanupRequested = true;
                 _consumedCrystalPulse = 1.4;
+                _overreactionCascadePending = true;
             }
         }
         return new HitResult(true, false, applied);
@@ -588,6 +605,8 @@ public sealed class Ache : Kage
             return;
         }
 
+        DrawHeatShimmer(spriteBatch, camera, playerWorldPosition, screenShake);
+
         float seconds = VisualAgeSeconds;
         float attackPulse = VisualAttackPulse;
         float survivalSpread = VisualSurvivalActive ? 1.58f : 1f;
@@ -598,6 +617,14 @@ public sealed class Ache : Kage
             BossAnimation.Sine(seconds, 2.15f) * 4.2f
                 + BossAnimation.Sine(seconds, 8.9f) * 3.4f,
             BossAnimation.Sine(seconds, 2.73f, .18f) * 3.8f);
+        if (_flinchRemaining > 0)
+        {
+            // A one-off asymmetric kick away from the flinch direction, not a
+            // continuous wobble: Ache visibly recoils from its own misfire.
+            float flinchT = (float)Math.Clamp(1.0 - _flinchRemaining / .35, 0, 1);
+            float kick = (1f - BossAnimation.EaseOutBack(flinchT, overshoot: 1.6f)) * Size * .1f;
+            jittered += new Vector2(MathF.Cos(_flinchDirection), MathF.Sin(_flinchDirection)) * kick;
+        }
         Color armSignal = Phase is 7 or 8
             ? Color.Lerp(blue, UiTheme.Cream, .48f)
             : blue;
@@ -670,7 +697,7 @@ public sealed class Ache : Kage
                 orange,
                 -arm.Angle * 1.3f,
                 arm.Angle * .73f,
-                seconds * .78f);
+                seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f));
         }
 
         BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
@@ -694,10 +721,40 @@ public sealed class Ache : Kage
                 orange,
                 -arm.Angle * 1.3f,
                 arm.Angle * .73f,
-                seconds * .78f);
+                seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f));
         }
 
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .78f), (int)(Size * .92f), 6));
+    }
+
+    private void DrawHeatShimmer(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        // The jagged arena only carries a shared, generic per-vertex wobble
+        // (PathChaseBoss). This decorative haze layer is Ache's own burning/
+        // tingling identity on top of it -- an approximate ring is plenty for
+        // a heat-mirage effect, no need to reach into the shared boundary's
+        // private per-vertex seed.
+        const int streaks = 22;
+        float seconds = VisualAgeSeconds;
+        for (int index = 0; index < streaks; index++)
+        {
+            float angle = index * MathF.Tau / streaks;
+            Vector2 baseWorld = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ArenaRadius;
+            Vector2 baseScreen = camera.WorldToScreen(baseWorld, playerWorldPosition, screenShake);
+            float pulse = .35f + .35f * BossAnimation.Sine(seconds, 1.6f + index % 5 * .11f, index * .41f);
+            Vector2? previous = null;
+            const int segments = 5;
+            for (int segment = 0; segment <= segments; segment++)
+            {
+                float t = segment / (float)segments;
+                float sway = MathF.Sin(t * MathF.PI * 2.4f + seconds * 3.1f + index * .77f) * 5f * t;
+                Vector2 point = baseScreen + new Vector2(sway, -t * 26f);
+                if (previous.HasValue)
+                    Primitives2D.Line(spriteBatch, previous.Value, point,
+                        new Color(214, 88, 40) * (pulse * (1f - t) * .5f), 2);
+                previous = point;
+            }
+        }
     }
 
     protected override void DrawPersistentTerrain(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -726,6 +783,8 @@ public sealed class Ache : Kage
             double fade = Math.Min(1.0, wall.Remaining * 2);
             bool warning = wall.Warning > 0;
             Color color = warning ? UiTheme.Cream : UiTheme.Lighten(PhaseAccent, wall.Kind == "brittle" ? 48 : (int)(20 * fade));
+            if (wall.ReactionFlash > 0)
+                color = Color.Lerp(color, UiTheme.Cream, (float)(wall.ReactionFlash / .5) * .6f);
             var outer = screenRect;
             outer.Inflate(8, 8);
             Primitives2D.FillRect(spriteBatch, outer, UiTheme.Ink);
@@ -859,14 +918,14 @@ public sealed class Ache : Kage
         {
             float offset = (index - (count - 1) / 2f) * (.3f + (float)Rng.NextDouble() * .18f);
             var mine = Shot(sink, wrong + offset, .38f + (float)Rng.NextDouble() * .2f, MineDamage,
-                scale: .22f + (float)Rng.NextDouble() * .08f, shape: "mine", path: "mine",
+                scale: .22f + (float)Rng.NextDouble() * .08f, shape: "spore", path: "mine",
                 lifetime: 10f + (float)Rng.NextDouble() * 3f, speedDecay: .045f, ownerSuffix: "wrong_way_hazard",
                 affliction: "slow", afflictionDuration: 1.2, afflictionStrength: .1, exposure: .5);
             mine.TelegraphDuration = .9f;
         }
         var splinter = Shot(sink,
             aimed + MathF.PI + (float)(Rng.NextDouble() * .9 - .45),
-            .68f, MineDamage, scale: .19f, shape: "square",
+            .68f, MineDamage, scale: .19f, shape: "spore",
             ownerSuffix: "misfire_splinter");
         splinter.SplitCount = 3;
         splinter.SplitAt = Simulation.TileSize * (3.4f + (float)Rng.NextDouble() * 1.6f);
@@ -899,7 +958,7 @@ public sealed class Ache : Kage
         float size = Simulation.TileSize * (.48f + (float)Rng.NextDouble() * .16f);
         sink.Add(new EnemyProjectile(position.X - size / 2f, position.Y - size / 2f, 0f, 0f,
             damage, size, travelRange: float.PositiveInfinity, color: PhaseAccent,
-            shape: "mine", path: "mine", lifetime: lifetime + (float)Rng.NextDouble() * 2f,
+            shape: "ember", path: "mine", lifetime: lifetime + (float)Rng.NextDouble() * 2f,
             owner: $"ache_chemesthesis_{suffix}", ignoreWalls: true)
         {
             TelegraphDuration = 1.15f + (float)Rng.NextDouble() * .45f,
@@ -990,6 +1049,30 @@ public sealed class Ache : Kage
         return eligible[Rng.Next(eligible.Count)];
     }
 
+    private void FireOverreactionCascade(List<EnemyProjectile> sink)
+    {
+        // The Nerve Break stagger previously only set a flag with no visible
+        // eruption. This gives the "amalgam of pure chaos" a real payoff: a
+        // quick ring of embers erupting outward at the moment it grounds.
+        const int count = 6;
+        var center = Center();
+        for (int index = 0; index < count; index++)
+        {
+            float direction = index * MathF.Tau / count + (float)(Rng.NextDouble() * .3 - .15);
+            Shot(sink, direction, .58f + (float)Rng.NextDouble() * .12f, FieldDamage,
+                scale: .17f, shape: "ember", lifetime: 3.2f,
+                ownerSuffix: "overreaction_cascade");
+        }
+    }
+
+    private void SetFlinch(float direction)
+    {
+        // A real physical spasm tied to Ache's own off-aim mistakes, rather
+        // than only the arms' constant orbit-timing disagreement.
+        _flinchDirection = direction;
+        _flinchRemaining = .35;
+    }
+
     private void QueueReactiveCounter(float aimed)
     {
         int side = Rng.Next(2) == 0 ? -1 : 1;
@@ -1059,6 +1142,7 @@ public sealed class Ache : Kage
         {
             case 0: // Deliberately fires away from the player and leaves slow debris behind.
                 SlowWrongWayBurst(sink, aimed);
+                SetFlinch(aimed + MathF.PI);
                 break;
             case 1: // A reactable prediction: the exact route is harmless for 1.25 seconds.
             {
@@ -1078,6 +1162,7 @@ public sealed class Ache : Kage
                     Bomb(sink, playerX + MathF.Cos(angle) * distance, playerY + MathF.Sin(angle) * distance,
                         BombDamage, "discord_bomb", burstCount: 3, fuseDuration: 2.8f,
                         burstShotDamage: MineDamage);
+                    SetFlinch(angle);
                 }
                 break;
             }

@@ -236,6 +236,32 @@ public sealed class EnemyProjectile
         return new Rectangle((int)WorldX, (int)WorldY, (int)Size, (int)Size);
     }
 
+    /// <summary>
+    /// The area to test for on-screen culling, as opposed to <see cref="WorldRect"/>
+    /// which also doubles as the collision/wall-hit footprint. A laser's telegraph
+    /// already paints its tentacle cluster and range markers across the full
+    /// <see cref="RemainingRange"/> before it fires (see <see cref="DrawLaser"/>),
+    /// but <see cref="WorldRect"/> stays a tiny box at the spawn point until the
+    /// beam actually starts sprouting so telegraph-phase wall-hit checks don't
+    /// fire prematurely. Left as-is, that tiny box is what culling used to test,
+    /// so a laser spawned far from the player -- with its warning sweeping in
+    /// toward them -- got the entire telegraph culled off screen, leaving
+    /// players nothing to react to once it actually fired. This mirrors
+    /// <see cref="WorldRect"/> for every other case.
+    /// </summary>
+    public Rectangle VisualCullRect()
+    {
+        if (Path == "laser" && Age < TelegraphDuration)
+        {
+            float endX = WorldX + MathF.Cos(Direction) * RemainingRange;
+            float endY = WorldY + MathF.Sin(Direction) * RemainingRange;
+            float x = Math.Min(WorldX, endX), y = Math.Min(WorldY, endY);
+            float w = Math.Max(Size, Math.Abs(endX - WorldX)), h = Math.Max(Size, Math.Abs(endY - WorldY));
+            return new Rectangle((int)x, (int)y, (int)w, (int)h);
+        }
+        return WorldRect();
+    }
+
     public bool Collides(Rectangle rect)
     {
         if (Illusory)
@@ -477,6 +503,17 @@ public sealed class EnemyProjectile
             (int)MathF.Ceiling(visibleSize));
 
         float vfxIntensity = (float)GameProfile.Profile.VisualEffectsIntensity;
+        if (vfxIntensity > 0)
+        {
+            // A faint ground-contact shadow, offset the same down-right
+            // direction as every other shadow in the game (Player,
+            // ProjectileVisuals' weapon bullets, laser telegraphs). Gated on
+            // the same setting as the trail below so dense bullet-hell
+            // encounters can be turned back down for performance.
+            Primitives2D.FillCircle(spriteBatch,
+                centerScreen + new Vector2(2f, 3f) * Math.Max(1f, visibleSize / 24f),
+                visibleSize * .42f, UiTheme.Shadow * .35f);
+        }
         if (vfxIntensity > 0 && Trail.Count > 1)
         {
             int visibleTrail = Math.Max(1,
