@@ -51,6 +51,15 @@ public sealed class EnemyProjectile
     public float Frequency { get; }
     public float? Lifetime { get; set; }
     public float SpeedDecay { get; }
+    /// <summary>Positive speed gained per second -- used by slow-starting "flood" giants so they sweep out of the room over their lifetime instead of lingering.</summary>
+    public float Acceleration { get; set; }
+    /// <summary>
+    /// Forces the (expensive, per-vertex-rotated) 3D twirling diamond render
+    /// regardless of <see cref="Shape"/> -- reserved for a boss's large,
+    /// sparse shots so ordinary bullet-hell volleys keep using the cheap
+    /// flat 2D shapes.
+    /// </summary>
+    public bool LargeShot3D { get; set; }
     public Vector2? OrbitCenter { get; set; }
     public float OrbitRadius { get; set; }
     public float OrbitAngle { get; set; }
@@ -116,13 +125,20 @@ public sealed class EnemyProjectile
     public List<Vector2> Trail { get; } = new(5);
     private bool _difficultyTimingApplied;
     private readonly float _authoredRange;
+    /// <summary>
+    /// Per-shot tumble speed (radians/sec) for the 3D diamond shape, rolled
+    /// once at spawn so a volley twirls at varied rates rather than in
+    /// lockstep -- some diamonds lazily drift, others snap around.
+    /// </summary>
+    private readonly float _spinRate;
+    private readonly float _spinPhase;
 
     public EnemyProjectile(
         float worldX, float worldY, float direction, float speed, float damage, float size,
         float travelRange = 900f, Color? color = null, string shape = "square", string path = "linear",
         float amplitude = 0f, float frequency = .035f, float? lifetime = null, float speedDecay = 0f,
         Vector2? orbitCenter = null, float orbitRadius = 0f, float orbitAngle = 0f, float angularSpeed = 0f,
-        string? owner = null, bool ignoreWalls = false, Vector2? target = null)
+        string? owner = null, bool ignoreWalls = false, Vector2? target = null, float acceleration = 0f)
     {
         WorldX = worldX;
         WorldY = worldY;
@@ -145,6 +161,7 @@ public sealed class EnemyProjectile
             ? Math.Min(lifetime ?? MaximumLaserLifetime, MaximumLaserLifetime)
             : lifetime;
         SpeedDecay = speedDecay;
+        Acceleration = acceleration;
         OrbitCenter = orbitCenter;
         OrbitRadius = orbitRadius;
         OrbitAngle = orbitAngle;
@@ -166,6 +183,8 @@ public sealed class EnemyProjectile
         BurstDamage = Damage;
         PersistentHazard = path == "laser";
         _authoredRange = RemainingRange;
+        _spinRate = Random.Shared.NextSingle() * 4f + 2f;
+        _spinPhase = Random.Shared.NextSingle() * MathF.Tau;
     }
 
     public Vector2 OriginPoint => Path is "laser" or "origin_warning"
@@ -399,6 +418,8 @@ public sealed class EnemyProjectile
                 }
                 if (SpeedDecay != 0)
                     Speed = Math.Max(0, Speed - SpeedDecay * seconds);
+                if (Acceleration != 0)
+                    Speed += Acceleration * seconds;
                 if (SplitCount > 1 && SplitAt.HasValue && Travelled >= SplitAt.Value && !Exploded)
                 {
                     Exploded = true;
@@ -414,7 +435,7 @@ public sealed class EnemyProjectile
                             Speed * SplitSpeedScale, Damage * .58f, Size * .72f,
                             travelRange: Math.Max(Simulation.TileSize * 5f, RemainingRange),
                             color: Color, shape: "diamond", lifetime: SplitChildLifetime,
-                            owner: Owner, ignoreWalls: IgnoreWalls);
+                            owner: Owner, ignoreWalls: IgnoreWalls, acceleration: Acceleration);
                         if (SplitGeneration > 0)
                         {
                             child.SplitCount = SplitCount;
@@ -426,6 +447,7 @@ public sealed class EnemyProjectile
                             child.SplitChildLifetime = SplitChildLifetime;
                             child.SplitTelegraphStartRatio = SplitTelegraphStartRatio;
                         }
+                        child.LargeShot3D = LargeShot3D;
                         SpawnedProjectiles.Add(child);
                     }
                     RemFlag = true;
@@ -552,7 +574,9 @@ public sealed class EnemyProjectile
                 new Vector2(MathF.Cos(Direction), MathF.Sin(Direction))),
             visualShape,
             dangerTrim);
-        if (Shape is "diamond" or "mine" or "bomb")
+        if (LargeShot3D)
+            DrawLargeTwirlDiamond(spriteBatch, rect, visibleSize);
+        else if (Shape is "diamond" or "mine" or "bomb")
             DrawDiamondShape(spriteBatch, rect, visibleSize);
         else if (visualShape != "square")
             DrawCustomShape(
@@ -637,6 +661,11 @@ public sealed class EnemyProjectile
         string visualShape,
         Color dangerTrim)
     {
+        // The twirling 3D diamond draws its own tumbling outline -- a flat,
+        // non-rotating trim shape underneath it just read as a static
+        // solid-colored shape peeking out from behind the twirl.
+        if (LargeShot3D)
+            return;
         float trimSize = visibleSize * 1.18f;
         Vector2 center = rect.Center.ToVector2();
         if (Shape is "diamond" or "mine" or "bomb")
@@ -931,6 +960,91 @@ public sealed class EnemyProjectile
             UiTheme.Lighten(Color, 45));
     }
 
+    /// <summary>Local-space vertices of a diamond/bipyramid: apex, apex, then a 4-point girdle ring.</summary>
+    private static readonly Vector3[] DiamondVertices =
+    [
+        new(0, -1, 0), new(0, 1, 0),
+        new(1, 0, 0), new(0, 0, 1), new(-1, 0, 0), new(0, 0, -1),
+    ];
+
+    /// <summary>Eight triangular faces: four connecting the top apex to each girdle edge, four for the bottom apex.</summary>
+    private static readonly int[][] DiamondFaces =
+    [
+        [0, 2, 3], [0, 3, 4], [0, 4, 5], [0, 5, 2],
+        [1, 3, 2], [1, 4, 3], [1, 5, 4], [1, 2, 5],
+    ];
+
+    /// <summary>Fixed key light -- same upper-left-and-toward-camera direction used elsewhere in the game.</summary>
+    private static readonly Vector3 DiamondLightDirection = Vector3.Normalize(new Vector3(-.35f, -.55f, .75f));
+
+    private static Vector3 RotateYawPitch(Vector3 value, float yaw, float pitch)
+    {
+        float cy = MathF.Cos(yaw), sy = MathF.Sin(yaw);
+        float rx = value.X * cy + value.Z * sy;
+        float rz = -value.X * sy + value.Z * cy;
+        float cp = MathF.Cos(pitch), sp = MathF.Sin(pitch);
+        float ry = value.Y * cp - rz * sp;
+        rz = value.Y * sp + rz * cp;
+        return new Vector3(rx, ry, rz);
+    }
+
+    private static Vector2[] ProjectDiamond(Vector2 center, float extent, float yaw, float pitch)
+    {
+        var result = new Vector2[DiamondVertices.Length];
+        for (int index = 0; index < DiamondVertices.Length; index++)
+        {
+            Vector3 rotated = RotateYawPitch(DiamondVertices[index], yaw, pitch);
+            float perspective = 1f + rotated.Z * .12f;
+            result[index] = center + new Vector2(rotated.X, rotated.Y) * extent * perspective;
+        }
+        return result;
+    }
+
+    /// <summary>Brightness for one diamond face against the fixed key light, kept in a [.5, 1] band so unlit faces stay readable.</summary>
+    private static float DiamondFaceLight(int[] face, float yaw, float pitch)
+    {
+        Vector3 a = RotateYawPitch(DiamondVertices[face[0]], yaw, pitch);
+        Vector3 b = RotateYawPitch(DiamondVertices[face[1]], yaw, pitch);
+        Vector3 c = RotateYawPitch(DiamondVertices[face[2]], yaw, pitch);
+        Vector3 normal = Vector3.Cross(b - a, c - a);
+        if (normal.LengthSquared() > 0f)
+            normal = Vector3.Normalize(normal);
+        float lit = Vector3.Dot(normal, DiamondLightDirection);
+        return .5f + .5f * Math.Clamp(lit, 0f, 1f);
+    }
+
+    private static void DrawFilledDiamond(SpriteBatch spriteBatch, Vector2[] points,
+        Color fill, Color edge, float yaw, float pitch, int edgeWidth)
+    {
+        var face = new Vector2[3];
+        foreach (int[] indices in DiamondFaces)
+        {
+            float light = DiamondFaceLight(indices, yaw, pitch);
+            face[0] = points[indices[0]];
+            face[1] = points[indices[1]];
+            face[2] = points[indices[2]];
+            Primitives2D.FillPolygon(spriteBatch, face, fill * (light * .85f));
+        }
+        // Girdle ring + the four edges into each apex -- enough silhouette to
+        // read as a faceted gem without redrawing every triangle edge twice.
+        // Bright white rather than dark ink -- these read poorly against the
+        // game's dark arenas otherwise.
+        for (int index = 2; index < points.Length; index++)
+        {
+            int next = index + 1 <= points.Length - 1 ? index + 1 : 2;
+            Primitives2D.Line(spriteBatch, points[index], points[next], edge, edgeWidth);
+            Primitives2D.Line(spriteBatch, points[0], points[index], edge, edgeWidth);
+            Primitives2D.Line(spriteBatch, points[1], points[index], edge, edgeWidth);
+        }
+    }
+
+    /// <summary>
+    /// The original flat 2D rhombus -- restored as the default diamond
+    /// render for ordinary volleys after the 3D twirl (below) turned out too
+    /// expensive to run on every shot. Reserved now for the common case;
+    /// <see cref="LargeShot3D"/> shots use <see cref="DrawLargeTwirlDiamond"/>
+    /// instead.
+    /// </summary>
     private void DrawDiamondShape(
         SpriteBatch spriteBatch,
         Rectangle rect,
@@ -949,7 +1063,47 @@ public sealed class EnemyProjectile
             spriteBatch, top, right, bottom, left,
             UiTheme.Ink, Math.Max(2, (int)(visibleSize * .1f)));
 
+        DrawDiamondOverlays(spriteBatch, rect, new Vector2(rect.Center.X, rect.Center.Y), visibleSize);
+    }
+
+    /// <summary>
+    /// A tumbling 3D gem (a rotated bipyramid, lit by a fixed key light and
+    /// projected with a cheap perspective fudge -- the same hand-rolled
+    /// technique Aphantasia's own boss-body cube uses). Expensive enough
+    /// (per-vertex rotation, per-face lighting, several draw calls) that
+    /// it's reserved for <see cref="LargeShot3D"/> shots rather than every
+    /// diamond in a volley.
+    /// </summary>
+    private void DrawLargeTwirlDiamond(
+        SpriteBatch spriteBatch,
+        Rectangle rect,
+        float visibleSize)
+    {
         var center = new Vector2(rect.Center.X, rect.Center.Y);
+        float yaw = (Age + _spinPhase) * _spinRate;
+        float pitch = (Age + _spinPhase) * _spinRate * .6f;
+        float extent = visibleSize * .5f;
+
+        // Lighter, semi-translucent drop shadow -- the same twirling
+        // silhouette offset down-right, at reduced alpha rather than a hard
+        // full-opacity copy.
+        Vector2[] shadowPoints = ProjectDiamond(center + new Vector2(3, 4), extent, yaw, pitch);
+        foreach (int[] indices in DiamondFaces)
+        {
+            var shadowFace = new[] { shadowPoints[indices[0]], shadowPoints[indices[1]], shadowPoints[indices[2]] };
+            Primitives2D.FillPolygon(spriteBatch, shadowFace, UiTheme.Shadow * .35f);
+        }
+
+        Vector2[] points = ProjectDiamond(center, extent, yaw, pitch);
+        DrawFilledDiamond(spriteBatch, points, Color, Color.White,
+            yaw, pitch, Math.Max(2, (int)(visibleSize * .07f)));
+
+        DrawDiamondOverlays(spriteBatch, rect, center, visibleSize);
+    }
+
+    /// <summary>Mine-pulse/telegraph and bomb-fuse/blast overlays shared by both diamond renders.</summary>
+    private void DrawDiamondOverlays(SpriteBatch spriteBatch, Rectangle rect, Vector2 center, float visibleSize)
+    {
         if (Shape == "mine")
         {
             int pulse = Math.Max(

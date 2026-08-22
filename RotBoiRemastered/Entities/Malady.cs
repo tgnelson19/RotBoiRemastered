@@ -98,6 +98,15 @@ public sealed class Malady : PhantasiaBoss
     private double _poolCooldown = 1.2;
     private readonly float[] _pillarMotion = { 0f, 0f };
     private float _pillarMotionStrength;
+    // A soft silk-ribbon trail for the ribbon/chain "tentacle" attacks
+    // (Ribbon Court / Tentacle Garden / Soul Incursion), reusing the same
+    // DrawTentacleSpike primitive Rot's grasping tendrils use but retinted
+    // cool violet/luminous so the two bosses' reach attacks read distinctly.
+    // A small ordered waypoint path rather than a single origin/angle: linked
+    // tendril attacks touch multiple portals, so the trail needs one spike
+    // drawn per link to read as one connected structure, not a single arm.
+    private Vector2[]? _tentacleVisualWaypoints;
+    private double _tentacleVisualRemaining;
     private bool _patternAdmissionOpen = true;
     private bool _patternDeclaredThisFrame;
     private int _visualPreviousConstellationPhase = 1;
@@ -294,6 +303,54 @@ public sealed class Malady : PhantasiaBoss
         }
     }
 
+    /// <summary>
+    /// Generalizes <see cref="QueueChain"/> from "shots swept across an arc
+    /// around one origin" to "shots threaded along a bowed polyline through
+    /// several waypoints" -- the mechanism behind the new linked-tendril
+    /// system: instead of firing several independent tendrils from different
+    /// locations, one continuous chain's spawn points trace a path that
+    /// actually visits every waypoint in order.
+    /// </summary>
+    private void QueueLinkedChain(IReadOnlyList<Vector2> waypoints, string suffix,
+        int countPerLink = 7, double interval = .052, float speed = .68f, float damage = 350f,
+        float bendStrength = .18f)
+    {
+        double delay = 0;
+        for (int link = 0; link < waypoints.Count - 1; link++)
+        {
+            Vector2 start = waypoints[link], end = waypoints[link + 1];
+            Vector2 span = end - start;
+            if (span.LengthSquared() < .001f)
+                continue;
+            Vector2 tangent = Vector2.Normalize(span);
+            Vector2 normal = new(-tangent.Y, tangent.X);
+            float linkLength = span.Length();
+            float direction = MathF.Atan2(tangent.Y, tangent.X);
+            for (int index = 0; index < countPerLink; index++)
+            {
+                float fraction = index / (float)Math.Max(1, countPerLink - 1);
+                // An organic bow through the middle of the link instead of a
+                // rigid straight line -- the "funky angle" read.
+                float bow = MathF.Sin(fraction * MathF.PI) * linkLength * bendStrength;
+                Vector2 origin = Vector2.Lerp(start, end, fraction) + normal * bow;
+                _sequenceQueue.Add(new ChainEvent(delay, origin, direction + (fraction - .5f) * .3f,
+                    speed * (1.0f - .18f * MathF.Sin(fraction * MathF.PI)), damage, suffix));
+                delay += interval;
+            }
+        }
+    }
+
+    /// <summary>Replaces firing two independent <see cref="PortalTentacle"/> sweeps from two different portals with one linked tendril whose path actually connects both origins (with the player's position threaded in as a middle waypoint, keeping the "reaches toward the player" read the old paired calls had).</summary>
+    private void PortalTentacleChain(List<EnemyProjectile> sink, int portalIndexA, int portalIndexB,
+        Vector2 target, string suffix, int countPerLink = 7, float speed = .68f)
+    {
+        Vector2 a = PortalOrigin(portalIndexA);
+        Vector2 b = PortalOrigin(portalIndexB);
+        QueueLinkedChain(new[] { a, target, b }, suffix, countPerLink, speed: speed, damage: 350f);
+        _tentacleVisualWaypoints = new[] { a, target, b };
+        _tentacleVisualRemaining = countPerLink * 2 * .052 + 1.1;
+    }
+
     private void UpdateSequences(List<EnemyProjectile> sink, double dt)
     {
         int writeIndex = 0;
@@ -357,6 +414,7 @@ public sealed class Malady : PhantasiaBoss
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();
+        _tentacleVisualRemaining = Math.Max(0.0, _tentacleVisualRemaining - dt);
         float previousX = WorldX, previousY = WorldY;
         if (Dying)
         {
@@ -476,6 +534,9 @@ public sealed class Malady : PhantasiaBoss
         var origin = PortalOrigin(portalIndex);
         float aimed = MathF.Atan2(target.Y - origin.Y, target.X - origin.X);
         QueueChain(origin, aimed - arc / 2f, arc, suffix, count, interval: .052, speed: speed, damage: 350);
+        float reach = Simulation.TileSize * count * .16f;
+        _tentacleVisualWaypoints = new[] { origin, origin + new Vector2(MathF.Cos(aimed), MathF.Sin(aimed)) * reach };
+        _tentacleVisualRemaining = count * .052 + 1.1;
     }
 
     protected override void FirePhantasiaPattern(float playerX, float playerY, EnemyUpdateContext context)
@@ -508,9 +569,13 @@ public sealed class Malady : PhantasiaBoss
                 RadialWithGap(sink, PortalOrigin(PatternRotation + 1), target, 12, 2, .9f, 340,
                     "impossible_engine_counterdrive", "linear");
                 break;
-            case 4: // Long ribbons arrive slowly enough to follow through the court.
-                for (int index = PatternRotation % 2; index < Math.Min(4, ProjectilePortals.Count); index += 2)
-                    PortalTentacle(sink, index, target, index % 2 == 0 ? 1.8f : -1.8f, "ribbon_court", 7, .92f);
+            case 4: // One long ribbon now threads between two portals instead of two separate ribbons.
+                if (ProjectilePortals.Count >= 2)
+                {
+                    int ribbonA = PatternRotation % ProjectilePortals.Count;
+                    int ribbonB = (ribbonA + Math.Min(2, ProjectilePortals.Count - 1)) % ProjectilePortals.Count;
+                    PortalTentacleChain(sink, ribbonA, ribbonB, target, "ribbon_court", 7, .92f);
+                }
                 break;
             case 5: // Splitting tendrils grow outward, never spawning directly inside the marked opening.
                 foreach (int index in new[] { -1, 1 })
@@ -551,8 +616,8 @@ public sealed class Malady : PhantasiaBoss
             case 9:
                 if (PatternRotation % 2 == 0)
                 {
-                    PortalTentacle(sink, PatternRotation, target, -1.65f, "soul_incursion_tentacle", 6, 1.05f);
-                    PortalTentacle(sink, PatternRotation + 2, target, 1.65f, "soul_incursion_tentacle", 6, 1.05f);
+                    PortalTentacleChain(sink, PatternRotation, PatternRotation + 2, target,
+                        "soul_incursion_tentacle", 6, 1.05f);
                 }
                 else
                 {
@@ -569,9 +634,9 @@ public sealed class Malady : PhantasiaBoss
                 }
                 else if (movement == 1)
                 {
-                    for (int index = PatternRotation % 2; index < 4; index += 2)
-                        PortalTentacle(sink, PatternRotation + index, target, index % 2 == 0 ? 2.4f : -2.4f,
-                            "apotheosis_tentacle", 7, 1.12f);
+                    int apotheosisStart = PatternRotation + PatternRotation % 2;
+                    PortalTentacleChain(sink, apotheosisStart, apotheosisStart + 2, target,
+                        "apotheosis_tentacle", 7, 1.12f);
                 }
                 else
                 {
@@ -594,7 +659,61 @@ public sealed class Malady : PhantasiaBoss
     protected override bool HasCustomDreamBody => true;
 
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
-        => DrawDreamBody(spriteBatch, camera, playerWorldPosition, screenShake);
+    {
+        DrawLegacyPuppetBody(spriteBatch, camera, playerWorldPosition, screenShake);
+        DrawTentacleTrail(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (FinaleActive && !Collapsing)
+            DrawApotheosisConstellationOverlay(spriteBatch, camera, playerWorldPosition, screenShake);
+    }
+
+    /// <summary>The Ribbon Court / Tentacle Garden / Soul Incursion reach attacks had gameplay (QueueChain/PortalTentacle) but no dedicated trail visual -- this gives them a soft, cool-toned silk ribbon distinct from Rot's brown/green grasping tendril, which reuses the same underlying primitive.</summary>
+    private void DrawTentacleTrail(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        if (_tentacleVisualRemaining <= 0 || _tentacleVisualWaypoints is not { Length: >= 2 } waypoints)
+            return;
+        float alpha = (float)Math.Clamp(_tentacleVisualRemaining / .6, 0, 1);
+        Color theme = Color.Lerp(new Color(218, 104, 232), PhaseAccent, .3f);
+        for (int link = 0; link < waypoints.Length - 1; link++)
+        {
+            Vector2 start = waypoints[link], end = waypoints[link + 1];
+            Vector2 span = end - start;
+            if (span.LengthSquared() < .001f)
+                continue;
+            Vector2 origin = camera.WorldToScreen(start, playerWorldPosition, screenShake);
+            Vector2 endScreen = camera.WorldToScreen(end, playerWorldPosition, screenShake);
+            float length = Vector2.Distance(origin, endScreen);
+            float angle = MathF.Atan2(endScreen.Y - origin.Y, endScreen.X - origin.X);
+            Primitives2D.DrawTentacleSpike(spriteBatch, origin, angle,
+                length, Size * .09f, link * 1.3f, 0f, VisualAgeSeconds, segments: 20,
+                darken: 0f, alpha: .7f * alpha, themeColor: theme);
+        }
+    }
+
+    /// <summary>Keeps the finale's shifting cube constellation and inspiration mandala as an additive spectacle layer around the revived puppet body during Apotheosis, instead of losing it outright when the puppet became the live <see cref="DrawBossBody"/>.</summary>
+    private void DrawApotheosisConstellationOverlay(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        float bob = MathF.Sin(Age * .025f) * Size * .035f;
+        var core = new Vector2(screenPosition.X + Size / 2f, screenPosition.Y + Size * .47f + bob);
+        Color indigo = new(62, 39, 116);
+        Color violet = new(105, 59, 164);
+        Color luminous = Color.Lerp(new Color(218, 104, 232), PhaseAccent, .36f);
+        float seconds = VisualAgeSeconds;
+        DrawApotheosisMandala(spriteBatch, core, luminous);
+        float attack = Math.Max(AttackAnticipation, VisualAttackPulse);
+        int cubeCount = ApotheosisCrownPetalCount;
+        float constellationBlend = BossAnimation.EaseInOutSine(_visualConstellationBlend);
+        for (int index = 0; index < cubeCount; index++)
+        {
+            var previous = ConstellationPoint(_visualPreviousConstellationPhase, index, cubeCount, 1.58f, attack);
+            var current = ConstellationPoint(_visualConstellationPhase, index, cubeCount, 1.58f, attack);
+            Vector2 offset = Vector2.Lerp(previous.Offset, current.Offset, constellationBlend);
+            float angle = MathHelper.Lerp(previous.Angle, current.Angle, constellationBlend);
+            float extent = Size * (.07f + index % 3 * .018f);
+            BossVisuals.RotatingCube3D(spriteBatch, core + offset, extent, indigo, violet, luminous,
+                angle, angle * .53f, seconds * .36f);
+        }
+    }
 
     private static Vector2[] OffsetPoints(IReadOnlyList<Vector2> points, float x, float y) =>
         points.Select(p => p + new Vector2(x, y)).ToArray();

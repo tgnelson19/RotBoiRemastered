@@ -152,6 +152,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double PerimeterPressureCadence = 1.8;
     public const int PerimeterPressureCount = 8;
     public const float MinimumProjectileSizeTiles = .25f;
+    /// <summary>
+    /// Shots at or above this size, fired during Phase 3+, render as the
+    /// expensive tumbling 3D diamond instead of their ordinary flat shape --
+    /// reserved for the sparse "giant" attacks (portal seeds, void anchors,
+    /// bombs) rather than the dense small-shot volleys, which stay on the
+    /// cheap flat 2D render.
+    /// </summary>
+    public const float LargeShot3DSizeTiles = .5f;
     public const double HelixFireCadence = .68;
     public const double PhaseHandoffDuration = 7.0;
     public const double CombatPhraseDuration = 6.0;
@@ -236,8 +244,12 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private readonly Random _rng;
     private readonly List<int> _patternBag = [];
     private readonly List<EnemyProjectile> _volleyScratch = new(64);
-    private readonly (string Part, Rectangle Rect)[] _worldHitboxes = new (string, Rectangle)[3];
-    private readonly (string Part, Rectangle Rect)[] _screenHitboxes = new (string, Rectangle)[3];
+    // Sized for the fixed light/dark/body trio plus Phase 4's eight
+    // persistent void tentacles (the largest of the two tentacle counts) --
+    // reused as a List rather than a fixed array now that the tentacle
+    // count varies with phase.
+    private readonly List<(string Part, Rectangle Rect)> _worldHitboxes = new(11);
+    private readonly List<(string Part, Rectangle Rect)> _screenHitboxes = new(11);
     private readonly Vector2[] _arenaMask = new Vector2[96];
     private readonly Vector2[] _arenaWallGround = new Vector2[ArenaWallPanels + 1];
     private readonly Vector2[] _arenaWallCap = new Vector2[ArenaWallPanels + 1];
@@ -1201,6 +1213,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             BurstDamage = Damage * .68f,
             BurstRangeTiles = 18f,
             ThreatReservationCost = 10,
+            LargeShot3D = Phase >= 3,
         });
     }
 
@@ -1414,19 +1427,27 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             case 1:
                 FireOrderedRing(sink, center, 12, spin, 1.76f, .2f,
                     "void_clock_needles", sineEvery: 0);
-                FireVoidAnchor(sink, center, -spin);
+                // Fired every other visit only -- unconditionally every time
+                // used to pile decelerating anchors up faster than their
+                // lifetime could clear them, forming a static cluster right
+                // on top of the boss.
                 if ((_regularVolleyCount & 1) == 0)
+                    FireVoidAnchor(sink, center, -spin);
+                else
                     FirePortalSeed(sink, center, spin + MathF.PI, .42f, "clock_hand");
                 _attackRemaining = .9;
                 break;
             case 2:
                 FireEdgePortals(sink, vertical: ((int)_stateElapsed & 1) == 0, "pane_procession");
-                _attackRemaining = 1.05;
+                // A long rest after the flood wall -- lets the room clear
+                // out before the next attack, rather than piling straight
+                // into another wave.
+                _attackRemaining = 4.0;
                 break;
             case 3:
                 FireEdgePortals(sink, true, "portal_lattice_v");
                 FireEdgePortals(sink, false, "portal_lattice_h");
-                _attackRemaining = 1.32;
+                _attackRemaining = 4.5;
                 break;
             case 4:
                 FirePortalSeed(sink, center,
@@ -1972,23 +1993,30 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         }
     }
 
+    /// <summary>
+    /// The "flood" wall of giant, slow-moving portal seeds. Used to fire 7
+    /// lanes that each cascaded into 8 more splits on arrival -- up to ~56
+    /// giant projectiles piling up in the room per call, lingering for their
+    /// full 32s child lifetime. Now a flat 8-lane burst with no cascade and
+    /// a gentle forward acceleration, so the room fills with far fewer of
+    /// them and they sweep out under their own power instead of drifting.
+    /// </summary>
     private void FireEdgePortals(List<EnemyProjectile> sink, bool vertical, string owner)
     {
-        // -3..3 (7 lanes, tightened spacing) instead of -2..2 (5 lanes) --
-        // the wider lane gaps used to leave a walkable corridor along the
-        // edge before each portal's split caught up to it.
-        for (int index = -3; index <= 3; index++)
+        for (int index = 0; index < 8; index++)
         {
+            float lane = index - 3.5f;
             Vector2 origin = vertical
-                ? ArenaCenter + new Vector2(index * ArenaRadius * .2f, -ArenaRadius * .86f)
-                : ArenaCenter + new Vector2(-ArenaRadius * .86f, index * ArenaRadius * .2f);
+                ? ArenaCenter + new Vector2(lane * ArenaRadius * .18f, -ArenaRadius * .86f)
+                : ArenaCenter + new Vector2(-ArenaRadius * .86f, lane * ArenaRadius * .18f);
             float direction = vertical ? MathF.PI / 2f : 0;
-            FirePortalSeed(sink, origin, direction, .44f + (index + 3) * .025f, owner);
+            FirePortalSeed(sink, origin, direction, .4f + index * .02f, owner,
+                cascade: false, acceleration: .22f);
         }
     }
 
     private void FirePortalSeed(List<EnemyProjectile> sink, Vector2 origin,
-        float direction, float speed, string owner)
+        float direction, float speed, string owner, bool cascade = true, float acceleration = 0f)
     {
         float size = Simulation.TileSize * .92f;
         var portal = new EnemyProjectile(
@@ -1997,27 +2025,35 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             travelRange: ArenaRadius * 2.1f,
             color: Rainbow((float)_visualTime * .08f + direction / MathF.Tau),
             shape: "orbit_core", path: "linear", lifetime: 11f,
-            owner: $"aphantasia_portal_{owner}", ignoreWalls: true)
+            owner: $"aphantasia_portal_{owner}", ignoreWalls: true, acceleration: acceleration)
         {
-            SplitCount = 8,
-            SplitAt = Simulation.TileSize * 2.4f,
+            SplitCount = cascade ? 8 : 0,
+            SplitAt = cascade ? Simulation.TileSize * 2.4f : null,
             SplitSpeedScale = .82f,
             SplitSpread = MathF.Tau,
             SplitRadial = true,
             SplitChildLifetime = 32f,
-            ThreatReservationCost = 8,
+            ThreatReservationCost = cascade ? 8 : 1,
             SplitTelegraphStartRatio = .72f,
             OriginTelegraphDuration = .68f,
+            LargeShot3D = Phase >= 3,
         };
         sink.Add(portal);
     }
 
+    /// <summary>
+    /// A slow-decaying giant anchor fired from the boss center. Its old 5.5s
+    /// lifetime outlasted the ~4.2s it took to decelerate to a full stop, so
+    /// anchors would park and linger right on top of the boss -- the
+    /// lifetime is now shorter than the time-to-stop so it's always still
+    /// drifting away when it expires.
+    /// </summary>
     private void FireVoidAnchor(List<EnemyProjectile> sink, Vector2 origin,
         float direction)
     {
         AddShot(sink, origin, direction, 1.35f, .64f,
             Rainbow(direction / MathF.Tau + (float)_visualTime * .04f),
-            "void_anchor", "linear", 0f, 5.5f,
+            "void_anchor", "linear", 0f, 3.2f,
             shape: "orbit_core", speedDecay: .32f,
             preserveAuthoredLifetime: true);
     }
@@ -2050,7 +2086,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 ? lifetime
                 : Math.Max(lifetime, requiredLifetime),
             speedDecay: speedDecay,
-            owner: $"aphantasia_{owner}", ignoreWalls: true);
+            owner: $"aphantasia_{owner}", ignoreWalls: true)
+        {
+            LargeShot3D = Phase >= 3 && sizeTiles >= LargeShot3DSizeTiles,
+        };
         if (splitCount > 1)
         {
             projectile.SplitCount = splitCount;
@@ -2576,11 +2615,13 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public override IReadOnlyList<(string Part, Rectangle Rect)> GetWorldHitboxes()
     {
         float miniSize = MiniSize;
-        _worldHitboxes[0] = ("light", Light.Alive
-            ? CenteredRect(Light.Position, miniSize) : Rectangle.Empty);
-        _worldHitboxes[1] = ("dark", Dark.Alive
-            ? CenteredRect(Dark.Position, miniSize) : Rectangle.Empty);
-        _worldHitboxes[2] = ("body", WorldRect());
+        _worldHitboxes.Clear();
+        _worldHitboxes.Add(("light", Light.Alive
+            ? CenteredRect(Light.Position, miniSize) : Rectangle.Empty));
+        _worldHitboxes.Add(("dark", Dark.Alive
+            ? CenteredRect(Dark.Position, miniSize) : Rectangle.Empty));
+        _worldHitboxes.Add(("body", WorldRect()));
+        AddPersistentTentacleHitboxes(_worldHitboxes, BossCenter);
         return _worldHitboxes;
     }
 
@@ -2591,12 +2632,48 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         Vector2 light = camera.WorldToScreen(Light.Position, playerWorldPosition, screenShake);
         Vector2 dark = camera.WorldToScreen(Dark.Position, playerWorldPosition, screenShake);
         Vector2 body = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        _screenHitboxes[0] = ("light", Light.Alive
-            ? CenteredRect(light, miniSize) : Rectangle.Empty);
-        _screenHitboxes[1] = ("dark", Dark.Alive
-            ? CenteredRect(dark, miniSize) : Rectangle.Empty);
-        _screenHitboxes[2] = ("body", new Rectangle((int)body.X, (int)body.Y, (int)Size, (int)Size));
+        Vector2 center = camera.WorldToScreen(BossCenter, playerWorldPosition, screenShake);
+        _screenHitboxes.Clear();
+        _screenHitboxes.Add(("light", Light.Alive
+            ? CenteredRect(light, miniSize) : Rectangle.Empty));
+        _screenHitboxes.Add(("dark", Dark.Alive
+            ? CenteredRect(dark, miniSize) : Rectangle.Empty));
+        _screenHitboxes.Add(("body", new Rectangle((int)body.X, (int)body.Y, (int)Size, (int)Size)));
+        AddPersistentTentacleHitboxes(_screenHitboxes, center);
         return _screenHitboxes;
+    }
+
+    /// <summary>
+    /// Phase 3's four and Phase 4's eight persistent void tentacles
+    /// (<see cref="DrawPersistentTentacles"/>) are part of the boss's body
+    /// now, not just decoration -- they hurt on contact exactly like the
+    /// "body" hitbox above, using the same <see cref="Enemy.Damage"/> the
+    /// rest of Aphantasia already deals. Each tentacle's hitbox is a
+    /// generous axis-aligned box around its straight reach from
+    /// <paramref name="center"/> out to its tip (the same
+    /// <see cref="PersistentTentacleLayout"/> the draw call uses), not a
+    /// precise trace of its cosmetic wiggle -- a forgiving box is the same
+    /// tradeoff every other rectangular hitbox in this file already makes.
+    /// </summary>
+    private void AddPersistentTentacleHitboxes(
+        List<(string Part, Rectangle Rect)> sink, Vector2 center)
+    {
+        var layout = PersistentTentacleLayout();
+        for (int index = 0; index < layout.Length; index++)
+        {
+            (float baseAngle, float length, float width) = layout[index];
+            Vector2 direction = new(MathF.Cos(baseAngle), MathF.Sin(baseAngle));
+            sink.Add(($"tentacle_{index}",
+                SegmentRect(center, center + direction * length, width)));
+        }
+    }
+
+    private static Rectangle SegmentRect(Vector2 a, Vector2 b, float width)
+    {
+        float minX = Math.Min(a.X, b.X) - width, maxX = Math.Max(a.X, b.X) + width;
+        float minY = Math.Min(a.Y, b.Y) - width, maxY = Math.Max(a.Y, b.Y) + width;
+        return new Rectangle((int)minX, (int)minY,
+            Math.Max(1, (int)(maxX - minX)), Math.Max(1, (int)(maxY - minY)));
     }
 
     private static Rectangle CenteredRect(Vector2 center, float size) =>
@@ -2609,11 +2686,14 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         Vector2 center = camera.WorldToScreen(
             new Vector2(WorldX + Size / 2f, WorldY + Size / 2f),
             playerWorldPosition, screenShake);
-        DrawBossBody(spriteBatch, center);
-        if (!PhaseHandoffActive && CombatDeclarationActive)
-            DrawSubphaseDeclaration(spriteBatch, center);
+        // Both transition tentacle bursts draw before the body so they read
+        // as a shadowy explosion blooming out from behind the boss, not a
+        // decal painted on top of it.
         if (PhaseHandoffActive)
             DrawPhaseHandoff(spriteBatch, center);
+        else if (CombatDeclarationActive)
+            DrawSubphaseDeclaration(spriteBatch, center);
+        DrawBossBody(spriteBatch, center);
         if (DamageWindowActive)
         {
             float pulse = .5f + .5f * MathF.Sin((float)_visualTime * 10f);
@@ -2664,6 +2744,12 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             float orbitSpin = (float)_visualTime * .31f;
             float bodyYaw = facingActive ? _facingYaw : orbitSpin;
             float outerPitch = bodyYaw * .71f;
+            // Phase 3's own four tentacles (none yet if this is a Phase 2 ->
+            // 3 Transforming preview) and the transformation's own blooming
+            // burst both draw first, behind every cube layer.
+            DrawPersistentTentacles(spriteBatch, center);
+            if (EncounterState == AphantasiaEncounterState.Transforming)
+                DrawTransformationTentacles(spriteBatch, center, Size * .62f * pulse);
             Vector2[] outer = ProjectCube(center, Size * .62f * pulse, bodyYaw, outerPitch);
             Color outerFill = new(1, 1, 5, 235);
             // The inner cube genuinely nests inside the shell: the shell's
@@ -2678,10 +2764,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             DrawWireCubeLayer(spriteBatch, outer, rainbow: true, outerFill,
                 bodyYaw, outerPitch, front: true);
             if (EncounterState == AphantasiaEncounterState.Transforming)
-            {
                 DrawTransformationSweep(spriteBatch, center, Size * .62f * pulse);
-                DrawTransformationTentacles(spriteBatch, center, Size * .62f * pulse);
-            }
             if (facingActive)
                 DrawFacingMarker(spriteBatch, center, Size * .62f * pulse, bodyYaw, outerPitch);
         }
@@ -2690,6 +2773,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             float orbitSpin = (float)_visualTime * .46f;
             float bodyYaw = facingActive ? _facingYaw : orbitSpin;
             float bodyPitch = bodyYaw * .6f;
+            // Phase 4's eight tentacles draw first, behind the core and its
+            // orbiting panes.
+            DrawPersistentTentacles(spriteBatch, center);
             // Phase 4 is the true final form -- its border weight is bumped
             // noticeably past every earlier phase so the core reads heavier
             // and more final, not just another recolor of the same cube.
@@ -3071,32 +3157,20 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     }
 
     /// <summary>
-    /// Large flowing tentacles (see <see cref="DrawTentacleSpikeWithTrail"/>,
-    /// same technique the Aphantasia portal in The Mind uses) blooming out
-    /// from the cube and resolving back to nothing over the transformation,
-    /// rather than staying at full length throughout -- energy crackling as
-    /// the tesseract remakes itself, not a plain hold. Covers both the
-    /// Phase 2 -> 3 and Phase 3 -> 4 transitions, since both share this
-    /// same Transforming encounter state.
+    /// The shared shadowy black/white/rainbow tentacle burst
+    /// (<see cref="DrawTentacleBurst"/>), blooming out from the cube and
+    /// resolving back to nothing over the transformation, rather than
+    /// staying at full length throughout -- energy crackling as the
+    /// tesseract remakes itself, not a plain hold. Covers both the Phase 2
+    /// -> 3 and Phase 3 -> 4 transitions, since both share this same
+    /// Transforming encounter state.
     /// </summary>
     private void DrawTransformationTentacles(SpriteBatch spriteBatch, Vector2 center, float extent)
     {
         float progress = Math.Clamp(
             1f - (float)(_transitionRemaining / TesseractTransitionDuration), 0f, 1f);
         float bloom = MathF.Sin(progress * MathF.PI);
-        if (bloom <= .02f)
-            return;
-        const int spikeCount = 6;
-        float targetLength = ArenaRadius * .2f;
-        for (int index = 0; index < spikeCount; index++)
-        {
-            float baseAngle = index * MathF.Tau / spikeCount + (float)_visualTime * .5f;
-            float length = targetLength * bloom;
-            float width = targetLength * .11f;
-            DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
-                phase: index * 2.1f, colorPhase: index / (float)spikeCount + progress * .6f,
-                segments: 40);
-        }
+        DrawTentacleBurst(spriteBatch, center, 9, ArenaRadius * .2f, bloom, progress * .6f);
     }
 
     /// <summary>
@@ -3114,7 +3188,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     /// </summary>
     private void DrawTentacleSpikeWithTrail(SpriteBatch spriteBatch, Vector2 center,
         float baseAngle, float length, float width, float phase, float colorPhase,
-        int segments = 22, int echoCount = 6, float echoDelay = .08f)
+        int segments = 22, int echoCount = 6, float echoDelay = .08f, Color? themeColor = null)
     {
         float time = (float)_visualTime;
         for (int echo = echoCount; echo >= 1; echo--)
@@ -3122,10 +3196,105 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             float t = echo / (float)(echoCount + 1);
             Primitives2D.DrawTentacleSpike(spriteBatch, center, baseAngle, length, width,
                 phase, colorPhase, time - echo * echoDelay, segments,
-                darken: t, alpha: 1f - t * .85f);
+                darken: t, alpha: 1f - t * .85f, themeColor: themeColor);
         }
         Primitives2D.DrawTentacleSpike(spriteBatch, center, baseAngle, length, width,
-            phase, colorPhase, time, segments);
+            phase, colorPhase, time, segments, themeColor: themeColor);
+    }
+
+    /// <summary>
+    /// Cycles every third tentacle through black, white, and the usual
+    /// rainbow cycle (<c>null</c> tells <see cref="Primitives2D.DrawTentacleSpike"/>
+    /// to use its own <see cref="Rainbow"/> stroke) -- the "shadowy explosion
+    /// of black, white, and rainbow tentacles" look shared by the transition
+    /// bursts (<see cref="DrawPhaseHandoff"/>, <see cref="DrawSubphaseDeclaration"/>,
+    /// <see cref="DrawTransformationTentacles"/>) and Phase 3/4's persistent
+    /// body tentacles (<see cref="DrawPersistentTentacles"/>).
+    /// </summary>
+    private static Color? TentacleThemeColor(int index) => (index % 3) switch
+    {
+        0 => new Color(14, 12, 20),
+        1 => new Color(230, 226, 238),
+        _ => null,
+    };
+
+    /// <summary>
+    /// A burst of tentacles rooted at <paramref name="center"/>, each a
+    /// different one of <see cref="TentacleThemeColor"/>'s three colors,
+    /// scaled by <paramref name="bloom"/> (0 = gone, 1 = full
+    /// <paramref name="reach"/>) so callers can drive them through a
+    /// grow-then-shrink envelope (typically <c>MathF.Sin(progress * MathF.PI)</c>)
+    /// over a transition's lifetime. Shared by every transition tentacle
+    /// effect in this file so they all read as the same shadowy-explosion
+    /// language rather than three separate one-off effects.
+    /// </summary>
+    private void DrawTentacleBurst(SpriteBatch spriteBatch, Vector2 center,
+        int count, float reach, float bloom, float colorSeed = 0f, int segments = 40)
+    {
+        if (bloom <= .02f)
+            return;
+        for (int index = 0; index < count; index++)
+        {
+            float baseAngle = index * MathF.Tau / count + colorSeed + (float)_visualTime * .35f;
+            float length = reach * bloom;
+            float width = reach * .1f;
+            DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
+                phase: index * 2.1f, colorPhase: index / (float)count + colorSeed,
+                segments: segments, themeColor: TentacleThemeColor(index));
+        }
+    }
+
+    /// <summary>
+    /// Phase 3's four and Phase 4's eight void tentacles -- a permanent part
+    /// of the boss's silhouette from here on, not a one-off transition
+    /// effect: the same black/white/rainbow spike technique as the
+    /// transition bursts and the Aphantasia portal in The Mind, but held out
+    /// near a steady reach (gently wobbling in length) instead of blooming
+    /// in and out. <see cref="PersistentTentacleLayout"/> is the single
+    /// source of truth for each tentacle's angle/length/width so this draw
+    /// call and <see cref="AddPersistentTentacleHitboxes"/>'s contact-damage
+    /// boxes can never drift apart.
+    /// </summary>
+    private void DrawPersistentTentacles(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var layout = PersistentTentacleLayout();
+        for (int index = 0; index < layout.Length; index++)
+        {
+            (float baseAngle, float length, float width) = layout[index];
+            DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
+                phase: index * 1.9f, colorPhase: index / (float)layout.Length,
+                segments: 32, themeColor: TentacleThemeColor(index));
+        }
+    }
+
+    /// <summary>4 in Phase 3, 8 in Phase 4, none before that.</summary>
+    private int PersistentTentacleCount => Phase switch
+    {
+        >= 4 => 8,
+        3 => 4,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// Kept close to the boss's own size (extent well under <see cref="Size"/>)
+    /// per design intent -- these read as part of the boss, not a separate
+    /// oversized hazard -- and orbit slowly so they don't sit dead still.
+    /// </summary>
+    private (float BaseAngle, float Length, float Width)[] PersistentTentacleLayout()
+    {
+        int count = PersistentTentacleCount;
+        if (count == 0)
+            return [];
+        var layout = new (float, float, float)[count];
+        float extent = Size * .68f;
+        float orbitSpin = (float)_visualTime * .18f;
+        for (int index = 0; index < count; index++)
+        {
+            float baseAngle = orbitSpin + index * MathF.Tau / count;
+            float length = extent * (.88f + .16f * MathF.Sin((float)_visualTime * 1.3f + index * 1.9f));
+            layout[index] = (baseAngle, length, extent * .2f);
+        }
+        return layout;
     }
 
     private void DrawDeath(SpriteBatch spriteBatch, Vector2 center)
@@ -3423,71 +3592,45 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             new Color(120, 90, 200) * .35f, 2);
     }
 
+    /// <summary>
+    /// The brief cue that opens each subphase inside a fight: a small void
+    /// core (same darkened-disc language as the Aphantasia portal in The
+    /// Mind) with a quick shadowy tentacle burst blooming out and back
+    /// behind the boss over <see cref="SubphaseDeclarationDuration"/>,
+    /// replacing the old plain ring-and-spokes telegraph.
+    /// </summary>
     private void DrawSubphaseDeclaration(SpriteBatch spriteBatch, Vector2 center)
     {
         float progress = Math.Clamp(
             (float)(_subphaseCombatElapsed / SubphaseDeclarationDuration), 0f, 1f);
-        float radius = Size * (1.18f - progress * .42f);
-        Color accent = Phase <= 2
-            ? Color.Lerp(Light.Accent, Dark.Accent, .5f + .5f
-                * MathF.Sin((float)_visualTime * 5f))
-            : Rainbow((float)_visualTime * .12f + _patternIndex * .11f);
-        Primitives2D.CircleOutline(spriteBatch, center, radius,
-            UiTheme.Ink, 8, 32);
-        Primitives2D.CircleOutline(spriteBatch, center, radius,
-            accent, 4, 32);
-        int spokes = Phase switch
-        {
-            1 => 4,
-            2 => 5,
-            3 => 8,
-            _ => 6,
-        };
-        float rotation = Phase == 2
-            ? MathF.Sin((float)_visualTime * 8f) * .22f
-            : (float)_visualTime * (Phase >= 3 ? .42f : .18f);
-        for (int index = 0; index < spokes; index++)
-        {
-            float angle = rotation + index * MathF.Tau / spokes;
-            Vector2 direction = new(MathF.Cos(angle), MathF.Sin(angle));
-            Primitives2D.Line(spriteBatch,
-                center + direction * radius * .72f,
-                center + direction * radius,
-                index % 2 == 0 ? Light.Accent : Dark.Accent,
-                3);
-        }
+        float bloom = MathF.Sin(progress * MathF.PI);
+        DrawTentacleBurst(spriteBatch, center, 6, Size * .95f, bloom, _patternIndex * .17f, 26);
+        Primitives2D.FillCircle(spriteBatch, center, Size * .16f,
+            new Color(6, 5, 11) * (.5f + .4f * bloom));
     }
 
+    /// <summary>
+    /// The larger cue marking an actual phase handoff (boss re-centering,
+    /// milestone heal): a shadowy black/white/rainbow tentacle burst
+    /// blooming out and back behind the boss over the full
+    /// <see cref="PhaseHandoffDuration"/> -- same "the Aphantasia portal in
+    /// The Mind" language as every other tentacle effect in this file --
+    /// with a small void core standing in for the old flat filled disc and
+    /// its cracks.
+    /// </summary>
     private void DrawPhaseHandoff(SpriteBatch spriteBatch, Vector2 center)
     {
-        float flash = .35f + .25f * MathF.Sin((float)_visualTime * 8.5f);
-        Color rainbow = Rainbow((float)_visualTime * .18f);
-        Color dullRainbow = Color.Lerp(new Color(58, 55, 68), rainbow, .48f);
-        Primitives2D.FillCircle(spriteBatch, center, Size * .5f,
-            dullRainbow * flash);
-        Primitives2D.CircleOutline(spriteBatch, center, Size * .52f,
-            UiTheme.Ink, 9);
-        Primitives2D.CircleOutline(spriteBatch, center, Size * .52f,
-            dullRainbow, 4);
-
-        for (int crack = 0; crack < 9; crack++)
-        {
-            float angle = crack * MathF.Tau / 9f + .17f;
-            Vector2 radial = new(MathF.Cos(angle), MathF.Sin(angle));
-            Vector2 tangent = new(-radial.Y, radial.X);
-            Vector2[] points =
-            [
-                center + radial * Size * .08f,
-                center + radial * Size * .22f
-                    + tangent * MathF.Sin(crack * 2.4f) * Size * .045f,
-                center + radial * Size * .36f
-                    - tangent * MathF.Cos(crack * 1.7f) * Size * .055f,
-                center + radial * Size * .5f,
-            ];
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink, 7);
-            Primitives2D.Polyline(spriteBatch, points, false,
-                Rainbow(crack / 9f + (float)_visualTime * .12f) * .78f, 3);
-        }
+        float progress = PhaseHandoffProgress;
+        float bloom = MathF.Sin(progress * MathF.PI);
+        DrawTentacleBurst(spriteBatch, center, 10, Size * 1.6f, bloom);
+        Color dullRainbow = Color.Lerp(new Color(58, 55, 68),
+            Rainbow((float)_visualTime * .18f), .48f);
+        Primitives2D.FillCircle(spriteBatch, center, Size * .24f,
+            new Color(6, 5, 11) * (.6f + .3f * bloom));
+        Primitives2D.CircleOutline(spriteBatch, center, Size * .26f,
+            UiTheme.Ink, 5);
+        Primitives2D.CircleOutline(spriteBatch, center, Size * .26f,
+            dullRainbow, 3);
     }
 
     private static Color Rainbow(float phase) => Primitives2D.Rainbow(phase);
