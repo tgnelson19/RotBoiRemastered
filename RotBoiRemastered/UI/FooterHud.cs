@@ -302,15 +302,29 @@ public sealed class FooterHud
 
     private void DrawHealth(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale)
     {
-        Color health = state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
         int dashWidth = Math.Max(25, layout.Dash.Width);
         int barWidth = Math.Max(20, layout.Health.Width - dashWidth - (int)(5 * scale));
-        UiTheme.DrawText(spriteBatch, $"HEALTH  {state.HealthPoints:N0}/{state.MaxHealthPoints:N0}", 7 * scale,
-            UiTheme.Text, new Vector2(layout.Health.X, layout.Health.Y + 1));
         var bar = new Rectangle(layout.Health.X, layout.Health.Bottom - Math.Max(9, (int)(13 * scale)),
             barWidth, Math.Max(7, (int)(10 * scale)));
-        UiTheme.DrawProgress(spriteBatch, bar,
-            (float)(state.HealthPoints / Math.Max(1.0, state.MaxHealthPoints)), health, 10);
+        if (state.VoidMode)
+        {
+            UiTheme.DrawText(spriteBatch, "THE VOID  //  ONE HIT", 7 * scale,
+                UiTheme.Muted, new Vector2(layout.Health.X, layout.Health.Y + 1));
+        }
+        else if (state.GoldenFlameMode)
+        {
+            UiTheme.DrawText(spriteBatch, $"HITS  {state.GoldenFlameHitsRemaining}/3", 7 * scale,
+                UiTheme.Text, new Vector2(layout.Health.X, layout.Health.Y + 1));
+            UiTheme.DrawProgress(spriteBatch, bar, state.GoldenFlameHitsRemaining / 3f, UiTheme.Gold, 3);
+        }
+        else
+        {
+            Color health = state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
+            UiTheme.DrawText(spriteBatch, $"HEALTH  {state.HealthPoints:N0}/{state.MaxHealthPoints:N0}", 7 * scale,
+                UiTheme.Text, new Vector2(layout.Health.X, layout.Health.Y + 1));
+            UiTheme.DrawProgress(spriteBatch, bar,
+                (float)(state.HealthPoints / Math.Max(1.0, state.MaxHealthPoints)), health, 10);
+        }
         double dashReady = Math.Clamp((state.DashCooldownMax - state.CurrDashCooldown)
             / Math.Max(1, state.DashCooldownMax), 0, 1);
         string dashLabel = state.CurrDashCooldown <= 0

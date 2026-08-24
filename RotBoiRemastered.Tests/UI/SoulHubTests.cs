@@ -266,6 +266,110 @@ public sealed class SoulHubTests
     }
 
     [Fact]
+    public void ToggleGoldenFlameAndVoid_PersistSelectionAndUpdateCurrentSoulState()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-golden-flame-void-tests-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+
+            SoulHub.ToggleGoldenFlame(session);
+            Assert.True(GameProfile.Profile.GoldenFlameEnabled);
+            Assert.True(session.State.GoldenFlameMode);
+
+            SoulHub.ToggleVoid(session);
+            Assert.True(GameProfile.Profile.VoidEnabled);
+            Assert.True(session.State.VoidMode);
+            Assert.True(File.Exists(GameProfile.SavePath));
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GoldenFlameStation_OnlyInteractableOnceBothOtherBraziersAreLit()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-golden-flame-reveal-tests-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+            var soulHub = new SoulHub();
+            soulHub.Enter(session);
+            Vector2 golden = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["golden_flame"]);
+            float half = (float)session.State.PlayerSize / 2f;
+            session.Player.SetPosition(golden.X - half, golden.Y - half);
+
+            // Neither brazier lit yet -- Golden Flame doesn't physically exist.
+            soulHub.Update(session, 1.0 / 60);
+            soulHub.HandleInput(session, new HashSet<Keys> { Keys.F }, Point.Zero, false, false);
+            Assert.False(GameProfile.Profile.GoldenFlameEnabled);
+
+            SoulHub.ToggleHardMode(session);
+            SoulHub.ToggleNoExtract(session);
+            soulHub.Update(session, 1.0 / 60);
+            soulHub.HandleInput(session, new HashSet<Keys> { Keys.F }, Point.Zero, false, false);
+            Assert.True(GameProfile.Profile.GoldenFlameEnabled);
+
+            // Extinguishing a prerequisite puts Golden Flame's own flame out too.
+            SoulHub.ToggleNoExtract(session);
+            soulHub.Update(session, 1.0 / 60);
+            Assert.False(GameProfile.Profile.GoldenFlameEnabled);
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VoidStation_OnlyInteractableAfterThePassageIsDiscovered()
+    {
+        var originalProfile = GameProfile.Profile;
+        string originalPath = GameProfile.SavePath;
+        string tempDir = Directory.CreateTempSubdirectory("rotboi-void-reveal-tests-").FullName;
+        try
+        {
+            GameProfile.Profile = new GameProfileData();
+            GameProfile.SavePath = Path.Combine(tempDir, "profile.json");
+            var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+            var soulHub = new SoulHub();
+            soulHub.Enter(session);
+            Vector2 theVoid = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["the_void"]);
+            float half = (float)session.State.PlayerSize / 2f;
+            session.Player.SetPosition(theVoid.X - half, theVoid.Y - half);
+
+            soulHub.Update(session, 1.0 / 60);
+            soulHub.HandleInput(session, new HashSet<Keys> { Keys.F }, Point.Zero, false, false);
+            Assert.False(GameProfile.Profile.VoidEnabled);
+
+            GameProfile.Profile.VoidPassageDiscovered = true;
+            soulHub.Update(session, 1.0 / 60);
+            soulHub.HandleInput(session, new HashSet<Keys> { Keys.F }, Point.Zero, false, false);
+            Assert.True(GameProfile.Profile.VoidEnabled);
+        }
+        finally
+        {
+            GameProfile.Profile = originalProfile;
+            GameProfile.SavePath = originalPath;
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void AdjustNewGamePlus_StopsAtThePathsUnlockedTier()
     {
         var originalProfile = GameProfile.Profile;

@@ -554,6 +554,12 @@ internal static class SoulVisualRenderer
             case "no_extract":
                 DrawTrialBrazier(spriteBatch, at, UiTheme.Purple, time, wake, GameProfile.Profile.NoExtractEnabled);
                 break;
+            case "golden_flame":
+                DrawTrialBrazier(spriteBatch, at, UiTheme.Gold, time, wake, GameProfile.Profile.GoldenFlameEnabled);
+                break;
+            case "the_void":
+                DrawTrialBrazier(spriteBatch, at, Color.Lerp(UiTheme.Void, UiTheme.Purple, .4f), time, wake, GameProfile.Profile.VoidEnabled);
+                break;
             case "developer_armory":
                 DrawReliquary(spriteBatch, at, UiTheme.Gold, time, wake);
                 for (int slot = 0; slot < 4; slot++)
@@ -943,6 +949,10 @@ internal static class SoulVisualRenderer
             GameProfile.Profile.NoHealingEnabled ? UiTheme.Red : UiTheme.Muted),
         "no_extract" => (GameProfile.Profile.NoExtractEnabled ? "NO EXTRACT LIT" : "NO EXTRACT BRAZIER",
             GameProfile.Profile.NoExtractEnabled ? UiTheme.Purple : UiTheme.Muted),
+        "golden_flame" => (GameProfile.Profile.GoldenFlameEnabled ? "GOLDEN FLAME LIT" : "GOLDEN FLAME BRAZIER",
+            GameProfile.Profile.GoldenFlameEnabled ? UiTheme.Gold : UiTheme.Muted),
+        "the_void" => (GameProfile.Profile.VoidEnabled ? "THE VOID LIT" : "THE VOID BRAZIER",
+            GameProfile.Profile.VoidEnabled ? Color.Lerp(UiTheme.Void, UiTheme.Purple, .4f) : UiTheme.Muted),
         "developer_armory" => ("DEVELOPER ARMORY", UiTheme.Gold),
         _ => (key.ToUpperInvariant(), UiTheme.Cream),
     };

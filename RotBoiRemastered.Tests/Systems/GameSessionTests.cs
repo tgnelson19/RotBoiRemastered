@@ -378,6 +378,73 @@ public class GameSessionTests
     }
 
     [Fact]
+    public void ExpForPlayer_GoldenFlameMode_StandardBubbleGrantsThirdOfLevelRegardlessOfValue()
+    {
+        var session = MakeSession(level: 0);
+        session.State.SetGoldenFlame(true);
+        double third = session.State.ExpNeededForNextLevel / 3.0;
+        session.State.ExperienceList.Add(new ExperienceBubble(
+            session.Player.WorldX, session.Player.WorldY, value: 99999, difficultyDead: 1));
+
+        session.ExpForPlayer();
+
+        Assert.Equal(third, session.State.ExpCount, 3);
+        Assert.Equal(0, session.State.CurrentLevel);
+    }
+
+    [Fact]
+    public void ExpForPlayer_GoldenFlameMode_GuardianAndFinalBossGrantInstantLevels()
+    {
+        var session = MakeSession(level: 0);
+        session.State.SetGoldenFlame(true);
+        session.State.ExperienceList.Add(new ExperienceBubble(
+            session.Player.WorldX, session.Player.WorldY, value: 1, difficultyDead: 1,
+            tier: ExperienceBubble.ExperienceTier.Guardian));
+
+        session.ExpForPlayer();
+
+        Assert.Equal(1, session.State.CurrentLevel);
+        Assert.Equal(1, session.State.PendingLevelUps);
+
+        session.State.ExperienceList.Add(new ExperienceBubble(
+            session.Player.WorldX, session.Player.WorldY, value: 1, difficultyDead: 1,
+            tier: ExperienceBubble.ExperienceTier.FinalBoss));
+
+        session.ExpForPlayer();
+
+        Assert.Equal(3, session.State.CurrentLevel);
+        Assert.Equal(3, session.State.PendingLevelUps);
+    }
+
+    [Fact]
+    public void ExpForPlayer_VoidMode_GrantsBiggerInstantLevelsAndTakesPriorityOverGoldenFlame()
+    {
+        var session = MakeSession(level: 0);
+        session.State.SetGoldenFlame(true);
+        session.State.SetVoid(true);
+        session.State.ExperienceList.Add(new ExperienceBubble(
+            session.Player.WorldX, session.Player.WorldY, value: 1, difficultyDead: 1));
+
+        session.ExpForPlayer();
+
+        Assert.Equal(1, session.State.CurrentLevel);
+        // Never banked into ExpCount -- Void bypasses XP banking entirely.
+        Assert.Equal(0, session.State.ExpCount);
+
+        session.State.ExperienceList.Add(new ExperienceBubble(
+            session.Player.WorldX, session.Player.WorldY, value: 1, difficultyDead: 1,
+            tier: ExperienceBubble.ExperienceTier.Guardian));
+        session.ExpForPlayer();
+        Assert.Equal(4, session.State.CurrentLevel);
+
+        session.State.ExperienceList.Add(new ExperienceBubble(
+            session.Player.WorldX, session.Player.WorldY, value: 1, difficultyDead: 1,
+            tier: ExperienceBubble.ExperienceTier.FinalBoss));
+        session.ExpForPlayer();
+        Assert.Equal(9, session.State.CurrentLevel);
+    }
+
+    [Fact]
     public void StartPathRun_BeginsInProtectedRoomWhileAdjacentEnemiesStayInactive()
     {
         var session = MakeSession();
@@ -1269,6 +1336,61 @@ public class GameSessionTests
 
         Assert.True(session.State.HealthPoints < healthBefore);
         Assert.True(session.State.PlayerInvulnerabilityTimer > 0);
+    }
+
+    /// <summary>Uses a fresh projectile per hit (rather than melee enemy contact) so knockback from a prior hit can't drift the attacker out of range between calls.</summary>
+    private static void AddTouchingProjectile(GameSession session, float damage) =>
+        session.State.EnemyProjectileHolster.Add(new EnemyProjectile(
+            session.Player.WorldX, session.Player.WorldY, 0, 0, damage,
+            (float)session.State.PlayerSize, color: Color.Red, owner: "golden-flame-test", ignoreWalls: true));
+
+    [Fact]
+    public void HurtPlayer_GoldenFlameMode_DiesOnThirdHitRegardlessOfDamage()
+    {
+        var session = MakeSession();
+        session.State.SetGoldenFlame(true);
+
+        for (int hit = 0; hit < 2; hit++)
+        {
+            session.State.GracePeriod = 0;
+            session.State.PlayerInvulnerabilityTimer = 0;
+            AddTouchingProjectile(session, damage: 1);
+            Assert.False(session.HurtPlayer());
+        }
+        Assert.Equal(1, session.State.GoldenFlameHitsRemaining);
+
+        session.State.GracePeriod = 0;
+        session.State.PlayerInvulnerabilityTimer = 0;
+        AddTouchingProjectile(session, damage: 1);
+        Assert.True(session.HurtPlayer());
+        Assert.Equal(0, session.State.GoldenFlameHitsRemaining);
+    }
+
+    [Fact]
+    public void HurtPlayer_VoidMode_DiesOnFirstHitRegardlessOfDamage()
+    {
+        var session = MakeSession();
+        session.State.SetVoid(true);
+        session.State.GracePeriod = 0;
+        session.State.PlayerInvulnerabilityTimer = 0;
+        AddTouchingProjectile(session, damage: 1);
+
+        Assert.True(session.HurtPlayer());
+    }
+
+    [Fact]
+    public void HurtPlayer_BothModesStacked_VoidTakesPriorityOverGoldenFlame()
+    {
+        var session = MakeSession();
+        session.State.SetGoldenFlame(true);
+        session.State.SetVoid(true);
+        session.State.GracePeriod = 0;
+        session.State.PlayerInvulnerabilityTimer = 0;
+        AddTouchingProjectile(session, damage: 1);
+
+        Assert.True(session.HurtPlayer());
+        // Golden Flame's chunk count is never touched -- Void wins outright.
+        Assert.Equal(3, session.State.GoldenFlameHitsRemaining);
     }
 
     [Fact]

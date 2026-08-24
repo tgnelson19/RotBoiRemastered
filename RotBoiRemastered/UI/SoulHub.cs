@@ -143,8 +143,14 @@ public class SoulHub
         _dummy = new TrainingDummy(_dummyWorld.X, _dummyWorld.Y);
         _stationWorld.Clear();
         foreach (var (key, tile) in SoulLayout.StationTiles)
-            if (key != "developer_armory" || GameProfile.Profile.DeveloperArmory)
+            if (key is not ("developer_armory" or "golden_flame" or "the_void"))
                 _stationWorld[key] = SoulLayout.TileWorldCenter(tile);
+        if (GameProfile.Profile.DeveloperArmory)
+            _stationWorld["developer_armory"] = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["developer_armory"]);
+        if (GameProfile.Profile.NoHealingEnabled && GameProfile.Profile.NoExtractEnabled)
+            _stationWorld["golden_flame"] = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["golden_flame"]);
+        if (GameProfile.Profile.VoidPassageDiscovered)
+            _stationWorld["the_void"] = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["the_void"]);
         _pathPortalWorld.Clear();
         foreach (var (key, tile) in SoulLayout.PortalTiles)
             _pathPortalWorld[key] = SoulLayout.TileWorldCenter(tile);
@@ -174,6 +180,8 @@ public class SoulHub
     public void Update(GameSession session, double elapsedSeconds)
     {
         SyncDeveloperArmoryStation();
+        SyncGoldenFlameStation();
+        SyncVoidStation();
         _seconds += Math.Min(.05, elapsedSeconds);
         session.UpdateEntrySplash(elapsedSeconds);
         _dummyHitFlash = Math.Max(0, _dummyHitFlash - elapsedSeconds);
@@ -192,6 +200,8 @@ public class SoulHub
             if (session.State.Equipment.GetValueOrDefault("weapon") is { Definition.EffectIds.Count: > 0 } weapon)
                 UniqueEffects.OnPlayerHit(_dummy, bullet, weapon, session.State);
         }
+        if (GameProfile.Profile.GoldenFlameEnabled && !GameProfile.Profile.VoidPassageDiscovered)
+            TryShootOpenVoidPassage(session);
         session.State.BulletHolster.RemoveAll(bullet => bullet.RemFlag);
         // Ticks bleed/poison/bane the same as a real enemy would every frame,
         // so DoT from a hit-and-run playstyle keeps contributing to the DPS
@@ -358,6 +368,10 @@ public class SoulHub
                     ToggleHardMode(session);
                 else if (nearby == "no_extract")
                     ToggleNoExtract(session);
+                else if (nearby == "golden_flame")
+                    ToggleGoldenFlame(session);
+                else if (nearby == "the_void")
+                    ToggleVoid(session);
                 else
                 {
                     _overlay = nearby;
@@ -444,6 +458,22 @@ public class SoulHub
         GameProfile.SaveProfile();
     }
 
+    public static void ToggleGoldenFlame(GameSession session)
+    {
+        bool enabled = !GameProfile.Profile.GoldenFlameEnabled;
+        GameProfile.Profile.GoldenFlameEnabled = enabled;
+        session.State.SetGoldenFlame(enabled);
+        GameProfile.SaveProfile();
+    }
+
+    public static void ToggleVoid(GameSession session)
+    {
+        bool enabled = !GameProfile.Profile.VoidEnabled;
+        GameProfile.Profile.VoidEnabled = enabled;
+        session.State.SetVoid(enabled);
+        GameProfile.SaveProfile();
+    }
+
     private void SyncDeveloperArmoryStation()
     {
         if (GameProfile.Profile.DeveloperArmory)
@@ -453,6 +483,48 @@ public class SoulHub
         {
             _stationWorld.Remove("developer_armory");
             if (_overlay == "developer_armory") _overlay = null;
+        }
+    }
+
+    /// <summary>Golden Flame only physically exists once both original braziers are lit -- extinguish it along with its own toggle state whenever a prerequisite goes dark.</summary>
+    private void SyncGoldenFlameStation()
+    {
+        if (GameProfile.Profile.NoHealingEnabled && GameProfile.Profile.NoExtractEnabled)
+            _stationWorld["golden_flame"] = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["golden_flame"]);
+        else
+        {
+            _stationWorld.Remove("golden_flame");
+            if (GameProfile.Profile.GoldenFlameEnabled)
+            {
+                GameProfile.Profile.GoldenFlameEnabled = false;
+                GameProfile.SaveProfile();
+            }
+        }
+    }
+
+    /// <summary>The Void's brazier only appears once its secret passage has been shot open -- permanent thereafter.</summary>
+    private void SyncVoidStation()
+    {
+        if (GameProfile.Profile.VoidPassageDiscovered)
+            _stationWorld["the_void"] = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["the_void"]);
+        else
+            _stationWorld.Remove("the_void");
+    }
+
+    /// <summary>Checks live player bullets against the secret wall gating The Void's alcove; the first one to land while Golden Flame is lit blasts the passage open for good.</summary>
+    private void TryShootOpenVoidPassage(GameSession session)
+    {
+        Rectangle gateRect = SoulLayout.VoidGateWorldRect;
+        foreach (var bullet in session.State.BulletHolster)
+        {
+            if (bullet.RemFlag || !gateRect.Intersects(bullet.WorldRect()))
+                continue;
+            bullet.RemFlag = true;
+            GameProfile.Profile.VoidPassageDiscovered = true;
+            GameProfile.SaveProfile();
+            session.RefreshMindBattleground(Battleground.GenerateMind());
+            _stationWorld["the_void"] = SoulLayout.TileWorldCenter(SoulLayout.StationTiles["the_void"]);
+            break;
         }
     }
 
@@ -1132,8 +1204,10 @@ public class SoulHub
     {
         _uiScale = UiTheme.DisplayScale(session.ScreenWidth, session.ScreenHeight);
         UiTheme.DrawText(spriteBatch, "THE MIND", Fs(27), UiTheme.Text, new Vector2(Px(22), Px(18)));
+        string goldenFlameStatus = GameProfile.Profile.GoldenFlameEnabled ? "  //  GOLDEN FLAME ON" : "";
+        string voidStatus = GameProfile.Profile.VoidEnabled ? "  //  THE VOID ON" : "";
         UiTheme.DrawText(spriteBatch,
-            $"SAFE GROUND  //  NO HEALING {(GameProfile.Profile.NoHealingEnabled ? "ON" : "OFF")}  //  NO EXTRACT {(GameProfile.Profile.NoExtractEnabled ? "ON" : "OFF")}  //  F / B INTERACT  //  ESC / START OPTIONS",
+            $"SAFE GROUND  //  NO HEALING {(GameProfile.Profile.NoHealingEnabled ? "ON" : "OFF")}  //  NO EXTRACT {(GameProfile.Profile.NoExtractEnabled ? "ON" : "OFF")}{goldenFlameStatus}{voidStatus}  //  F / B INTERACT  //  ESC / START OPTIONS",
             Fs(9), UiTheme.Muted, new Vector2(Px(24), Px(54)));
         DrawNearbyPrompt(spriteBatch, session);
         if (GameProfile.Profile.DevUnlockTesting)
@@ -1198,6 +1272,10 @@ public class SoulHub
                 GameProfile.Profile.NoHealingEnabled ? UiTheme.Red : UiTheme.Gold),
             ["no_extract"] = (GameProfile.Profile.NoExtractEnabled ? "EXTINGUISH NO EXTRACT" : "LIGHT NO EXTRACT",
                 GameProfile.Profile.NoExtractEnabled ? UiTheme.Purple : UiTheme.Gold),
+            ["golden_flame"] = (GameProfile.Profile.GoldenFlameEnabled ? "EXTINGUISH GOLDEN FLAME" : "LIGHT GOLDEN FLAME",
+                UiTheme.Gold),
+            ["the_void"] = (GameProfile.Profile.VoidEnabled ? "EXTINGUISH THE VOID" : "LIGHT THE VOID",
+                GameProfile.Profile.VoidEnabled ? Color.Lerp(UiTheme.Void, UiTheme.Purple, .4f) : UiTheme.Gold),
             ["developer_armory"] = ("DEVELOPER ARMORY", UiTheme.Gold),
         };
         var nearby = NearbyStation(session);

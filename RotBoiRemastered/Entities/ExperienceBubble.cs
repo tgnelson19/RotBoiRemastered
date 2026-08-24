@@ -26,6 +26,15 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class ExperienceBubble
 {
+    /// <summary>
+    /// Source-enemy classification consulted by Golden Flame/The Void's
+    /// instant-level XP overrides (see GameSession.ExpForPlayer) -- ordinary
+    /// enemies are Standard, "guardian"/level-10-class bosses are Guardian,
+    /// and "level-20-class" finale bosses are FinalBoss. Cosmetic/no-op for
+    /// every other mode, which keeps using Value as normal.
+    /// </summary>
+    public enum ExperienceTier { Standard, Guardian, FinalBoss }
+
     private struct CelebrationParticle
     {
         public float X, Y, Vx, Vy, Life;
@@ -37,6 +46,7 @@ public sealed class ExperienceBubble
     public float WorldX { get; private set; }
     public float WorldY { get; private set; }
     public double Value { get; }
+    public ExperienceTier Tier { get; }
     public float Direction { get; set; }
     public float SpeedSpan { get; private set; } = 40f;
     public float Speed { get; private set; } = 1f;
@@ -46,12 +56,14 @@ public sealed class ExperienceBubble
     private readonly List<CelebrationParticle> _celebrationParticles = new();
     public int CelebrationParticleCount => _celebrationParticles.Count;
 
-    public ExperienceBubble(float worldX, float worldY, double value, double difficultyDead, Random? rng = null, bool celebration = false)
+    public ExperienceBubble(float worldX, float worldY, double value, double difficultyDead, Random? rng = null,
+        bool celebration = false, ExperienceTier tier = ExperienceTier.Standard)
     {
         Size = 20f * (float)difficultyDead;
         WorldX = worldX;
         WorldY = worldY;
         Value = value;
+        Tier = tier;
         rng ??= Random.Shared;
         Direction = rng.Next(0, 361) * 0.0174533f; // matches Python's randint(0, 360) degrees-to-radians
 

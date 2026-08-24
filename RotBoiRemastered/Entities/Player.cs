@@ -302,7 +302,10 @@ public sealed class Player
                     (int)muzzle.Y - muzzleSize / 2, muzzleSize, muzzleSize),
                 state.BulletEdgeColor);
         }
-        if (state.HealthPoints < state.MaxHealthPoints * .25)
+        bool lowHealthWarning = !state.VoidMode && (state.GoldenFlameMode
+            ? state.GoldenFlameHitsRemaining <= 1
+            : state.HealthPoints < state.MaxHealthPoints * .25);
+        if (lowHealthWarning)
         {
             float warning = .35f + .25f * MathF.Sin(_visualAge * 7f);
             var warningRect = rect;
@@ -391,6 +394,15 @@ public sealed class Player
         RunState state,
         Rectangle playerRect)
     {
+        // The Void removes the health bar entirely -- any hit is fatal, so
+        // there's nothing meaningful to show.
+        if (state.VoidMode)
+            return;
+        if (state.GoldenFlameMode)
+        {
+            DrawGoldenFlameChunks(spriteBatch, state, playerRect);
+            return;
+        }
         int width = Math.Max(28, playerRect.Width);
         const int height = 5;
         var bar = new Rectangle(
@@ -423,6 +435,29 @@ public sealed class Player
         Primitives2D.RectOutline(
             spriteBatch, bar,
             UiTheme.Border * .9f, 1);
+    }
+
+    /// <summary>Golden Flame's 3-hit system: three independently lit/dim chunks (RunState.GoldenFlameHitsRemaining) instead of one continuous fill, so "how many hits left" reads at a glance.</summary>
+    private static void DrawGoldenFlameChunks(
+        SpriteBatch spriteBatch,
+        RunState state,
+        Rectangle playerRect)
+    {
+        const int chunkCount = 3;
+        int width = Math.Max(28, playerRect.Width);
+        const int height = 6;
+        const int gap = 2;
+        int chunkWidth = Math.Max(1, (width - gap * (chunkCount - 1)) / chunkCount);
+        int totalWidth = chunkWidth * chunkCount + gap * (chunkCount - 1);
+        int startX = playerRect.Center.X - totalWidth / 2;
+        int y = playerRect.Bottom + 7;
+        for (int index = 0; index < chunkCount; index++)
+        {
+            var chunk = new Rectangle(startX + index * (chunkWidth + gap), y, chunkWidth, height);
+            bool lit = index < state.GoldenFlameHitsRemaining;
+            Primitives2D.FillRect(spriteBatch, chunk, lit ? UiTheme.Gold : UiTheme.Ink);
+            Primitives2D.RectOutline(spriteBatch, chunk, UiTheme.Border * .9f, 1);
+        }
     }
 
     private static void DrawCoreForgeRings(

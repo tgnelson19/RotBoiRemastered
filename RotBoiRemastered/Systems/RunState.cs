@@ -191,6 +191,12 @@ public sealed class RunState
     public bool AnyHardModeActive => HardMode || NoExtract;
     /// <summary>Both Hard Mode braziers lit ("Aphantasia, Core of the Void" territory). Items.RollCoreForge triples the Core-Forge roll chance while this is true.</summary>
     public bool IsTrueHardMode => HardMode && NoExtract;
+    /// <summary>Golden Flame brazier lit: the run's health pool is replaced by a 3-hit chunk system (GoldenFlameHitsRemaining) and XP pickups grant instant level fractions/levels instead of banked XP. See GameSession.ApplyPlayerHit/AdvanceLevel.</summary>
+    public bool GoldenFlameMode { get; private set; }
+    /// <summary>The Void brazier lit: any hit is instantly fatal and the health bar is hidden entirely. Takes priority over GoldenFlameMode wherever both are active.</summary>
+    public bool VoidMode { get; private set; }
+    /// <summary>Chunks remaining under GoldenFlameMode's 3-hit system. Reset to 3 by FillHealthForMilestone whenever GoldenFlameMode is active.</summary>
+    public int GoldenFlameHitsRemaining { get; private set; } = 3;
     public int NewGamePlusLevel { get; private set; }
 
     public double PlayerSpeed { get; private set; }
@@ -311,6 +317,9 @@ public sealed class RunState
     {
         HardMode = GameProfile.Profile.NoHealingEnabled;
         NoExtract = GameProfile.Profile.NoExtractEnabled;
+        GoldenFlameMode = GameProfile.Profile.GoldenFlameEnabled;
+        VoidMode = GameProfile.Profile.VoidEnabled;
+        GoldenFlameHitsRemaining = 3;
         NewGamePlusLevel = NewGamePlus.SelectedLevel(GamePaths.Active().Key);
         PlayerSpeed = 2.1;
         PlayerSize = Simulation.TileSize * .75f;
@@ -430,6 +439,15 @@ public sealed class RunState
     /// <summary>Used by The Mind challenge braziers before a run captures the settings.</summary>
     public void SetHardMode(bool enabled) => HardMode = enabled;
     public void SetNoExtract(bool enabled) => NoExtract = enabled;
+    public void SetGoldenFlame(bool enabled) => GoldenFlameMode = enabled;
+    public void SetVoid(bool enabled) => VoidMode = enabled;
+
+    /// <summary>Spends one Golden Flame chunk and returns whether that was the last one. See GameSession.ApplyPlayerHit.</summary>
+    public bool SpendGoldenFlameHit()
+    {
+        GoldenFlameHitsRemaining = Math.Max(0, GoldenFlameHitsRemaining - 1);
+        return GoldenFlameHitsRemaining <= 0;
+    }
 
     public void SetNewGamePlusLevel(int level) => NewGamePlusLevel = NewGamePlus.ClampLevel(level);
 
@@ -441,6 +459,8 @@ public sealed class RunState
     {
         HealthPoints = MaxHealthPoints;
         HealthRecoveryBuffer = 0;
+        if (GoldenFlameMode)
+            GoldenFlameHitsRemaining = 3;
     }
 
     /// <summary>Refresh gameplay-neutral wardrobe selections without resetting the run.</summary>

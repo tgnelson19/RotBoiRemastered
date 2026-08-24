@@ -38,8 +38,32 @@ internal static class SoulLayout
             ["wardrobe"] = new(70, 76),
             ["hard_mode"] = new(70, 84),
             ["no_extract"] = new(68, 87),
+            ["golden_flame"] = new(70, 86),
+            ["the_void"] = new(86, 84),
             ["developer_armory"] = new(54, 89),
         };
+
+    /// <summary>Hidden alcove east of the brazier alcove, holding The Void's brazier. Sealed off by a secret wall gate (see VoidGateTile/BuildTiles) until GameProfile.Profile.VoidPassageDiscovered.</summary>
+    public static readonly Point VoidRoomTile = StationTiles["the_void"];
+    /// <summary>Anchor the secret corridor to The Void springs from -- just east of the existing brazier alcove.</summary>
+    public static readonly Point VoidGateAnchorTile = new(75, 84);
+
+    /// <summary>
+    /// World-space rect around the secret wall gate SealCorridor carves across the
+    /// VoidGateAnchorTile-to-VoidRoomTile corridor (see BuildTiles). Generous on
+    /// purpose -- SoulHub just needs to catch a bullet dying against that wall, not
+    /// pixel-match SealCorridor's own depth/span thresholds.
+    /// </summary>
+    public static Rectangle VoidGateWorldRect
+    {
+        get
+        {
+            Vector2 gate = Vector2.Lerp(VoidGateAnchorTile.ToVector2(), VoidRoomTile.ToVector2(), .5f);
+            Vector2 topLeft = (gate - new Vector2(2.5f, 4.5f)) * Battleground.TileSize;
+            Vector2 size = new Vector2(5f, 9f) * Battleground.TileSize;
+            return new Rectangle((int)topLeft.X, (int)topLeft.Y, (int)size.X, (int)size.Y);
+        }
+    }
 
     /// <summary>
     /// Original crown vectors retained as authored data. PortalTiles applies
@@ -64,7 +88,7 @@ internal static class SoulLayout
                 NexusTile.Y + entry.Value.Y * SelectionAreaScale));
 
     public static readonly IReadOnlySet<string> AllGateKeys =
-        PortalOffsets.Keys.Concat(["core", "aphantasia"]).ToHashSet();
+        PortalOffsets.Keys.Concat(["core", "aphantasia", "the_void"]).ToHashSet();
 
     /// <summary>Maps legacy non-colliding chapel art into the wider layout.</summary>
     public static Point AuthoredTile(int x, int y) => new(x + 20, y + 13);
@@ -92,6 +116,12 @@ internal static class SoulLayout
         PaintEllipse(grid, new Point(71, 84), 4, 4, TileType.BuildingFloor);
         PaintEllipse(grid, new Point(59, 89), 6, 4, TileType.BuildingFloor);
         PaintEllipse(grid, DummyTile, 5, 4, TileType.BuildingFloor);
+
+        // The Void's hidden alcove, reached from the brazier alcove through a
+        // corridor that BuildTiles below seals with a secret wall gate unless
+        // the passage has already been shot open (see AllGateKeys/"the_void").
+        PaintEllipse(grid, VoidRoomTile, 4, 4, TileType.BuildingFloor);
+        PaintCapsule(grid, VoidGateAnchorTile, VoidRoomTile, 1.6f, TileType.Road);
 
         // A quiet processional aisle ties every utility shrine to the apse.
         PaintRect(grid, 58, 66, 60, 90, TileType.Road);
@@ -153,6 +183,8 @@ internal static class SoulLayout
                 SealCorridor(grid, BodyDoorTile, CorePortalTile, .38f);
             if (!unlockedPaths.Contains("aphantasia"))
                 SealCorridor(grid, CorePortalTile, AphantasiaPortalTile, .55f);
+            if (!unlockedPaths.Contains("the_void"))
+                SealCorridor(grid, VoidGateAnchorTile, VoidRoomTile, .5f);
         }
 
         return grid;

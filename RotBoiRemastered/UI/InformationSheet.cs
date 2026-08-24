@@ -680,10 +680,21 @@ public sealed class InformationSheet
 
     private int DrawStatus(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
     {
-        Color healthColor = state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
+        Color healthColor = state.VoidMode
+            ? UiTheme.Muted
+            : state.GoldenFlameMode
+                ? UiTheme.Gold
+                : state.HealthPoints > state.MaxHealthPoints * .3 ? UiTheme.Green : UiTheme.Red;
         var rect = Panel(spriteBatch, y, Px(152), healthColor);
-        Bar(spriteBatch, rect, rect.Y + Px(7), "HEALTH", state.HealthPoints, state.MaxHealthPoints, healthColor,
-            $"{state.HealthPoints} / {state.MaxHealthPoints}");
+        if (state.VoidMode)
+            DrawSheetText(spriteBatch, "THE VOID  //  ONE HIT, NO HEALTH BAR", Px(8), healthColor,
+                new Vector2(rect.X + Px(11), rect.Y + Px(7)));
+        else if (state.GoldenFlameMode)
+            Bar(spriteBatch, rect, rect.Y + Px(7), "HITS", state.GoldenFlameHitsRemaining, 3, healthColor,
+                $"{state.GoldenFlameHitsRemaining} / 3");
+        else
+            Bar(spriteBatch, rect, rect.Y + Px(7), "HEALTH", state.HealthPoints, state.MaxHealthPoints, healthColor,
+                $"{state.HealthPoints} / {state.MaxHealthPoints}");
         double dashValue = Math.Max(0, state.DashCooldownMax - state.CurrDashCooldown);
         string dashText = state.CurrDashCooldown <= 0 ? "READY" : $"{state.CurrDashCooldown / Simulation.FrameRate:F1} sec";
         Bar(spriteBatch, rect, rect.Y + Px(35), "DASH", dashValue, state.DashCooldownMax, UiTheme.Blue, dashText);

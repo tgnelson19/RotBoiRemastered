@@ -204,8 +204,16 @@ public class BattlegroundTests
         Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.NexusTile), 35, 45);
         foreach (Point portal in SoulLayout.PortalTiles.Values)
             Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, portal), 45, 95);
-        foreach (Point station in SoulLayout.StationTiles.Values)
-            Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, station), 0, 20);
+        foreach (var (key, station) in SoulLayout.StationTiles)
+        {
+            // The Void is a deliberately distant secret alcove, reached
+            // through its own sealed corridor rather than the chapel's
+            // everyday utility stations.
+            if (key == "the_void")
+                Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, station), 20, 60);
+            else
+                Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, station), 0, 20);
+        }
         Assert.InRange(ShortestPath(soul, SoulLayout.SpawnTile, SoulLayout.DummyTile), 1, 20);
     }
 

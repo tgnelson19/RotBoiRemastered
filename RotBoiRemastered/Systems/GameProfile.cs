@@ -75,6 +75,12 @@ public sealed class GameProfileData
     public bool HardModeRunCompleted { get; set; }
     /// <summary>Set when Aphantasia is defeated in Phase 4 with both Hard Mode braziers (no healing, no extract) lit -- "Aphantasia, Core of The Void" (True Hard Mode). See MetaProgression.RecordCoreOfTheVoidDefeat.</summary>
     public bool DefeatedCoreOfTheVoid { get; set; }
+    /// <summary>Third Mind brazier, revealed once both Hard Mode braziers are lit. Replaces the run's health pool with a 3-hit chunk system and turns XP pickups into instant level grants -- see RunState.GoldenFlameMode.</summary>
+    public bool GoldenFlameEnabled { get; set; }
+    /// <summary>Fourth Mind brazier, found behind the secret wall east of the brazier alcove. One-hit death, no health bar, bigger instant level grants than Golden Flame -- see RunState.VoidMode.</summary>
+    public bool VoidEnabled { get; set; }
+    /// <summary>Permanent once true: the secret wall east of the brazier alcove has been shot open, revealing The Void's brazier. Never reset by Normalize -- a found secret stays found.</summary>
+    public bool VoidPassageDiscovered { get; set; }
     /// <summary>
     /// Cosmetic unlock cache, formatted "{category}:{id}" (e.g. "core:emerald"). Populated by
     /// GameProfile.Normalize's grandfather step for whatever a save already has equipped, so an

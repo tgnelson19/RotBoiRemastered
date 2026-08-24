@@ -168,6 +168,54 @@ public class RunStateTests : IDisposable
     }
 
     [Fact]
+    public void GoldenFlameMode_CapturedFromProfileAndSpendableToZero()
+    {
+        GameProfile.Profile.GoldenFlameEnabled = true;
+        var state = new RunState();
+
+        Assert.True(state.GoldenFlameMode);
+        Assert.Equal(3, state.GoldenFlameHitsRemaining);
+
+        Assert.False(state.SpendGoldenFlameHit());
+        Assert.Equal(2, state.GoldenFlameHitsRemaining);
+        Assert.False(state.SpendGoldenFlameHit());
+        Assert.Equal(1, state.GoldenFlameHitsRemaining);
+        Assert.True(state.SpendGoldenFlameHit());
+        Assert.Equal(0, state.GoldenFlameHitsRemaining);
+        // Spending past zero stays fatal and doesn't go negative.
+        Assert.True(state.SpendGoldenFlameHit());
+        Assert.Equal(0, state.GoldenFlameHitsRemaining);
+    }
+
+    [Fact]
+    public void FillHealthForMilestone_RestoresGoldenFlameChunksOnlyWhenModeActive()
+    {
+        var state = new RunState();
+        state.SetGoldenFlame(true);
+        state.SpendGoldenFlameHit();
+        state.SpendGoldenFlameHit();
+        Assert.Equal(1, state.GoldenFlameHitsRemaining);
+
+        state.FillHealthForMilestone();
+        Assert.Equal(3, state.GoldenFlameHitsRemaining);
+
+        state.SetGoldenFlame(false);
+        state.SpendGoldenFlameHit();
+        int spentWhileInactive = state.GoldenFlameHitsRemaining;
+        state.FillHealthForMilestone();
+        // Not restored -- Golden Flame isn't active, so its chunk count is inert.
+        Assert.Equal(spentWhileInactive, state.GoldenFlameHitsRemaining);
+    }
+
+    [Fact]
+    public void VoidMode_CapturedFromProfile()
+    {
+        GameProfile.Profile.VoidEnabled = true;
+        var state = new RunState();
+        Assert.True(state.VoidMode);
+    }
+
+    [Fact]
     public void DreamState_AlterBelief_ClampsBetweenZeroAndTen()
     {
         var dream = new DreamState();

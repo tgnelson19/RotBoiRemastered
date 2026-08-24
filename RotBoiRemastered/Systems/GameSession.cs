@@ -1615,7 +1615,7 @@ public sealed class GameSession
         bool phaseCheckpoint = enemy.MilestoneHealRequested
             || enemy.TransitionCleanupRequested;
         if (phaseCheckpoint
-            && State.HardMode
+            && (State.HardMode || State.GoldenFlameMode || State.VoidMode)
             && ReferenceEquals(enemy, State.ActiveBoss))
         {
             State.FillHealthForMilestone();
@@ -2210,10 +2210,15 @@ public sealed class GameSession
             State.NumOfEnemiesKilled += 1;
             GameProfile.IncrementQuest("enemies_defeated", state: State);
             GameProfile.IncrementQuest($"kills_sense_{CampaignActivitySense ?? GamePaths.Active().Key}", state: State);
+            var xpTier = enemy is Beaudis or PathGuardianBoss || enemy.Family == "miniboss"
+                ? ExperienceBubble.ExperienceTier.Guardian
+                : enemy is Dissonance or Aphantasia
+                    ? ExperienceBubble.ExperienceTier.FinalBoss
+                    : ExperienceBubble.ExperienceTier.Standard;
             State.ExperienceList.Add(new ExperienceBubble(
                 enemy.WorldX, enemy.WorldY,
                 State.XpMult * (enemy.ExpValue * (State.CurrentStage * State.ExperienceStageMod)),
-                enemy.Difficulty, rng, celebration: ReferenceEquals(enemy, State.ActiveBoss)));
+                enemy.Difficulty, rng, celebration: ReferenceEquals(enemy, State.ActiveBoss), tier: xpTier));
             if (RollFragmentDrop(rng))
                 State.FragmentList.Add(new FragmentPickup(enemy.WorldX, enemy.WorldY, rng));
 
@@ -2441,7 +2446,7 @@ public sealed class GameSession
                     "pickup", PlayerWorldCenter, UiTheme.Green, UiTheme.Cream,
                     (int)(bubble.WorldX * 19 + bubble.WorldY * 7),
                     _visualDensity.Optional);
-                State.ExpCount += bubble.Value;
+                GrantExperience(bubble);
                 State.ExperienceList.RemoveAt(index);
                 continue;
             }
@@ -2493,6 +2498,39 @@ public sealed class GameSession
             {
                 fragment.NaturalSpawn = true;
             }
+        }
+    }
+
+    /// <summary>
+    /// Applies one collected bubble's XP to the run. Normally banks bubble.Value
+    /// as usual. Under Golden Flame/The Void, bubble.Value is ignored entirely:
+    /// Golden Flame banks a flat third of the current level threshold for
+    /// Standard-tier bubbles ("no matter the value") and grants instant whole
+    /// levels for Guardian/FinalBoss tiers; The Void (taking priority when both
+    /// are lit) always grants instant whole levels, bigger at each tier. See
+    /// RunState.GoldenFlameMode/VoidMode and ExperienceBubble.ExperienceTier.
+    /// </summary>
+    private void GrantExperience(ExperienceBubble bubble)
+    {
+        if (State.VoidMode)
+        {
+            AdvanceLevel(bubble.Tier switch
+            {
+                ExperienceBubble.ExperienceTier.Guardian => 3,
+                ExperienceBubble.ExperienceTier.FinalBoss => 5,
+                _ => 1,
+            });
+        }
+        else if (State.GoldenFlameMode)
+        {
+            if (bubble.Tier == ExperienceBubble.ExperienceTier.Standard)
+                State.ExpCount += State.ExpNeededForNextLevel / 3.0;
+            else
+                AdvanceLevel(bubble.Tier == ExperienceBubble.ExperienceTier.Guardian ? 1 : 2);
+        }
+        else
+        {
+            State.ExpCount += bubble.Value;
         }
     }
 
@@ -3088,12 +3126,28 @@ public sealed class GameSession
         if (!CanPurchaseLevelUp)
             return false;
         State.ExpCount -= State.ExpNeededForNextLevel;
-        State.CurrentLevel += 1;
-        State.PendingLevelUps += 1;
-        State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
-        State.FillHealthForMilestone();
+        AdvanceLevel();
         GameProfile.IncrementQuest("levels_gained", state: State);
         return true;
+    }
+
+    /// <summary>
+    /// Grants `count` levels outright: bumps CurrentLevel/PendingLevelUps and
+    /// scales the next threshold the same way a purchased level-up does, but
+    /// without touching ExpCount -- used by Golden Flame/The Void's instant
+    /// XP-tier grants (see ExpForPlayer) alongside the manual purchase path
+    /// above. Stops at PlayerLevelCap. Each level restores Golden Flame's
+    /// chunks via FillHealthForMilestone, same as a purchased level-up.
+    /// </summary>
+    private void AdvanceLevel(int count = 1)
+    {
+        for (int index = 0; index < count && State.CurrentLevel < PlayerLevelCap; index++)
+        {
+            State.CurrentLevel += 1;
+            State.PendingLevelUps += 1;
+            State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
+            State.FillHealthForMilestone();
+        }
     }
 
     /// <summary>Dev/testing hotkey. Ported from character.py's debugForceLevelUp().</summary>
@@ -4608,7 +4662,16 @@ public sealed class GameSession
 
     private void DrawLowHealthWarning(SpriteBatch spriteBatch)
     {
-        double ratio = State.HealthPoints / Math.Max(1.0, State.MaxHealthPoints);
+        // No HP concept in The Void -- any hit is fatal, so a "getting low"
+        // vignette would be permanently on and meaningless.
+        if (State.VoidMode)
+            return;
+        // Golden Flame's three chunks don't map onto the normal 30%-of-max
+        // threshold below (1/3 alone already clears it) -- key the vignette
+        // off "down to the last chunk" instead.
+        double ratio = State.GoldenFlameMode
+            ? (State.GoldenFlameHitsRemaining <= 1 ? 0.0 : 1.0)
+            : State.HealthPoints / Math.Max(1.0, State.MaxHealthPoints);
         if (ratio > .3)
             return;
         int alpha = Math.Clamp((int)(35 + (1 - ratio / .3) * 65), 0, 255);
@@ -4858,7 +4921,7 @@ public sealed class GameSession
                 trueDamage = Math.Round(trueDamage * .8);
             State.DamageTextList.Add(new DamageText(Player.WorldX, Player.WorldY, UiTheme.Red, trueDamage, Simulation.TileSize, Simulation.FrameRate));
             int healthBeforeHit = State.HealthPoints;
-            State.HealthPoints = Math.Max(0, State.HealthPoints - (int)trueDamage);
+            bool fatal = ApplyPlayerHit(trueDamage);
             _visualEffects.Emit(
                 "impact",
                 PlayerWorldCenter,
@@ -4866,9 +4929,9 @@ public sealed class GameSession
                 projectile.Color,
                 (int)(projectile.WorldX * 17 + projectile.WorldY * 31),
                 _visualDensity.Optional);
-            _bossTelemetry?.RecordDamage(healthBeforeHit - State.HealthPoints);
+            _bossTelemetry?.RecordDamage(State.VoidMode || State.GoldenFlameMode ? trueDamage : healthBeforeHit - State.HealthPoints);
             State.PlayerInvulnerabilityTimer = State.PlayerInvulnerabilityMax;
-            return State.HealthPoints <= 0 ? FinalizeDefeat() : false;
+            return fatal ? FinalizeDefeat() : false;
         }
 
         foreach (var enemy in State.EnemyHolster)
@@ -4896,7 +4959,7 @@ public sealed class GameSession
                 trueDamage = Math.Round(trueDamage * .8);
             State.DamageTextList.Add(new DamageText(Player.WorldX, Player.WorldY, UiTheme.Red, trueDamage, Simulation.TileSize, Simulation.FrameRate));
             int healthBeforeHit = State.HealthPoints;
-            State.HealthPoints = Math.Max(0, State.HealthPoints - (int)trueDamage);
+            bool fatal = ApplyPlayerHit(trueDamage);
             _visualEffects.Emit(
                 "impact",
                 PlayerWorldCenter,
@@ -4904,7 +4967,7 @@ public sealed class GameSession
                 enemy.Color,
                 (int)(enemy.WorldX * 23 + enemy.WorldY * 13),
                 _visualDensity.Optional);
-            _bossTelemetry?.RecordDamage(healthBeforeHit - State.HealthPoints);
+            _bossTelemetry?.RecordDamage(State.VoidMode || State.GoldenFlameMode ? trueDamage : healthBeforeHit - State.HealthPoints);
             State.PlayerInvulnerabilityTimer = State.PlayerInvulnerabilityMax;
 
             float deltaX = hitbox2.Center.X - playerScreenRect.Center.X, deltaY = hitbox2.Center.Y - playerScreenRect.Center.Y;
@@ -4913,9 +4976,31 @@ public sealed class GameSession
                 deltaX / distance * Simulation.TileSize * 0.8f, deltaY / distance * Simulation.TileSize * 0.8f));
             enemy.ApplyKnockback(knockback.X, knockback.Y, Battleground);
 
-            return State.HealthPoints <= 0 ? FinalizeDefeat() : false;
+            return fatal ? FinalizeDefeat() : false;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Applies one landed hit's death math and returns whether it was fatal.
+    /// The Void takes priority over Golden Flame when both are lit (see
+    /// RunState.VoidMode/GoldenFlameMode): any hit is instantly fatal in The
+    /// Void, regardless of trueDamage/defense; Golden Flame instead spends
+    /// one of three chunks (RunState.GoldenFlameHitsRemaining, restored by
+    /// FillHealthForMilestone on level-up/boss milestones); otherwise this is
+    /// the normal HP subtraction.
+    /// </summary>
+    private bool ApplyPlayerHit(double trueDamage)
+    {
+        if (State.VoidMode)
+        {
+            State.HealthPoints = 0;
+            return true;
+        }
+        if (State.GoldenFlameMode)
+            return State.SpendGoldenFlameHit();
+        State.HealthPoints = Math.Max(0, State.HealthPoints - (int)trueDamage);
+        return State.HealthPoints <= 0;
     }
 
     private bool FinalizeDefeat()
@@ -4986,7 +5071,7 @@ public sealed class GameSession
                 State.Stats[effect.Stat].Multiplicative.Add(modifier);
         }
         State.CombinePlayerStats();
-        if (State.HardMode)
+        if (State.HardMode || State.GoldenFlameMode || State.VoidMode)
             State.FillHealthForMilestone();
         State.NewRandoUps = false;
         State.PendingLevelUps = Math.Max(0, State.PendingLevelUps - 1);
