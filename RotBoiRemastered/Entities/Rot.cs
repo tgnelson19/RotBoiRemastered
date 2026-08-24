@@ -272,7 +272,42 @@ public sealed class Rot : PathChaseBoss
         {
             TelegraphDuration = 2.4f,
             OriginTelegraphDuration = 1.1f,
+            // A real slow sprout instead of every other laser's near-instant
+            // pop to full length: the spike visibly pushes up out of the
+            // ground over most of a second rather than snapping into place.
+            SproutSeconds = .9f,
         });
+    }
+
+    /// <summary>
+    /// A landmine that stays dormant and dim -- armed, but not yet a
+    /// threat -- until the player walks within <see cref="EnemyProjectile.ProximityRadius"/>
+    /// of it, matching Rot's patient, ground-borne identity better than an
+    /// ordinary mine counting down on a visible timer from the moment it's
+    /// placed. Seeded ahead of the player rather than under them, so it
+    /// rewards reading the room instead of punishing standing still.
+    /// </summary>
+    private void BuriedCharge(List<EnemyProjectile> sink, Vector2 position, float damage = 620f)
+    {
+        float size = Size * .22f;
+        sink.Add(new EnemyProjectile(position.X - size / 2f, position.Y - size / 2f, 0f, 0f, damage, size,
+            color: new Color(107, 84, 46), shape: "mine", path: "mine", lifetime: 26f,
+            owner: "rot_touch_buried_charge", ignoreWalls: true)
+        {
+            ProximityRadius = Simulation.TileSize * 1.6f,
+            TelegraphDuration = .55f,
+        });
+    }
+
+    private void SeedBuriedCharges(List<EnemyProjectile> sink, float safeAngle, int count = 3)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            float angle = safeAngle + MathF.PI + (index - (count - 1) / 2f) * .6f
+                + PatternRotation * .05f;
+            float radius = ArenaRadius * (.42f + .1f * (index % 2));
+            BuriedCharge(sink, ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius);
+        }
     }
 
     private static float AngleDifference(float a, float b) =>
@@ -518,6 +553,8 @@ public sealed class Rot : PathChaseBoss
                     float angle = SafeCorridorAngle + MathF.PI + index * .55f;
                     RotBomb(sink, ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * ArenaRadius * .52f);
                 }
+                if (PatternRotation % 4 == 0)
+                    SeedBuriedCharges(sink, SafeCorridorAngle);
                 break;
             case 5:
                 if (PatternRotation % 2 == 0)
@@ -566,6 +603,8 @@ public sealed class Rot : PathChaseBoss
                 SporeSpiral(sink, 7, "burial_spiral");
                 if (PatternRotation % 4 == 0)
                     RootLance(sink, new Vector2(playerX, playerY), "burial_root", 1050f);
+                if (PatternRotation % 6 == 2)
+                    SeedBuriedCharges(sink, SafeCorridorAngle, 4);
                 break;
         }
         PressureRake(sink, playerX, playerY,
@@ -770,6 +809,7 @@ public sealed class Rot : PathChaseBoss
             (int)(Size * 1.76f), (int)(Size * .58f));
         Primitives2D.FillEllipse(spriteBatch, new Rectangle(poolBack.X + 8, poolBack.Y + 9, poolBack.Width, poolBack.Height), UiTheme.Shadow);
         Primitives2D.FillEllipse(spriteBatch, poolBack, new Color(68, 64, 35));
+        DrawGroundRootSigil(spriteBatch, poolBack.Center.ToVector2());
         if (listSwingT < .45f)
         {
             // A squelch ring on the mud as Rot's weight shifts.
@@ -953,6 +993,87 @@ public sealed class Rot : PathChaseBoss
                 Primitives2D.FillCircle(spriteBatch, point, clusterSize, growthColor);
             }
         }
+    }
+
+    /// <summary>
+    /// Rot has no per-phase rune/sigil family the way the other ancients do
+    /// -- this is its one emblem, grown rather than inscribed: a hexagonal
+    /// root-ring around an inner ward-triangle, with six jagged root
+    /// tendrils forking outward past the ring. Built procedurally (not
+    /// hand-authored point-by-point like the other bosses' glyphs) since a
+    /// single symmetric emblem is all Rot needs.
+    /// </summary>
+    /// <summary>Internal rather than private: Aphantasia's finale sigil borrows every earlier boss's glyph data directly, Rot's included.</summary>
+    internal static readonly (string Name, Vector2[][] Strokes) RootWardSigil = BuildRootWardSigil();
+
+    private static (string, Vector2[][]) BuildRootWardSigil()
+    {
+        const int spokes = 6;
+        var strokes = new List<Vector2[]>(2 + spokes);
+
+        var hexagon = new Vector2[spokes + 1];
+        for (int index = 0; index <= spokes; index++)
+        {
+            float sweep = index % spokes * MathF.Tau / spokes;
+            hexagon[index] = new Vector2(MathF.Cos(sweep), MathF.Sin(sweep)) * .42f;
+        }
+        strokes.Add(hexagon);
+
+        var ward = new Vector2[4];
+        for (int index = 0; index <= 3; index++)
+        {
+            float sweep = -MathF.PI / 2f + index % 3 * MathF.Tau / 3f;
+            ward[index] = new Vector2(MathF.Cos(sweep), MathF.Sin(sweep)) * .2f;
+        }
+        strokes.Add(ward);
+
+        for (int index = 0; index < spokes; index++)
+        {
+            float sweep = (index + .5f) * MathF.Tau / spokes;
+            var direction = new Vector2(MathF.Cos(sweep), MathF.Sin(sweep));
+            var normal = new Vector2(-direction.Y, direction.X);
+            float kink = index % 2 == 0 ? .05f : -.05f;
+            strokes.Add(new[]
+            {
+                direction * .42f,
+                direction * .5f + normal * kink,
+                direction * .58f,
+            });
+        }
+        return ("ROOT WARD", strokes.ToArray());
+    }
+
+    /// <summary>A faint, larger echo of Rot's root-ward emblem painted on the ground beneath it -- every boss now carries some form of this floor sigil.</summary>
+    private void DrawGroundRootSigil(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var (_, strokes) = RootWardSigil;
+        float radius = Size * .62f;
+        float angle = MathF.Sin(Age * .012f) * .04f;
+        float pulse = 1f + MathF.Sin(Age * .035f) * .05f;
+        float cosAngle = MathF.Cos(angle), sinAngle = MathF.Sin(angle);
+        float disruption = 1f - (float)Hp / Math.Max(1, MaxHp);
+        int lineWidth = Math.Max(2, (int)(radius * .05f));
+        const float alpha = .42f;
+        Color accent = PhaseAccent * alpha;
+        Color voidTone = new Color(46, 41, 22) * alpha;
+        Color highlight = new Color(214, 196, 121) * alpha;
+
+        Primitives2D.DrawGroundSigilRing(spriteBatch, center, Size * 1.7f, Size * .5f,
+            PhaseAccent, UiTheme.Shadow, new Color(46, 41, 22), Age, alpha: .5f);
+
+        foreach (var stroke in strokes)
+        {
+            var points = stroke.Select(p =>
+            {
+                float x = p.X * radius * pulse, y = p.Y * radius * pulse;
+                return center + new Vector2(x * cosAngle - y * sinAngle, x * sinAngle + y * cosAngle);
+            }).ToArray();
+            Primitives2D.DrawGlyphDepthLayers(spriteBatch, points, center, accent, voidTone, lineWidth, disruption);
+            Primitives2D.Polyline(spriteBatch, points, false, voidTone, Math.Max(4, (int)(radius * .1f)));
+            Primitives2D.Polyline(spriteBatch, points, false, accent, lineWidth);
+            Primitives2D.Polyline(spriteBatch, points, false, highlight, 1);
+        }
+        Primitives2D.DrawGlyphCracks(spriteBatch, center, radius, accent, voidTone, highlight, disruption, Age, Phase);
     }
 
     private void DrawSafeCorridorGlow(SpriteBatch spriteBatch, Camera camera,

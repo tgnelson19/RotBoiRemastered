@@ -65,7 +65,8 @@ public class Ishe : PathChaseBoss
     protected virtual bool UsesIsheEncounter => true;
     protected override bool VisualSurvivalActive => FlashSurvivalActive || base.VisualSurvivalActive;
 
-    protected static readonly IReadOnlyDictionary<string, (string Name, Vector2[][] Strokes)> SightSymbols =
+    /// <summary>Internal rather than protected: Aphantasia's finale sigil borrows every earlier boss's glyph data directly, Ishe's included.</summary>
+    internal static readonly IReadOnlyDictionary<string, (string Name, Vector2[][] Strokes)> SightSymbols =
         new Dictionary<string, (string, Vector2[][])>
         {
             ["GLIMPSE"] = ("GLIMPSE", new[]
@@ -509,20 +510,63 @@ public class Ishe : PathChaseBoss
             (int)(center.Y - Size * .67f), (int)(Size * .92f), 6));
     }
 
+    /// <summary>
+    /// Draws the current phase's sight symbol at <paramref name="center"/>/<paramref name="radius"/>,
+    /// with a slow rotational wobble, breathing pulse, and disruption-scaled
+    /// depth/cracks -- shared by the body-mounted symbol and the fainter,
+    /// larger ground echo. Returns the symbol's name (used for the
+    /// entrance-only label on the body-mounted call).
+    /// </summary>
+    private string DrawSightSymbol(SpriteBatch spriteBatch, Vector2 center, float radius, float alpha = 1f,
+        bool applyDisruption = true)
+    {
+        string symbolKey = SightSymbolOrder[(Phase - 1) % SightSymbolOrder.Count];
+        var (name, strokes) = SightSymbols[symbolKey];
+        // A slow rotational wobble and breathing pulse -- previously this
+        // symbol was completely frozen in place every frame, the one static
+        // glyph on an otherwise fully animated body.
+        float angle = MathF.Sin(Age * .015f) * .035f;
+        float pulse = 1f + MathF.Sin(Age * .04f) * .06f;
+        float cosAngle = MathF.Cos(angle), sinAngle = MathF.Sin(angle);
+        float disruption = applyDisruption ? 1f - (float)Hp / Math.Max(1, MaxHp) : 0f;
+        int lineWidth = Math.Max(2, (int)(radius * .06f));
+        foreach (var stroke in strokes)
+        {
+            var points = stroke.Select(p =>
+            {
+                float x = p.X * radius * pulse, y = p.Y * radius * pulse;
+                return center + new Vector2(x * cosAngle - y * sinAngle, x * sinAngle + y * cosAngle);
+            }).ToArray();
+            Primitives2D.DrawGlyphDepthLayers(
+                spriteBatch, points, center, PhaseAccent * alpha, UiTheme.Ink * alpha, lineWidth, disruption);
+            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink * alpha, Math.Max(4, (int)(radius * .13f)));
+            Primitives2D.Polyline(spriteBatch, points, false, PhaseAccent * alpha, Math.Max(2, (int)(radius * .06f)));
+            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Cream * alpha, 1);
+        }
+        Primitives2D.DrawGlyphCracks(
+            spriteBatch, center, radius, PhaseAccent * alpha, UiTheme.Ink * alpha, UiTheme.Cream * alpha, disruption, Age, Phase);
+        return name;
+    }
+
+    /// <summary>A faint, larger echo of the current sight symbol painted on the ground beneath the boss -- every boss now carries some form of this floor sigil.</summary>
+    private void DrawGroundSightSymbol(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var ground = center + new Vector2(0, Size * .58f);
+        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.55f, Size * .48f,
+            PhaseAccent, UiTheme.Shadow, UiTheme.Ink, Age, alpha: .5f);
+        DrawSightSymbol(spriteBatch, ground, Size * .48f, alpha: .45f, applyDisruption: false);
+    }
+
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (Dying)
+            return;
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        var (name, strokes) = SightSymbols[SightSymbolOrder[(Phase - 1) % SightSymbolOrder.Count]];
-        float radius = Size * .34f;
-        foreach (var stroke in strokes)
-        {
-            var points = stroke.Select(p => new Vector2(rect.Center.X + p.X * radius, rect.Center.Y + p.Y * radius)).ToArray();
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink, Math.Max(4, (int)(radius * .13f)));
-            Primitives2D.Polyline(spriteBatch, points, false, PhaseAccent, Math.Max(2, (int)(radius * .06f)));
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Cream, 1);
-        }
+        var center = rect.Center.ToVector2();
+        DrawGroundSightSymbol(spriteBatch, center);
+        string name = DrawSightSymbol(spriteBatch, center, Size * .34f);
         if (EntranceRemaining > 0)
         {
             UiTheme.DrawText(spriteBatch, name, 9, PhaseAccent, new Vector2(rect.Center.X, rect.Y - 12), "midbottom");

@@ -329,7 +329,8 @@ public sealed class Malady : PhantasiaBoss
         }
     }
 
-    private EnemyProjectile SpawnPool(List<EnemyProjectile> sink, Vector2 position, double duration = 7.0, double scale = 1.0)
+    private EnemyProjectile SpawnPool(List<EnemyProjectile> sink, Vector2 position, double duration = 7.0,
+        double scale = 1.0, bool breathing = false)
     {
         float size = Simulation.TileSize * 2.35f * (float)scale;
         var pool = new EnemyProjectile(position.X - size / 2f, position.Y - size / 2f, 0f, 0f, 285, size,
@@ -338,6 +339,14 @@ public sealed class Malady : PhantasiaBoss
         {
             TelegraphDuration = 1.05f, PersistentHazard = true, TruthMarked = true, BeliefGain = .35,
         };
+        if (breathing)
+        {
+            // Survival's pools breathe in and out between the ribbon-laser
+            // veil instead of sitting static, so the whole room feels alive
+            // and closing in rather than just laced with fixed hazards.
+            pool.PoolPulseAmplitude = .3f;
+            pool.PoolPulseFrequency = .55f;
+        }
         sink.Add(pool);
         return pool;
     }
@@ -494,7 +503,8 @@ public sealed class Malady : PhantasiaBoss
                 float angle = (float)(Rng.NextDouble() * 2 * Math.PI);
                 float radius = ArenaRadius * (float)(.18 + Rng.NextDouble() * (.64 - .18));
                 var position = ArenaCenter + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
-                SpawnPool(stagedThreats, position, duration: SurvivalActive ? 5.8 : 7.5, scale: .82 + Rng.NextDouble() * .36);
+                SpawnPool(stagedThreats, position, duration: SurvivalActive ? 5.8 : 7.5,
+                    scale: .82 + Rng.NextDouble() * .36, breathing: SurvivalActive);
                 _poolCooldown = poolRate;
             }
             if (SurvivalActive && !DebugPhaseLocked)
@@ -855,12 +865,9 @@ public sealed class Malady : PhantasiaBoss
     private void DrawPuppetGroundSigil(SpriteBatch spriteBatch, Vector2 center)
     {
         var ground = center + new Vector2(0, Size * .62f);
-        var ring = new Rectangle((int)(ground.X - Size * .71f), (int)(ground.Y - Size * .21f), (int)(Size * 1.42f), (int)(Size * .42f));
-        var ringOuter = ring;
-        ringOuter.Inflate(12, 8);
-        Primitives2D.EllipseOutline(spriteBatch, ringOuter, UiTheme.Shadow, 7);
-        Primitives2D.EllipseOutline(spriteBatch, ring, Color.Lerp(PhaseAccent, UiTheme.Void, .5f), 3);
-        DrawCommandmentSigil(spriteBatch, ground, Size * .34f, 1.0, null, 115, Age * -.0012);
+        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.5f, Size * .46f,
+            PhaseAccent, UiTheme.Shadow, UiTheme.Void, Age, alpha: .55f);
+        DrawCommandmentSigil(spriteBatch, ground, Size * .4f, 1.0, null, 130, Age * -.0012);
     }
 
     private void DrawPuppetArm(SpriteBatch spriteBatch, Camera camera, Vector2 core, int side, Color bodyColor, float attackAmount, float reassembly = 0.0f)
@@ -1094,7 +1101,8 @@ public sealed class Malady : PhantasiaBoss
             PhaseAccent, Math.Max(2, (int)(Size * .025f)));
 
         var torsoCenter = new Vector2(torso.Center.X, torso.Center.Y);
-        DrawCommandmentSigil(spriteBatch, torsoCenter, Size * .19f, 1.0, null, 255, MathF.Sin(Age * .008f) * .08f);
+        DrawCommandmentSigil(spriteBatch, torsoCenter, Size * .19f, 1.0, null, 255, MathF.Sin(Age * .008f) * .08f,
+            disruption: 1f - (float)Hp / Math.Max(1, MaxHp));
         int coreRadius = Math.Max(4, (int)(Size * (.055f + .012f * MathF.Sin(Age * .05f))));
         Primitives2D.FillCircle(spriteBatch, torsoCenter, coreRadius + 4, UiTheme.Ink);
         Primitives2D.FillCircle(spriteBatch, torsoCenter, coreRadius, UiTheme.Cream);

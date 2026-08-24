@@ -117,6 +117,151 @@ public static class Primitives2D
         }
     }
 
+    /// <summary>
+    /// One boss-glyph stroke's worth of fake depth-of-field: a handful of
+    /// progressively smaller, darker copies of <paramref name="strokePoints"/>
+    /// drawn shrinking toward <paramref name="center"/>, color-graded from
+    /// <paramref name="accentColor"/> down to <paramref name="voidColor"/> by
+    /// depth. At <paramref name="disruption"/> 0 this is just a permanent,
+    /// subtle "inset socket" cue instead of a flat decal; raising disruption
+    /// (0-1, meant to track some real in-fight pressure on this glyph -- see
+    /// each caller) opens more/deeper layers, selling the glyph visibly
+    /// sinking under that pressure. Call once per stroke, after transforming
+    /// that stroke's points but before drawing its own glow/accent/highlight
+    /// passes, so the receding layers sit underneath.
+    /// </summary>
+    public static void DrawGlyphDepthLayers(
+        SpriteBatch spriteBatch,
+        ReadOnlySpan<Vector2> strokePoints,
+        Vector2 center,
+        Color accentColor,
+        Color voidColor,
+        int lineWidth,
+        float disruption)
+    {
+        if (strokePoints.Length < 2)
+            return;
+        int recedeLayers = 2 + (int)MathF.Round(Math.Clamp(disruption, 0f, 1f) * 3f);
+        float recedeStrength = .1f + disruption * .22f;
+        Span<Vector2> recedePoints = strokePoints.Length <= 16
+            ? stackalloc Vector2[strokePoints.Length]
+            : new Vector2[strokePoints.Length];
+        for (int layer = recedeLayers; layer >= 1; layer--)
+        {
+            float depth = layer / (float)recedeLayers;
+            float shrink = 1f - depth * recedeStrength;
+            for (int index = 0; index < strokePoints.Length; index++)
+                recedePoints[index] = center + (strokePoints[index] - center) * shrink;
+            Color layerColor = Color.Lerp(accentColor, voidColor, depth);
+            float layerAlpha = .3f + disruption * .3f;
+            PolylineSpan(spriteBatch, recedePoints, false, layerColor * layerAlpha, Math.Max(1, (int)(lineWidth * shrink)));
+        }
+    }
+
+    /// <summary>
+    /// Jagged two-segment tears radiating from within a boss glyph, scaling
+    /// in count/length/opacity with <paramref name="disruption"/> -- the
+    /// literal "something is breaking this" cue that <see cref="DrawGlyphDepthLayers"/>'s
+    /// sinking otherwise only expresses as color/depth. No-ops below a small
+    /// threshold so an undisrupted glyph draws nothing extra. Deterministic
+    /// per <paramref name="seed"/> (a caller-stable identity such as the
+    /// boss's current phase or sigil index, not a per-frame value) so a
+    /// given crack holds its shape and only gently drifts via
+    /// <paramref name="age"/>, rather than reshuffling every frame.
+    /// </summary>
+    public static void DrawGlyphCracks(
+        SpriteBatch spriteBatch,
+        Vector2 center,
+        float radius,
+        Color accentColor,
+        Color voidColor,
+        Color highlightColor,
+        float disruption,
+        float age,
+        int seed)
+    {
+        disruption = Math.Clamp(disruption, 0f, 1f);
+        if (disruption <= .001f)
+            return;
+        int crackCount = 2 + (int)MathF.Round(disruption * 5f);
+        Color crackColor = Color.Lerp(accentColor, highlightColor, .4f);
+        for (int index = 0; index < crackCount; index++)
+        {
+            float hashSeed = index * 12.9898f + seed * 3.77f;
+            float hash = hashSeed - MathF.Floor(hashSeed);
+            float radialHash = hash * 91.345f - MathF.Floor(hash * 91.345f);
+            float drift = MathF.Sin(age * .5f + index * 2.3f) * .05f;
+            float crackAngle = hash * MathF.Tau + drift;
+            float innerRadius = radius * (.16f + radialHash * .32f);
+            float length = radius * (.16f + disruption * .3f);
+            Vector2 direction = new(MathF.Cos(crackAngle), MathF.Sin(crackAngle));
+            Vector2 origin = center + direction * innerRadius;
+            Vector2 tip = origin + direction * length;
+            Vector2 perpendicular = new(-direction.Y, direction.X);
+            Vector2 kink = Vector2.Lerp(origin, tip, .55f)
+                + perpendicular * length * .22f * (index % 2 == 0 ? 1f : -1f);
+            Line(spriteBatch, origin, kink, voidColor * disruption, 2);
+            Line(spriteBatch, kink, tip, crackColor * disruption, 2);
+        }
+    }
+
+    /// <summary>
+    /// The decorative floor bezel every boss's ground sigil sits inside: a
+    /// soft drop-shadow ellipse, a ticked outer ring (like a summoning
+    /// circle's rim, not just a bare outline), a thinner inner ring closer
+    /// to the glyph itself, and small accent marks at the cardinal points.
+    /// Pure geometry -- callers pick <paramref name="width"/>/<paramref name="height"/>
+    /// to match their own ground-ellipse foreshortening and pass whatever
+    /// alpha they want the whole bezel drawn at, so a boss's floor sigil can
+    /// sit anywhere from barely-there ambient to fully opaque.
+    /// </summary>
+    public static void DrawGroundSigilRing(
+        SpriteBatch spriteBatch,
+        Vector2 ground,
+        float width,
+        float height,
+        Color accentColor,
+        Color shadowColor,
+        Color voidColor,
+        float age,
+        float alpha = 1f,
+        int tickCount = 16)
+    {
+        var ring = new Rectangle((int)(ground.X - width / 2f), (int)(ground.Y - height / 2f), (int)width, (int)height);
+        var outer = ring;
+        outer.Inflate((int)(width * .09f), (int)(height * .2f));
+        var inner = ring;
+        inner.Inflate(-(int)(width * .08f), -(int)(height * .18f));
+
+        var shadowRing = outer;
+        shadowRing.Inflate(6, 4);
+        FillEllipse(spriteBatch, shadowRing, shadowColor * (.55f * alpha));
+        EllipseOutline(spriteBatch, outer, Color.Lerp(accentColor, voidColor, .35f) * alpha, Math.Max(2, (int)(height * .05f)));
+
+        float rx = outer.Width / 2f, ry = outer.Height / 2f;
+        Vector2 outerCenter = new(outer.X + rx, outer.Y + ry);
+        for (int tick = 0; tick < tickCount; tick++)
+        {
+            float tickAngle = tick * MathF.Tau / tickCount + age * .01f;
+            var direction = new Vector2(MathF.Cos(tickAngle), MathF.Sin(tickAngle) * .58f);
+            Vector2 tickOuter = outerCenter + new Vector2(direction.X * rx, direction.Y * ry);
+            Vector2 tickInner = outerCenter + new Vector2(direction.X * rx * .88f, direction.Y * ry * .88f);
+            Line(spriteBatch, tickInner, tickOuter, accentColor * (.6f * alpha), 2);
+        }
+
+        EllipseOutline(spriteBatch, ring, Color.Lerp(accentColor, voidColor, .5f) * alpha, Math.Max(2, (int)(height * .07f)));
+        EllipseOutline(spriteBatch, inner, accentColor * (.7f * alpha), Math.Max(1, (int)(height * .035f)));
+
+        float cardinalPulse = .7f + .3f * MathF.Sin(age * .6f);
+        foreach (float cardinal in stackalloc float[] { 0f, MathF.PI / 2f, MathF.PI, MathF.PI * 1.5f })
+        {
+            var direction = new Vector2(MathF.Cos(cardinal), MathF.Sin(cardinal) * .58f);
+            Vector2 mark = outerCenter + new Vector2(direction.X * rx * .96f, direction.Y * ry * .96f);
+            FillCircle(spriteBatch, mark, Math.Max(2, height * .045f * cardinalPulse), accentColor * alpha);
+            FillCircle(spriteBatch, mark, Math.Max(1, height * .02f), voidColor * alpha);
+        }
+    }
+
     public static void FillRect(SpriteBatch spriteBatch, Rectangle rect, Color color)
     {
         spriteBatch.Draw(Pixel, rect, color);

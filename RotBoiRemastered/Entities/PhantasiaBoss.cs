@@ -425,8 +425,17 @@ public abstract class PhantasiaBoss : PathChaseBoss
     /// (`points[:count]`) -- ported faithfully as the simpler reveal, not
     /// upgraded to match the other family's smoother one.
     /// </summary>
+    /// <summary>A faint, larger echo of the current commandment sigil painted on the ground beneath the boss -- every boss now carries some form of this floor sigil.</summary>
+    protected void DrawGroundCommandmentSigil(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var ground = center + new Vector2(0, Size * .58f);
+        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.55f, Size * .48f,
+            PhaseAccent, UiTheme.Shadow, UiTheme.Void, Age, alpha: .5f);
+        DrawCommandmentSigil(spriteBatch, ground, Size * .42f, 1.0, null, 115);
+    }
+
     protected string DrawCommandmentSigil(SpriteBatch spriteBatch, Vector2 center, float radius, double progress = 1.0,
-        int? phase = null, int alpha = 255, double rotation = 0.0)
+        int? phase = null, int alpha = 255, double rotation = 0.0, float disruption = 0f)
     {
         if (SigilConfig.PhaseSigils.Count == 0)
             return "";
@@ -455,10 +464,14 @@ public abstract class PhantasiaBoss : PathChaseBoss
             }
             int count = Math.Max(2, Math.Min(points.Length, (int)(amount * (points.Length - 1)) + 2));
             var visible = points.Take(count).ToArray();
+            Primitives2D.DrawGlyphDepthLayers(
+                spriteBatch, visible, center, accentAlpha, inkAlpha, width, disruption);
             Primitives2D.Polyline(spriteBatch, visible, false, inkAlpha, width + 7);
             Primitives2D.Polyline(spriteBatch, visible, false, accentAlpha, width);
             Primitives2D.Polyline(spriteBatch, visible, false, creamAlpha, Math.Max(1, width / 3));
         }
+        Primitives2D.DrawGlyphCracks(
+            spriteBatch, center, radius, accentAlpha, inkAlpha, creamAlpha, disruption, Age, sigilIndex);
         return name;
     }
 
@@ -535,6 +548,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
         Color baseColor = Color.Lerp(Config.FinalBoss ? Config.FinalBodyColor : Config.BodyColor, PhaseAccent, .16f);
         Color bright = UiTheme.Lighten(baseColor, 44);
 
+        DrawGroundCommandmentSigil(spriteBatch, center);
+
         float flow = VisualSurvivalActive ? Phase * .37f : turn;
         int petalCount = 6 + Math.Min(4, Phase);
         for (int index = 0; index < petalCount; index++)
@@ -585,7 +600,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
                 Size * .13f, PhaseAccent, UiTheme.Cream, armAngle);
         }
         DrawCommandmentSigil(spriteBatch, maskCenter, Size * .2f,
-            1.0, null, 220, -turn * .4f);
+            1.0, null, 220, -turn * .4f, disruption: 1f - (float)Hp / Math.Max(1, MaxHp));
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .83f), (int)(Size * .92f), 6));
     }
 

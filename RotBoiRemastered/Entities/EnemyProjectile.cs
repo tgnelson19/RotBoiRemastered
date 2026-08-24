@@ -144,6 +144,62 @@ public sealed class EnemyProjectile
     public float SplitTelegraphStartRatio { get; set; } = 1f;
     /// <summary>Settable: Malady's purple pool (bossTypes.py's _spawn_pool) overrides the path=="laser" default so its hazard lingers instead of being consumed on the player's first hit.</summary>
     public bool PersistentHazard { get; set; }
+
+    /// <summary>
+    /// New primitive: when set (&gt; 0) on a "mine" path, the mine stays
+    /// dim and harmless until the player enters this radius -- only then
+    /// does its ordinary <see cref="TelegraphDuration"/> arming window
+    /// begin. Zero (the default) preserves every existing mine's
+    /// arm-on-a-fixed-timer behavior.
+    /// </summary>
+    public float ProximityRadius { get; set; }
+    private float? _proximityTriggeredAtAge;
+
+    /// <summary>
+    /// New primitive: per-instance override of the sprout ease every laser
+    /// used to share (the fixed <see cref="LaserSproutDuration"/> constant).
+    /// A boss whose laser should visibly push into being over a longer
+    /// beat -- rather than snapping to full length in well under a fifth
+    /// of a second -- can lengthen this without affecting any other laser.
+    /// </summary>
+    public float SproutSeconds { get; set; } = LaserSproutDuration;
+
+    /// <summary>
+    /// New primitive: turns a moving (non-laser/bomb/orbit) shot's heading
+    /// toward the player's live position at this many radians/sec, capped
+    /// so it stays dodgeable, instead of holding the direction it spawned
+    /// with. Zero (the default) is the ordinary straight/sine behavior.
+    /// </summary>
+    public float HomingTurnRate { get; set; }
+
+    /// <summary>
+    /// New primitive: a "bounce" path shot reflects off a circular
+    /// boundary (typically the boss's own arena) this many times instead
+    /// of flying through it or dying on a dungeon wall. Zero disables it.
+    /// </summary>
+    public Vector2 BounceCenter { get; set; }
+    public float BounceRadius { get; set; }
+    public int BouncesRemaining { get; set; }
+
+    /// <summary>
+    /// New primitive: a "pool" path's radius breathes in and out over its
+    /// lifetime by this fraction of its base size (0 keeps the ordinary
+    /// static radius) at <see cref="PoolPulseFrequency"/> hz.
+    /// </summary>
+    public float PoolPulseAmplitude { get; set; }
+    public float PoolPulseFrequency { get; set; } = 1f;
+
+    /// <summary>
+    /// New primitive: a "tether" path projectile draws and hits as a live
+    /// line between two other projectiles' current centers instead of
+    /// moving under its own power -- e.g. two "orbit" shots connected by a
+    /// damaging line, like a clock's hands. Assign both ends right after
+    /// construction, before the tether is added to the sink; it expires
+    /// automatically once either end does.
+    /// </summary>
+    public EnemyProjectile? TetherStart { get; set; }
+    public EnemyProjectile? TetherEnd { get; set; }
+
     public bool Exploded { get; private set; }
     public float Age { get; private set; }
     public float Travelled { get; private set; }
@@ -219,6 +275,9 @@ public sealed class EnemyProjectile
         ? new Vector2(OriginX, OriginY)
         : new Vector2(OriginX + Size / 2f, OriginY + Size / 2f);
 
+    /// <summary>Current world-space center, used by "tether" partners to find each other each frame.</summary>
+    public Vector2 Center() => new(WorldX + Size / 2f, WorldY + Size / 2f);
+
     /// <summary>
     /// The warning still consumes the full authored telegraph. Once it ends,
     /// the dangerous and visible beam grows together from its source over a
@@ -231,7 +290,7 @@ public sealed class EnemyProjectile
             if (Path != "laser")
                 return 1f;
             float linear = Math.Clamp(
-                (Age - TelegraphDuration) / LaserSproutDuration, 0f, 1f);
+                (Age - TelegraphDuration) / Math.Max(.001f, SproutSeconds), 0f, 1f);
             return linear * linear * (3f - 2f * linear);
         }
     }
@@ -280,6 +339,13 @@ public sealed class EnemyProjectile
             float w = Math.Max(Size, Math.Abs(endX - WorldX)), h = Math.Max(Size, Math.Abs(endY - WorldY));
             return new Rectangle((int)x, (int)y, (int)w, (int)h);
         }
+        if (Path == "tether" && TetherStart is not null && TetherEnd is not null)
+        {
+            Vector2 startPoint = TetherStart.Center(), endPoint = TetherEnd.Center();
+            float x = Math.Min(startPoint.X, endPoint.X), y = Math.Min(startPoint.Y, endPoint.Y);
+            float w = Math.Max(Size, Math.Abs(endPoint.X - startPoint.X)), h = Math.Max(Size, Math.Abs(endPoint.Y - startPoint.Y));
+            return new Rectangle((int)x, (int)y, (int)w, (int)h);
+        }
         return new Rectangle((int)WorldX, (int)WorldY, (int)Size, (int)Size);
     }
 
@@ -309,14 +375,40 @@ public sealed class EnemyProjectile
         return WorldRect();
     }
 
+    /// <summary>
+    /// A dormant proximity mine's own arming timer, measured from the
+    /// moment the player first entered <see cref="ProximityRadius"/>
+    /// rather than from spawn. Negative infinity (permanently "before its
+    /// telegraph") until that happens, matching a mine's existing
+    /// spawn-age gating for every mine that doesn't opt into this.
+    /// </summary>
+    private float EffectiveMineAge => ProximityRadius > 0f
+        ? (_proximityTriggeredAtAge is float triggered ? Age - triggered : float.NegativeInfinity)
+        : Age;
+
+    /// <summary>Breathing pools grow/shrink by <see cref="PoolPulseAmplitude"/>; ordinary pools (amplitude 0) are unaffected.</summary>
+    private float PoolPulseScale => PoolPulseAmplitude <= 0f
+        ? 1f
+        : Math.Max(.15f, 1f + PoolPulseAmplitude * MathF.Sin(Age * PoolPulseFrequency * MathF.Tau));
+
     public bool Collides(Rectangle rect)
     {
         if (Illusory)
             return false;
         if (Age < OriginTelegraphDuration)
             return false;
-        if (Path is "mine" or "bank" && Age < TelegraphDuration)
+        if (Path == "bank" && Age < TelegraphDuration)
             return false;
+        if (Path == "mine" && EffectiveMineAge < TelegraphDuration)
+            return false;
+        if (Path == "tether")
+        {
+            if (TetherStart is null || TetherEnd is null)
+                return false;
+            var inflated = rect;
+            inflated.Inflate((int)Size, (int)Size);
+            return SegmentIntersectsRect(TetherStart.Center(), TetherEnd.Center(), inflated);
+        }
         if (Path == "pool")
         {
             if (Age < TelegraphDuration)
@@ -324,7 +416,7 @@ public sealed class EnemyProjectile
             float centerX = WorldX + Size / 2f, centerY = WorldY + Size / 2f;
             float nearestX = Math.Clamp(centerX, rect.Left, rect.Right);
             float nearestY = Math.Clamp(centerY, rect.Top, rect.Bottom);
-            float radius = Size * .46f;
+            float radius = Size * .46f * PoolPulseScale;
             return (nearestX - centerX) * (nearestX - centerX) + (nearestY - centerY) * (nearestY - centerY) <= radius * radius;
         }
         if (Path == "laser")
@@ -365,7 +457,8 @@ public sealed class EnemyProjectile
         return rect.Intersects(WorldRect());
     }
 
-    public void Update(Battleground battleground, bool casualMode, bool hardMode = false)
+    public void Update(Battleground battleground, bool casualMode, bool hardMode = false,
+        Vector2? playerWorldPosition = null)
     {
         if (!_difficultyTimingApplied)
         {
@@ -379,6 +472,17 @@ public sealed class EnemyProjectile
         float seconds = (float)Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
         Age += seconds;
 
+        // Proximity mines: arm the instant the player enters range rather
+        // than on a fixed timer from spawn -- see EffectiveMineAge.
+        if (Path == "mine" && ProximityRadius > 0f && _proximityTriggeredAtAge is null
+            && playerWorldPosition.HasValue)
+        {
+            float mineCenterX = WorldX + Size / 2f, mineCenterY = WorldY + Size / 2f;
+            float dx = playerWorldPosition.Value.X - mineCenterX, dy = playerWorldPosition.Value.Y - mineCenterY;
+            if (dx * dx + dy * dy <= ProximityRadius * ProximityRadius)
+                _proximityTriggeredAtAge = Age;
+        }
+
         if (Age < OriginTelegraphDuration)
             return;
 
@@ -391,6 +495,13 @@ public sealed class EnemyProjectile
 
             case "pool":
                 if (Age >= (Lifetime ?? 8.0f))
+                    RemFlag = true;
+                return;
+
+            case "tether":
+                if (TetherStart is null || TetherEnd is null || TetherStart.RemFlag || TetherEnd.RemFlag)
+                    RemFlag = true;
+                if (Lifetime is not null && Age >= Lifetime)
                     RemFlag = true;
                 return;
 
@@ -446,6 +557,19 @@ public sealed class EnemyProjectile
                 break;
 
             default:
+                // Homing: steer toward the player's live position at a
+                // capped turn rate before moving, rather than holding the
+                // heading the shot spawned with (ordinary sine/linear).
+                if (HomingTurnRate != 0f && playerWorldPosition.HasValue)
+                {
+                    float toPlayer = MathF.Atan2(
+                        playerWorldPosition.Value.Y - (WorldY + Size / 2f),
+                        playerWorldPosition.Value.X - (WorldX + Size / 2f));
+                    float turnDelta = MathF.Atan2(
+                        MathF.Sin(toPlayer - Direction), MathF.Cos(toPlayer - Direction));
+                    float maxTurn = HomingTurnRate * seconds;
+                    Direction += Math.Clamp(turnDelta, -maxTurn, maxTurn);
+                }
                 float comfortScale = casualMode ? .88f : 1.0f;
                 float distance = Speed * HostileSpeedScale * comfortScale * (float)Simulation.GetFrameScale();
                 Travelled += distance;
@@ -460,6 +584,28 @@ public sealed class EnemyProjectile
                 {
                     WorldX += MathF.Cos(Direction) * distance;
                     WorldY += MathF.Sin(Direction) * distance;
+                }
+                // Bounce: reflect off a circular boundary (typically the
+                // boss's own arena) instead of flying through it or dying
+                // on a dungeon wall.
+                if (Path == "bounce" && BounceRadius > 0f && BouncesRemaining > 0)
+                {
+                    float bounceCenterX = WorldX + Size / 2f, bounceCenterY = WorldY + Size / 2f;
+                    float offsetX = bounceCenterX - BounceCenter.X, offsetY = bounceCenterY - BounceCenter.Y;
+                    float distanceFromCenter = MathF.Sqrt(offsetX * offsetX + offsetY * offsetY);
+                    if (distanceFromCenter > BounceRadius)
+                    {
+                        float normalX = offsetX / Math.Max(.0001f, distanceFromCenter);
+                        float normalY = offsetY / Math.Max(.0001f, distanceFromCenter);
+                        float headingX = MathF.Cos(Direction), headingY = MathF.Sin(Direction);
+                        float dot = headingX * normalX + headingY * normalY;
+                        Direction = MathF.Atan2(headingY - 2f * dot * normalY, headingX - 2f * dot * normalX);
+                        // Clamp back onto the boundary so it doesn't visibly
+                        // poke through before the reflected heading takes over.
+                        WorldX = BounceCenter.X + normalX * BounceRadius - Size / 2f;
+                        WorldY = BounceCenter.Y + normalY * BounceRadius - Size / 2f;
+                        BouncesRemaining--;
+                    }
                 }
                 if (SpeedDecay != 0)
                     Speed = Math.Max(0, Speed - SpeedDecay * seconds);
@@ -550,6 +696,11 @@ public sealed class EnemyProjectile
         if (Path == "bank")
         {
             DrawBank(spriteBatch, camera, playerWorldPosition, screenShake, highContrast);
+            return;
+        }
+        if (Path == "tether")
+        {
+            DrawTether(spriteBatch, camera, playerWorldPosition, screenShake);
             return;
         }
 
@@ -1103,7 +1254,12 @@ public sealed class EnemyProjectile
         Primitives2D.FillQuad(
             spriteBatch, top + shadow, right + shadow, bottom + shadow, left + shadow,
             UiTheme.Shadow);
-        Primitives2D.FillQuad(spriteBatch, top, right, bottom, left, Color);
+        // A dormant proximity mine (armed but not yet triggered) is drawn
+        // dim rather than at full brightness, so it reads as buried/inert.
+        Color bodyColor = Shape == "mine" && ProximityRadius > 0f && EffectiveMineAge < 0f
+            ? Color * .32f
+            : Color;
+        Primitives2D.FillQuad(spriteBatch, top, right, bottom, left, bodyColor);
         Primitives2D.QuadOutline(
             spriteBatch, top, right, bottom, left,
             UiTheme.Ink, Math.Max(2, (int)(visibleSize * .1f)));
@@ -1151,19 +1307,26 @@ public sealed class EnemyProjectile
     {
         if (Shape == "mine")
         {
-            int pulse = Math.Max(
-                3,
-                (int)(visibleSize
-                    * (.12f + .05f * (1 + MathF.Sin(Age * 5f)))));
-            Primitives2D.FillRect(spriteBatch,
-                new Rectangle((int)(center.X - pulse / 2f), (int)(center.Y - pulse / 2f), pulse, pulse), UiTheme.Text);
-            if (Age < TelegraphDuration)
+            // A dormant proximity mine only pulses/rings once triggered --
+            // see EffectiveMineAge -- so it reads as buried rather than as
+            // an ordinary mine counting down from spawn.
+            float mineAge = EffectiveMineAge;
+            if (mineAge >= 0f)
             {
-                float warningProgress = Age / Math.Max(.01f, TelegraphDuration);
-                float warningRadius = visibleSize
-                    * (.72f + (1f - warningProgress) * .42f);
-                Primitives2D.CircleOutline(spriteBatch, center, warningRadius, UiTheme.Cream,
-                    Math.Max(2, (int)(visibleSize * .07f)));
+                int pulse = Math.Max(
+                    3,
+                    (int)(visibleSize
+                        * (.12f + .05f * (1 + MathF.Sin(mineAge * 5f)))));
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)(center.X - pulse / 2f), (int)(center.Y - pulse / 2f), pulse, pulse), UiTheme.Text);
+                if (mineAge < TelegraphDuration)
+                {
+                    float warningProgress = mineAge / Math.Max(.01f, TelegraphDuration);
+                    float warningRadius = visibleSize
+                        * (.72f + (1f - warningProgress) * .42f);
+                    Primitives2D.CircleOutline(spriteBatch, center, warningRadius, UiTheme.Cream,
+                        Math.Max(2, (int)(visibleSize * .07f)));
+                }
             }
         }
         else if (Shape == "bomb")
@@ -1205,7 +1368,10 @@ public sealed class EnemyProjectile
         float lifetime = Lifetime ?? 8.0f;
         float appearing = Math.Min(1.0f, Age / Math.Max(.01f, TelegraphDuration));
         float fading = Math.Min(1.0f, Math.Max(0.0f, lifetime - Age) / .7f);
-        float scale = Math.Max(.08f, Math.Min(appearing, fading));
+        // Breathing pools (PoolPulseAmplitude != 0) grow/shrink on top of
+        // the ordinary appear/fade envelope, matching the pulsing radius
+        // Collides tests via PoolPulseScale.
+        float scale = Math.Max(.08f, Math.Min(appearing, fading)) * PoolPulseScale;
         var visible = InflateF(rect, -rect.Width * (1 - scale), -rect.Height * (1 - scale));
 
         Primitives2D.FillEllipse(spriteBatch, InflateF(visible, 10, 7), UiTheme.Shadow);
@@ -1357,6 +1523,24 @@ public sealed class EnemyProjectile
         }
         if (highContrast)
             Primitives2D.RectOutline(spriteBatch, InflateF(slab, 4, 4), UiTheme.Cream, 3);
+    }
+
+    /// <summary>
+    /// A "tether" has no position of its own -- it draws (and, via
+    /// <see cref="Collides"/>, hits) as a live line between its two ends'
+    /// current centers, so it visibly follows them wherever they orbit.
+    /// </summary>
+    private void DrawTether(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        if (TetherStart is null || TetherEnd is null)
+            return;
+        Vector2 start = camera.WorldToScreen(TetherStart.Center(), playerWorldPosition, screenShake);
+        Vector2 end = camera.WorldToScreen(TetherEnd.Center(), playerWorldPosition, screenShake);
+        int width = Math.Max(3, (int)(Size * .3f));
+        float pulse = .7f + .3f * MathF.Sin(Age * 6f);
+        Primitives2D.Line(spriteBatch, start + new Vector2(3, 4), end + new Vector2(3, 4), UiTheme.Shadow, width + 3);
+        Primitives2D.Line(spriteBatch, start, end, Color * pulse, width);
+        Primitives2D.Line(spriteBatch, start, end, UiTheme.Cream * .5f, Math.Max(1, width / 3));
     }
 
     private void DrawLaser(SpriteBatch spriteBatch, Camera camera,

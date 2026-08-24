@@ -606,6 +606,7 @@ public sealed class Ache : Kage
         }
 
         DrawHeatShimmer(spriteBatch, camera, playerWorldPosition, screenShake);
+        DrawGroundSinSigil(spriteBatch, center);
 
         float seconds = VisualAgeSeconds;
         float attackPulse = VisualAttackPulse;
@@ -933,6 +934,11 @@ public sealed class Ache : Kage
                 lifetime: 10f + (float)Rng.NextDouble() * 3f, speedDecay: .045f, ownerSuffix: "wrong_way_hazard",
                 affliction: "slow", afflictionDuration: 1.2, afflictionStrength: .1, exposure: .5);
             mine.TelegraphDuration = .9f;
+            // One spore per volley weakly corrects its aim as it drifts --
+            // Ache's mistake slowly noticing it fired the wrong way, rather
+            // than every spore holding its spawn heading forever.
+            if (index == count - 1)
+                mine.HomingTurnRate = .55f;
         }
         var splinter = Shot(sink,
             aimed + MathF.PI + (float)(Rng.NextDouble() * .9 - .45),

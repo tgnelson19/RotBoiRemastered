@@ -2946,6 +2946,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         Vector2 center = camera.WorldToScreen(
             new Vector2(WorldX + Size / 2f, WorldY + Size / 2f),
             playerWorldPosition, screenShake);
+        if (EncounterState == AphantasiaEncounterState.Finale)
+        {
+            Vector2 arenaCenterScreen = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
+            DrawUltimateGroundSigil(spriteBatch, arenaCenterScreen);
+        }
         // Both transition tentacle bursts draw before the body so they read
         // as a shadowy explosion blooming out from behind the boss, not a
         // decal painted on top of it.
@@ -3351,6 +3356,78 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         Primitives2D.FillCircle(spriteBatch, tip + new Vector2(2, 3), dotRadius, UiTheme.Shadow);
         Primitives2D.FillCircle(spriteBatch, tip, dotRadius, UiTheme.Cream);
         Primitives2D.CircleOutline(spriteBatch, tip, Math.Max(4f, extent * .13f), UiTheme.Ink, 2);
+    }
+
+    /// <summary>
+    /// One representative sigil from each earlier boss family Aphantasia has
+    /// absorbed by the finale, pulled directly from that boss's own stroke
+    /// data rather than re-authored -- Rot's Root Ward sits out of this set
+    /// and anchors <see cref="DrawUltimateGroundSigil"/>'s center instead,
+    /// since none of the other families is itself centered on the arena.
+    /// </summary>
+    private static readonly (string BossName, Vector2[][] Strokes)[] UltimateSigilSet =
+    {
+        ("DISSONANCE", Dissonance.PhaseRunes[1].Strokes),
+        ("HYPNO & MALADY", PhantasiaBoss.CommandmentSigils[0].Strokes),
+        ("KAGE", Kage.KageSinConfig.SinSigils[0].Strokes),
+        ("ACHE", Ache.AcheSinConfig.SinSigils[0].Strokes),
+        ("BAIR, STING & TOUCH", PlagueSigils.All[0].Strokes),
+        ("ISHE & CHRONOS", Ishe.SightSymbols["GLIMPSE"].Strokes),
+    };
+
+    /// <summary>
+    /// The fight's final spectacle, reserved for the Finale survival window:
+    /// every earlier boss's ground sigil, repeated at a far larger scale
+    /// than any of the originals and arranged into one combined array
+    /// spanning the arena. Colored with the cycling Rainbow palette instead
+    /// of any single boss's accent (Aphantasia has absorbed them all by
+    /// this point) and kept deliberately dull against the ground -- low
+    /// alpha throughout -- so it never competes with incoming shots for
+    /// visibility.
+    /// </summary>
+    private void DrawUltimateGroundSigil(SpriteBatch spriteBatch, Vector2 center)
+    {
+        float ringRadius = ArenaRadius * .95f;
+        float sigilRadius = ArenaRadius * .17f;
+        float spin = (float)_visualTime * .025f;
+
+        Primitives2D.DrawGroundSigilRing(spriteBatch, center, ringRadius * 2f, ringRadius * .82f,
+            Rainbow(spin * .3f), UiTheme.Shadow, UiTheme.Void, (float)_visualTime, alpha: .3f, tickCount: 24);
+
+        for (int index = 0; index < UltimateSigilSet.Length; index++)
+        {
+            float angle = spin + index * MathF.Tau / UltimateSigilSet.Length;
+            Vector2 placement = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle) * .58f) * ringRadius * .78f;
+            Color accent = Rainbow(index / (float)UltimateSigilSet.Length + spin * .4f) * .32f;
+            DrawUltimateSigilCopy(spriteBatch, UltimateSigilSet[index].Strokes, placement, sigilRadius, angle,
+                accent, UiTheme.Void * .32f, UiTheme.Cream * .3f);
+        }
+
+        // The largest copy, dead center, of the one family that sits out of
+        // the ring -- what everything else orbits.
+        DrawUltimateSigilCopy(spriteBatch, Rot.RootWardSigil.Strokes, center, sigilRadius * 1.3f, -spin * .6f,
+            Rainbow(spin * .6f) * .34f, UiTheme.Void * .34f, UiTheme.Cream * .32f);
+    }
+
+    private static void DrawUltimateSigilCopy(SpriteBatch spriteBatch, Vector2[][] strokes, Vector2 center,
+        float radius, float rotation, Color accent, Color voidTone, Color highlight)
+    {
+        float cosAngle = MathF.Cos(rotation), sinAngle = MathF.Sin(rotation);
+        int lineWidth = Math.Max(2, (int)(radius * .07f));
+        foreach (var stroke in strokes)
+        {
+            var points = stroke.Select(p =>
+            {
+                float x = p.X * radius, y = p.Y * radius;
+                return center + new Vector2(x * cosAngle - y * sinAngle, x * sinAngle + y * cosAngle);
+            }).ToArray();
+            if (points.Length <= 1)
+                continue;
+            Primitives2D.DrawGlyphDepthLayers(spriteBatch, points, center, accent, voidTone, lineWidth, 0f);
+            Primitives2D.Polyline(spriteBatch, points, false, voidTone, Math.Max(4, (int)(radius * .12f)));
+            Primitives2D.Polyline(spriteBatch, points, false, accent, lineWidth);
+            Primitives2D.Polyline(spriteBatch, points, false, highlight, 1);
+        }
     }
 
     /// <summary>

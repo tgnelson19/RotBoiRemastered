@@ -365,6 +365,8 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             return;
         }
 
+        DrawGroundSinSigil(spriteBatch, center);
+
         float seconds = VisualAgeSeconds;
         float attack = VisualAttackPulse;
         float cubeSize = Simulation.TileSize * (1f + attack * .16f);
@@ -430,8 +432,17 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
     /// draws directly at final screen coordinates instead of an offscreen
     /// surface.
     /// </summary>
+    /// <summary>A faint, larger echo of the current sin sigil painted on the ground beneath the boss -- every boss now carries some form of this floor sigil.</summary>
+    protected void DrawGroundSinSigil(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var ground = center + new Vector2(0, Size * .58f);
+        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.55f, Size * .48f,
+            PhaseAccent, UiTheme.Shadow, UiTheme.Ink, Age, alpha: .5f);
+        DrawSigil(spriteBatch, ground, Size * .42f, rotation: Age * .01, alpha: 115);
+    }
+
     protected string DrawSigil(SpriteBatch spriteBatch, Vector2 center, float radius, double progress = 1.0,
-        double rotation = 0.0, int alpha = 255, int? phase = null)
+        double rotation = 0.0, int alpha = 255, int? phase = null, float disruption = 0f)
     {
         if (SinConfig.SinSigils.Count == 0)
             return "";
@@ -475,12 +486,15 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             }
             if (visible.Count > 1)
             {
+                Primitives2D.DrawGlyphDepthLayers(
+                    spriteBatch, visible.ToArray(), center, accentAlpha, inkAlpha, lineWidth, disruption);
                 Primitives2D.Polyline(spriteBatch, visible, false, inkAlpha, glowWidth);
                 Primitives2D.Polyline(spriteBatch, visible, false, accentAlpha, lineWidth);
                 Primitives2D.Polyline(spriteBatch, visible, false, creamAlpha, Math.Max(1, lineWidth / 3));
                 Primitives2D.FillCircle(spriteBatch, visible[^1], Math.Max(1, lineWidth / 2), creamAlpha);
             }
         }
+        Primitives2D.DrawGlyphCracks(spriteBatch, center, radius, accentAlpha, inkAlpha, creamAlpha, disruption, Age, index);
         return name;
     }
 

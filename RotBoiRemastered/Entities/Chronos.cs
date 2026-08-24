@@ -468,6 +468,44 @@ public sealed class Chronos : Ishe
         sink.Add(beam);
     }
 
+    /// <summary>
+    /// A literal pair of clock hands: two shots orbit Chronos at opposite
+    /// points on the same circle, connected by a live damaging line (the
+    /// new "tether" primitive) that sweeps the room between them rather
+    /// than as two separate points to dodge independently. Fully telegraphed
+    /// at the spawn point before either hand starts moving, matching every
+    /// other Chronos attack's "show the whole thing first" fairness.
+    /// </summary>
+    private void ClockHandTether(List<EnemyProjectile> sink, float startAngle, float angularSpeed, float damage,
+        string suffix, float radiusTiles = 3.4f, float lifetime = 6f, float telegraph = 1.5f)
+    {
+        var center = Center();
+        float radius = Simulation.TileSize * radiusTiles;
+        float handSize = Size * .12f;
+        EnemyProjectile Hand(float angle, string handSuffix) => new(
+            center.X + MathF.Cos(angle) * radius - handSize / 2f,
+            center.Y + MathF.Sin(angle) * radius - handSize / 2f,
+            0f, 0f, damage, handSize,
+            travelRange: float.PositiveInfinity, color: PhaseAccent, shape: "diamond", path: "orbit",
+            orbitCenter: center, orbitRadius: radius, orbitAngle: angle, angularSpeed: angularSpeed,
+            lifetime: lifetime, owner: $"chronos_{suffix}_hand", ignoreWalls: true)
+        {
+            OriginTelegraphDuration = telegraph,
+        };
+        var handA = Hand(startAngle, suffix);
+        var handB = Hand(startAngle + MathF.PI, suffix);
+        var tether = new EnemyProjectile(center.X, center.Y, 0f, 0f, damage * .75f, Size * .09f,
+            color: PhaseAccent, path: "tether", lifetime: lifetime, owner: $"chronos_{suffix}_tether", ignoreWalls: true)
+        {
+            OriginTelegraphDuration = telegraph,
+            TetherStart = handA,
+            TetherEnd = handB,
+        };
+        sink.Add(handA);
+        sink.Add(handB);
+        sink.Add(tether);
+    }
+
     protected override void FirePattern(float playerX, float playerY, List<EnemyProjectile> sink)
     {
         var declaration = new List<EnemyProjectile>(52);
@@ -507,14 +545,17 @@ public sealed class Chronos : Ishe
                 scheduleSecondHand = true;
                 break;
             case 6:
-                if (PatternRotation % 2 == 0)
+                if (PatternRotation % 3 == 0)
                 {
                     RadialTentacles(playerX, playerY, declaration, 12, 2, .48f, 910, "thorn_crown", 1.8f);
                     ScheduleSafeRoute(1.86, center, aimed, .38f);
                     scheduleSecondHand = true;
                 }
-                else
+                else if (PatternRotation % 3 == 1)
                     ThornOfTime(playerX, playerY, declaration, withEcho: true);
+                else
+                    ClockHandTether(declaration, aimed, (PatternRotation % 2 == 0 ? 1f : -1f) * .32f,
+                        700, "thorn_hands");
                 break;
             default:
             {

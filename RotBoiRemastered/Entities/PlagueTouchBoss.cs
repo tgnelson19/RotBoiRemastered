@@ -429,19 +429,45 @@ public class PlagueTouchBoss : PathChaseBoss
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .72f), (int)(Size * .92f), 6));
     }
 
-    private string DrawPlagueSigil(SpriteBatch spriteBatch, Vector2 center, float radius)
+    private string DrawPlagueSigil(SpriteBatch spriteBatch, Vector2 center, float radius, float alpha = 1f)
     {
-        var (name, strokes) = PlagueSigils.All[SigilConfig.PhaseSigils[Phase - 1]];
+        int sigilIndex = SigilConfig.PhaseSigils[Phase - 1];
+        var (name, strokes) = PlagueSigils.All[sigilIndex];
+        // A slow rotational wobble and breathing pulse -- previously this
+        // sigil was the one fully frozen glyph in the roster, motionless
+        // every frame while the rest of the body animates around it.
+        float angle = MathF.Sin(Age * .015f) * .035f;
+        float pulse = 1f + MathF.Sin(Age * .04f) * .06f;
+        float cosAngle = MathF.Cos(angle), sinAngle = MathF.Sin(angle);
+        float disruption = 1f - (float)Hp / Math.Max(1, MaxHp);
+        int lineWidth = Math.Max(2, (int)(radius * .07f));
         foreach (var stroke in strokes)
         {
-            var points = stroke.Select(p => center + p * radius).ToArray();
+            var points = stroke.Select(p =>
+            {
+                float x = p.X * radius * pulse, y = p.Y * radius * pulse;
+                return center + new Vector2(x * cosAngle - y * sinAngle, x * sinAngle + y * cosAngle);
+            }).ToArray();
             if (points.Length <= 1)
                 continue;
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink, Math.Max(5, (int)(radius * .14f)));
-            Primitives2D.Polyline(spriteBatch, points, false, PhaseAccent, Math.Max(2, (int)(radius * .07f)));
-            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Cream, Math.Max(1, (int)(radius * .025f)));
+            Primitives2D.DrawGlyphDepthLayers(
+                spriteBatch, points, center, PhaseAccent * alpha, UiTheme.Ink * alpha, lineWidth, disruption);
+            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Ink * alpha, Math.Max(5, (int)(radius * .14f)));
+            Primitives2D.Polyline(spriteBatch, points, false, PhaseAccent * alpha, Math.Max(2, (int)(radius * .07f)));
+            Primitives2D.Polyline(spriteBatch, points, false, UiTheme.Cream * alpha, Math.Max(1, (int)(radius * .025f)));
         }
+        Primitives2D.DrawGlyphCracks(
+            spriteBatch, center, radius, PhaseAccent * alpha, UiTheme.Ink * alpha, UiTheme.Cream * alpha, disruption, Age, sigilIndex);
         return name;
+    }
+
+    /// <summary>A faint, larger echo of the current plague sigil painted on the ground beneath the boss -- every boss now carries some form of this floor sigil.</summary>
+    private void DrawGroundPlagueSigil(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var ground = center + new Vector2(0, Size * .58f);
+        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.55f, Size * .48f,
+            PhaseAccent, UiTheme.Shadow, UiTheme.Ink, Age, alpha: .5f);
+        DrawPlagueSigil(spriteBatch, ground, Size * .42f, alpha: .45f);
     }
 
     public sealed override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -454,6 +480,7 @@ public class PlagueTouchBoss : PathChaseBoss
             return;
         var screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        DrawGroundPlagueSigil(spriteBatch, rect.Center.ToVector2());
         DrawPlagueSigil(spriteBatch, rect.Center.ToVector2(), Size * .32f);
         if (PhaseAnnouncementTimer > 0)
         {

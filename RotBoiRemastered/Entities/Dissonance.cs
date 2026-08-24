@@ -1041,6 +1041,26 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     }
 
     /// <summary>
+    /// Dissonance's arena is part of the attack: a shot ricochets off the
+    /// rune boundary instead of dying at the wall or flying through it,
+    /// crossing the room from unexpected angles as it bounces rather than
+    /// arriving once on a straight line like every other Dissonance shot.
+    /// </summary>
+    private void FireRicochet(List<EnemyProjectile> sink, float targetX, float targetY)
+    {
+        var center = Center();
+        float direction = MathF.Atan2(targetY - center.Y, targetX - center.X);
+        sink.Add(new EnemyProjectile(center.X, center.Y, direction, .62f, 2.2f, Simulation.TileSize * .34f,
+            travelRange: Simulation.TileSize * 260f, color: PhaseAccent, shape: "diamond", path: "bounce",
+            lifetime: 9f, owner: "dissonance_ricochet", ignoreWalls: true)
+        {
+            BounceCenter = ArenaCenter,
+            BounceRadius = ArenaRadius * .96f,
+            BouncesRemaining = 4,
+        });
+    }
+
+    /// <summary>
     /// Dissonance's survival-phase laser signature: a ring of thick, rigid,
     /// long-lived spokes rather than a single shot aimed at the player. One
     /// spoke rotates open as the only safe lane each cycle, so the beams
@@ -1124,7 +1144,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         SpecialAttackCooldown -= dt;
         if (SpecialAttackCooldown > 0)
             return;
-        int mode = CallbackIndex % 3;
+        int mode = CallbackIndex % 4;
         if (SurvivalActive && Phase == 9)
         {
             FireSurvivalBarrier(sink);
@@ -1148,6 +1168,12 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             FireLaser(sink, playerX, playerY);
             FireSpeedBurst(sink, playerX, playerY);
             SpecialAttackCooldown = 5.2;
+        }
+        else if (mode == 3)
+        {
+            FireLaser(sink, playerX, playerY);
+            FireRicochet(sink, playerX, playerY);
+            SpecialAttackCooldown = 5.4;
         }
         else
         {
@@ -2153,7 +2179,29 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         }
     }
 
-    private string DrawRune(SpriteBatch spriteBatch, Vector2 center, float radius, int? runePhaseOverride = null)
+    /// <summary>
+    /// 0 (untouched) to 1 (interrupted): how hard the player has punished
+    /// this phase's brief post-transition opening. Drives both
+    /// <see cref="DrawRune"/>'s receding depth layers and its cracks --
+    /// RuneDisruption only ever climbs during that opening and is reset by
+    /// the next phase transition (see SetDreamPhase-equivalent reset), so
+    /// this stays pinned at its high-water mark for the rest of the phase
+    /// once the rune is actually interrupted, rather than snapping back.
+    /// </summary>
+    private float RuneDisruptionRatio =>
+        (float)Math.Clamp(RuneDisruption / Math.Max(.001, RuneDisruptionNeeded), 0.0, 1.0);
+
+    /// <summary>A faint, larger echo of the current phase's rune painted on the ground beneath Dissonance -- every boss now carries some form of this floor sigil.</summary>
+    private void DrawGroundRune(SpriteBatch spriteBatch, Vector2 center)
+    {
+        var ground = center + new Vector2(0, Size * .58f);
+        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.55f, Size * .48f,
+            PhaseAccent, UiTheme.Shadow, UiTheme.Void, Age, alpha: .5f);
+        DrawRune(spriteBatch, ground, Size * .42f, alpha: .45f);
+    }
+
+    private string DrawRune(SpriteBatch spriteBatch, Vector2 center, float radius, int? runePhaseOverride = null,
+        bool showDisruption = false, float alpha = 1f)
     {
         int runePhase = runePhaseOverride ?? Phase;
         var (runeName, strokes) = PhaseRunes[runePhase];
@@ -2163,6 +2211,14 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         float cosAngle = MathF.Cos(angle), sinAngle = MathF.Sin(angle);
         int glowWidth = Math.Max(6, (int)(radius * .16f));
         int lineWidth = Math.Max(3, (int)(radius * .075f));
+
+        // Depth-of-field: a couple of progressively smaller, dimmer copies
+        // of the glyph always recede into the core, so it reads as an inset
+        // socket rather than a flat decal even at rest. As the live rune
+        // takes punishment (RuneDisruptionRatio), more/darker layers open
+        // up beneath it -- the socket audibly deepens under pressure.
+        float disruption = showDisruption ? RuneDisruptionRatio : 0f;
+
         Span<Vector2> points = stackalloc Vector2[8];
         Span<Vector2> ghostPoints = stackalloc Vector2[8];
         foreach (var stroke in strokes)
@@ -2181,11 +2237,15 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             if (stroke.Length <= 1)
                 continue;
             ReadOnlySpan<Vector2> visiblePoints = points[..stroke.Length];
+
+            Primitives2D.DrawGlyphDepthLayers(
+                spriteBatch, visiblePoints, center, PhaseAccent * alpha, UiTheme.Void * alpha, lineWidth, disruption);
+
             Primitives2D.PolylineSpan(
                 spriteBatch,
                 visiblePoints,
                 false,
-                UiTheme.Ink,
+                UiTheme.Ink * alpha,
                 glowWidth);
             if (transition > 0)
             {
@@ -2197,22 +2257,24 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
                     spriteBatch,
                     ghostPoints[..stroke.Length],
                     false,
-                    PhaseAccent,
+                    PhaseAccent * alpha,
                     Math.Max(2, lineWidth / 2));
             }
             Primitives2D.PolylineSpan(
                 spriteBatch,
                 visiblePoints,
                 false,
-                PhaseAccent,
+                PhaseAccent * alpha,
                 lineWidth);
             Primitives2D.PolylineSpan(
                 spriteBatch,
                 visiblePoints,
                 false,
-                UiTheme.Cream,
+                UiTheme.Cream * alpha,
                 Math.Max(1, lineWidth / 3));
         }
+        Primitives2D.DrawGlyphCracks(
+            spriteBatch, center, radius, PhaseAccent * alpha, UiTheme.Void * alpha, UiTheme.Cream * alpha, disruption, Age, Phase);
         return runeName;
     }
 
@@ -2312,6 +2374,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             rect.Inflate(-(int)(Size * .12f), (int)(Size * .16f));
 
         var rectCenter = rect.Center.ToVector2();
+        DrawGroundRune(spriteBatch, rectCenter);
         DrawSoundPulse(spriteBatch, rectCenter);
         DrawCubeAura(spriteBatch, rectCenter, PhaseAccent);
         // Four gently depth-scaled satellites make the oldest core feel composed:
@@ -2408,7 +2471,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             Math.Max(2, (int)(core.Height * pulseScale)));
         Primitives2D.RectOutline(spriteBatch, innerPulse, PhaseAccent, 1);
         int deathRune = Dying || (Phase == 9 && SurvivalActive) ? 9 : Phase;
-        string runeName = DrawRune(spriteBatch, rectCenter, coreRadius, deathRune);
+        string runeName = DrawRune(spriteBatch, rectCenter, coreRadius, deathRune, showDisruption: true);
         UiTheme.DrawText(spriteBatch, runeName, Math.Max(8, Size * .075), PhaseAccent,
             new Vector2(rect.Center.X, core.Bottom + Size * .045f), "midtop");
         DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: true);

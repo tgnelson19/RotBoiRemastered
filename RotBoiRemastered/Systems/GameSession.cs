@@ -1711,7 +1711,7 @@ public sealed class GameSession
             }
             if (bossDying)
                 projectile.RemFlag = true;
-            projectile.Update(Battleground, casualMode, State.HardMode);
+            projectile.Update(Battleground, casualMode, State.HardMode, PlayerWorldCenter);
             _spawnedProjectileScratch.AddRange(projectile.SpawnedProjectiles);
             projectile.SpawnedProjectiles.Clear();
         }
