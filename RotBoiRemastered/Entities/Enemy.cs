@@ -173,6 +173,19 @@ public class Enemy
     public bool TransitionCleanupRequested { get; set; }
     public string? TransitionCleanupOwner { get; set; }
     /// <summary>
+    /// Set by a boss to request that GameSession accelerate every live enemy
+    /// projectile it owns out toward its arena's edge on the next Update
+    /// pass -- a softer alternative to <see cref="TransitionCleanupRequested"/>
+    /// that sweeps the last phase's or subphase's shots off the screen over
+    /// a second or so (the existing radial-arena boundary check then removes
+    /// each one once it crosses the edge) instead of purging them instantly.
+    /// Self-clears once GameSession applies it. When
+    /// <see cref="TransitionSweepOwner"/> is null the request applies to
+    /// every live enemy projectile; when set, only that owner's.
+    /// </summary>
+    public bool TransitionSweepRequested { get; set; }
+    public string? TransitionSweepOwner { get; set; }
+    /// <summary>
     /// Requests the Hard Mode full-heal checkpoint associated with a boss
     /// phase or subphase handoff. Ordinary recovery remains disabled.
     /// </summary>

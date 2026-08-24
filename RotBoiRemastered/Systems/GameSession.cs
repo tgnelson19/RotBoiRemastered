@@ -54,6 +54,14 @@ public sealed class GameSession
     /// this limit; exceeding it means old bullets are being truncated.
     /// </summary>
     public const int MaxBossProjectiles = 360;
+    /// <summary>
+    /// Speed gained per second by a projectile swept via
+    /// <see cref="Enemy.TransitionSweepRequested"/> -- large enough that
+    /// even a slow shot crosses a boss arena and exits its radial boundary
+    /// (where the existing arena-bound check removes it) within roughly a
+    /// second of the sweep firing.
+    /// </summary>
+    private const float TransitionSweepAcceleration = 9f;
     private const int CrateInteractRadius = 24;
     private const int MaxLootCrates = 40;
     private const int BossPortalInteractRadius = 40;
@@ -1614,14 +1622,27 @@ public sealed class GameSession
         }
         enemy.MilestoneHealRequested = false;
 
-        if (!enemy.TransitionCleanupRequested)
-            return;
-        if (enemy.TransitionCleanupOwner is not null)
-            State.EnemyProjectileHolster.RemoveAll(projectile =>
-                projectile.Owner == enemy.TransitionCleanupOwner);
-        else
-            State.EnemyProjectileHolster.Clear();
-        enemy.TransitionCleanupRequested = false;
+        if (enemy.TransitionCleanupRequested)
+        {
+            if (enemy.TransitionCleanupOwner is not null)
+                State.EnemyProjectileHolster.RemoveAll(projectile =>
+                    projectile.Owner == enemy.TransitionCleanupOwner);
+            else
+                State.EnemyProjectileHolster.Clear();
+            enemy.TransitionCleanupRequested = false;
+        }
+
+        if (enemy.TransitionSweepRequested)
+        {
+            IEnumerable<EnemyProjectile> swept = enemy.TransitionSweepOwner is not null
+                ? State.EnemyProjectileHolster.Where(
+                    projectile => projectile.Owner == enemy.TransitionSweepOwner)
+                : State.EnemyProjectileHolster;
+            foreach (EnemyProjectile projectile in swept)
+                projectile.Acceleration = Math.Max(
+                    projectile.Acceleration, TransitionSweepAcceleration);
+            enemy.TransitionSweepRequested = false;
+        }
     }
 
     public void DrawEnemies(SpriteBatch spriteBatch)

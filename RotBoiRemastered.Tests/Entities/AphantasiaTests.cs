@@ -316,6 +316,193 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
+    public void VoidFinale_SweepLasersSpawnEquallySpacedOnlyInClosingWindowAndDriftClockwise()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(661),
+            noHealing: true, noExtract: true);
+        boss.DebugSetPhase(4);
+        boss.DebugStartFinale();
+        EnemyUpdateContext context = Context(boss, arena);
+
+        static List<EnemyProjectile> SweepLasers(EnemyUpdateContext context) =>
+            context.ProjectileSink.Where(projectile =>
+                projectile.Owner == "aphantasia_finale_sweep_laser").ToList();
+
+        for (int tick = 0; tick < Simulation.FrameRate * 4; tick++)
+            boss.Update(context);
+        Assert.True(boss.SurvivalRemaining > Aphantasia.FinaleSweepLaserWindowDuration);
+        Assert.Empty(SweepLasers(context));
+
+        while (boss.SurvivalRemaining > Aphantasia.FinaleSweepLaserWindowDuration)
+            boss.Update(context);
+
+        List<EnemyProjectile> lasers = SweepLasers(context);
+        Assert.Equal(Aphantasia.FinaleSweepLaserCount, lasers.Count);
+        Assert.All(lasers, laser =>
+        {
+            Assert.True(laser.LongLastingLaser);
+            Assert.Equal("laser", laser.Path);
+            Assert.Equal("diamond", laser.Shape);
+            Assert.True(laser.Size > Simulation.TileSize * .4f,
+                "Expected the sweep lasers to render noticeably larger than a standard laser.");
+        });
+        float[] initialDirections = lasers.Select(laser => laser.Direction)
+            .OrderBy(direction => direction).ToArray();
+        for (int index = 1; index < initialDirections.Length; index++)
+        {
+            float spacing = initialDirections[index] - initialDirections[index - 1];
+            Assert.InRange(spacing, MathF.Tau / 5f - .02f, MathF.Tau / 5f + .02f);
+        }
+
+        EnemyProjectile arm = lasers[0];
+        float windowStartDirection = arm.Direction;
+        double windowStartRemaining = boss.SurvivalRemaining;
+        double ElapsedInWindow() => windowStartRemaining - boss.SurvivalRemaining;
+        void TickUntilElapsed(double targetElapsed)
+        {
+            while (ElapsedInWindow() < targetElapsed)
+                boss.Update(context);
+        }
+
+        // Clockwise phase: direction should climb toward the authored 120
+        // degrees over its first ~5s (sampled a little short of the 5s/2.5s
+        // boundary to avoid a boundary-tick flake).
+        TickUntilElapsed(Aphantasia.FinaleSweepLaserClockwiseDuration - .1);
+        float nearPeak = arm.Direction;
+        Assert.True(nearPeak - windowStartDirection
+            > MathHelper.ToRadians(Aphantasia.FinaleSweepLaserClockwiseDegrees * .9f));
+
+        // Crossing into the counterclockwise phase: direction should now
+        // fall back down, but the cycle's net drift stays positive -- it
+        // never returns to (let alone past) where the clockwise phase
+        // started.
+        TickUntilElapsed(Aphantasia.FinaleSweepLaserClockwiseDuration
+            + Aphantasia.FinaleSweepLaserCounterclockwiseDuration - .3);
+        Assert.True(arm.Direction < nearPeak);
+        Assert.True(arm.Direction > windowStartDirection);
+    }
+
+    [Fact]
+    public void VoidFinale_SweepLasersAreRemovedWhenTheFinaleEnds()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(661),
+            noHealing: true, noExtract: true);
+        boss.DebugSetPhase(4);
+        boss.DebugStartFinale();
+        EnemyUpdateContext context = Context(boss, arena);
+
+        while (boss.SurvivalRemaining > 0)
+            boss.Update(context);
+
+        List<EnemyProjectile> lasers = context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_finale_sweep_laser").ToList();
+        Assert.Equal(Aphantasia.FinaleSweepLaserCount, lasers.Count);
+        Assert.All(lasers, laser => Assert.True(laser.RemFlag));
+        Assert.Equal(AphantasiaEncounterState.Dying, boss.EncounterState);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void PersistentRotatingLaser_NeverFiresBeforePhaseThree(int phase)
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(701));
+        boss.DebugSetPhase(phase);
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 30; tick++)
+            boss.Update(context);
+
+        Assert.DoesNotContain(context.ProjectileSink, projectile =>
+            projectile.Owner == "aphantasia_persistent_laser");
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void PersistentRotatingLaser_SpawnsAVariedEquallySpacedOneDirectionArray(int phase)
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(701),
+            noHealing: true, noExtract: true);
+        boss.DebugSetPhase(phase);
+        EnemyUpdateContext context = Context(boss, arena);
+
+        for (int tick = 0; tick < Simulation.FrameRate * 15; tick++)
+            boss.Update(context);
+
+        List<EnemyProjectile> lasers = context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_persistent_laser").ToList();
+        Assert.NotEmpty(lasers);
+        Assert.Contains(lasers.Count, Aphantasia.PersistentLaserArmCounts);
+        Assert.All(lasers, laser =>
+        {
+            Assert.True(laser.LongLastingLaser);
+            Assert.Equal("laser", laser.Path);
+            Assert.Equal(Aphantasia.PersistentLaserLifetime, (double)laser.Lifetime!.Value, 3);
+            Assert.NotEqual(0f, laser.AngularSpeed);
+            Assert.True(laser.Size > Simulation.TileSize * .3f
+                && laser.Size < Simulation.TileSize * .5f,
+                "Expected a persistent laser larger than a standard laser but smaller than the finale sweep.");
+        });
+
+        // Every arm in one array shares the same spin direction (the
+        // attack is "always moving in one direction," never back-and-forth
+        // like the finale sweep) and starts evenly spaced around the ring.
+        float firstAngularSpeed = lasers[0].AngularSpeed;
+        Assert.All(lasers, laser => Assert.Equal(firstAngularSpeed, laser.AngularSpeed));
+        float[] directions = lasers.Select(laser => laser.Direction)
+            .OrderBy(direction => direction).ToArray();
+        for (int index = 1; index < directions.Length; index++)
+        {
+            float spacing = directions[index] - directions[index - 1];
+            Assert.InRange(spacing, MathF.Tau / lasers.Count - .02f,
+                MathF.Tau / lasers.Count + .02f);
+        }
+
+        // Driving the real per-frame Update lets the array actually turn --
+        // confirming the built-in AngularSpeed rotation (not just the field
+        // value) carries it consistently in that one direction.
+        EnemyProjectile arm = lasers[0];
+        float beforeSpin = arm.Direction;
+        for (int tick = 0; tick < Simulation.FrameRate * 3; tick++)
+            arm.Update(arena, casualMode: false);
+        float delta = arm.Direction - beforeSpin;
+        Assert.True(Math.Sign(delta) == Math.Sign(firstAngularSpeed) && delta != 0,
+            $"Expected the laser to keep turning the same way its AngularSpeed ({firstAngularSpeed}) implies, got delta {delta}.");
+    }
+
+    [Fact]
+    public void PersistentRotatingLaser_SometimesTravelsAsASineWaveAndSometimesStaysStraight()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(701),
+            noHealing: true, noExtract: true);
+        boss.DebugSetPhase(3);
+        EnemyUpdateContext context = Context(boss, arena);
+
+        // Enough spawns (cadence is 14s) that, at a 45% roll per spawn, the
+        // chance every single one landed on the same straight/wavy outcome
+        // is negligible -- proving the wave is a genuine per-spawn variation
+        // rather than an always-on or never-on setting.
+        for (int tick = 0; tick < Simulation.FrameRate * 150; tick++)
+            boss.Update(context);
+
+        List<EnemyProjectile> lasers = context.ProjectileSink.Where(projectile =>
+            projectile.Owner == "aphantasia_persistent_laser").ToList();
+        Assert.Contains(lasers, laser => laser.Amplitude == 0);
+        Assert.Contains(lasers, laser => laser.Amplitude > 0);
+        Assert.All(lasers.Where(laser => laser.Amplitude > 0), laser =>
+        {
+            Assert.True(laser.Frequency > 0);
+            Assert.NotEqual(0f, laser.LaserWaveSpeed);
+        });
+    }
+
+    [Fact]
     public void Minis_ShieldTheBossAndExposeNamedHitboxes()
     {
         Battleground arena = MakeArena();
@@ -581,11 +768,24 @@ public sealed class AphantasiaTests
     [Fact]
     public void GenericPerimeterPressure_ScalesFromNoneToHalfToFullByPhase()
     {
-        foreach ((int phase, int expectedCount) in new[] { (1, 0), (2, 0), (3, 4), (4, 8) })
+        // Phase 3 and Phase 4 each fade their perimeter ring in across the
+        // phase's first two subphases rather than switching straight to a
+        // fixed count, so a phase's *opening* subphase (subphase 0) starts
+        // wherever the previous phase left off (0 for Phase 3, half for
+        // Phase 4) and only reaches the old flat values (4, then 8) once the
+        // phase has been running a couple of subphases.
+        foreach ((int phase, int subphasesIn, int expectedCount) in new[]
+        {
+            (1, 0, 0), (2, 0, 0),
+            (3, 0, 0), (3, 2, 4),
+            (4, 0, 4), (4, 2, 8),
+        })
         {
             Battleground arena = MakeArena();
             var boss = new Aphantasia(1000, 1000, arena, new Random(439));
             boss.DebugSetPhase(phase);
+            for (int advance = 0; advance < subphasesIn; advance++)
+                boss.DebugAdvanceSubPhase();
             EnemyUpdateContext context = Context(boss, arena);
 
             for (int tick = 0; tick < Simulation.FrameRate * 2; tick++)
@@ -808,7 +1008,7 @@ public sealed class AphantasiaTests
                 bool hasHelix = context.ProjectileSink.Any(projectile =>
                     projectile.Owner?.StartsWith("aphantasia_double_helix_") == true);
                 bool hasLaser = context.ProjectileSink.Any(projectile =>
-                    projectile.Owner?.Contains("_laser") == true);
+                    projectile.Owner?.StartsWith("aphantasia_laser_") == true);
                 bool hasBomb = context.ProjectileSink.Any(projectile =>
                     projectile.Owner?.EndsWith("_bomb") == true);
                 Assert.Equal(pattern.SpecialAttack == AphantasiaSpecialAttack.DoubleHelix,
@@ -862,7 +1062,10 @@ public sealed class AphantasiaTests
         EnemyProjectile anchor = Assert.Single(context.ProjectileSink.Where(projectile =>
             projectile.Owner == "aphantasia_void_anchor").Take(1));
         Assert.Equal("orbit_core", anchor.Shape);
-        Assert.Equal(5.5f, anchor.Lifetime);
+        // 3.2s -- shorter than the ~4.2s it takes to decelerate to a stop,
+        // by design (see FireVoidAnchor): the anchor is always still
+        // drifting away when it expires instead of parking on the boss.
+        Assert.Equal(3.2f, anchor.Lifetime);
         Assert.True(anchor.SpeedDecay > 0);
         float initialSpeed = anchor.Speed;
         for (int tick = 0; tick < Simulation.FrameRate * 6 && !anchor.RemFlag; tick++)
@@ -998,13 +1201,15 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void ArenaHalfPressure_IsDisabledEarlyAndApproximatelyHalvedInPhaseThree()
+    public void ArenaHalfPressure_IsDisabledEarlyAndRampsInAcrossEachPhasesOpening()
     {
-        static List<EnemyProjectile> Simulate(int phase)
+        static List<EnemyProjectile> Simulate(int phase, int subphasesIn = 0)
         {
             Battleground arena = MakeArena();
             var boss = new Aphantasia(1000, 1000, arena, new Random(631));
             boss.DebugSetPhase(phase);
+            for (int advance = 0; advance < subphasesIn; advance++)
+                boss.DebugAdvanceSubPhase();
             EnemyUpdateContext context = Context(boss, arena);
             for (int tick = 0; tick < Simulation.FrameRate * 12; tick++)
                 boss.Update(context);
@@ -1014,13 +1219,28 @@ public sealed class AphantasiaTests
 
         Assert.Empty(Simulate(1));
         Assert.Empty(Simulate(2));
-        List<EnemyProjectile> phaseThree = Simulate(3);
-        List<EnemyProjectile> halfShots = Simulate(4);
-        int phaseThreeVolleys = phaseThree.Select(projectile => projectile.Owner).Distinct().Count();
+
+        // Each phase's opening subphase (subphase 0) eases the ambient
+        // cadence in rather than jumping straight to its steady-state
+        // multiplier -- Phase 3 opens slower than its own steady state, and
+        // Phase 4 opens at Phase 3's steady state rather than its own full
+        // speed, so the phase-3-vs-phase-4 gap is wider on subphase 0 than
+        // it becomes once each phase has run a couple of subphases.
+        List<EnemyProjectile> phaseThreeOpening = Simulate(3, subphasesIn: 0);
+        List<EnemyProjectile> phaseFourOpening = Simulate(4, subphasesIn: 0);
+        int phaseThreeOpeningVolleys = phaseThreeOpening.Select(p => p.Owner).Distinct().Count();
+        int phaseFourOpeningVolleys = phaseFourOpening.Select(p => p.Owner).Distinct().Count();
+        Assert.InRange(phaseThreeOpeningVolleys, 1, phaseFourOpeningVolleys);
+        Assert.True(phaseThreeOpeningVolleys <= Math.Ceiling(phaseFourOpeningVolleys * .8),
+            $"Expected phase-three's opening subphase to stay well below phase-four's opening cadence, got {phaseThreeOpeningVolleys} versus {phaseFourOpeningVolleys}.");
+
+        List<EnemyProjectile> phaseThreeRamped = Simulate(3, subphasesIn: 2);
+        List<EnemyProjectile> halfShots = Simulate(4, subphasesIn: 2);
+        int phaseThreeRampedVolleys = phaseThreeRamped.Select(p => p.Owner).Distinct().Count();
         int phaseFourVolleys = halfShots.Select(projectile => projectile.Owner).Distinct().Count();
-        Assert.InRange(phaseThreeVolleys, 1, phaseFourVolleys);
-        Assert.True(phaseThreeVolleys <= Math.Ceiling(phaseFourVolleys * .65),
-            $"Expected roughly half as many phase-three half-pressure volleys, got {phaseThreeVolleys} versus {phaseFourVolleys}.");
+        Assert.InRange(phaseThreeRampedVolleys, 1, phaseFourVolleys);
+        Assert.True(phaseThreeRampedVolleys <= Math.Ceiling(phaseFourVolleys * .65),
+            $"Expected roughly half as many phase-three half-pressure volleys once ramped in, got {phaseThreeRampedVolleys} versus {phaseFourVolleys}.");
         Assert.Contains(halfShots, projectile => projectile.Owner?.StartsWith("aphantasia_half_0_") == true);
         Assert.Contains(halfShots, projectile => projectile.Owner?.StartsWith("aphantasia_half_1_") == true);
         Assert.True(halfShots.Select(projectile => projectile.Speed).Distinct().Count() >= 6);
@@ -1171,6 +1391,60 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
+    public void PhaseAndSubphaseHandoffs_RequestAProjectileSweep()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(643));
+        boss.DebugSetPhase(1);
+        EnemyUpdateContext context = Context(boss, arena);
+        Assert.False(boss.TransitionSweepRequested);
+
+        Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
+        Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
+        Assert.True(DealDamageBelowTheCap(boss).Applied);
+
+        // The same handoff beat fires the sweep whether it closes out a
+        // full phase or just an ordinary subphase -- BeginPhaseHandoff is
+        // the single funnel for both, so a subphase's own gate proves the
+        // request lands without needing a full phase transition.
+        Assert.True(boss.PhaseHandoffActive);
+        Assert.True(boss.TransitionSweepRequested);
+    }
+
+    [Fact]
+    public void TransitionSweep_AcceleratesLingeringProjectilesUntilTheArenaBoundaryRemovesThem()
+    {
+        GameSession session = MakeSession();
+        session.StartAphantasia(new Random(647));
+        session.State.PendingLevelUps = 0;
+        var boss = Assert.IsType<Aphantasia>(session.State.ActiveBoss);
+        boss.DebugSetPhase(1);
+        var lingering = new EnemyProjectile(
+            boss.ArenaCenter.X, boss.ArenaCenter.Y, 0f, .3f, 1, 1,
+            lifetime: 30, owner: "aphantasia_sweep_lingering", ignoreWalls: true);
+        session.State.EnemyProjectileHolster.Add(lingering);
+        Assert.Equal(0, lingering.Acceleration);
+
+        Assert.True(boss.TakeDamage(boss.Light.MaxHp, "light").Applied);
+        Assert.True(boss.TakeDamage(boss.Dark.MaxHp, "dark").Applied);
+        Assert.True(DealDamageBelowTheCap(boss).Applied);
+        session.UpdateEnemies();
+
+        Assert.Contains(lingering, session.State.EnemyProjectileHolster);
+        Assert.True(lingering.Acceleration > 0,
+            "Expected the sweep to accelerate the lingering projectile.");
+
+        for (int tick = 0; tick < Simulation.FrameRate * 8
+            && session.State.EnemyProjectileHolster.Contains(lingering); tick++)
+        {
+            session.UpdateEnemies();
+            session.UpdateEnemyProjectiles();
+        }
+
+        Assert.DoesNotContain(lingering, session.State.EnemyProjectileHolster);
+    }
+
+    [Fact]
     public void VoidClockVolley_ReservesItsCompletePortalWave()
     {
         Battleground arena = MakeArena();
@@ -1180,12 +1454,25 @@ public sealed class AphantasiaTests
         SelectPattern(boss, "void_clock");
         EnemyUpdateContext context = Context(boss, arena);
 
+        // "void_clock" alternates every other volley between this portal
+        // seed and a plain void anchor (see FireVoidStage case 1), and the
+        // very first volley of a fresh subphase always lands on the anchor
+        // branch (_regularVolleyCount starts at 0). This test is
+        // specifically about the portal-seed branch's reserved threat cost,
+        // so clear out any anchor volley that fires first and keep waiting
+        // for the portal seed to show up.
         context.ProjectileSink.Clear();
-        for (int tick = 0; tick < Simulation.FrameRate * 3
+        for (int tick = 0; tick < Simulation.FrameRate * 6
             && !context.ProjectileSink.Any(projectile =>
-                projectile.Owner?.Contains("void_clock") == true
-                || projectile.Owner?.Contains("portal_clock_hand") == true); tick++)
+                projectile.Owner?.Contains("portal_clock_hand") == true); tick++)
+        {
             boss.Update(context);
+            if (!context.ProjectileSink.Any(projectile =>
+                projectile.Owner?.Contains("portal_clock_hand") == true))
+            {
+                context.ProjectileSink.Clear();
+            }
+        }
 
         List<EnemyProjectile> clockVolley = context.ProjectileSink.Where(projectile =>
             projectile.Owner?.Contains("void_clock") == true
@@ -1310,8 +1597,15 @@ public sealed class AphantasiaTests
                             $"{projectile.Owner} has size {projectile.Size}.");
                     });
                     if (phase == 4)
+                        // "void_clock" alternates every other volley between
+                        // a portal-seed clock hand and a plain void anchor
+                        // (see FireVoidStage case 1) -- either one is valid
+                        // evidence of the pattern's big hazard, but which
+                        // one shows up here depends on _regularVolleyCount's
+                        // parity when this pattern's first volley fires.
                         Assert.Contains(patternProjectiles, projectile =>
-                            projectile.Owner?.StartsWith("aphantasia_portal_") == true);
+                            projectile.Owner?.StartsWith("aphantasia_portal_") == true
+                            || projectile.Owner == "aphantasia_void_anchor");
                     remaining.Remove(pattern);
                 }
                 int previous = boss.PatternIndex;

@@ -179,6 +179,72 @@ public class EnemyProjectileTests
     }
 
     [Fact]
+    public void Laser_WithAmplitude_BendsTheHitboxAwayFromTheStraightLineNearItsPeak()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.LargeOpenRoom();
+        // Frequency chosen so 200 pixels out along the beam sits exactly at
+        // the sine's positive peak (Frequency * 200 == pi/2), well clear of
+        // the origin -- every wave, regardless of amplitude, still touches
+        // the straight line there.
+        float frequency = MathF.PI / 2f / 200f;
+        var projectile = new EnemyProjectile(
+            100, 100, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 2000, lifetime: 5f,
+            amplitude: 80f, frequency: frequency)
+        {
+            TelegraphDuration = 0f,
+        };
+        for (int frame = 0; frame < 20; frame++)
+            projectile.Update(battleground, casualMode: false);
+
+        // Heading is +X from (100,100), so the unbent point 200px out would
+        // be (300,100); the wave should have pushed it up to (300,180)
+        // (perpendicular offset == amplitude at the peak) instead.
+        Assert.False(projectile.Collides(new Rectangle(295, 95, 10, 10)));
+        Assert.True(projectile.Collides(new Rectangle(295, 175, 10, 10)));
+    }
+
+    [Fact]
+    public void Laser_WithWaveSpeed_ShiftsTheBendAsTimePasses()
+    {
+        Simulation.ResetForTests();
+        var battleground = EntityTestFixtures.LargeOpenRoom();
+        // Frequency 0 makes the whole beam bend by the same amount at every
+        // point along its length, isolating LaserWaveSpeed's effect (a
+        // uniform perpendicular slide over time) from Frequency's spatial
+        // shaping -- covered separately above.
+        float waveSpeed = MathF.PI;
+        var projectile = new EnemyProjectile(
+            100, 100, direction: 0f, speed: 0, damage: 10, size: 10,
+            path: "laser", travelRange: 2000, lifetime: 5f,
+            amplitude: 80f, frequency: 0f)
+        {
+            TelegraphDuration = 0f,
+            LaserWaveSpeed = waveSpeed,
+        };
+
+        // Tick to the wave's trough (phase == pi/2, offset == -80), then on
+        // to its peak (phase == 3*pi/2, offset == +80) -- a guaranteed
+        // full-amplitude swing regardless of exact per-tick timing, unlike
+        // sampling two arbitrary fixed frame counts.
+        while (waveSpeed * projectile.Age < MathF.PI / 2f)
+            projectile.Update(battleground, casualMode: false);
+        float offsetEarly = 80f * MathF.Sin(-waveSpeed * projectile.Age);
+        var earlyRect = new Rectangle(295, (int)(100 + offsetEarly) - 5, 10, 10);
+        Assert.True(projectile.Collides(earlyRect));
+
+        while (waveSpeed * projectile.Age < 3f * MathF.PI / 2f)
+            projectile.Update(battleground, casualMode: false);
+        float offsetLater = 80f * MathF.Sin(-waveSpeed * projectile.Age);
+
+        Assert.True(MathF.Abs(offsetLater - offsetEarly) > 100f,
+            "Expected the travelling wave's perpendicular offset to have moved noticeably as Age advanced.");
+        Assert.False(projectile.Collides(earlyRect),
+            "Expected the beam to have slid away from where it collided earlier.");
+    }
+
+    [Fact]
     public void AphantasiaLasersCyclePulsingRainbowWhileOtherLasersKeepOwnerColor()
     {
         Simulation.ResetForTests();

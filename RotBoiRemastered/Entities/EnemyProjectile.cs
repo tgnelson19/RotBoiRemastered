@@ -76,6 +76,32 @@ public sealed class EnemyProjectile
     public double Exposure { get; set; }
     public Vector2? AfflictionSource { get; set; }
     public bool IgnoreWalls { get; }
+    /// <summary>
+    /// Opts a "laser" path projectile out of the normal
+    /// <see cref="MaximumLaserLifetime"/> clamp (both the one-time clamp at
+    /// construction and the per-frame reclamp in <see cref="Update"/>) --
+    /// for scripted beams authored to persist and be driven (typically by
+    /// rotating <see cref="Direction"/> directly) well past an ordinary
+    /// laser's few-second burn, such as a boss's late-fight sweeping array.
+    /// The projectile still respects an explicitly authored
+    /// <see cref="Lifetime"/> if one is given.
+    /// </summary>
+    public bool LongLastingLaser { get; }
+    /// <summary>
+    /// Bends a "laser" path projectile's beam into a travelling sine wave
+    /// instead of a straight line -- the existing <see cref="Amplitude"/>
+    /// and <see cref="Frequency"/> fields (otherwise unused by the laser
+    /// path) set the wave's size and how tightly it curls along the beam's
+    /// length, and this speed (radians/sec) is how fast that shape appears
+    /// to slide along the beam over time. Zero <see cref="Amplitude"/>
+    /// (the default) keeps the beam straight, matching every laser that
+    /// existed before this. The bend affects both the draw and the hit
+    /// test (<see cref="Collides"/> samples the same curve), but the wall
+    /// raycast that clips <see cref="RemainingRange"/> still follows the
+    /// straight heading -- an approximation that's exact for the open
+    /// radial arenas this is authored for.
+    /// </summary>
+    public float LaserWaveSpeed { get; set; }
     public Vector2? Target { get; set; }
     public float TelegraphDuration { get; set; } = 1.0f;
     /// <summary>
@@ -138,8 +164,10 @@ public sealed class EnemyProjectile
         float travelRange = 900f, Color? color = null, string shape = "square", string path = "linear",
         float amplitude = 0f, float frequency = .035f, float? lifetime = null, float speedDecay = 0f,
         Vector2? orbitCenter = null, float orbitRadius = 0f, float orbitAngle = 0f, float angularSpeed = 0f,
-        string? owner = null, bool ignoreWalls = false, Vector2? target = null, float acceleration = 0f)
+        string? owner = null, bool ignoreWalls = false, Vector2? target = null, float acceleration = 0f,
+        bool longLastingLaser = false)
     {
+        LongLastingLaser = longLastingLaser;
         WorldX = worldX;
         WorldY = worldY;
         OriginX = worldX;
@@ -157,7 +185,7 @@ public sealed class EnemyProjectile
         Path = path;
         Amplitude = amplitude;
         Frequency = frequency;
-        Lifetime = path == "laser"
+        Lifetime = path == "laser" && !longLastingLaser
             ? Math.Min(lifetime ?? MaximumLaserLifetime, MaximumLaserLifetime)
             : lifetime;
         SpeedDecay = speedDecay;
@@ -304,12 +332,26 @@ public sealed class EnemyProjectile
             float sprout = LaserSproutProgress;
             if (Age < TelegraphDuration || sprout <= .001f)
                 return false;
-            var start = new Vector2(WorldX, WorldY);
             float activeRange = RemainingRange * sprout;
-            var end = new Vector2(WorldX + MathF.Cos(Direction) * activeRange, WorldY + MathF.Sin(Direction) * activeRange);
             var inflated = rect;
             inflated.Inflate((int)Size, (int)Size);
-            return SegmentIntersectsRect(start, end, inflated);
+            if (Amplitude == 0)
+                return SegmentIntersectsRect(
+                    LaserPointAt(0f), LaserPointAt(activeRange), inflated);
+
+            // A wavy beam (Amplitude != 0) is tested as a sampled polyline
+            // along the same curve DrawLaser renders, so the hitbox always
+            // matches what's on screen.
+            const int waveSamples = 24;
+            Vector2 previous = LaserPointAt(0f);
+            for (int sample = 1; sample <= waveSamples; sample++)
+            {
+                Vector2 current = LaserPointAt(activeRange * sample / waveSamples);
+                if (SegmentIntersectsRect(previous, current, inflated))
+                    return true;
+                previous = current;
+            }
+            return false;
         }
         if (Path == "bomb")
         {
@@ -355,9 +397,12 @@ public sealed class EnemyProjectile
             case "laser":
                 if (Age >= TelegraphDuration && AngularSpeed != 0)
                     Direction += AngularSpeed * seconds;
-                Lifetime = Math.Min(
-                    Lifetime ?? MaximumLaserLifetime,
-                    MaximumLaserLifetime);
+                if (!LongLastingLaser)
+                {
+                    Lifetime = Math.Min(
+                        Lifetime ?? MaximumLaserLifetime,
+                        MaximumLaserLifetime);
+                }
                 RemainingRange = Math.Max(0f,
                     battleground.RaycastDistanceToWall(
                         new Vector2(WorldX, WorldY),
@@ -1329,11 +1374,11 @@ public sealed class EnemyProjectile
         {
             float progress = Age / Math.Max(.01f, TelegraphDuration);
             DrawLaserTentacleCluster(spriteBatch, camera, playerWorldPosition,
-                screenShake, origin, heading, normal, RemainingRange,
+                screenShake, normal, RemainingRange,
                 visualWidth * .95f, telegraph: true, highContrast);
             for (int step = 0; step < 5; step++)
             {
-                Vector2 markerWorld = origin + heading * RemainingRange * (step / 4f);
+                Vector2 markerWorld = LaserPointAt(RemainingRange * (step / 4f));
                 Vector2 marker = camera.WorldToScreen(markerWorld,
                     playerWorldPosition, screenShake);
                 float markerRadius = 5f + (1f - progress) * 2f;
@@ -1351,9 +1396,9 @@ public sealed class EnemyProjectile
             float sprout = LaserSproutProgress;
             float activeRange = RemainingRange * sprout;
             DrawLaserTentacleCluster(spriteBatch, camera, playerWorldPosition,
-                screenShake, origin, heading, normal, activeRange,
+                screenShake, normal, activeRange,
                 visualWidth, telegraph: false, highContrast);
-            Vector2 end = camera.WorldToScreen(origin + heading * activeRange,
+            Vector2 end = camera.WorldToScreen(LaserPointAt(activeRange),
                 playerWorldPosition, screenShake);
             Color sourceColor = UsesRainbowLaserTentacles
                 ? LaserTentacleColor(0) : Color;
@@ -1372,8 +1417,8 @@ public sealed class EnemyProjectile
     }
 
     private void DrawLaserTentacleCluster(SpriteBatch spriteBatch, Camera camera,
-        Vector2 playerWorldPosition, Vector2 screenShake, Vector2 origin,
-        Vector2 heading, Vector2 normal, float range, float width,
+        Vector2 playerWorldPosition, Vector2 screenShake,
+        Vector2 normal, float range, float width,
         bool telegraph, bool highContrast)
     {
         const int segments = 34;
@@ -1394,7 +1439,12 @@ public sealed class EnemyProjectile
                 float laneOffset = lane * width * .18f * envelope;
                 float waveOffset = flowing * width * (telegraph ? .14f : .22f)
                     * envelope;
-                Vector2 world = origin + heading * (range * amount)
+                // The cluster's own per-strand flicker (laneOffset/waveOffset)
+                // rides on top of the beam's centerline, which LaserPointAt
+                // bends into the authored travelling sine wave when
+                // Amplitude != 0 -- so the whole tentacle cluster curves
+                // together instead of just flickering around a straight line.
+                Vector2 world = LaserPointAt(range * amount)
                     + normal * (laneOffset + waveOffset);
                 Vector2 screen = camera.WorldToScreen(world,
                     playerWorldPosition, screenShake);
@@ -1456,6 +1506,25 @@ public sealed class EnemyProjectile
     {
         rect.X = center.X - rect.Width / 2;
         rect.Y = center.Y - rect.Height / 2;
+    }
+
+    /// <summary>
+    /// World-space point <paramref name="alongDistance"/> pixels out along a
+    /// "laser" path projectile's beam, bent into a travelling sine wave when
+    /// <see cref="Amplitude"/> is nonzero (see <see cref="LaserWaveSpeed"/>).
+    /// Shared by the hit test and the draw so they always trace the same
+    /// curve.
+    /// </summary>
+    private Vector2 LaserPointAt(float alongDistance)
+    {
+        var origin = new Vector2(WorldX, WorldY);
+        var heading = new Vector2(MathF.Cos(Direction), MathF.Sin(Direction));
+        if (Amplitude == 0)
+            return origin + heading * alongDistance;
+        var normal = new Vector2(-heading.Y, heading.X);
+        float offset = Amplitude
+            * MathF.Sin(Frequency * alongDistance - LaserWaveSpeed * Age);
+        return origin + heading * alongDistance + normal * offset;
     }
 
     private static bool SegmentIntersectsRect(Vector2 start, Vector2 end, Rectangle rect)

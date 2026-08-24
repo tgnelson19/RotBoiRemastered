@@ -135,6 +135,22 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double PhaseFourSurvivalDuration = 30.0;
     public const double PhaseFourFinaleDuration = 45.0;
     /// <summary>
+    /// For the last stretch of the Void Finale, five long-lasting lasers
+    /// hold evenly-spaced directions and sweep together -- <see
+    /// cref="FinaleSweepLaserClockwiseDegrees"/> clockwise over <see
+    /// cref="FinaleSweepLaserClockwiseDuration"/> seconds, then <see
+    /// cref="FinaleSweepLaserCounterclockwiseDegrees"/> back counterclockwise
+    /// over <see cref="FinaleSweepLaserCounterclockwiseDuration"/> seconds,
+    /// repeating -- so the array continuously precesses (net +90 degrees
+    /// clockwise per 7.5s cycle) rather than resetting each cycle.
+    /// </summary>
+    public const double FinaleSweepLaserWindowDuration = 20.0;
+    public const int FinaleSweepLaserCount = 5;
+    public const float FinaleSweepLaserClockwiseDegrees = 120f;
+    public const double FinaleSweepLaserClockwiseDuration = 5.0;
+    public const float FinaleSweepLaserCounterclockwiseDegrees = 30f;
+    public const double FinaleSweepLaserCounterclockwiseDuration = 2.5;
+    /// <summary>
     /// A single hit that deals at least this fraction of the active bar's
     /// max HP -- 1/2 for the phase 1-2 shared bar, 1/4 for phases 3 and 4 --
     /// shields the boss and holds the fight open for
@@ -160,6 +176,23 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     /// cheap flat 2D render.
     /// </summary>
     public const float LargeShot3DSizeTiles = .5f;
+    /// <summary>
+    /// An ordinary Phase 3+ subphase occasionally sprinkles in an array of
+    /// slow, one-directional persistent lasers -- unlike the Void Finale's
+    /// scripted five-armed sweep, the arm count and spin direction are
+    /// re-rolled fresh each spawn (see <see cref="PersistentLaserArmCounts"/>)
+    /// so "2 opposite each other," "3 at 120 degrees," etc. surface as
+    /// incidental variety across a run rather than a single fixed shape.
+    /// Because the rotation never reverses, the built-in per-frame
+    /// <c>AngularSpeed</c> turn on <see cref="EnemyProjectile"/> drives it
+    /// directly -- no boss-held references or manual per-frame steering
+    /// needed, unlike <see cref="FinaleSweepLaserWindowDuration"/>'s array.
+    /// </summary>
+    public const double PersistentLaserCadence = 14.0;
+    public const double PersistentLaserLifetime = 11.0;
+    public const float PersistentLaserAngularSpeed = .22f;
+    public const float PersistentLaserSizeTiles = .38f;
+    public static readonly IReadOnlyList<int> PersistentLaserArmCounts = [1, 2, 2, 3, 3, 4, 5];
     public const double HelixFireCadence = .68;
     public const double PhaseHandoffDuration = 7.0;
     public const double CombatPhraseDuration = 6.0;
@@ -260,6 +293,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private bool _damageWindowOpened;
     private double _attackRemaining;
     private double _perimeterPressureRemaining = .8;
+    private double _persistentLaserRemaining = 6.0;
     private double _stateElapsed;
     private float _facingYaw;
     private double _visualTime;
@@ -291,6 +325,25 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private int _survivalGridVolleyCount;
     private bool _voidVortexActive;
     private float _voidVortexProgress;
+    /// <summary>
+    /// Subphases played since the current phase began (0 for the first
+    /// subphase of the phase). Drives <see cref="PerimeterPressureRampCount"/>
+    /// and <see cref="HalfPressureRampMultiplier"/> so Phase 3 and Phase 4's
+    /// always-on ambient pressure fades in across each phase's opening
+    /// subphases instead of switching on at full intensity the instant the
+    /// phase starts.
+    /// </summary>
+    private int _subphasesSincePhaseStart = -1;
+    /// <summary>
+    /// Live references to the Void Finale's five sweeping lasers, held
+    /// directly rather than re-fired each frame so their <c>Direction</c>
+    /// can be driven continuously without the telegraph/re-arm flicker a
+    /// fresh <see cref="FireAphantasiaLaser"/>-style call would cause. Slots
+    /// are null outside the finale's closing window.
+    /// </summary>
+    private readonly EnemyProjectile?[] _finaleSweepLasers = new EnemyProjectile?[FinaleSweepLaserCount];
+    private bool _finaleSweepLasersActive;
+    private double _finaleSweepElapsed;
 
     public BossPresentationProfile PresentationProfile { get; } =
         BossPresentationProfile.For(BossMotionTheme.Phantasia, BossVisualTier.Finale);
@@ -566,6 +619,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             UpdatePerimeterPressure(context, dt);
             UpdateArenaHalfPressure(context, dt);
             UpdateHelixStream(context, dt);
+            UpdatePersistentRotatingLaser(context, dt);
         }
 
         switch (EncounterState)
@@ -757,6 +811,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     {
         SurvivalRemaining = Math.Max(0, SurvivalRemaining - dt);
         CenterBody();
+        UpdateFinaleSweepLasers(context, dt);
         int stageCount = SequenceLabelsFor(SurvivalKind).Count;
         double stageDuration = SurvivalDuration / Math.Max(1, stageCount);
         int desiredStage = Math.Min(stageCount - 1,
@@ -770,6 +825,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         if (SurvivalRemaining > 0)
             return;
 
+        EndFinaleSweepLasers();
         if (SurvivalKind == AphantasiaSurvivalKind.EssenceFinale
             && PhaseFourEligible)
         {
@@ -780,6 +836,96 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             BeginDeath();
         }
         BeginPhaseHandoff();
+    }
+
+    /// <summary>
+    /// Drives the Void Finale's closing five-laser sweep: spawns the array
+    /// once <see cref="SurvivalRemaining"/> enters the last <see
+    /// cref="FinaleSweepLaserWindowDuration"/> seconds, then rotates every
+    /// arm in lockstep each frame. The sweep angle accumulates across cycles
+    /// (see <see cref="FinaleSweepLaserClockwiseDegrees"/>) instead of
+    /// resetting, so the back-and-forth motion is continuous.
+    /// </summary>
+    private void UpdateFinaleSweepLasers(EnemyUpdateContext context, double dt)
+    {
+        bool eligible = SurvivalKind == AphantasiaSurvivalKind.VoidFinale
+            && SurvivalRemaining > 0
+            && SurvivalRemaining <= FinaleSweepLaserWindowDuration;
+        if (!eligible)
+        {
+            if (_finaleSweepLasersActive)
+                EndFinaleSweepLasers();
+            return;
+        }
+        if (!_finaleSweepLasersActive)
+            BeginFinaleSweepLasers(context);
+
+        _finaleSweepElapsed += dt;
+        const double cycleDuration = FinaleSweepLaserClockwiseDuration
+            + FinaleSweepLaserCounterclockwiseDuration;
+        double cyclePos = _finaleSweepElapsed % cycleDuration;
+        int fullCycles = (int)(_finaleSweepElapsed / cycleDuration);
+        const float netDegreesPerCycle = FinaleSweepLaserClockwiseDegrees
+            - FinaleSweepLaserCounterclockwiseDegrees;
+        float withinCycleDegrees = cyclePos < FinaleSweepLaserClockwiseDuration
+            ? FinaleSweepLaserClockwiseDegrees
+                * (float)(cyclePos / FinaleSweepLaserClockwiseDuration)
+            : FinaleSweepLaserClockwiseDegrees
+                - FinaleSweepLaserCounterclockwiseDegrees
+                    * (float)((cyclePos - FinaleSweepLaserClockwiseDuration)
+                        / FinaleSweepLaserCounterclockwiseDuration);
+        // Positive degrees reads as clockwise on screen: this engine's world
+        // Y axis increases downward, so an increasing atan2 angle sweeps
+        // clockwise rather than the counterclockwise sense it would have in
+        // a standard Y-up math convention.
+        float sweepAngle = MathHelper.ToRadians(
+            fullCycles * netDegreesPerCycle + withinCycleDegrees);
+        for (int index = 0; index < _finaleSweepLasers.Length; index++)
+        {
+            EnemyProjectile? laser = _finaleSweepLasers[index];
+            if (laser is null || laser.RemFlag)
+                continue;
+            laser.Direction = sweepAngle + index * MathF.Tau / FinaleSweepLaserCount;
+        }
+    }
+
+    private void BeginFinaleSweepLasers(EnemyUpdateContext context)
+    {
+        _finaleSweepLasersActive = true;
+        _finaleSweepElapsed = 0;
+        List<EnemyProjectile> staged = BeginVolley();
+        Vector2 origin = ArenaCenter;
+        for (int index = 0; index < FinaleSweepLaserCount; index++)
+        {
+            float direction = index * MathF.Tau / FinaleSweepLaserCount;
+            var laser = new EnemyProjectile(
+                origin.X, origin.Y, direction, 0f,
+                Damage * .85f, Simulation.TileSize * .5f,
+                travelRange: ArenaRadius * 2.1f,
+                color: Rainbow(index / (float)FinaleSweepLaserCount),
+                shape: "diamond", path: "laser",
+                lifetime: (float)(FinaleSweepLaserWindowDuration + 3.0),
+                owner: "aphantasia_finale_sweep_laser",
+                longLastingLaser: true)
+            {
+                TelegraphDuration = 1.8f,
+            };
+            _finaleSweepLasers[index] = laser;
+            staged.Add(laser);
+        }
+        CommitVolley(context.ProjectileSink);
+    }
+
+    private void EndFinaleSweepLasers()
+    {
+        for (int index = 0; index < _finaleSweepLasers.Length; index++)
+        {
+            if (_finaleSweepLasers[index] is { } laser)
+                laser.RemFlag = true;
+            _finaleSweepLasers[index] = null;
+        }
+        _finaleSweepLasersActive = false;
+        _finaleSweepElapsed = 0;
     }
 
     private bool PrepareSequenceStage(int desiredStage, double dt)
@@ -1125,6 +1271,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             _phaseHandoffRemaining,
             PhaseHandoffDuration);
         MilestoneHealRequested = true;
+        // Sweep the outgoing phase's shots off the screen rather than
+        // leaving them to expire on their own authored lifetimes -- the
+        // handoff's own camera settle reads as a clean beat, not one still
+        // littered with the last phase's danger.
+        TransitionSweepRequested = true;
     }
 
     private void UpdatePhaseHandoff(double dt)
@@ -1693,6 +1844,46 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 Simulation.TileSize * .35f, 3.4f, deliberatelyShortRange: true);
     }
 
+    /// <summary>
+    /// How far through this phase's opening ramp the current subphase sits,
+    /// 0 at the phase's first subphase and 1 from its third subphase on --
+    /// shared by <see cref="PerimeterPressureRampCount"/> and
+    /// <see cref="HalfPressureRampCadenceMultiplier"/> so Phase 3 and Phase 4
+    /// each ease their always-on ambient pressure in across two subphases
+    /// instead of switching straight to full intensity at the phase
+    /// transition.
+    /// </summary>
+    private float PhaseOpeningRampProgress
+        => Math.Clamp(_subphasesSincePhaseStart / 2f, 0f, 1f);
+
+    /// <summary>
+    /// Perimeter ring projectile count, ramped from 0 at the start of Phase
+    /// 3 up to <see cref="PerimeterPressureCount"/> / 2 by Phase 3's third
+    /// subphase, then continuing that ramp up to the full
+    /// <see cref="PerimeterPressureCount"/> by Phase 4's third subphase.
+    /// </summary>
+    private int PerimeterPressureRampCount()
+    {
+        if (Phase <= 2)
+            return 0;
+        float lower = Phase == 3 ? 0f : PerimeterPressureCount / 2f;
+        float upper = Phase == 3 ? PerimeterPressureCount / 2f : PerimeterPressureCount;
+        return (int)MathF.Round(MathHelper.Lerp(lower, upper, PhaseOpeningRampProgress));
+    }
+
+    /// <summary>
+    /// Arena-half ambient volley cadence multiplier, ramped from a gentle
+    /// 3x cooldown at the start of Phase 3 down to Phase 3's steady-state 2x,
+    /// then continuing that ramp down to Phase 4's full-speed 1x by its
+    /// third subphase.
+    /// </summary>
+    private double HalfPressureRampCadenceMultiplier()
+    {
+        float lower = Phase == 3 ? 3f : 2f;
+        float upper = Phase == 3 ? 2f : 1f;
+        return MathHelper.Lerp(lower, upper, PhaseOpeningRampProgress);
+    }
+
     private void UpdatePerimeterPressure(EnemyUpdateContext context, double dt)
     {
         if (Phase <= 2 || CombatFiringPaused)
@@ -1701,11 +1892,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         if (_perimeterPressureRemaining > 0)
             return;
         _perimeterPressureRemaining = PerimeterPressureCadence;
+        int projectileCount = PerimeterPressureRampCount();
+        if (projectileCount <= 0)
+            return;
         List<EnemyProjectile> staged = BeginVolley();
         float rotation = (float)_visualTime * .17f;
-        int projectileCount = Phase == 3
-            ? PerimeterPressureCount / 2
-            : PerimeterPressureCount;
         for (int index = 0; index < projectileCount; index++)
         {
             float angle = rotation + index * MathF.Tau / projectileCount;
@@ -1719,6 +1910,75 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 index % 2 == 0 ? Light.Accent * .82f : Dark.Accent * .9f,
                 "perimeter_drift", index % 3 == 0 ? "sine" : "linear",
                 Simulation.TileSize * .22f, 12f);
+        }
+        CommitVolley(context.ProjectileSink);
+    }
+
+    /// <summary>
+    /// Sprinkles an occasional array of slow, one-directional persistent
+    /// lasers into ordinary Phase 3+ subphases -- a calmer, longer-lived
+    /// cousin of the Void Finale's five-armed sweep. Arm count (see
+    /// <see cref="PersistentLaserArmCounts"/>), starting orientation, and
+    /// spin direction are all re-rolled at every spawn, so the shape varies
+    /// spawn to spawn (a lone slowly-turning beam, two opposite each other,
+    /// three at 120 degrees, and so on) instead of repeating one fixed
+    /// pattern. Once fired the array needs no further attention from the
+    /// boss -- <see cref="EnemyProjectile"/>'s own per-frame
+    /// <c>AngularSpeed</c> turn keeps it spinning, and its authored
+    /// <see cref="PersistentLaserLifetime"/> retires it on its own.
+    /// </summary>
+    private void UpdatePersistentRotatingLaser(EnemyUpdateContext context, double dt)
+    {
+        if (Phase < 3 || EncounterState != AphantasiaEncounterState.Combat
+            || CombatFiringPaused)
+        {
+            return;
+        }
+        _persistentLaserRemaining -= dt;
+        if (_persistentLaserRemaining > 0)
+            return;
+        _persistentLaserRemaining = PersistentLaserCadence;
+
+        int armCount = PersistentLaserArmCounts[_rng.Next(PersistentLaserArmCounts.Count)];
+        float baseDirection = (float)(_rng.NextDouble() * MathF.Tau);
+        float angularSpeed = (_rng.Next(2) == 0 ? 1f : -1f) * PersistentLaserAngularSpeed;
+
+        // Every so often the array's beams travel as a sine wave instead of
+        // a straight line -- amplitude, how tightly it curls along the
+        // beam, and how fast that shape slides outward (or inward) are all
+        // re-rolled per spawn, same as the arm count and spin direction, so
+        // the wavy variant itself keeps varying rather than repeating one
+        // fixed shape.
+        bool wavy = _rng.NextDouble() < .45;
+        float waveAmplitude = wavy
+            ? Simulation.TileSize * (.6f + (float)_rng.NextDouble() * 1f)
+            : 0f;
+        float waveFrequency = .008f + (float)_rng.NextDouble() * .016f;
+        float waveSpeed = wavy
+            ? (_rng.Next(2) == 0 ? 1f : -1f) * (.9f + (float)_rng.NextDouble() * 1.5f)
+            : 0f;
+
+        List<EnemyProjectile> staged = BeginVolley();
+        Vector2 origin = ArenaCenter;
+        for (int index = 0; index < armCount; index++)
+        {
+            float direction = baseDirection + index * MathF.Tau / armCount;
+            var laser = new EnemyProjectile(
+                origin.X, origin.Y, direction, 0f,
+                Damage * .6f, Simulation.TileSize * PersistentLaserSizeTiles,
+                travelRange: ArenaRadius * 2.1f,
+                color: Rainbow(index / (float)armCount + (float)_visualTime * .03f),
+                shape: "diamond", path: "laser",
+                amplitude: waveAmplitude, frequency: waveFrequency,
+                lifetime: (float)PersistentLaserLifetime,
+                angularSpeed: angularSpeed,
+                owner: "aphantasia_persistent_laser",
+                longLastingLaser: true)
+            {
+                TelegraphDuration = 1.6f,
+                LaserWaveSpeed = waveSpeed,
+            };
+            staged.Add(laser);
         }
         CommitVolley(context.ProjectileSink);
     }
@@ -1748,9 +2008,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             // Each side rolls its own cadence and projectile grammar. This
             // deliberately makes adjacent lanes disagree about speed, scale,
             // pellet count, and oscillation instead of mirroring one pattern.
-            double cadence = .42 + _rng.NextDouble() * 1.18;
-            if (Phase == 3)
-                cadence *= 2;
+            double cadence = (.42 + _rng.NextDouble() * 1.18) * HalfPressureRampCadenceMultiplier();
             _halfPressureRemaining[half] = cadence;
             int bulletCount = new[] { 1, 1, 3, 5 }[_rng.Next(4)];
             float speed = .46f + (float)_rng.NextDouble() * 1.72f;
@@ -2197,6 +2455,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
 
     private void StartNextSubphase(bool revivePair, bool beginHandoff = true)
     {
+        _subphasesSincePhaseStart++;
         IReadOnlyList<AphantasiaPattern> pool = PatternPool();
         if (_patternBagPhase != Phase)
         {
@@ -2438,6 +2697,7 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         _patternBag.Clear();
         _patternBagPhase = Phase;
         _stateElapsed = 0;
+        _subphasesSincePhaseStart = -1;
         if (Phase == 2)
         {
             StartNextSubphase(revivePair: true, beginHandoff: false);
