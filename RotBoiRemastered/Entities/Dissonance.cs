@@ -1040,6 +1040,34 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             lifetime: 4.0f, owner: "dissonance_rune_laser", ignoreWalls: true));
     }
 
+    /// <summary>
+    /// Dissonance's survival-phase laser signature: a ring of thick, rigid,
+    /// long-lived spokes rather than a single shot aimed at the player. One
+    /// spoke rotates open as the only safe lane each cycle, so the beams
+    /// read as solid architecture the player is being herded around rather
+    /// than a bullet to sidestep -- <see cref="EnemyProjectile.LongLastingLaser"/>
+    /// keeps each spoke burning well past an ordinary laser's few-second life.
+    /// </summary>
+    private void FireSurvivalBarrier(List<EnemyProjectile> sink)
+    {
+        const int laneCount = 6;
+        var center = Center();
+        float rotation = CallbackIndex * (MathF.Tau / laneCount) * .5f;
+        int safeLane = CallbackIndex % laneCount;
+        for (int lane = 0; lane < laneCount; lane++)
+        {
+            if (lane == safeLane)
+                continue;
+            float direction = rotation + lane * MathF.Tau / laneCount;
+            sink.Add(new EnemyProjectile(center.X, center.Y, direction, 0f, 2.4f, Simulation.TileSize * .68f,
+                travelRange: ArenaRadius * 2.2f, color: PhaseAccent, shape: "laser", path: "laser",
+                lifetime: 7.5f, owner: "dissonance_survival_barrier", ignoreWalls: true, longLastingLaser: true)
+            {
+                TelegraphDuration = 1.1f,
+            });
+        }
+    }
+
     public void FireSpeedBurst(List<EnemyProjectile> sink, float targetX, float targetY, int? count = null)
     {
         var center = Center();
@@ -1097,29 +1125,33 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         if (SpecialAttackCooldown > 0)
             return;
         int mode = CallbackIndex % 3;
-        FireLaser(sink, playerX, playerY);
         if (SurvivalActive && Phase == 9)
         {
+            FireSurvivalBarrier(sink);
             LobBomb(sink, playerX, playerY, UiTheme.Red);
             FireSpeedBurst(sink, playerX, playerY, 5);
             SpecialAttackCooldown = 3.4;
         }
         else if (SurvivalActive)
         {
+            FireSurvivalBarrier(sink);
             SpecialAttackCooldown = 5.8;
         }
         else if (mode == 1)
         {
+            FireLaser(sink, playerX, playerY);
             LobBomb(sink, playerX, playerY);
             SpecialAttackCooldown = 5.8;
         }
         else if (mode == 2)
         {
+            FireLaser(sink, playerX, playerY);
             FireSpeedBurst(sink, playerX, playerY);
             SpecialAttackCooldown = 5.2;
         }
         else
         {
+            FireLaser(sink, playerX, playerY);
             SpecialAttackCooldown = 4.8;
         }
         CallbackIndex += 1;

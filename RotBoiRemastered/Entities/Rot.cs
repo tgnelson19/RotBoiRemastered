@@ -251,6 +251,30 @@ public sealed class Rot : PathChaseBoss
         });
     }
 
+    /// <summary>
+    /// Rot's laser is nothing like the other ancients' beams: no other boss
+    /// uses one, and this only appears late in the fight, rarely, and never
+    /// more than a couple at a time. A short, dense root of compacted matter
+    /// pushes straight up out of the ground the player is standing over --
+    /// reach barely past Rot's own body -- carrying enough force to nearly
+    /// drop an unupgraded adventurer in the single hit. The long telegraph
+    /// (the ground visibly straining before it breaks) is the entire
+    /// warning; there is no sweep, no bend, nothing chasing the player once
+    /// it is down -- only where, and how long it takes to move off the mark.
+    /// </summary>
+    private void RootLance(List<EnemyProjectile> sink, Vector2 target, string suffix, float damage = 950f)
+    {
+        float direction = (float)(Rng.NextDouble() * MathF.Tau);
+        float size = Size * .24f;
+        sink.Add(new EnemyProjectile(target.X, target.Y, direction, 0f, damage, size,
+            travelRange: Simulation.TileSize * 2.6f, color: new Color(196, 84, 46), shape: "laser", path: "laser",
+            lifetime: 3.4f, owner: $"rot_touch_{suffix}", ignoreWalls: true)
+        {
+            TelegraphDuration = 2.4f,
+            OriginTelegraphDuration = 1.1f,
+        });
+    }
+
     private static float AngleDifference(float a, float b) =>
         MathF.Abs(MathF.Atan2(MathF.Sin(a - b), MathF.Cos(a - b)));
 
@@ -516,6 +540,8 @@ public sealed class Rot : PathChaseBoss
                     RotBomb(sink, SquareBankPoint(SafeCorridorAngle, .8f), 680);
                 }
                 SporeSpiral(sink, 6, "miasma_spiral");
+                if (PatternRotation % 5 == 0)
+                    RootLance(sink, new Vector2(playerX, playerY), "miasma_root");
                 break;
             default:
                 if (PatternRotation % 3 == 0)
@@ -538,6 +564,8 @@ public sealed class Rot : PathChaseBoss
                     SlowFront(sink, PatternRotation * .09f, 10, SafeCorridorAngle, "burial_weight", .5f);
                 }
                 SporeSpiral(sink, 7, "burial_spiral");
+                if (PatternRotation % 4 == 0)
+                    RootLance(sink, new Vector2(playerX, playerY), "burial_root", 1050f);
                 break;
         }
         PressureRake(sink, playerX, playerY,

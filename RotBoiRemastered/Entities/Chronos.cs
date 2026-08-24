@@ -223,9 +223,12 @@ public sealed class Chronos : Ishe
                 + MathF.Sin(fraction * MathF.PI * 1.35f + PatternRotation * .53f) * bend
                 + (fraction - .5f) * bend * .35f;
             float width = Size * (.075f + segment * .006f);
+            // Chronos's clockwork lasers strike and vanish -- the long,
+            // fully-shown telegraph is the fairness; once fired, the beam
+            // itself lingers only briefly rather than sweeping or drifting.
             var laser = new EnemyProjectile(origin.X, origin.Y, direction, 0f, damage, width,
                 travelRange: segmentLength, color: PhaseAccent, shape: "laser", path: "laser",
-                lifetime: telegraph + .72f, owner: $"chronos_{suffix}_segment_{segment}", ignoreWalls: true)
+                lifetime: telegraph + .3f, owner: $"chronos_{suffix}_segment_{segment}", ignoreWalls: true)
             {
                 TelegraphDuration = telegraph,
             };
@@ -450,14 +453,15 @@ public sealed class Chronos : Ishe
     private void ClockHandSweep(List<EnemyProjectile> sink, Vector2 origin, float startDirection,
         float angularSpeed, float damage, string suffix, float telegraph = 1.6f, float sweepSeconds = 2.2f)
     {
-        // A literal clock hand: after its telegraph, the beam's direction rotates
-        // continuously (EnemyProjectile's existing laser + angularSpeed support),
-        // giving players a rotating danger zone to route around instead of only
-        // ever dodging a straight, static line.
+        // A clock hand ticks, it doesn't sweep: Chronos's beams otherwise
+        // hold almost perfectly still once fired, so this creeps at a bare
+        // fraction of its old rate -- barely perceptible drift rather than a
+        // rotating danger zone -- and burns out quickly to match every other
+        // Chronos laser's short, static strike-and-vanish rhythm.
         var beam = new EnemyProjectile(origin.X, origin.Y, startDirection, 0f, damage,
             Size * .1f, travelRange: Simulation.TileSize * 9f, color: PhaseAccent,
-            shape: "laser", path: "laser", lifetime: telegraph + sweepSeconds,
-            angularSpeed: angularSpeed, owner: $"chronos_sweep_{suffix}", ignoreWalls: true)
+            shape: "laser", path: "laser", lifetime: telegraph + Math.Min(sweepSeconds, .8f),
+            angularSpeed: angularSpeed * .16f, owner: $"chronos_sweep_{suffix}", ignoreWalls: true)
         {
             TelegraphDuration = telegraph,
         };
@@ -578,14 +582,18 @@ public sealed class Chronos : Ishe
 
     private void ApplyAuthoredCadence()
     {
+        // Chronos's clockwork strikes come around faster than most bosses'
+        // attacks -- each one alone is brief and nearly motionless, so the
+        // encounter's pressure comes from ticking frequently rather than
+        // from any single beam lingering or sweeping.
         double seconds = Phase switch
         {
-            1 => 2.0,
-            2 => 1.82,
-            3 => 1.65,
-            5 => 1.38,
-            6 => 1.16,
-            _ => .92,
+            1 => 1.7,
+            2 => 1.55,
+            3 => 1.4,
+            5 => 1.16,
+            6 => .98,
+            _ => .78,
         };
         AttackCooldown = Simulation.FrameRate * (float)(seconds * (.94 + Rng.NextDouble() * .12));
     }

@@ -279,6 +279,56 @@ public sealed class Malady : PhantasiaBoss
         return new Vector2(portal.WorldX + portal.Size / 2f, portal.WorldY + portal.Size / 2f);
     }
 
+    /// <summary>
+    /// Malady's laser signature: a handful of thin strands sharing one
+    /// heading instead of PhantasiaBoss.LaserFrom's single solid beam --
+    /// each strand rides its own sine wave (amplitude/frequency/wave speed
+    /// all slightly offset) so the group visibly drifts in and out of phase,
+    /// crossing and re-crossing along the beam's length, and each is tinted
+    /// a different point around the color wheel so the crossings read as a
+    /// woven, many-colored ribbon rather than a flat plane of light. Used in
+    /// place of a single cathedral/apotheosis beam, and -- fired from every
+    /// portal at once -- as the converging amalgam veil survival draws on.
+    /// </summary>
+    private void FlowingRibbonLaser(List<EnemyProjectile> sink, Vector2 origin, float direction, float damage,
+        string suffix, int strandCount = 3, float range = 0f, float telegraph = 1.35f, float lifetime = 3.2f)
+    {
+        float actualRange = range > 0f ? range : Math.Max(Simulation.TileSize * 30f, ArenaRadius * 2.2f);
+        for (int strand = 0; strand < strandCount; strand++)
+        {
+            float lane = strandCount == 1 ? 0f : strand - (strandCount - 1) / 2f;
+            float colorPhase = strand / (float)Math.Max(1, strandCount) + PatternRotation * .09f;
+            var laser = new EnemyProjectile(origin.X, origin.Y, direction + lane * .06f, 0f, damage, Size * .045f,
+                travelRange: actualRange, color: Primitives2D.Rainbow(colorPhase), shape: "laser", path: "laser",
+                amplitude: Simulation.TileSize * (.34f + .1f * strand), frequency: .05f + .006f * strand,
+                lifetime: lifetime, owner: $"malady_phantasia_{suffix}_{strand}", ignoreWalls: true)
+            {
+                TelegraphDuration = telegraph,
+                LaserWaveSpeed = 1.05f + strand * .34f,
+            };
+            laser.RequireOriginTelegraphIfRemote(Center(), Size * .65f, telegraph);
+            sink.Add(laser);
+        }
+    }
+
+    /// <summary>
+    /// Survival-only: every live portal weaves its own <see cref="FlowingRibbonLaser"/>
+    /// bundle inward toward the arena center, so the ribbons overlap into a
+    /// slowly rotating amalgam cage the player has to thread rather than a
+    /// single obstacle to sidestep.
+    /// </summary>
+    private void SurvivalAmalgamVeil(List<EnemyProjectile> sink)
+    {
+        var center = Center();
+        for (int index = 0; index < ProjectilePortals.Count; index++)
+        {
+            var origin = PortalOrigin(index);
+            float direction = MathF.Atan2(center.Y - origin.Y, center.X - origin.X);
+            FlowingRibbonLaser(sink, origin, direction, 210, "soul_veil", strandCount: 2,
+                range: Vector2.Distance(origin, center) * 1.35f, telegraph: 1.15f, lifetime: 2.6f);
+        }
+    }
+
     private EnemyProjectile SpawnPool(List<EnemyProjectile> sink, Vector2 position, double duration = 7.0, double scale = 1.0)
     {
         float size = Simulation.TileSize * 2.35f * (float)scale;
@@ -592,6 +642,11 @@ public sealed class Malady : PhantasiaBoss
                 else
                     PortalTentacle(sink, PatternRotation, target, PatternRotation % 4 == 1 ? 1.7f : -1.7f,
                         "intermission_tentacle", 7, .86f);
+                // Survival draws the portals' light inward: a woven veil of
+                // thin ribbon lasers slowly closes the room instead of only
+                // ever pushing hazards outward.
+                if (SurvivalActive && PatternRotation % 3 == 0)
+                    SurvivalAmalgamVeil(sink);
                 break;
             case 7:
                 RadialWithGap(sink, center, target, 16, 2, 1.0f, 355, "luminous_tide", "sine");
@@ -609,7 +664,8 @@ public sealed class Malady : PhantasiaBoss
                     if (index == aisle || index == neighbor)
                         continue;
                     var origin = PortalOrigin(index);
-                    LaserFrom(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X), 390, "violet_cathedral");
+                    FlowingRibbonLaser(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X),
+                        390, "violet_cathedral", strandCount: 3);
                 }
                 break;
             }
@@ -644,7 +700,8 @@ public sealed class Malady : PhantasiaBoss
                     for (int index = 0; index < ProjectilePortals.Count; index += 2)
                     {
                         var origin = PortalOrigin(index);
-                        LaserFrom(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X), 410, "apotheosis_laser");
+                        FlowingRibbonLaser(sink, origin, MathF.Atan2(center.Y - origin.Y, center.X - origin.X),
+                            410, "apotheosis_laser", strandCount: 3, telegraph: 1.4f, lifetime: 3.6f);
                     }
                 }
                 break;

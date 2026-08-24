@@ -295,7 +295,11 @@ public class MaladyTests
 
         FireUntilProjectiles(boss, context);
 
-        var lasers = context.ProjectileSink.Where(shot => shot.Owner == "malady_phantasia_violet_cathedral").ToList();
+        // Each open aisle now carries a small woven bundle of thin ribbon
+        // strands (FlowingRibbonLaser) rather than one solid beam.
+        var lasers = context.ProjectileSink
+            .Where(shot => shot.Owner?.StartsWith("malady_phantasia_violet_cathedral", StringComparison.Ordinal) == true)
+            .ToList();
         Assert.NotEmpty(lasers);
         Assert.All(lasers, laser =>
         {
@@ -303,7 +307,7 @@ public class MaladyTests
             Assert.True(laser.TelegraphDuration >= 1.0f);
         });
         Assert.Equal(6, boss.ProjectilePortals.Count);
-        Assert.Equal(boss.ProjectilePortals.Count - 2, lasers.Count); // exactly two adjacent aisles remain open
+        Assert.Equal((boss.ProjectilePortals.Count - 2) * 3, lasers.Count); // exactly two adjacent aisles remain open, three strands per open aisle
         Assert.Equal("laser", boss.AttackPose);
     }
 
@@ -369,7 +373,10 @@ public class MaladyTests
         Assert.Contains("malady_phantasia_apotheosis_flood", pressure.EdgeOwners);
         Assert.Contains("malady_phantasia_apotheosis_tentacle", pressure.EdgeOwners);
         Assert.Contains("malady_phantasia_apotheosis_corolla", pressure.EdgeOwners);
-        Assert.Contains("malady_phantasia_apotheosis_laser", pressure.EdgeOwners);
+        // The apotheosis laser is now a small bundle of thin ribbon strands
+        // (owners suffixed "_0"/"_1"/"_2"), not one single-owner beam.
+        Assert.Contains(pressure.EdgeOwners,
+            owner => owner.StartsWith("malady_phantasia_apotheosis_laser", StringComparison.Ordinal));
         Assert.True(pressure.PlayerThreatOwners.Count >= 2,
             "Apotheosis should pressure an edge camper through more than one pattern family.");
     }

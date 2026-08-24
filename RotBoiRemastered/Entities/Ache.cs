@@ -899,14 +899,25 @@ public sealed class Ache : Kage
         });
     }
 
+    /// <summary>
+    /// Ache's laser signature: unlike the other bosses' rigid or flowing
+    /// beams, hers can bend into a travelling sine wave (<paramref name="amplitude"/>/
+    /// <paramref name="frequency"/>/<paramref name="waveSpeed"/>) on top of a
+    /// slow full-beam rotation (<paramref name="angularSpeed"/>) -- the two
+    /// combined read as an erratic, twisting scan rather than a clean sweep,
+    /// matching a boss whose whole identity is chaotic and unpredictable.
+    /// Both are zero by default so ordinary straight lashes are unaffected.
+    /// </summary>
     private void TelegraphLash(List<EnemyProjectile> sink, Vector2 origin, float direction, float damage,
-        string suffix, float angularSpeed = 0f)
+        string suffix, float angularSpeed = 0f, float amplitude = 0f, float frequency = .05f, float waveSpeed = 0f)
     {
         sink.Add(new EnemyProjectile(origin.X, origin.Y, direction, 0f, damage, Size * .13f,
             travelRange: Simulation.TileSize * 30f, color: PhaseAccent, shape: "laser", path: "laser",
+            amplitude: amplitude, frequency: frequency,
             lifetime: 2.35f, angularSpeed: angularSpeed, owner: $"ache_chemesthesis_{suffix}", ignoreWalls: true)
         {
             TelegraphDuration = 1.25f,
+            LaserWaveSpeed = waveSpeed,
         });
     }
 
@@ -1147,9 +1158,14 @@ public sealed class Ache : Kage
             case 1: // A reactable prediction: the exact route is harmless for 1.25 seconds.
             {
                 float predictionError = (float)(Rng.NextDouble() * .5 - .25);
-                TelegraphLash(sink, center, aimed + predictionError, HeavyDamage, "predicted_lash");
+                // Fully visible for the whole telegraph, so the bend is a
+                // fair puzzle rather than a hidden gotcha: the route just
+                // isn't a straight line.
+                TelegraphLash(sink, center, aimed + predictionError, HeavyDamage, "predicted_lash",
+                    amplitude: Simulation.TileSize * .55f, frequency: .045f, waveSpeed: 1.1f);
                 if (Phase >= 5)
-                    TelegraphLash(sink, center, aimed + MathF.PI + predictionError, HeavyDamage - 10, "reverse_lash");
+                    TelegraphLash(sink, center, aimed + MathF.PI + predictionError, HeavyDamage - 10, "reverse_lash",
+                        amplitude: Simulation.TileSize * .55f, frequency: .045f, waveSpeed: -1.1f);
                 break;
             }
             case 2: // Bombs land around, not directly on, the current player position.
@@ -1194,8 +1210,10 @@ public sealed class Ache : Kage
                 break;
             }
             case 5: // Crossed nerves: two curved warnings sweep only after being fully shown.
-                TelegraphLash(sink, center, aimed - .72f, HeavyDamage, "crossed_nerves_left", .11f);
-                TelegraphLash(sink, center, aimed + .72f, HeavyDamage, "crossed_nerves_right", -.11f);
+                TelegraphLash(sink, center, aimed - .72f, HeavyDamage, "crossed_nerves_left", .11f,
+                    amplitude: Simulation.TileSize * .4f, frequency: .06f, waveSpeed: 1.6f);
+                TelegraphLash(sink, center, aimed + .72f, HeavyDamage, "crossed_nerves_right", -.11f,
+                    amplitude: Simulation.TileSize * .4f, frequency: .06f, waveSpeed: -1.6f);
                 ContaminationPool(sink, new Vector2(playerX, playerY), FieldDamage, 7.5f);
                 break;
             case 6: // Slothful construction: Ache drops two mines and leaves them to become a later problem.
@@ -1226,7 +1244,12 @@ public sealed class Ache : Kage
         if (FinaleActive && PatternRotation % 2 == 0)
         {
             float angle = (float)(Rng.NextDouble() * MathF.Tau);
-            TelegraphLash(sink, center, angle, HeavyDamage, "overload_callback", Rng.Next(2) == 0 ? .13f : -.13f);
+            // Overload: the finale's most deranged lash, rotating and
+            // twisting at once so no two casts trace the same route.
+            TelegraphLash(sink, center, angle, HeavyDamage, "overload_callback", Rng.Next(2) == 0 ? .13f : -.13f,
+                amplitude: Simulation.TileSize * (.6f + (float)Rng.NextDouble() * .5f),
+                frequency: .04f + (float)Rng.NextDouble() * .03f,
+                waveSpeed: (Rng.Next(2) == 0 ? 1f : -1f) * (1.4f + (float)Rng.NextDouble() * 1.2f));
         }
         PhaseDeclarations++;
         PatternRotation++;
