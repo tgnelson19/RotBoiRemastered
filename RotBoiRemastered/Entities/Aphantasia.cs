@@ -118,7 +118,7 @@ public sealed class AphantasiaMini
 /// targetable Minis, eighteen authored movement patterns, and every survival
 /// gate so the session only needs to route ordinary boss hitboxes and shots.
 /// </summary>
-public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusion
+public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusion, IBossFloorOcclusion
 {
     public const string EssenceName = "Aphantasia, Essence of Darkness";
     public const string CoreName = "Aphantasia, Core of The Void";
@@ -3668,9 +3668,6 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         DrawArenaWall(spriteBatch, center);
         DrawFloorPaneling(spriteBatch, center, PresentationSurvivalActive);
 
-        if (_voidVortexActive)
-            DrawVoidVortex(spriteBatch, center);
-
         if (Phase >= 3 && PresentationSurvivalActive)
             DrawSurvivalScreenMood(spriteBatch, logicalViewport);
 
@@ -3695,6 +3692,23 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                     Rainbow(index / (float)timerSegments + (float)_visualTime * .025f), 10);
             }
         }
+    }
+
+    /// <summary>
+    /// The end-of-fight void vortex, drawn from the floor-only occlusion
+    /// pass (before the player/boss body/projectiles) instead of the final
+    /// world-space pass <see cref="DrawPersistentArena"/> uses -- its radius
+    /// grows to cover the whole arena over its ramp, and drawn last-of-all it
+    /// used to paint over everything standing in the arena once it got that
+    /// big. Floor/background only now, same as every other boss's arena.
+    /// </summary>
+    public void DrawFloorOcclusion(SpriteBatch spriteBatch, Camera camera,
+        Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        if (!_voidVortexActive)
+            return;
+        Vector2 center = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
+        DrawVoidVortex(spriteBatch, center);
     }
 
     /// <summary>

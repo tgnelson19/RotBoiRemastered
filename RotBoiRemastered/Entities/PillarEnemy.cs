@@ -151,6 +151,12 @@ public sealed class PillarEnemy : Enemy
         var inset = rect;
         inset.Inflate(-(int)(Size * .45f), -(int)(Size * .14f));
         Primitives2D.FillRect(spriteBatch, inset, UiTheme.Gold);
+        Span<Vector2> insetCorners = stackalloc Vector2[]
+        {
+            new Vector2(inset.Left, inset.Top), new Vector2(inset.Right, inset.Top),
+            new Vector2(inset.Right, inset.Bottom), new Vector2(inset.Left, inset.Bottom),
+        };
+        Primitives2D.DrawPolygonBevel(spriteBatch, insetCorners, UiTheme.Gold, 3);
         if (_jumpTarget.HasValue && GameProfile.Profile.VisualEffectsIntensity > 0)
         {
             int debris = Math.Max(2,

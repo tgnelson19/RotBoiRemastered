@@ -41,7 +41,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     public static readonly PathChaseBossConfig BaseConfig = PathChaseBossConfig.Default with
     {
-        ArenaShape = "jagged", ArenaScale = 10.1,
+        ArenaShape = "jagged", ArenaScale = 15.15,
         MotionTheme = BossMotionTheme.Chemesthesis,
         MovementPhases = new[]
         {
@@ -50,6 +50,19 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             BossMovementPhaseProfile.Stationary(),
         },
     };
+
+    /// <summary>
+    /// ArenaScale grew from 10.1 to 15.15 (a deliberate 50% arena-size
+    /// increase). Mirrors Dissonance's own `ArenaFormationScale`: a decoupled
+    /// multiplier that keeps fixed/boss-relative attack-pattern reach --
+    /// <see cref="Shot"/>'s projectile speed/decay (and so mine/shot
+    /// effective range) and Ache's compression-wall spawn distance and
+    /// travel speed -- proportional to the bigger arena, rather than leaving
+    /// those tuned-for-the-old-arena constants unscaled while every
+    /// ArenaRadius-relative formula (movement paths, minefield placement,
+    /// clamp radii) already grew with it.
+    /// </summary>
+    protected const float ArenaFormationScale = 1.5f;
 
     public int PatternRotation { get; protected set; }
     public double ActTransitionTimer { get; protected set; }
@@ -129,11 +142,17 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
     {
         var center = Center();
         float size = Size * scale;
+        // Scaling speed and speedDecay by the same ArenaFormationScale factor
+        // keeps a decaying shot's stopping *time* unchanged (speed/decay
+        // ratio is preserved) while extending its stopping *distance*
+        // proportionally to the bigger arena -- and for non-decaying shots
+        // it simply keeps "time to cross the arena" constant across arena
+        // sizes, matching the pre-resize pacing/telegraph feel.
         var shot = new EnemyProjectile(
-            center.X - size / 2f, center.Y - size / 2f, direction, speed, damage, size,
+            center.X - size / 2f, center.Y - size / 2f, direction, speed * ArenaFormationScale, damage, size,
             travelRange: Simulation.TileSize * (float)Config.ShotRangeTiles, color: PhaseAccent,
             shape: shape, path: path, amplitude: amplitude, frequency: frequency,
-            lifetime: lifetime, speedDecay: speedDecay,
+            lifetime: lifetime, speedDecay: speedDecay * ArenaFormationScale,
             orbitCenter: orbitRadius != 0f ? center : null, orbitRadius: orbitRadius, orbitAngle: direction,
             angularSpeed: angularSpeed, owner: $"{Config.OwnerPrefix}_{ownerSuffix}", ignoreWalls: true)
         {
@@ -284,6 +303,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
         PhaseProtectionTimer = Math.Max(0.0, PhaseProtectionTimer - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         SigilTransitionTimer = Math.Max(0.0, SigilTransitionTimer - dt);
         UpdateTerrain(context.PlayerWorldX, context.PlayerWorldY, dt, context);
         UpdatePhase();
@@ -364,8 +384,6 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
                 new Color(232, 116, 34), new Color(154, 62, 210), 16);
             return;
         }
-
-        DrawGroundSinSigil(spriteBatch, center);
 
         float seconds = VisualAgeSeconds;
         float attack = VisualAttackPulse;

@@ -96,7 +96,14 @@ public sealed class BombEnemy : WanderingRangedEnemy
         var rect = pose.Rect;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
         float pulse = .22f + .04f * MathF.Sin(Age * .18f) + pose.AttackPulse * .08f;
-        Primitives2D.FillCircle(spriteBatch, center, Math.Max(4, (int)(Size * pulse)), UiTheme.Gold);
+        float fuseRadius = Math.Max(4, Size * pulse);
+        // Tier 1: shade the fuse core toward its shadow side and add a small
+        // upper-left highlight dot -- the cheapest version of the shared
+        // highlight/shadow bevel trick, selling the core as a lit sphere
+        // instead of a flat disc.
+        Primitives2D.FillCircle(spriteBatch, center, fuseRadius, Color.Lerp(UiTheme.Gold, UiTheme.Ink, .3f));
+        Primitives2D.FillCircle(spriteBatch, center - new Vector2(fuseRadius * .3f, fuseRadius * .3f),
+            fuseRadius * .4f, UiTheme.Gold);
         float spark = MathF.Sin(Age * .31f) * Size * .08f;
         Primitives2D.Line(spriteBatch, center, new Vector2(rect.Center.X + spark, rect.Top), UiTheme.Cream, 3);
     }

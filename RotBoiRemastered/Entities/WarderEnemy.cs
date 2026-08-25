@@ -97,6 +97,14 @@ public sealed class WarderEnemy : WanderingRangedEnemy
             inked.Inflate(5, 5);
             Primitives2D.FillRect(spriteBatch, inked, UiTheme.Ink);
             Primitives2D.FillRect(spriteBatch, shield, UiTheme.Blue);
+            // Tier 1: bevel the shield plate the same way every other filled
+            // accent shape gets its lit/shadowed edge treatment.
+            Span<Vector2> shieldCorners = stackalloc Vector2[]
+            {
+                new Vector2(shield.Left, shield.Top), new Vector2(shield.Right, shield.Top),
+                new Vector2(shield.Right, shield.Bottom), new Vector2(shield.Left, shield.Bottom),
+            };
+            Primitives2D.DrawPolygonBevel(spriteBatch, shieldCorners, UiTheme.Blue, 2);
             Primitives2D.RectOutline(spriteBatch, shield, UiTheme.Cream, 2);
             float ratio = (float)Math.Clamp(ShieldHp / Math.Max(1, MaxShieldHp), 0, 1);
             int cracks = ratio < .67f ? ratio < .34f ? 3 : 2 : 0;

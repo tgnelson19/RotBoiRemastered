@@ -82,6 +82,13 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         [1, 5, 6, 2],
     ];
 
+    /// <summary>Local-space unit-cube vertices matching <see cref="CubeFaceIndices"/>'s vertex numbering, for <see cref="BossVisuals.RotatingSolid3D"/>'s ordinary (non-exploding) core render.</summary>
+    private static readonly Vector3[] CoreVertices =
+    [
+        new(-1, -1, -1), new(1, -1, -1), new(1, 1, -1), new(-1, 1, -1),
+        new(-1, -1, 1), new(1, -1, 1), new(1, 1, 1), new(-1, 1, 1),
+    ];
+
     public static readonly IReadOnlyDictionary<int, (string Name, Vector2[][] Strokes)> PhaseRunes =
         new Dictionary<int, (string, Vector2[][])>
         {
@@ -192,6 +199,15 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
 
     private readonly Random _rng;
     private readonly BossLocomotionController _locomotion;
+    /// <summary>
+    /// Smoothed heading, in radians, blended toward the core cube's current
+    /// movement target while <see cref="PhaseMovementStep"/> is actively
+    /// advancing it (see <see cref="BossFacing.SmoothFacingYaw"/>). Left
+    /// untouched while stationary/attacking in place, at which point
+    /// <see cref="CoreCubeOrientation"/> falls back to its ambient spin.
+    /// </summary>
+    private float _facingYaw;
+    private bool _facingActive;
     private readonly Vector2[] _arenaMaskVertices = new Vector2[64];
     private readonly Vector3[] _drawCubeVertices = new Vector3[8];
     private readonly int[] _drawCubeFaceOrder = new int[6];
@@ -210,8 +226,8 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     private readonly List<(string Part, Rectangle Rect)> _worldHitboxScratch = new(16);
     private static readonly float[] BossBurstSpeeds = [1.45f, 1.12f, .82f, .56f, .38f];
     public Vector2 ArenaCenter { get; }
-    public float ArenaRadius { get; } = Simulation.TileSize * (32.0f / 3.0f);
-    public float ArenaFormationScale { get; } = 4.0f / 3.0f;
+    public float ArenaRadius { get; } = Simulation.TileSize * 16f;
+    public float ArenaFormationScale { get; } = 2f;
 
     public int Phase { get; private set; } = 1;
     private readonly List<int> _damagePhaseHistory = new() { 1 };
@@ -1012,6 +1028,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         BossLocomotionFrame frame = _locomotion.Update(
             Phase, PhaseMovement[Phase], Center(), new Vector2(playerX, playerY),
             ArenaCenter, ArenaRadius, Speed, dt);
+        _facingActive = !frame.Stationary;
         if (!frame.Stationary)
         {
             float movementSpeed = PhaseMovement[Phase].Mode == BossMovementMode.Chase
@@ -1019,6 +1036,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
                 : frame.SpeedPerReferenceTick;
             MoveToward(frame.Target.X, frame.Target.Y, battleground,
                 movementSpeed / Math.Max(.001f, Speed));
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(), frame.Target, dt);
         }
     }
 
@@ -1903,6 +1921,33 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         return (vertices, sortedFaces);
     }
 
+    /// <summary>
+    /// The core cube's yaw/pitch, factored out of <see cref="PopulateCubeGeometry"/>
+    /// so the ordinary (non-exploding) render path can drive
+    /// <see cref="BossVisuals.RotatingSolid3D"/> with the exact same
+    /// composed spin/beat/transition/stagger math instead of re-deriving it.
+    /// </summary>
+    private (double Yaw, double Pitch) CoreCubeOrientation(float age, int phase)
+    {
+        double transition = phase > 1 ? Math.Max(0.0, 1.0 - PhaseElapsed) : 0.0;
+        double staggerWobble = IsStaggered ? Math.Sin(age * .09) * .12 : 0.0;
+        double ambientYaw = age * (.0075 + phase * .00055);
+        // While actively advancing toward its next target, the core cube
+        // turns to lead with its direction of travel (the shared smoothed
+        // facing heading) instead of spinning obliviously through the
+        // ambient orbit; stationary/attacking-in-place phases keep the pure
+        // ambient orbit/beat-driven yaw.
+        double baseYaw = _facingActive ? _facingYaw : ambientYaw;
+        double yaw = baseYaw + transition * transition * Math.PI + staggerWobble;
+        // A resonating beat layered on top of the composed spin -- the faces
+        // catch a pulse rather than the body only ever rotating rigidly.
+        double beatSeconds = age / Math.Max(1.0, Simulation.FrameRate);
+        double beat = BossAnimation.EaseInOutSine(
+            (float)BossAnimation.CosinePulse((float)beatSeconds, 1.4f, phase * .07f));
+        double pitch = .42 + Math.Sin(age * (.0055 + phase * .0002)) * .16 + transition * .22 + beat * .05;
+        return (yaw, pitch);
+    }
+
     private void PopulateCubeGeometry(
         Vector2 center,
         float extent,
@@ -1911,15 +1956,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         Vector3[] vertices,
         int[] faceOrder)
     {
-        double transition = phase > 1 ? Math.Max(0.0, 1.0 - PhaseElapsed) : 0.0;
-        double staggerWobble = IsStaggered ? Math.Sin(age * .09) * .12 : 0.0;
-        double yaw = age * (.0075 + phase * .00055) + transition * transition * Math.PI + staggerWobble;
-        // A resonating beat layered on top of the composed spin -- the faces
-        // catch a pulse rather than the body only ever rotating rigidly.
-        double beatSeconds = age / Math.Max(1.0, Simulation.FrameRate);
-        double beat = BossAnimation.EaseInOutSine(
-            (float)BossAnimation.CosinePulse((float)beatSeconds, 1.4f, phase * .07f));
-        double pitch = .42 + Math.Sin(age * (.0055 + phase * .0002)) * .16 + transition * .22 + beat * .05;
+        var (yaw, pitch) = CoreCubeOrientation(age, phase);
         for (int index = 0; index < 8; index++)
         {
             float x = index is 1 or 2 or 5 or 6 ? 1 : -1;
@@ -2191,15 +2228,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     private float RuneDisruptionRatio =>
         (float)Math.Clamp(RuneDisruption / Math.Max(.001, RuneDisruptionNeeded), 0.0, 1.0);
 
-    /// <summary>A faint, larger echo of the current phase's rune painted on the ground beneath Dissonance -- every boss now carries some form of this floor sigil.</summary>
-    private void DrawGroundRune(SpriteBatch spriteBatch, Vector2 center)
-    {
-        var ground = center + new Vector2(0, Size * .58f);
-        Primitives2D.DrawGroundSigilRing(spriteBatch, ground, Size * 1.55f, Size * .48f,
-            PhaseAccent, UiTheme.Shadow, UiTheme.Void, Age, alpha: .5f);
-        DrawRune(spriteBatch, ground, Size * .42f, alpha: .45f);
-    }
-
     private string DrawRune(SpriteBatch spriteBatch, Vector2 center, float radius, int? runePhaseOverride = null,
         bool showDisruption = false, float alpha = 1f)
     {
@@ -2374,7 +2402,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             rect.Inflate(-(int)(Size * .12f), (int)(Size * .16f));
 
         var rectCenter = rect.Center.ToVector2();
-        DrawGroundRune(spriteBatch, rectCenter);
         DrawSoundPulse(spriteBatch, rectCenter);
         DrawCubeAura(spriteBatch, rectCenter, PhaseAccent);
         // Four gently depth-scaled satellites make the oldest core feel composed:
@@ -2382,30 +2409,51 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         float orbitSpread = SurvivalActive ? 1.35f : 1f;
         DrawSatelliteChord(spriteBatch, rectCenter, orbitSpread);
         DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: false);
-        PopulateCubeGeometry(
-            rectCenter,
-            Size * .43f,
-            Age,
-            Phase,
-            _drawCubeVertices,
-            _drawCubeFaceOrder);
         double entranceSpread = Math.Max(0.0, EntranceRemaining / EntranceDuration) * 2.8;
         double deathProgress = Dying ? Math.Max(0.0, 1 - DeathRemaining / DeathBurstDuration) : 0.0;
         double deathSpread = deathProgress * 3.4;
         double faceSpread = Math.Max(entranceSpread, deathSpread);
-        for (int faceIndex = 0;
-             faceIndex < _drawCubeFaceOrder.Length;
-             faceIndex++)
+        float beatPulse = BossAnimation.CosinePulse(VisualAgeSeconds, 1.4f, Phase * .07f);
+        bool resolving = PerfectBreakFlash > 0;
+
+        Color CoreFaceColor(int faceIndex)
         {
-            int[] face = CubeFaceIndices[_drawCubeFaceOrder[faceIndex]];
-            Vector2[] points = _drawProjectedFaces[faceIndex];
-            for (int corner = 0; corner < face.Length; corner++)
+            int shimmer = (int)(8 * (1 + Math.Sin(Age * .025 + faceIndex * 1.7)) + beatPulse * 10);
+            Color ancestralFace = faceIndex % 2 == 0 ? new Color(91, 62, 181) : new Color(51, 120, 198);
+            if (resolving)
+                // A perfect stagger reads as the dissonant chord actually
+                // resolving: every face briefly settles on one clean accent
+                // instead of the usual alternating purple/blue + flicker.
+                return UiTheme.Lighten(PhaseAccent, 10 + shimmer);
+            if (HitFlash > 0 || IsStaggered)
+                return UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer);
+            return UiTheme.Lighten(Color.Lerp(ancestralFace, PhaseAccent, .12f), 5 + faceIndex * 5 + shimmer);
+        }
+
+        if (faceSpread > .001)
+        {
+            // Entrance/death only: the core visibly bursts apart into its
+            // six separate faces, an effect BossVisuals.RotatingSolid3D's
+            // shared pipeline doesn't model, so the original hand-rolled
+            // per-face spread still drives those two moments.
+            PopulateCubeGeometry(
+                rectCenter,
+                Size * .43f,
+                Age,
+                Phase,
+                _drawCubeVertices,
+                _drawCubeFaceOrder);
+            for (int faceIndex = 0;
+                 faceIndex < _drawCubeFaceOrder.Length;
+                 faceIndex++)
             {
-                Vector3 vertex = _drawCubeVertices[face[corner]];
-                points[corner] = new Vector2(vertex.X, vertex.Y);
-            }
-            if (faceSpread > 0)
-            {
+                int[] face = CubeFaceIndices[_drawCubeFaceOrder[faceIndex]];
+                Vector2[] points = _drawProjectedFaces[faceIndex];
+                for (int corner = 0; corner < face.Length; corner++)
+                {
+                    Vector3 vertex = _drawCubeVertices[face[corner]];
+                    points[corner] = new Vector2(vertex.X, vertex.Y);
+                }
                 float faceCenterX =
                     (points[0].X + points[1].X + points[2].X + points[3].X)
                     * .25f;
@@ -2417,45 +2465,44 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
                 for (int corner = 0; corner < points.Length; corner++)
                     points[corner] += new Vector2(offsetX, offsetY);
             }
+            for (int faceIndex = 0;
+                 faceIndex < _drawProjectedFaces.Length;
+                 faceIndex++)
+            {
+                Vector2[] points = _drawProjectedFaces[faceIndex];
+                for (int corner = 0; corner < points.Length; corner++)
+                    _drawShadowFace[corner] = points[corner] + new Vector2(7, 9);
+                Primitives2D.FillPolygonSpan(
+                    spriteBatch,
+                    _drawShadowFace,
+                    UiTheme.Shadow);
+            }
+            for (int faceIndex = 0;
+                 faceIndex < _drawProjectedFaces.Length;
+                 faceIndex++)
+            {
+                Vector2[] points = _drawProjectedFaces[faceIndex];
+                Color faceColor = CoreFaceColor(faceIndex);
+                Primitives2D.FillPolygonSpan(spriteBatch, points, faceColor);
+                Primitives2D.PolygonOutlineSpan(
+                    spriteBatch,
+                    points,
+                    UiTheme.Ink,
+                    Math.Max(3, (int)(Size * .045f)));
+                Primitives2D.Line(spriteBatch, points[0], points[1], UiTheme.Lighten(PhaseAccent, 35), Math.Max(1, (int)(Size * .012f)));
+            }
         }
-        for (int faceIndex = 0;
-             faceIndex < _drawProjectedFaces.Length;
-             faceIndex++)
+        else
         {
-            Vector2[] points = _drawProjectedFaces[faceIndex];
-            for (int corner = 0; corner < points.Length; corner++)
-                _drawShadowFace[corner] = points[corner] + new Vector2(7, 9);
-            Primitives2D.FillPolygonSpan(
-                spriteBatch,
-                _drawShadowFace,
-                UiTheme.Shadow);
-        }
-        float beatPulse = BossAnimation.CosinePulse(VisualAgeSeconds, 1.4f, Phase * .07f);
-        bool resolving = PerfectBreakFlash > 0;
-        for (int faceIndex = 0;
-             faceIndex < _drawProjectedFaces.Length;
-             faceIndex++)
-        {
-            Vector2[] points = _drawProjectedFaces[faceIndex];
-            int shimmer = (int)(8 * (1 + Math.Sin(Age * .025 + faceIndex * 1.7)) + beatPulse * 10);
-            Color ancestralFace = faceIndex % 2 == 0 ? new Color(91, 62, 181) : new Color(51, 120, 198);
-            Color faceColor;
-            if (resolving)
-                // A perfect stagger reads as the dissonant chord actually
-                // resolving: every face briefly settles on one clean accent
-                // instead of the usual alternating purple/blue + flicker.
-                faceColor = UiTheme.Lighten(PhaseAccent, 10 + shimmer);
-            else if (HitFlash > 0 || IsStaggered)
-                faceColor = UiTheme.Lighten(color, 5 + faceIndex * 6 + shimmer);
-            else
-                faceColor = UiTheme.Lighten(Color.Lerp(ancestralFace, PhaseAccent, .12f), 5 + faceIndex * 5 + shimmer);
-            Primitives2D.FillPolygonSpan(spriteBatch, points, faceColor);
-            Primitives2D.PolygonOutlineSpan(
-                spriteBatch,
-                points,
-                UiTheme.Ink,
-                Math.Max(3, (int)(Size * .045f)));
-            Primitives2D.Line(spriteBatch, points[0], points[1], UiTheme.Lighten(PhaseAccent, 35), Math.Max(1, (int)(Size * .012f)));
+            // The ordinary (composed) core now shares the same
+            // rotate/project/cull/depth-sort/draw pipeline every other
+            // finale boss's rotating solid uses, instead of its own
+            // hand-rolled copy -- same yaw/pitch/beat/stagger math via
+            // CoreCubeOrientation, just handed to the shared primitive.
+            var (yaw, pitch) = CoreCubeOrientation(Age, Phase);
+            BossVisuals.RotatingSolid3D(spriteBatch, rectCenter, Size * .43f,
+                CoreVertices, CubeFaceIndices, CoreFaceColor,
+                (float)yaw, (float)pitch, edgeAccent: PhaseAccent, cameraZ: 3.8f);
         }
 
         double coreVisibility = Math.Max(.15, 1 - entranceSpread * .22);
@@ -2465,13 +2512,19 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         Primitives2D.FillRect(spriteBatch, coreInflated, UiTheme.Ink);
         Primitives2D.FillRect(spriteBatch, core, UiTheme.Void);
         Primitives2D.RectOutline(spriteBatch, core, PhaseAccent, Math.Max(2, (int)(Size * .035f)));
+        Span<Vector2> coreSocketPoints = stackalloc Vector2[]
+        {
+            new(core.Left, core.Top), new(core.Right, core.Top),
+            new(core.Right, core.Bottom), new(core.Left, core.Bottom),
+        };
+        Primitives2D.DrawPolygonBevel(spriteBatch, coreSocketPoints, PhaseAccent, 2);
         float pulseScale = .28f + .06f * MathF.Sin(Age * .045f);
         var innerPulse = new Rectangle((int)(rectCenter.X - core.Width * pulseScale / 2f),
             (int)(rectCenter.Y - core.Height * pulseScale / 2f), Math.Max(2, (int)(core.Width * pulseScale)),
             Math.Max(2, (int)(core.Height * pulseScale)));
         Primitives2D.RectOutline(spriteBatch, innerPulse, PhaseAccent, 1);
         int deathRune = Dying || (Phase == 9 && SurvivalActive) ? 9 : Phase;
-        string runeName = DrawRune(spriteBatch, rectCenter, coreRadius, deathRune, showDisruption: true);
+        string runeName = PhaseRunes[deathRune].Name;
         UiTheme.DrawText(spriteBatch, runeName, Math.Max(8, Size * .075), PhaseAccent,
             new Vector2(rect.Center.X, core.Bottom + Size * .045f), "midtop");
         DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: true);

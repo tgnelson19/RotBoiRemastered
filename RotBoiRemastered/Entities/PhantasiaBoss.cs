@@ -393,6 +393,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
         SigilTransitionTimer = Math.Max(0.0, SigilTransitionTimer - dt);
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         UpdatePhase();
         UpdateSpecialRules(context.PlayerWorldX, context.PlayerWorldY, dt, context);
         if (EntranceRemaining > 0 || ActTransitionTimer > 0)
@@ -526,8 +527,6 @@ public abstract class PhantasiaBoss : PathChaseBoss
             Primitives2D.Line(spriteBatch, eye - new Vector2(7, 0), eye + new Vector2(7, 0), UiTheme.Ink, 4);
             Primitives2D.FillCircle(spriteBatch, eye, 3, PhaseAccent);
         }
-        double transition = SigilTransitionTimer / SigilTransitionDuration;
-        DrawCommandmentSigil(spriteBatch, center, Size * .3f, Math.Max(.05, 1 - transition), null, 255, transition * Math.PI);
     }
 
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
@@ -547,8 +546,6 @@ public abstract class PhantasiaBoss : PathChaseBoss
         float turn = seconds * .32f;
         Color baseColor = Color.Lerp(Config.FinalBoss ? Config.FinalBodyColor : Config.BodyColor, PhaseAccent, .16f);
         Color bright = UiTheme.Lighten(baseColor, 44);
-
-        DrawGroundCommandmentSigil(spriteBatch, center);
 
         float flow = VisualSurvivalActive ? Phase * .37f : turn;
         int petalCount = 6 + Math.Min(4, Phase);
@@ -599,8 +596,6 @@ public abstract class PhantasiaBoss : PathChaseBoss
             BossVisuals.PrismPetal(spriteBatch, arm, Size * .34f,
                 Size * .13f, PhaseAccent, UiTheme.Cream, armAngle);
         }
-        DrawCommandmentSigil(spriteBatch, maskCenter, Size * .2f,
-            1.0, null, 220, -turn * .4f, disruption: 1f - (float)Hp / Math.Max(1, MaxHp));
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .83f), (int)(Size * .92f), 6));
     }
 

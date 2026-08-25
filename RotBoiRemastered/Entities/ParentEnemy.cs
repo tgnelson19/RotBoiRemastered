@@ -127,7 +127,14 @@ public sealed class ParentEnemy : Enemy
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
         var rect = RenderPose(camera, playerWorldPosition, screenShake).Rect;
         var center = new Vector2(rect.Center.X, rect.Center.Y);
-        Primitives2D.FillCircle(spriteBatch, center, (int)(Size * .28f), UiTheme.Purple);
+        float coreRadius = Size * .28f;
+        // Tier 1: shade the core disc toward its shadow side and add a small
+        // upper-left highlight dot -- the cheapest version of the shared
+        // highlight/shadow bevel trick, selling the core as a lit sphere
+        // instead of a flat disc.
+        Primitives2D.FillCircle(spriteBatch, center, coreRadius, Color.Lerp(UiTheme.Purple, UiTheme.Ink, .3f));
+        Primitives2D.FillCircle(spriteBatch, center - new Vector2(coreRadius * .3f, coreRadius * .3f),
+            coreRadius * .4f, UiTheme.Purple);
         Primitives2D.FillCircle(spriteBatch, center, (int)(Size * .12f), UiTheme.Cream);
     }
 }

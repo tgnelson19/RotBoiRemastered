@@ -42,7 +42,7 @@ public sealed class Chronos : Ishe
         FinalBodyColor = new Color(101, 190, 228), FinalAccentColor = new Color(203, 239, 250),
         FinalBodyScale = 1.75, FinalCooldownSeconds = 2.0,
         FinalShotSpeed = .42, FinalShotDamage = 760, FinalShotScale = .22,
-        MovementSpeed = .12, ArenaScale = 11.8,
+        MovementSpeed = .12, ArenaScale = 17.7,
         MovementPhases = new[]
         {
             BossMovementPhaseProfile.Fixed(BossPathShape.Triangle, 8f, .58f, .58f),
@@ -69,6 +69,7 @@ public sealed class Chronos : Ishe
     private readonly List<EnemyProjectile> _routeScratch = new(64);
     private float? _rememberedAim;
     private int _phaseDeclarations;
+    private float _facingYaw;
 
     private readonly record struct PendingDeclaration(double Delay, float Direction, float Bend, float Damage,
         string Suffix, float Telegraph, int Segments, float SegmentTiles);
@@ -642,6 +643,9 @@ public sealed class Chronos : Ishe
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
         TemporalFractureRemaining = Math.Max(0.0, TemporalFractureRemaining - dt);
         UpdateHistoricalRoutes(dt);
         UpdateSafeRoutes(dt, context.PlayerWorldX, context.PlayerWorldY);
@@ -735,7 +739,9 @@ public sealed class Chronos : Ishe
         float tickIndex = MathF.Floor(seconds / TickInterval);
         float tickLocalT = (seconds - tickIndex * TickInterval) / TickInterval;
         float swing = BossAnimation.EaseOutBack(Math.Clamp(tickLocalT / .3f, 0f, 1f));
-        float yaw = MathHelper.Lerp(tickIndex * TickAngle, (tickIndex + 1) * TickAngle, swing);
+        float tickYaw = MathHelper.Lerp(tickIndex * TickAngle, (tickIndex + 1) * TickAngle, swing);
+        bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        float yaw = facingActive ? _facingYaw : tickYaw;
         float pitch = .58f + MathF.Sin(seconds * .54f) * .26f;
         float roll = MathF.Sin(seconds * .39f) * .24f;
 
@@ -767,6 +773,7 @@ public sealed class Chronos : Ishe
         }
 
         BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll);
+
         float sweep = BossAnimation.EaseInOutSine(BossAnimation.LoopPhase(seconds, 3.8f));
         Vector2 sweepStart = center + new Vector2(-Size * .23f, Size * (.16f - sweep * .32f));
         Primitives2D.Line(spriteBatch, sweepStart,
@@ -797,6 +804,12 @@ public sealed class Chronos : Ishe
             Math.Max(3, (int)(inset * 2)), Math.Max(3, (int)(inset * 2)));
         Primitives2D.FillRect(spriteBatch, playerLikeCore, UiTheme.Cream);
         Primitives2D.RectOutline(spriteBatch, playerLikeCore, new Color(48, 124, 167), 2);
+        Span<Vector2> playerLikeCorePoints = stackalloc Vector2[]
+        {
+            new(playerLikeCore.Left, playerLikeCore.Top), new(playerLikeCore.Right, playerLikeCore.Top),
+            new(playerLikeCore.Right, playerLikeCore.Bottom), new(playerLikeCore.Left, playerLikeCore.Bottom),
+        };
+        Primitives2D.DrawPolygonBevel(spriteBatch, playerLikeCorePoints, UiTheme.Cream, 2);
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .72f), (int)(Size * .92f), 6));
     }
 }

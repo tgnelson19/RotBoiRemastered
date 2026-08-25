@@ -117,7 +117,15 @@ public class WanderingRangedEnemy : Enemy
         Primitives2D.FillRect(spriteBatch, inkRect, UiTheme.Ink);
         var redRect = rect;
         redRect.Inflate(-(int)(Size * .58f), -(int)(Size * .58f));
-        Primitives2D.FillRect(spriteBatch, redRect,
-            Color.Lerp(UiTheme.Red, UiTheme.Cream, pose.AttackPulse * .55f));
+        var coreColor = Color.Lerp(UiTheme.Red, UiTheme.Cream, pose.AttackPulse * .55f);
+        Primitives2D.FillRect(spriteBatch, redRect, coreColor);
+        // Tier 1: bevel the weapon core plate the same way every other
+        // filled accent shape gets its lit/shadowed edge treatment.
+        Span<Vector2> coreCorners = stackalloc Vector2[]
+        {
+            new Vector2(redRect.Left, redRect.Top), new Vector2(redRect.Right, redRect.Top),
+            new Vector2(redRect.Right, redRect.Bottom), new Vector2(redRect.Left, redRect.Bottom),
+        };
+        Primitives2D.DrawPolygonBevel(spriteBatch, coreCorners, coreColor, 2);
     }
 }

@@ -480,8 +480,6 @@ public class PlagueTouchBoss : PathChaseBoss
             return;
         var screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        DrawGroundPlagueSigil(spriteBatch, rect.Center.ToVector2());
-        DrawPlagueSigil(spriteBatch, rect.Center.ToVector2(), Size * .32f);
         if (PhaseAnnouncementTimer > 0)
         {
             UiTheme.DrawText(spriteBatch, PhaseFlavor, 11, PhaseAccent,

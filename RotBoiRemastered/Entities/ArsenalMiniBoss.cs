@@ -158,14 +158,23 @@ public sealed class ArsenalMiniBoss : Enemy
         Color[] phaseColors = { UiTheme.Gold, UiTheme.Red, UiTheme.Purple };
 
         // Mini-bosses deliberately use a rigid, low-spectacle silhouette so the
-        // smooth final-boss rendering remains visually exceptional.
+        // smooth final-boss rendering remains visually exceptional -- but
+        // still get the same Tier 1 bevel/Tier 2 aura treatment as other
+        // elites, just applied to their blocky shape instead of new geometry.
         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 6, rect.Y + 6, rect.Width, rect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, rect, Color);
         Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(5, (int)(Size * .08f)));
+        Span<Vector2> rectCorners = stackalloc Vector2[]
+        {
+            new Vector2(rect.Left, rect.Top), new Vector2(rect.Right, rect.Top),
+            new Vector2(rect.Right, rect.Bottom), new Vector2(rect.Left, rect.Bottom),
+        };
+        Primitives2D.DrawPolygonBevel(spriteBatch, rectCorners, Color, Math.Max(3, (int)(Size * .06f)));
         var core = rect;
         core.Inflate(-(int)(Size * .38f), -(int)(Size * .38f));
         Primitives2D.FillRect(spriteBatch, core, UiTheme.Void);
         Primitives2D.RectOutline(spriteBatch, core, phaseColors[Phase], 5);
+        BossVisuals.OscillatingAura(spriteBatch, rect.Center.ToVector2(), Age, Size * .62f, phaseColors[Phase], bands: 2);
         for (int notch = 0; notch <= Phase; notch++)
         {
             var notchRect = new Rectangle(rect.X + 8 + notch * 10, rect.Bottom - 14, 6, 6);

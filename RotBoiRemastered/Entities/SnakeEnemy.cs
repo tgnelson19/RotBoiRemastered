@@ -129,6 +129,7 @@ public sealed class SnakeEnemy : Enemy
 
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
+        Span<Vector2> segmentCorners = stackalloc Vector2[4];
         for (int i = _segments.Count - 1; i >= 0; i--)
         {
             var segment = _segments[i];
@@ -136,7 +137,15 @@ public sealed class SnakeEnemy : Enemy
             float slither = Moved ? MathF.Sin(Age * .18f - i * .72f) * SegmentSize * .09f : MathF.Sin(Age * .035f + i) * 1.2f;
             var rect = new Rectangle((int)(screenPos.X + slither), (int)(screenPos.Y - Math.Abs(slither) * .18f), (int)SegmentSize, (int)SegmentSize);
             Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 3, rect.Y + 3, rect.Width, rect.Height), UiTheme.Shadow);
-            Primitives2D.FillRect(spriteBatch, rect, new Color(72, 145, 104));
+            var segmentColor = new Color(72, 145, 104);
+            Primitives2D.FillRect(spriteBatch, rect, segmentColor);
+            // Tier 1: bevel the segment plate the same way every other
+            // filled accent shape gets its lit/shadowed edge treatment.
+            segmentCorners[0] = new Vector2(rect.Left, rect.Top);
+            segmentCorners[1] = new Vector2(rect.Right, rect.Top);
+            segmentCorners[2] = new Vector2(rect.Right, rect.Bottom);
+            segmentCorners[3] = new Vector2(rect.Left, rect.Bottom);
+            Primitives2D.DrawPolygonBevel(spriteBatch, segmentCorners, segmentColor, 2);
             Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Ink, Math.Max(2, (int)(SegmentSize * .09f)));
             if (segment.Hp < segment.MaxHp)
             {
@@ -154,6 +163,14 @@ public sealed class SnakeEnemy : Enemy
             (int)(headScreenPos.Y + HeadSize - headHeight - headBob), headWidth, headHeight);
         Primitives2D.FillRect(spriteBatch, new Rectangle(headRect.X + 5, headRect.Y + 5, headRect.Width, headRect.Height), UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, headRect, UiTheme.Purple);
+        // Tier 1: bevel the head plate the same way every other filled
+        // accent shape gets its lit/shadowed edge treatment.
+        Span<Vector2> headCorners = stackalloc Vector2[]
+        {
+            new Vector2(headRect.Left, headRect.Top), new Vector2(headRect.Right, headRect.Top),
+            new Vector2(headRect.Right, headRect.Bottom), new Vector2(headRect.Left, headRect.Bottom),
+        };
+        Primitives2D.DrawPolygonBevel(spriteBatch, headCorners, UiTheme.Purple, 2);
         Primitives2D.RectOutline(spriteBatch, headRect, UiTheme.Ink, Math.Max(3, (int)(HeadSize * .09f)));
         int eyeSize = Math.Max(3, (int)(HeadSize * .12f));
         Primitives2D.FillRect(spriteBatch, new Rectangle((int)(headRect.X + headRect.Width * .25f), (int)(headRect.Y + headRect.Height * .27f), eyeSize, eyeSize), UiTheme.Text);

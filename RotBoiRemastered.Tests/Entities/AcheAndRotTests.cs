@@ -130,6 +130,8 @@ public class AcheTests
             }
         }
 
+        if (System.Environment.GetEnvironmentVariable("TEMP_DEBUG") == "1")
+            System.Console.WriteLine($"phase={phase} seed={seed} quadrants=[{string.Join(",", quadrants)}] pattern={string.Join(",", boss.PatternHistory)}");
         return new AchePressure(peak, peakPersistent, overflow, quadrants, owners, signature, spawnedShots);
     }
 
@@ -371,7 +373,15 @@ public class AcheTests
     {
         foreach (int seed in new[] { 311 + phase, 547 + phase, 883 + phase })
         {
-            var pressure = SimulatePressure(phase, seed);
+            // 36s (was 24s, the family's ArenaFormationScale of 1.5 applied
+            // to the window) rather than a bigger arena-quadrant threshold:
+            // ArenaRadius grew 50%, so patterns need proportionally more
+            // real simulated time to cast enough hazards to canvas it --
+            // phases 1-4 have only one arena-wide-spread pattern (6) in
+            // their eligible set, so a couple of extra casts materially
+            // improves the odds of it firing within the window, same as
+            // giving a proportionally bigger room more time to be covered.
+            var pressure = SimulatePressure(phase, seed, duration: 36.0);
 
             Assert.InRange(pressure.PeakProjectiles, 1, 50);
             Assert.InRange(pressure.PeakPersistentHazards, 1, 28);
@@ -562,7 +572,19 @@ public class AcheTests
     public void LaterActsGrowTelegraphedCompressionWallsThatMoveInward()
     {
         var battleground = MakeBattleground();
-        var boss = new Ache(1000, 1000, battleground, new Random(23));
+        // Spawned on the arena's own center rather than an arbitrary point
+        // far outside it (the family's other spawn convention, e.g.
+        // SimulatePressure below) -- with the bigger arena's FixedPath loop
+        // now patrolling proportionally farther *and* faster (BuildPath
+        // scales both its radius and, for a fixed loop period, its linear
+        // speed with ArenaRadius), a boss dropped ~2000 units outside the
+        // arena would spend this whole window still transiting toward its
+        // patrol loop instead of settling near where the wall spawned, which
+        // is what this test actually exercises.
+        float bodySize = Simulation.TileSize * (float)Ache.AcheConfig.FinalBodyScale;
+        float spawnX = battleground.Width * Simulation.TileSize / 2f - bodySize / 2f;
+        float spawnY = battleground.Height * Simulation.TileSize / 2f - bodySize / 2f;
+        var boss = new Ache(spawnX, spawnY, battleground, new Random(23));
         var context = Context(boss, battleground);
         boss.DebugSetPhase(5);
         boss.EntranceRemaining = 0;

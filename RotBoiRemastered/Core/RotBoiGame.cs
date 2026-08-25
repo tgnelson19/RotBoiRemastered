@@ -896,6 +896,11 @@ public class RotBoiGame : Game
         session.DrawBackground(_spriteBatch, GraphicsDevice);
 
         _spriteBatch.Begin(transformMatrix: session.Camera.WorldTransform);
+        // Floor-only boss masks (e.g. Aphantasia's void vortex) paint here,
+        // before anything else, so they can never cover the player/boss/
+        // projectiles drawn later this frame -- see DrawBossFloorOcclusion's
+        // doc comment.
+        session.DrawBossFloorOcclusion(_spriteBatch);
         session.DrawPathAmbience(_spriteBatch);
         session.DrawExpeditionSecrets(_spriteBatch);
         session.DrawVisualEffects(_spriteBatch, BitVfxLayer.Ground);

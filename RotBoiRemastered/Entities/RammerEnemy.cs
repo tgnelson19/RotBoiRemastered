@@ -115,6 +115,7 @@ public sealed class RammerEnemy : Enemy
             new Vector2(rect.Center.X, rect.Bottom - 7),
         };
         Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Cream);
+        Primitives2D.DrawPolygonBevel(spriteBatch, points, UiTheme.Cream, 2);
         if (_ramState == "charging" && GameProfile.Profile.VisualEffectsIntensity > 0)
         {
             int dust = Math.Max(1,

@@ -61,6 +61,39 @@ public readonly record struct BossMovementPhaseProfile(
         new(BossMovementMode.Burrow);
 }
 
+/// <summary>
+/// Shared "boss turns to face where it's heading" smoothing, generalized
+/// from Aphantasia's own body-turning system (its private `_facingYaw`,
+/// updated each Update() via an atan2-toward-target heading blended in with
+/// an exponential turn rate rather than snapped, gated to only run while
+/// actively chasing/pathing). Callers keep their own yaw field and pass it
+/// back in every frame; this only computes the next value.
+/// </summary>
+public static class BossFacing
+{
+    /// <summary>
+    /// Blend <paramref name="currentYaw"/> toward the angle from
+    /// <paramref name="from"/> to <paramref name="toward"/>, at a rate that
+    /// converges smoothly rather than snapping -- matching
+    /// Aphantasia.cs's own `1f - MathF.Exp(-3.2f*dt)` turn blend. Callers are
+    /// expected to gate this to their own "actively advancing" movement
+    /// state (e.g. BossMovementMode.Chase/FixedPath) and to hold the boss's
+    /// existing idle/ambient spin otherwise -- this helper only ever
+    /// computes the next yaw, it doesn't know about idle fallback.
+    /// </summary>
+    public static float SmoothFacingYaw(float currentYaw, Vector2 from, Vector2 toward,
+        double dt, float turnRate = 3.2f)
+    {
+        Vector2 delta = toward - from;
+        if (delta.LengthSquared() < .0001f)
+            return currentYaw;
+        float desired = MathF.Atan2(delta.Y, delta.X);
+        float diff = MathF.IEEERemainder(desired - currentYaw, MathF.Tau);
+        float blend = 1f - MathF.Exp(-turnRate * (float)dt);
+        return currentYaw + diff * blend;
+    }
+}
+
 internal readonly record struct BossLocomotionFrame(
     BossMovementPhaseProfile Profile,
     Vector2 Target,

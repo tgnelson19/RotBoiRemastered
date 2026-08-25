@@ -114,6 +114,16 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
     public bool DebugPhaseLocked { get; set; }
     public double PhaseElapsed { get; set; }
     public double PhaseTimeLimit { get; }
+    /// <summary>
+    /// Seconds elapsed for the arena boundary's "lit" telegraph ring only --
+    /// deliberately separate from <see cref="PhaseElapsed"/>, which is reset
+    /// to 0 on every ordinary phase change (see ApplyPhase/ApplyIshePhase
+    /// overrides) and once at finale entry (BeginFinaleSequence). Driving the
+    /// ring from PhaseElapsed used to make it visibly snap backward at the
+    /// exact frame the boss freezes into its transition pose -- this field
+    /// only ever counts up, so the ring's cycle never jumps.
+    /// </summary>
+    public double ArenaRingSeconds { get; set; }
     protected readonly float[] ArenaSeed;
     private readonly Vector2[] _arenaWorldVertices;
     private readonly Vector2[] _arenaScreenVertices;
@@ -550,6 +560,7 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         UpdatePhase();
         UpdateLocomotion(context);
         AttackCooldown -= (float)Simulation.GetTimerStep();
@@ -593,7 +604,7 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
             spriteBatch, vertices, UiTheme.Ink, 8);
         Primitives2D.PolygonOutlineSpan(
             spriteBatch, vertices, PhaseAccent, 3);
-        double progress = 1 - (PhaseElapsed % PhaseTimeLimit) / PhaseTimeLimit;
+        double progress = 1 - (ArenaRingSeconds % PhaseTimeLimit) / PhaseTimeLimit;
         int lit = Math.Max(2, (int)(vertices.Length * progress));
         Primitives2D.PolylineSpan(
             spriteBatch,
