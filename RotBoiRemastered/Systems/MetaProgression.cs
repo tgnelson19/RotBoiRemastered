@@ -24,8 +24,30 @@ public sealed record RunRewardSummary(
 /// <summary>Permanent, UI-independent progression rules shared by the Soul and run startup.</summary>
 public static class MetaProgression
 {
-    public const int StorageCapacity = 10;
+    /// <summary>Starting Vault capacity -- five rows of three, so the grid always fits its menu cleanly.</summary>
+    public const int BaseStorageCapacity = 15;
+    public const int StorageRowSize = 3;
+    /// <summary>Mind Token price of a row rises by one with each row already bought, capped at this.</summary>
+    public const int MaxStorageRowCost = 5;
     public const int PathCompletionTokenReward = 1;
+
+    /// <summary>Current Vault capacity: the base 15 slots plus any purchased rows (see PurchaseStorageRow).</summary>
+    public static int StorageCapacity => BaseStorageCapacity + GameProfile.Profile.VaultBonusRows * StorageRowSize;
+
+    /// <summary>Mind Token cost of the *next* row -- rises by one per row already owned, capped at MaxStorageRowCost.</summary>
+    public static int NextStorageRowCost => Math.Min(MaxStorageRowCost, 1 + GameProfile.Profile.VaultBonusRows);
+
+    /// <summary>Spends Mind Tokens to permanently add one row (StorageRowSize slots) to the Vault. Returns false if the player can't afford it.</summary>
+    public static bool PurchaseStorageRow()
+    {
+        int cost = NextStorageRowCost;
+        if (GameProfile.Profile.MindTokens < cost)
+            return false;
+        GameProfile.Profile.MindTokens -= cost;
+        GameProfile.Profile.VaultBonusRows++;
+        GameProfile.SaveProfile();
+        return true;
+    }
 
     public static readonly IReadOnlyList<SkillNode> SkillNodes = new[]
     {

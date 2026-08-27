@@ -36,8 +36,8 @@ internal static class SoulLayout
             ["quests"] = new(48, 76),
             ["skills"] = new(59, 89),
             ["wardrobe"] = new(70, 76),
-            ["hard_mode"] = new(70, 84),
-            ["no_extract"] = new(68, 87),
+            ["hard_mode"] = new(70, 82),
+            ["no_extract"] = new(66, 86),
             ["golden_flame"] = new(70, 86),
             ["the_void"] = new(86, 84),
             ["developer_armory"] = new(54, 89),
@@ -107,8 +107,10 @@ internal static class SoulLayout
             for (int x = 0; x < Width; x++)
                 grid[y, x] = TileType.OuterVoid;
 
-        // Main home chapel and its balanced utility alcoves.
-        PaintRect(grid, 46, 69, 72, 87, TileType.BuildingFloor);
+        // Main home chapel and its balanced utility alcoves. Bottom edge
+        // extended 2 tiles (87 -> 89) to give the relocated no_extract
+        // brazier room to stand clear of golden_flame's alcove.
+        PaintRect(grid, 46, 69, 72, 89, TileType.BuildingFloor);
         PaintEllipse(grid, new Point(59, 68), 9, 6, TileType.BuildingFloor);
         PaintEllipse(grid, new Point(47, 76), 4, 4, TileType.BuildingFloor);
         PaintEllipse(grid, new Point(47, 84), 4, 4, TileType.BuildingFloor);

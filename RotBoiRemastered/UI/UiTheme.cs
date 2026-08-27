@@ -411,6 +411,22 @@ public static class UiTheme
         return rect;
     }
 
+    /// <summary>
+    /// One brightened stand-in color per sense, used only for this rose's
+    /// petals -- <see cref="GamePath.Accent"/> stays muted everywhere else
+    /// (floor runes, path selection, etc.), but the rose's rainbow-ringed
+    /// void needs its petals lifted to the same saturation or they read as
+    /// washed out next to it.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, Color> SenseVividColors = new Dictionary<string, Color>
+    {
+        ["sound"] = new Color(255, 216, 115),
+        ["touch"] = new Color(63, 227, 116),
+        ["sight"] = new Color(79, 214, 255),
+        ["chemesthesis"] = new Color(255, 92, 61),
+        ["phantasia"] = new Color(227, 79, 224),
+    };
+
     public static void DrawSoulRose(
         SpriteBatch spriteBatch,
         Vector2 center,
@@ -429,29 +445,105 @@ public static class UiTheme
             int progress = mastery?.GetValueOrDefault(path.Key) ?? 0;
             float lobeRadius = radius
                 * (.52f + Math.Min(3, progress) * .035f);
+            // .74 (was .58) keeps every leaf's inner edge clear of the
+            // rainbow ring at the rose's heart instead of overlapping it
             Vector2 lobe = center + new Vector2(
-                MathF.Cos(angle), MathF.Sin(angle)) * radius * .58f;
+                MathF.Cos(angle), MathF.Sin(angle)) * radius * .74f;
             Vector2 radial = Vector2.Normalize(lobe - center);
             Vector2 side = new(-radial.Y, radial.X);
+            Color vivid = SenseVividColors.TryGetValue(path.Key, out Color vividColor)
+                ? vividColor : path.Accent;
             Primitives2D.FillQuad(spriteBatch,
                 lobe + radial * lobeRadius * .48f,
                 lobe + side * lobeRadius * .3f,
                 lobe - radial * lobeRadius * .42f,
                 lobe - side * lobeRadius * .3f,
-                path.Accent * (alpha
-                    * (.34f + Math.Min(3, progress) * .12f)));
+                vivid * (alpha
+                    * (.66f + Math.Min(3, progress) * .09f)));
         }
-        Primitives2D.FillCircle(spriteBatch, center,
-            radius * .24f, Ink * alpha);
-        Primitives2D.CircleOutline(spriteBatch, center,
-            radius * .24f, Cream * alpha,
-            Math.Max(2, (int)(radius * .035f)));
-        Primitives2D.FillRect(spriteBatch,
-            new Rectangle((int)(center.X - radius * .07f),
-                (int)(center.Y - radius * .07f),
-                Math.Max(2, (int)(radius * .14f)),
-                Math.Max(2, (int)(radius * .14f))),
-            Purple * alpha);
+        DrawRoseCenter(spriteBatch, center, radius, animationTime, alpha);
+    }
+
+    /// <summary>
+    /// The rose's heart: a rainbow ring (reusing the same cycling palette as
+    /// Aphantasia's own rainbow motif via <see cref="Primitives2D.Rainbow"/>)
+    /// spinning around two small voided tentacles that chase each other at a
+    /// fixed 180-degree offset and identical speed, with a scatter of
+    /// twinkling starlight woven between them -- then a plain dark circle on
+    /// top so the center itself stays empty.
+    /// </summary>
+    private static void DrawRoseCenter(SpriteBatch spriteBatch, Vector2 center, float radius,
+        float animationTime, float alpha)
+    {
+        float ringRadius = radius * .34f;
+        float voidRadius = radius * .24f;
+        int ringWidth = Math.Max(2, (int)(ringRadius - voidRadius));
+
+        const int slices = 40;
+        float spin = animationTime * .35f;
+        var ringRect = new Rectangle((int)(center.X - ringRadius), (int)(center.Y - ringRadius),
+            (int)(ringRadius * 2), (int)(ringRadius * 2));
+        for (int slice = 0; slice < slices; slice++)
+        {
+            float t0 = slice / (float)slices;
+            float t1 = (slice + 1) / (float)slices;
+            Color sliceColor = Primitives2D.Rainbow(t0 + spin);
+            Primitives2D.Arc(spriteBatch, ringRect, t0 * MathF.Tau, t1 * MathF.Tau + .03f,
+                sliceColor * alpha, ringWidth, 2);
+        }
+
+        float orbitRadius = (ringRadius + voidRadius) * .5f;
+        DrawVoidTentacle(spriteBatch, center, orbitRadius, animationTime, 0f,
+            new Color(20, 22, 27), Cream * .35f, alpha);
+        DrawVoidTentacle(spriteBatch, center, orbitRadius, animationTime, 180f,
+            new Color(29, 58, 120), Blue * .45f, alpha);
+        DrawStarlight(spriteBatch, center, orbitRadius, animationTime, alpha);
+
+        Primitives2D.FillCircle(spriteBatch, center, voidRadius, Ink * alpha);
+    }
+
+    /// <summary>
+    /// A tapering chain of beads following an arc around the ring band --
+    /// cheap stand-in for a tentacle silhouette that still reads as one
+    /// continuous body once it's spinning. Both tentacles share this exact
+    /// speed (40 degrees/second, a 9-second revolution) so a 180-degree base
+    /// offset keeps them permanently opposite each other rather than one
+    /// slowly gaining on the other.
+    /// </summary>
+    private static void DrawVoidTentacle(SpriteBatch spriteBatch, Vector2 center, float orbitRadius,
+        float animationTime, float baseAngleDeg, Color fill, Color outline, float alpha)
+    {
+        const int beadCount = 6;
+        float spinDeg = animationTime * 40f;
+        for (int bead = 0; bead < beadCount; bead++)
+        {
+            float angleDeg = baseAngleDeg + spinDeg - bead * 15.5f;
+            float angle = angleDeg * MathF.PI / 180f;
+            float wobble = MathF.Sin(bead * 1.3f) * orbitRadius * .08f;
+            Vector2 position = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                * (orbitRadius + wobble);
+            float beadRadius = Math.Max(orbitRadius * .05f, orbitRadius * .19f - bead * orbitRadius * .024f);
+            float beadAlpha = alpha * (.95f - bead * .11f);
+            Primitives2D.FillCircle(spriteBatch, position, beadRadius, fill * beadAlpha);
+            Primitives2D.CircleOutline(spriteBatch, position, beadRadius, outline * beadAlpha, 1, 10);
+        }
+    }
+
+    /// <summary>Small twinkling points scattered around the ring band at the golden angle, so they never clump.</summary>
+    private static void DrawStarlight(SpriteBatch spriteBatch, Vector2 center, float orbitRadius,
+        float animationTime, float alpha)
+    {
+        const int starCount = 12;
+        for (int star = 0; star < starCount; star++)
+        {
+            float angle = star * 137.5f * MathF.PI / 180f;
+            float radius = orbitRadius * (.86f + (star % 4) * .12f);
+            Vector2 position = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+            float twinkle = .5f + .5f * MathF.Sin(animationTime * 2.4f + star * 1.9f);
+            float starRadius = Math.Max(1f, orbitRadius * (.02f + (star % 3) * .01f) * (.6f + twinkle * .8f));
+            Primitives2D.FillCircle(spriteBatch, position, starRadius,
+                Text * (alpha * (.15f + twinkle * .85f)));
+        }
     }
 
     public static bool DrawButton(SpriteBatch spriteBatch, Rectangle rect, string label, Point mousePosition,

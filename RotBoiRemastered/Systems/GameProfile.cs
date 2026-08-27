@@ -104,6 +104,8 @@ public sealed class GameProfileData
     public List<string> CompletedQuests { get; set; } = new();
     /// <summary>The Vault -- safe, permanent storage. Capacity-limited (see MetaProgression.StorageCapacity).</summary>
     public List<StoredItemData> Storage { get; set; } = new();
+    /// <summary>Extra rows of Vault capacity bought with Mind Tokens (see MetaProgression.PurchaseStorageRow/StorageCapacity). Each row is StorageRowSize slots.</summary>
+    public int VaultBonusRows { get; set; }
     /// <summary>
     /// What's currently carried into runs, mirroring RunState.Equipment (slot key -> item,
     /// absence = empty). Synced from the live run whenever it ends without dying
@@ -307,9 +309,13 @@ public static class GameProfile
             .Where(validQuestKeys.Contains)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        // Computed from this local profile directly (not MetaProgression.StorageCapacity,
+        // which reads GameProfile.Profile -- still unassigned while LoadProfile is
+        // constructing it during the static field initializer).
+        int storageCapacity = MetaProgression.BaseStorageCapacity + profile.VaultBonusRows * MetaProgression.StorageRowSize;
         profile.Storage = profile.Storage
             .Where(item => Items.Deserialize(item) is not null)
-            .Take(MetaProgression.StorageCapacity)
+            .Take(storageCapacity)
             .ToList();
         foreach (string slot in profile.CarriedEquipment.Keys.ToList())
         {
