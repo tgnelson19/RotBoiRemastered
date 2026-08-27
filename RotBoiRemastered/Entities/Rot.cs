@@ -48,7 +48,7 @@ public sealed class Rot : PathChaseBoss
         FinalBodyColor = new Color(91, 65, 42), FinalAccentColor = new Color(154, 118, 55),
         FinalBodyScale = 2.85, FinalCooldownSeconds = 2.05,
         FinalShotSpeed = .30, FinalShotDamage = 590, FinalShotScale = .32,
-        MovementSpeed = .045, ArenaShape = "square", ArenaScale = 10.2,
+        MovementSpeed = .045, ArenaShape = "square", ArenaScale = 15.3,
         MotionTheme = BossMotionTheme.Touch,
         MovementPhases = new[]
         {
@@ -84,11 +84,13 @@ public sealed class Rot : PathChaseBoss
     private readonly int _corridorTurnSign;
     private static readonly IReadOnlyList<(string Part, Rectangle Rect)> NoHitboxes =
         Array.Empty<(string Part, Rectangle Rect)>();
+
     private int _lastBurrowDeclaration;
     private Vector2 _burrowDestination;
     private double _burrowRemaining;
     private float _graspAngle;
     private double _graspVisualRemaining;
+    private float _facingYaw;
 
     public RotBurrowState BurrowState { get; private set; }
     public Vector2 BurrowMudCenter => _burrowDestination;
@@ -620,6 +622,9 @@ public sealed class Rot : PathChaseBoss
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
         ReliefPulseRemaining = Math.Max(0.0, ReliefPulseRemaining - dt);
         _graspVisualRemaining = Math.Max(0.0, _graspVisualRemaining - dt);
         if (BurrowState != RotBurrowState.Surface)
@@ -800,7 +805,9 @@ public sealed class Rot : PathChaseBoss
         float listLocalT = (seconds - listIndex * ListInterval) / ListInterval;
         float listSwingT = Math.Clamp(listLocalT / .55f, 0f, 1f);
         float listSettle = BossAnimation.EaseOutBack(listSwingT, overshoot: 1.1f);
-        float bodyYaw = MathHelper.Lerp(listIndex * ListAngle, (listIndex + 1) * ListAngle, listSettle);
+        float listYaw = MathHelper.Lerp(listIndex * ListAngle, (listIndex + 1) * ListAngle, listSettle);
+        bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        float bodyYaw = facingActive ? _facingYaw : listYaw;
         float swingPhase = MathF.Sin(listSwingT * MathF.PI);
         float bodyRoll = swingPhase * .34f;
         float bodyPitch = .46f + BossAnimation.Sine(seconds, 18f) * .18f;
@@ -809,7 +816,6 @@ public sealed class Rot : PathChaseBoss
             (int)(Size * 1.76f), (int)(Size * .58f));
         Primitives2D.FillEllipse(spriteBatch, new Rectangle(poolBack.X + 8, poolBack.Y + 9, poolBack.Width, poolBack.Height), UiTheme.Shadow);
         Primitives2D.FillEllipse(spriteBatch, poolBack, new Color(68, 64, 35));
-        DrawGroundRootSigil(spriteBatch, poolBack.Center.ToVector2());
         if (listSwingT < .45f)
         {
             // A squelch ring on the mud as Rot's weight shifts.
@@ -908,6 +914,9 @@ public sealed class Rot : PathChaseBoss
                 new Color(91, 61, 37), new Color(48, 76, 42),
                 Color.Lerp(new Color(73, 101, 48), PhaseAccent, .25f),
                 bodyYaw, bodyPitch, bodyRoll);
+
+            BossVisuals.OscillatingAura(spriteBatch, cubeCenter, Age, Size * .42f,
+                Color.Lerp(new Color(73, 101, 48), PhaseAccent, .3f), bands: 3, speed: .55f);
         }
 
         if (_graspVisualRemaining > 0)

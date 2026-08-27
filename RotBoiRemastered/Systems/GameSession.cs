@@ -4447,6 +4447,20 @@ public sealed class GameSession
     }
 
     /// <summary>
+    /// Floor-only boss mask, drawn immediately after the background and
+    /// before every entity/projectile -- unlike <see cref="DrawBossArenaOcclusion"/>,
+    /// which intentionally runs last so nothing can leak past the arena
+    /// boundary. Currently only Aphantasia's end-of-fight void vortex uses
+    /// this hook.
+    /// </summary>
+    public void DrawBossFloorOcclusion(SpriteBatch spriteBatch)
+    {
+        if (State.ActiveBoss is not IBossFloorOcclusion floor)
+            return;
+        floor.DrawFloorOcclusion(spriteBatch, Camera, PlayerWorldCenter, ScreenShake);
+    }
+
+    /// <summary>
     /// Covers unexplored tiles and dims explored tiles outside current line
     /// of sight. This runs after every world object (including loot/portals)
     /// and before the HUD, so discovery applies consistently without

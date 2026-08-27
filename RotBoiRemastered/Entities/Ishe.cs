@@ -439,6 +439,7 @@ public class Ishe : PathChaseBoss
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         AdvanceAge();
         FlashSurvivalRemaining = Math.Max(0.0, FlashSurvivalRemaining - dt);
         _flashCooldown -= dt;
@@ -557,6 +558,13 @@ public class Ishe : PathChaseBoss
         DrawSightSymbol(spriteBatch, ground, Size * .48f, alpha: .45f, applyDisruption: false);
     }
 
+    /// <summary>The display name of the current phase's sight symbol, without drawing it.</summary>
+    private string CurrentSightSymbolName()
+    {
+        string symbolKey = SightSymbolOrder[(Phase - 1) % SightSymbolOrder.Count];
+        return SightSymbols[symbolKey].Name;
+    }
+
     public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
@@ -564,12 +572,9 @@ public class Ishe : PathChaseBoss
             return;
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        var center = rect.Center.ToVector2();
-        DrawGroundSightSymbol(spriteBatch, center);
-        string name = DrawSightSymbol(spriteBatch, center, Size * .34f);
         if (EntranceRemaining > 0)
         {
-            UiTheme.DrawText(spriteBatch, name, 9, PhaseAccent, new Vector2(rect.Center.X, rect.Y - 12), "midbottom");
+            UiTheme.DrawText(spriteBatch, CurrentSightSymbolName(), 9, PhaseAccent, new Vector2(rect.Center.X, rect.Y - 12), "midbottom");
         }
     }
 }

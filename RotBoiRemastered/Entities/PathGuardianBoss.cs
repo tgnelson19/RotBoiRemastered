@@ -1416,7 +1416,6 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         int radius = Math.Max(9, body.Width / 5);
         DrawSenseArchitecture(spriteBatch, body, center, radius, bodyColor,
             Math.Max(AttackAnticipation, attackPulse), pose);
-        DrawSenseSigil(spriteBatch, center, radius, accent);
         for (int index = 0; index < Phase; index++)
         {
             var pip = new Rectangle(body.X + 8 + index * 11, body.Bottom - 15, 7, 7);
@@ -1649,6 +1648,13 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                         new Rectangle((int)center.X - radius * ring / 2, (int)center.Y - radius * ring / 2,
                             radius * ring, radius * ring),
                         -MathF.PI / 2, MathF.PI / 2, accent, stroke);
+                // Every other sense's sigil carries a center accent dot;
+                // sound's rings alone read thinner without one -- shaded
+                // toward shadow with a small upper-left highlight, the same
+                // cheap sphere trick used elsewhere (see ChildEnemy.cs).
+                Primitives2D.FillCircle(spriteBatch, center, radius * .3f, Color.Lerp(UiTheme.Cream, UiTheme.Ink, .3f));
+                Primitives2D.FillCircle(spriteBatch, center - new Vector2(radius * .09f, radius * .09f),
+                    radius * .12f, UiTheme.Cream);
                 break;
             case "touch":
                 Primitives2D.Line(spriteBatch, center + new Vector2(-radius, 0), center + new Vector2(radius, 0), accent, stroke);

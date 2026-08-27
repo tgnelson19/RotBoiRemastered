@@ -300,7 +300,13 @@ public sealed class PathVariantEnemy : WanderingRangedEnemy
         else if (Variant.StartsWith("sight_"))
         {
             Primitives2D.CircleOutline(spriteBatch, center, radius, UiTheme.Cream, stroke);
-            Primitives2D.FillCircle(spriteBatch, center, Math.Max(3, radius / 3), UiTheme.Red);
+            float sightRadius = Math.Max(3, radius / 3);
+            // Tier 1: shade the iris disc toward its shadow side and add a
+            // small upper-left highlight dot -- the cheapest version of the
+            // shared highlight/shadow bevel trick, selling it as a lit sphere.
+            Primitives2D.FillCircle(spriteBatch, center, sightRadius, Color.Lerp(UiTheme.Red, UiTheme.Ink, .3f));
+            Primitives2D.FillCircle(spriteBatch, center - new Vector2(sightRadius * .3f, sightRadius * .3f),
+                sightRadius * .4f, UiTheme.Red);
         }
         else if (Variant.StartsWith("chem_"))
         {
@@ -322,7 +328,13 @@ public sealed class PathVariantEnemy : WanderingRangedEnemy
                 center + new Vector2(-radius, 0),
                 UiTheme.Cream,
                 stroke);
-            Primitives2D.FillCircle(spriteBatch, center, Math.Max(2, radius / 4), UiTheme.Gold);
+            float coreRadius = Math.Max(2, radius / 4);
+            // Tier 1: shade the core disc toward its shadow side and add a
+            // small upper-left highlight dot -- the cheapest version of the
+            // shared highlight/shadow bevel trick, selling it as a lit sphere.
+            Primitives2D.FillCircle(spriteBatch, center, coreRadius, Color.Lerp(UiTheme.Gold, UiTheme.Ink, .3f));
+            Primitives2D.FillCircle(spriteBatch, center - new Vector2(coreRadius * .3f, coreRadius * .3f),
+                coreRadius * .4f, UiTheme.Gold);
         }
     }
 }

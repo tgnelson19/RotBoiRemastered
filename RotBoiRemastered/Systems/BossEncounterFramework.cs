@@ -182,6 +182,23 @@ public interface IBossArenaOcclusion
 }
 
 /// <summary>
+/// A boss-owned mask that must paint only the floor/background layer --
+/// before the player, boss body, and every projectile are drawn, rather than
+/// after everything like <see cref="IBossArenaOcclusion"/>'s final pass.
+/// Introduced for Aphantasia's end-of-fight void vortex, which used to share
+/// the final occlusion pass and so painted over the boss/player/projectiles
+/// once its radius grew past them.
+/// </summary>
+public interface IBossFloorOcclusion
+{
+    void DrawFloorOcclusion(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake);
+}
+
+/// <summary>
 /// Runtime ownership for a Path floor-five/ten encounter. The old floor is
 /// retained only as suspended provenance until the player advances; it is
 /// never updated or rendered while this state is active.

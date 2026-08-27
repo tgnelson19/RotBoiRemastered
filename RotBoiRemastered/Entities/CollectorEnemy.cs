@@ -99,6 +99,7 @@ public sealed class CollectorEnemy : Enemy
             new Vector2(rect.Left, rect.Center.Y),
         };
         Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Green);
+        Primitives2D.DrawPolygonBevel(spriteBatch, points, UiTheme.Green, 2);
         for (int index = 0; index < 3; index++)
         {
             float angle = Age * .08f + index * MathF.Tau / 3f;

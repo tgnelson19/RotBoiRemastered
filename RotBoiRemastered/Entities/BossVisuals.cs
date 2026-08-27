@@ -63,52 +63,87 @@ internal static class BossVisuals
         }
     }
 
+    /// <summary>Local-space vertices of a unit cube, index-encoded the same way the original hand-built cube rig used.</summary>
+    private static readonly Vector3[] CubeVertices =
+    [
+        new(-1, -1, -1), new(1, -1, -1), new(1, 1, -1), new(-1, 1, -1),
+        new(-1, -1, 1), new(1, -1, 1), new(1, 1, 1), new(-1, 1, 1),
+    ];
+
     /// <summary>Draw a genuinely rotating perspective cube for the cores that must read as three-dimensional.</summary>
     public static void RotatingCube3D(SpriteBatch batch, Vector2 center, float extent, Color primary,
-        Color secondary, Color accent, float yaw, float pitch, float roll = 0f)
+        Color secondary, Color accent, float yaw, float pitch, float roll = 0f) =>
+        RotatingSolid3D(batch, center, extent, CubeVertices, CubeFaces,
+            faceIndex => PhysicalCubeFaceColor(faceIndex, primary, secondary, accent),
+            yaw, pitch, roll, edgeAccent: accent);
+
+    /// <summary>
+    /// Generalization of the rotate -> project -> backface-cull -> depth-sort
+    /// -> per-face-light -> draw pipeline <see cref="RotatingCube3D"/> was
+    /// originally hand-built just for a cube: identical math, but the caller
+    /// supplies its own local-space vertex set and face list (each face a
+    /// list of 3+ vertex indices), so any convex solid -- a cube, a
+    /// diamond/bipyramid, a future prism -- can share one implementation
+    /// instead of re-deriving its own copy of this pipeline.
+    /// </summary>
+    public static void RotatingSolid3D(
+        SpriteBatch batch,
+        Vector2 center,
+        float extent,
+        ReadOnlySpan<Vector3> localVertices,
+        int[][] faces,
+        Func<int, Color> faceColor,
+        float yaw,
+        float pitch,
+        float roll = 0f,
+        Color? edgeAccent = null,
+        float cameraZ = 4.2f)
     {
-        Span<Vector3> vertices = stackalloc Vector3[8];
-        Span<Vector3> rotatedVertices = stackalloc Vector3[8];
+        int vertexCount = localVertices.Length;
+        Span<Vector3> rotatedVertices = vertexCount <= 32 ? stackalloc Vector3[vertexCount] : new Vector3[vertexCount];
+        Span<Vector3> projected = vertexCount <= 32 ? stackalloc Vector3[vertexCount] : new Vector3[vertexCount];
         float cosYaw = MathF.Cos(yaw);
         float sinYaw = MathF.Sin(yaw);
         float cosPitch = MathF.Cos(pitch);
         float sinPitch = MathF.Sin(pitch);
         float cosRoll = MathF.Cos(roll);
         float sinRoll = MathF.Sin(roll);
-        for (int index = 0; index < vertices.Length; index++)
+        for (int index = 0; index < vertexCount; index++)
         {
-            float x = index is 1 or 2 or 5 or 6 ? 1f : -1f;
-            float y = index is 2 or 3 or 6 or 7 ? 1f : -1f;
-            float z = index >= 4 ? 1f : -1f;
-            float yawX = x * cosYaw + z * sinYaw;
-            float yawZ = -x * sinYaw + z * cosYaw;
-            float pitchY = y * cosPitch - yawZ * sinPitch;
-            float pitchZ = y * sinPitch + yawZ * cosPitch;
+            Vector3 local = localVertices[index];
+            float yawX = local.X * cosYaw + local.Z * sinYaw;
+            float yawZ = -local.X * sinYaw + local.Z * cosYaw;
+            float pitchY = local.Y * cosPitch - yawZ * sinPitch;
+            float pitchZ = local.Y * sinPitch + yawZ * cosPitch;
             float rollX = yawX * cosRoll - pitchY * sinRoll;
             float rollY = yawX * sinRoll + pitchY * cosRoll;
             rotatedVertices[index] = new Vector3(rollX, rollY, pitchZ);
-            float perspective = 4.2f / Math.Max(1.7f, 4.2f - pitchZ);
-            vertices[index] = new Vector3(center.X + rollX * extent * perspective,
+            float perspective = cameraZ / Math.Max(cameraZ * .4f, cameraZ - pitchZ);
+            projected[index] = new Vector3(center.X + rollX * extent * perspective,
                 center.Y + rollY * extent * perspective, pitchZ);
         }
 
-        Span<int> faceOrder = stackalloc int[6];
-        static float FaceDepth(ReadOnlySpan<Vector3> cubeVertices, int faceIndex)
+        Span<int> faceOrder = faces.Length <= 32 ? stackalloc int[faces.Length] : new int[faces.Length];
+        static float FaceDepth(ReadOnlySpan<Vector3> projectedVertices, int[][] solidFaces, int faceIndex)
         {
-            var face = CubeFaces[faceIndex];
-            return (cubeVertices[face[0]].Z + cubeVertices[face[1]].Z +
-                cubeVertices[face[2]].Z + cubeVertices[face[3]].Z) * .25f;
+            var face = solidFaces[faceIndex];
+            float sum = 0f;
+            foreach (int vertexIndex in face)
+                sum += projectedVertices[vertexIndex].Z;
+            return sum / face.Length;
         }
         int visibleFaces = 0;
-        var camera = new Vector3(0, 0, 4.2f);
-        for (int faceIndex = 0; faceIndex < CubeFaces.Length; faceIndex++)
+        var camera = new Vector3(0, 0, cameraZ);
+        for (int faceIndex = 0; faceIndex < faces.Length; faceIndex++)
         {
-            var face = CubeFaces[faceIndex];
+            var face = faces[faceIndex];
             Vector3 first = rotatedVertices[face[0]];
             Vector3 second = rotatedVertices[face[1]];
             Vector3 third = rotatedVertices[face[2]];
-            Vector3 faceCenter = (rotatedVertices[face[0]] + rotatedVertices[face[1]]
-                + rotatedVertices[face[2]] + rotatedVertices[face[3]]) * .25f;
+            Vector3 faceCenter = Vector3.Zero;
+            foreach (int vertexIndex in face)
+                faceCenter += rotatedVertices[vertexIndex];
+            faceCenter /= face.Length;
             Vector3 normal = Vector3.Cross(second - first, third - first);
             if (Vector3.Dot(normal, faceCenter) < 0)
                 normal = -normal;
@@ -119,12 +154,12 @@ internal static class BossVisuals
         for (int index = 1; index < visibleFaces; index++)
         {
             int candidate = faceOrder[index];
-            float candidateDepth = FaceDepth(vertices, candidate);
+            float candidateDepth = FaceDepth(projected, faces, candidate);
             int insertion = index - 1;
             while (insertion >= 0)
             {
                 int existing = faceOrder[insertion];
-                float existingDepth = FaceDepth(vertices, existing);
+                float existingDepth = FaceDepth(projected, faces, existing);
                 bool after = existingDepth > candidateDepth + .0001f
                     || (MathF.Abs(existingDepth - candidateDepth) <= .0001f
                         && existing > candidate);
@@ -136,31 +171,32 @@ internal static class BossVisuals
             faceOrder[insertion + 1] = candidate;
         }
 
-        Span<Vector2> projected = stackalloc Vector2[24];
-        for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
-        {
-            var face = CubeFaces[faceOrder[orderedIndex]];
-            int offset = orderedIndex * 4;
-            for (int vertex = 0; vertex < 4; vertex++)
-                projected[offset + vertex] = new Vector2(vertices[face[vertex]].X, vertices[face[vertex]].Y);
-        }
         var shadowOffset = new Vector2(5, 7);
-        Span<Vector2> shadow = stackalloc Vector2[4];
+        Span<Vector2> faceBuffer = stackalloc Vector2[8];
         for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
         {
-            var points = projected.Slice(orderedIndex * 4, 4);
-            for (int vertex = 0; vertex < points.Length; vertex++)
-                shadow[vertex] = points[vertex] + shadowOffset;
-            Primitives2D.FillPolygonSpan(batch, shadow, UiTheme.Shadow);
+            var face = faces[faceOrder[orderedIndex]];
+            for (int vertex = 0; vertex < face.Length; vertex++)
+            {
+                var p = projected[face[vertex]];
+                faceBuffer[vertex] = new Vector2(p.X, p.Y) + shadowOffset;
+            }
+            Primitives2D.FillPolygonSpan(batch, faceBuffer[..face.Length], UiTheme.Shadow);
         }
         for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
         {
-            var points = projected.Slice(orderedIndex * 4, 4);
             int physicalFace = faceOrder[orderedIndex];
-            Color face = PhysicalCubeFaceColor(physicalFace, primary, secondary, accent);
-            Primitives2D.FillPolygonSpan(batch, points, face);
+            var face = faces[physicalFace];
+            for (int vertex = 0; vertex < face.Length; vertex++)
+            {
+                var p = projected[face[vertex]];
+                faceBuffer[vertex] = new Vector2(p.X, p.Y);
+            }
+            var points = faceBuffer[..face.Length];
+            Primitives2D.FillPolygonSpan(batch, points, faceColor(physicalFace));
             Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink, Math.Max(2, (int)(extent * .095f)));
-            Primitives2D.Line(batch, points[0], points[1], UiTheme.Lighten(accent, 34), Math.Max(1, (int)(extent * .035f)));
+            if (edgeAccent.HasValue)
+                Primitives2D.Line(batch, points[0], points[1], UiTheme.Lighten(edgeAccent.Value, 34), Math.Max(1, (int)(extent * .035f)));
         }
     }
 

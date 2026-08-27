@@ -191,6 +191,7 @@ public sealed class Ache : Kage
     private float _flinchDirection;
     private double _flinchRemaining;
     private bool _overreactionCascadePending;
+    private float _facingYaw;
 
     private readonly record struct ReactiveCounter(double Delay, float Direction, float Damage, string Suffix);
 
@@ -342,6 +343,9 @@ public sealed class Ache : Kage
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
         UpdateReactiveCounters(context.ProjectileSink, dt);
         _flinchRemaining = Math.Max(0.0, _flinchRemaining - dt);
         if (_overreactionCascadePending)
@@ -412,7 +416,11 @@ public sealed class Ache : Kage
     private void GrowCrystalWall(float angle, double duration = 8.0, string? kind = null, float distanceTiles = 3.9f, bool compression = false)
     {
         var center = Center();
-        float distance = Simulation.TileSize * distanceTiles;
+        // distanceTiles is boss-relative, not ArenaRadius-relative, so it
+        // needs ArenaFormationScale to keep the wall's spawn point (and the
+        // ground it has to cover to reach the boss) proportional to the
+        // bigger arena.
+        float distance = Simulation.TileSize * distanceTiles * ArenaFormationScale;
         float wallCenterX = center.X + MathF.Cos(angle) * distance;
         float wallCenterY = center.Y + MathF.Sin(angle) * distance;
         bool horizontal = Math.Abs(MathF.Cos(angle)) < Math.Abs(MathF.Sin(angle));
@@ -447,9 +455,16 @@ public sealed class Ache : Kage
             {
                 float deltaX = center.X - wall.CenterX, deltaY = center.Y - wall.CenterY;
                 float distance = Math.Max(1.0f, MathF.Sqrt(deltaX * deltaX + deltaY * deltaY));
-                if (distance > Simulation.TileSize * 2.25f)
+                // The boss's own FixedPath patrol loop already scales its
+                // radius (and so its linear speed, for the same loop period)
+                // with ArenaRadius. A compression wall chases the boss's
+                // *current* position every frame, so its catch-up speed and
+                // stop threshold need the same ArenaFormationScale to keep
+                // pace with a target that now moves proportionally farther
+                // and faster.
+                if (distance > Simulation.TileSize * 2.25f * ArenaFormationScale)
                 {
-                    float step = Simulation.TileSize * .34f * (float)dt;
+                    float step = Simulation.TileSize * .34f * ArenaFormationScale * (float)dt;
                     wall.CenterX += deltaX / distance * step;
                     wall.CenterY += deltaY / distance * step;
                     wall.Rect = new Rectangle((int)MathF.Round(wall.CenterX) - wall.Rect.Width / 2,
@@ -606,7 +621,6 @@ public sealed class Ache : Kage
         }
 
         DrawHeatShimmer(spriteBatch, camera, playerWorldPosition, screenShake);
-        DrawGroundSinSigil(spriteBatch, center);
 
         float seconds = VisualAgeSeconds;
         float attackPulse = VisualAttackPulse;
@@ -701,9 +715,12 @@ public sealed class Ache : Kage
                 seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f));
         }
 
+        bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        float coreYaw = facingActive ? _facingYaw : seconds * 2.46f;
         BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
-            seconds * 2.46f, .58f + BossAnimation.Sine(seconds, .79f) * .32f,
+            coreYaw, .58f + BossAnimation.Sine(seconds, .79f) * .32f,
             BossAnimation.Sine(seconds, .98f) * .18f);
+
         float energyRadius = Size * (.075f + .012f * BossAnimation.Sine(seconds, .57f));
         Primitives2D.FillCircle(spriteBatch, jittered, (int)energyRadius + 5, UiTheme.Ink);
         Primitives2D.FillCircle(spriteBatch, jittered, Math.Max(2, (int)energyRadius), blue);
@@ -773,6 +790,7 @@ public sealed class Ache : Kage
             Primitives2D.Line(spriteBatch, new Vector2(point.X, point.Y - radius), new Vector2(point.X, point.Y + radius), color, 2);
         }
 
+        Span<Vector2> wallPoints = stackalloc Vector2[4];
         foreach (var wall in _crystalWalls)
         {
             var rect = wall.Rect;
@@ -792,7 +810,14 @@ public sealed class Ache : Kage
             if (warning)
                 Primitives2D.RectOutline(spriteBatch, screenRect, color, 3);
             else
+            {
                 Primitives2D.FillRect(spriteBatch, screenRect, color);
+                wallPoints[0] = new(screenRect.Left, screenRect.Top);
+                wallPoints[1] = new(screenRect.Right, screenRect.Top);
+                wallPoints[2] = new(screenRect.Right, screenRect.Bottom);
+                wallPoints[3] = new(screenRect.Left, screenRect.Bottom);
+                Primitives2D.DrawPolygonBevel(spriteBatch, wallPoints, color, 2);
+            }
             int stripeStep = Math.Max(8, (int)(Simulation.TileSize * .4f));
             int span = Math.Max(screenRect.Width, screenRect.Height);
             for (int offset = 0; offset < span; offset += stripeStep)

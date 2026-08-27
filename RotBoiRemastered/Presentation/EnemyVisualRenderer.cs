@@ -38,7 +38,7 @@ public static class EnemyVisualRenderer
         DrawChassis(spriteBatch, profile.BodyKind, geometry, pose.Center,
             axisX, axisY, halfX, halfY, bodyColor);
         DrawOutline(spriteBatch, profile.BodyKind, geometry,
-            UiTheme.Ink, Math.Max(2, (int)(authoredSize * .065f)));
+            UiTheme.Ink, Math.Max(2, (int)(authoredSize * .065f)), bodyColor);
 
         DrawSoulCore(spriteBatch, profile, pose, geometry, bodyColor, authoredSize);
         DrawConstructionTier(spriteBatch, profile, pose, geometry, authoredSize);
@@ -114,7 +114,8 @@ public static class EnemyVisualRenderer
         SoulBodyKind kind,
         in BodyGeometry geometry,
         Color color,
-        int width)
+        int width,
+        Color bodyColor)
     {
         Span<Vector2> outline = stackalloc Vector2[12];
         int count;
@@ -146,6 +147,10 @@ public static class EnemyVisualRenderer
             outline[6] = geometry.Point(-1f, .58f); outline[7] = geometry.Point(-1f, -.58f);
         }
         Primitives2D.PolygonOutlineSpan(spriteBatch, outline[..count], color, width);
+        // Tier 1: cheap 3-tone bevel -- lightens edges facing the shared
+        // upper-left key light and darkens edges facing away, so every
+        // enemy silhouette reads as faceted instead of flat-filled.
+        Primitives2D.DrawPolygonBevel(spriteBatch, outline[..count], bodyColor, Math.Max(2, width - 1));
     }
 
     private static void DrawSoulCore(
@@ -191,11 +196,17 @@ public static class EnemyVisualRenderer
                     core, Math.Max(2, (int)(size * .05f)));
                 break;
             default:
-                Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
+                Span<Vector2> coreDiamond = stackalloc Vector2[]
                 {
                     geometry.Point(0, -.48f * pulse), geometry.Point(.4f, 0),
                     geometry.Point(0, .48f * pulse), geometry.Point(-.4f, 0),
-                }, path.Deep);
+                };
+                Primitives2D.FillPolygonSpan(spriteBatch, coreDiamond, path.Deep);
+                // Tier 2: fake receding depth -- a couple of shrinking,
+                // darkening copies toward the core center so the soul mark
+                // reads as an inset socket instead of a flat decal.
+                Primitives2D.DrawGlyphDepthLayers(spriteBatch, coreDiamond, geometry.Point(0, 0),
+                    core, path.Deep, Math.Max(1, (int)(size * .02f)), .35f);
                 Primitives2D.FillRect(spriteBatch,
                     CenteredRect(geometry.Point(0, 0), size * .12f, size * .12f), core);
                 break;

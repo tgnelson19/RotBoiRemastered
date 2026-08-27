@@ -38,6 +38,14 @@ public sealed class ChildEnemy : Enemy
                 new Vector2(rect.Center.X, rect.Center.Y), parent,
                 UiTheme.Purple * (.25f + .18f * MathF.Sin(Age * .13f)), 2);
         }
-        Primitives2D.FillCircle(spriteBatch, new Vector2(rect.Center.X, rect.Center.Y), Math.Max(2, (int)(Size * .12f)), UiTheme.Cream);
+        Vector2 core = new(rect.Center.X, rect.Center.Y);
+        float coreRadius = Math.Max(2, Size * .12f);
+        // Tier 1: shade the disc toward its shadow side and add a small
+        // upper-left highlight dot -- the cheapest version of the shared
+        // highlight/shadow bevel trick, selling the core as a lit sphere
+        // instead of a flat disc.
+        Primitives2D.FillCircle(spriteBatch, core, coreRadius, Color.Lerp(UiTheme.Cream, UiTheme.Ink, .3f));
+        Primitives2D.FillCircle(spriteBatch, core - new Vector2(coreRadius * .3f, coreRadius * .3f),
+            coreRadius * .4f, UiTheme.Cream);
     }
 }

@@ -262,6 +262,51 @@ public static class Primitives2D
         }
     }
 
+    /// <summary>
+    /// The generic Tier-1 "3D-ify a flat silhouette" trick: re-strokes each
+    /// edge of an already-filled/outlined polygon with a lightened or
+    /// darkened tint of <paramref name="baseColor"/> depending on whether
+    /// that edge's outward normal faces toward or away from a fixed
+    /// upper-left key light -- the same highlight/shadow-lerp idiom
+    /// <see cref="Entities.BossVisuals"/>'s hand-built cube/cuboid/hinged-plate
+    /// quads use (<c>UiTheme.Lighten</c> for lit faces, <c>Color.Lerp(...,
+    /// UiTheme.Ink, t)</c> for shadowed ones), generalized to work on any
+    /// convex-ish outline instead of a purpose-built quad. Call once per
+    /// shape, right after its normal ink <see cref="PolygonOutlineSpan"/>,
+    /// passing the same points span -- this is the single retrofit point
+    /// that turns a flat silhouette into a beveled one everywhere in the
+    /// codebase without reworking per-shape geometry.
+    /// </summary>
+    public static void DrawPolygonBevel(
+        SpriteBatch spriteBatch,
+        ReadOnlySpan<Vector2> outline,
+        Color baseColor,
+        int width,
+        Vector2? lightDirection = null)
+    {
+        if (outline.Length < 3)
+            return;
+        Vector2 light = lightDirection ?? new Vector2(-.62f, -.79f);
+        Color highlight = new(
+            Math.Min(255, baseColor.R + 40), Math.Min(255, baseColor.G + 40),
+            Math.Min(255, baseColor.B + 40), baseColor.A);
+        Color shadow = Color.Lerp(baseColor, new Color(18, 16, 22), .3f);
+        for (int index = 0; index < outline.Length; index++)
+        {
+            Vector2 a = outline[index];
+            Vector2 b = outline[(index + 1) % outline.Length];
+            Vector2 edge = b - a;
+            if (edge.LengthSquared() < .0001f)
+                continue;
+            Vector2 normal = Vector2.Normalize(new Vector2(edge.Y, -edge.X));
+            float lit = Vector2.Dot(normal, light);
+            if (lit > .15f)
+                Line(spriteBatch, a, b, highlight, width);
+            else if (lit < -.15f)
+                Line(spriteBatch, a, b, shadow, width);
+        }
+    }
+
     public static void FillRect(SpriteBatch spriteBatch, Rectangle rect, Color color)
     {
         spriteBatch.Draw(Pixel, rect, color);

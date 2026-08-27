@@ -79,6 +79,10 @@ public sealed class BannerCaptain : Enemy
             new Vector2(rect.Center.X + 3, rect.Y + 3),
         };
         Primitives2D.FillPolygon(spriteBatch, pennant, UiTheme.Cream);
+        Primitives2D.DrawPolygonBevel(spriteBatch, pennant, UiTheme.Cream, 2);
+        // Tier 2: a faint breathing ring marks the captain as a squad leader
+        // rather than a rank-and-file spawn, same cue used by other elites.
+        BossVisuals.OscillatingAura(spriteBatch, pose.Center, Age, Size * .5f, UiTheme.Gold, bands: 2);
         if (pose.AttackPulse > 0)
             Primitives2D.EllipseOutline(spriteBatch,
                 new Rectangle((int)(pose.Center.X - Size * (.55f + pose.AttackPulse * .3f)),
