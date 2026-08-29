@@ -145,6 +145,176 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
     protected float DeathProgress => Dying ? (float)Math.Clamp(1.0 - DeathRemaining / DeathDuration, 0.0, 1.0) : 0f;
     public double FinaleProgress => FinaleActive ? Math.Clamp(1.0 - FinaleRemaining / FinaleDuration, 0.0, 1.0) : 0.0;
 
+    // ---- Shared phase choreography ------------------------------------
+    // Every boss used to advance on hardcoded health ratios, which let a
+    // high-damage player walk a fight without ever completing a pattern.
+    // The governor below makes advancement time-driven and caps how much
+    // health one phase may surrender; the rotation picks the next phase at
+    // random instead of walking a fixed order; the interlude is the beat
+    // between phases. See Systems/BossPhaseChoreography.cs.
+
+    protected readonly BossPhaseGovernor PhaseGovernor = new();
+    protected readonly BossPhaseRotation PhaseRotation = new();
+    protected readonly BossPhaseInterlude PhaseInterlude = new();
+
+    /// <summary>
+    /// Sense finales ride the whole phase timer; everything below one is
+    /// released seven seconds after the player hits the damage threshold so
+    /// the shorter fights stay short.
+    /// </summary>
+    protected virtual BossPhaseHoldStyle PhaseHoldStyle => Config.FinalBoss
+        ? BossPhaseHoldStyle.FullTimer
+        : BossPhaseHoldStyle.SevenSecondCap;
+
+    /// <summary>The signature flourish played while returning to the arena centre.</summary>
+    protected virtual BossInterludeStyle InterludeStyle => BossInterludeStyle.Settle;
+
+    protected virtual double InterludeDuration => BossPhaseInterlude.DefaultDuration;
+
+    /// <summary>
+    /// Authored seconds for a damage phase. Finales sit at the long end of
+    /// the 15-25s band, mid bosses at the short end; override to weight an
+    /// individual phase by how intense it is.
+    /// </summary>
+    protected virtual double PhaseTimeLimitFor(int phase) => Config.FinalBoss ? 21.0 : 17.0;
+
+    /// <summary>Difficulty curve applied on top of this boss's authored baseline.</summary>
+    protected virtual BossDifficultyScalars Difficulty => Config.FinalBoss
+        ? BossDifficultyScalars.Finale
+        : BossDifficultyScalars.Midpoint;
+
+    /// <summary>
+    /// This boss's own survival phase, if it has one. Deliberately separate
+    /// from <see cref="VisualSurvivalActive"/>, which also folds in the
+    /// purely cosmetic <see cref="VisualTransitionRemaining"/> -- parking the
+    /// phase clock on a visual timer would stall the fight's opening beat.
+    /// </summary>
+    protected virtual bool EncounterSurvivalActive => false;
+
+    /// <summary>
+    /// True while the encounter is deliberately parked and the phase clock
+    /// must not advance the fight: the entrance, a survival phase, the
+    /// finale, the death spectacle, a debug lock, or the interlude itself.
+    /// </summary>
+    protected virtual bool PhaseClockParked =>
+        DebugPhaseLocked || Dying || FinaleActive
+        || EntranceRemaining > 0 || PhaseInterlude.Active
+        || EncounterSurvivalActive;
+
+    /// <summary>
+    /// Debug and test hook: fast-forwards the current phase's clock so the
+    /// next Update rotates to a new movement.
+    /// </summary>
+    public void DebugCompletePhaseClock() =>
+        PhaseGovernor.Tick(PhaseGovernor.TimeLimit + 1.0);
+
+    /// <summary>
+    /// Debug and test hook: re-baselines the phase damage budget after an
+    /// external write to <see cref="Enemy.Hp"/>.
+    /// </summary>
+    public void DebugRebasePhaseHealth() => RebasePhaseHealth();
+
+    public bool PhaseInterludeActive => PhaseInterlude.Active;
+    public float PhaseInterludeProgress => PhaseInterlude.Progress;
+    public double PhaseClockElapsed => PhaseGovernor.Elapsed;
+    public double PhaseClockLimit => PhaseGovernor.TimeLimit;
+    public bool PhaseDamageThresholdReached => PhaseGovernor.ThresholdReached;
+
+    /// <summary>
+    /// Firing stops for the whole interlude -- the arena is being cleared,
+    /// not contested.
+    /// </summary>
+    protected bool FiringSuppressed => PhaseInterlude.Active;
+
+    /// <summary>
+    /// Past the halfway mark the boss commits to a second form: more
+    /// saturated colour and denser, layered geometry. Reported as a 0-1 ramp
+    /// so bodies can ease into it rather than popping.
+    /// </summary>
+    public virtual bool SecondFormActive => !Dying && Hp <= MaxHp * .5;
+    public float SecondFormBlend => SecondFormActive
+        ? (float)Math.Clamp((MaxHp * .5 - Hp) / Math.Max(1.0, MaxHp * .28), 0.0, 1.0)
+        : 0f;
+
+    /// <summary>
+    /// Advances the phase clock and the interlude. Must run before any
+    /// early return in a subclass Update override -- several bosses skip
+    /// `base.Update` entirely on survival and burrow frames, and a clock
+    /// ticked only in the base would freeze exactly where it is needed.
+    /// </summary>
+    protected void TickEncounterClock(double dt)
+    {
+        PhaseInterlude.Style = InterludeStyle;
+        PhaseInterlude.Tick(dt);
+        // The transition beat clears the arena and walks the boss back to
+        // centre; the endurance test only starts once it lands.
+        if (!PhaseInterlude.Active)
+            TickSurvivalPhase(dt);
+        PhaseGovernor.HoldStyle = PhaseHoldStyle;
+        PhaseGovernor.Suspended = PhaseClockParked;
+        if (!PhaseClockParked)
+            PhaseGovernor.Tick(dt);
+    }
+
+    /// <summary>
+    /// Advances a boss's own survival-phase countdown. Bair and Kage used to
+    /// run theirs inside <see cref="UpdatePhase"/>, which the interlude now
+    /// skips -- a survival entered straight from a phase transition would
+    /// have stalled forever. Hooked here so it runs ahead of every early
+    /// return instead.
+    /// </summary>
+    protected virtual void TickSurvivalPhase(double dt)
+    {
+    }
+
+    /// <summary>
+    /// Eases the body back toward the arena centre for the duration of the
+    /// interlude. Modelled on Aphantasia's phase handoff, the only encounter
+    /// that had a real transition before this.
+    /// </summary>
+    protected void SettleDuringInterlude(double dt)
+    {
+        if (!PhaseInterlude.Active)
+            return;
+        Vector2 settled = BossPhaseInterlude.SettleToward(Center(), ArenaCenter, dt);
+        WorldX = settled.X - Size / 2f;
+        WorldY = settled.Y - Size / 2f;
+    }
+
+    /// <summary>
+    /// The shared phase-entry hook. Resets the clock against the new phase's
+    /// authored limit, re-baselines the damage budget, and opens the
+    /// interlude -- latching the projectile sweep and the player's grace
+    /// exactly once, because several bosses call their phase setter
+    /// unconditionally from `UpdatePhase`.
+    /// </summary>
+    protected void EnterPhase(int phase, bool interlude = true)
+    {
+        PhaseGovernor.BeginPhase(PhaseTimeLimitFor(phase), Hp, MaxHp);
+        bool firstPhase = !_hasEnteredAPhase;
+        _hasEnteredAPhase = true;
+        // The opening phase is set from the constructor and again while the
+        // entrance plays: there is no outgoing pattern to sweep and nothing to
+        // travel back from, so the beat would only stall the fight's start.
+        if (!interlude || firstPhase || EntranceRemaining > 0 || Dying || DebugPhaseLocked)
+            return;
+        if (PhaseInterlude.Begin(InterludeDuration))
+        {
+            TransitionSweepRequested = true;
+            PhaseInterludeInvulnerabilitySeconds = InterludeDuration;
+        }
+    }
+
+    private bool _hasEnteredAPhase;
+
+    /// <summary>
+    /// Re-baselines the damage budget after a health write that is not a
+    /// phase change (survival entry and exit, finale entry, New Game+
+    /// rescaling). Without this the next phase reads as already over budget
+    /// and blocks every hit.
+    /// </summary>
+    protected void RebasePhaseHealth() => PhaseGovernor.RebaseHealth(Hp, MaxHp);
+
     public PathChaseBoss(float worldX, float worldY, Battleground battleground, PathChaseBossConfig config, Random? rng = null)
         : base(worldX, worldY,
             (float)(config.MovementSpeed * (config.FinalBoss ? 1.16 : 1.0)),
@@ -187,6 +357,19 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
             PlayerWorldY = 0,
             Battleground = battleground,
         };
+        // Seed the opening phase's clock and damage budget here rather than
+        // relying on a subclass constructor to call its phase setter: several
+        // do not, and an unseeded governor reports a zero health baseline,
+        // which reads as "already over budget" and blocks the whole fight.
+        PhaseGovernor.HoldStyle = PhaseHoldStyle;
+        PhaseGovernor.BeginPhase(PhaseTimeLimitFor(Phase), Hp, MaxHp);
+        // Construction *is* the opening phase entry, whether or not this
+        // subclass routes it through its phase setter (Ache and Malady do
+        // not). Marking it here means the first real rotation is treated as
+        // a rotation and gets its interlude; the EntranceRemaining guard in
+        // EnterPhase still suppresses a beat for setters called from a
+        // subclass constructor.
+        _hasEnteredAPhase = true;
     }
 
     private static string ToTitleCase(string text) => string.Join(" ", text.Split(' ').Select(
@@ -552,6 +735,7 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
 
     public override void Update(EnemyUpdateContext context)
     {
+        TickEncounterClock(Seconds());
         if (UpdateDeathSpectacle())
             return;
         double dt = Seconds();
@@ -561,6 +745,13 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
         ArenaRingSeconds += dt;
+        if (PhaseInterlude.Active)
+        {
+            SettleDuringInterlude(dt);
+            AdvanceAge();
+            FinishMovementTracking();
+            return;
+        }
         UpdatePhase();
         UpdateLocomotion(context);
         AttackCooldown -= (float)Simulation.GetTimerStep();
@@ -604,7 +795,12 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
             spriteBatch, vertices, UiTheme.Ink, 8);
         Primitives2D.PolygonOutlineSpan(
             spriteBatch, vertices, PhaseAccent, 3);
-        double progress = 1 - (ArenaRingSeconds % PhaseTimeLimit) / PhaseTimeLimit;
+        // Drive the ring from the live phase clock rather than a free-running
+        // counter: it now reads as "time left in this phase", which is the
+        // information the timer-driven rotation made worth showing.
+        double progress = PhaseGovernor.TimeLimit > 0
+            ? 1 - PhaseGovernor.Progress
+            : 1 - (ArenaRingSeconds % PhaseTimeLimit) / PhaseTimeLimit;
         int lit = Math.Max(2, (int)(vertices.Length * progress));
         Primitives2D.PolylineSpan(
             spriteBatch,

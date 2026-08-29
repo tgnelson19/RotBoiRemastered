@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Entities;
@@ -12,7 +13,7 @@ namespace RotBoiRemastered.Entities;
 public class Kage : SinChemesthesisBoss
 {
     public const int MinimumKageDamagePhaseDeclarations = 2;
-    public const double StagnantMirrorDuration = 14.0;
+    public const double StagnantMirrorDuration = 20.0;
     public const int KageActiveThreatSoftCap = 36;
     // Rot (bossTypes.py's Rot(Kage)) inherits Kage's shared _fire_pattern
     // building blocks but supplies its own config/sin-sigil content, so the
@@ -119,21 +120,52 @@ public class Kage : SinChemesthesisBoss
     public bool StagnantMirrorCleared { get; private set; }
     public double StagnantMirrorRemaining { get; private set; }
     public int KagePhaseDeclarations => _phaseDeclarations;
+    protected override bool EncounterSurvivalActive =>
+        UsesKageEncounter && StagnantMirrorActive;
+
     protected override bool VisualSurvivalActive =>
         UsesKageEncounter && StagnantMirrorActive || base.VisualSurvivalActive;
 
+    /// <summary>
+    /// Kage's reaction pairs. The stagnant mirror (3) is the closing survival
+    /// and is not part of the rotation.
+    /// </summary>
+    private static readonly int[] KageDamagePhasePool = { 1, 2, 4, 5 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Recoil;
+
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 15.0,
+        2 => 17.0,
+        4 => 18.0,
+        5 => 20.0,
+        _ => 16.0,
+    };
+
+    /// <summary>
+    /// The chemesthesis base re-clamps health to this floor after a hit,
+    /// which is what stops the stagger multiplier overshooting. Kage reports
+    /// its live phase budget rather than a per-phase-index ratio, which
+    /// cannot express a rotation that revisits reactions.
+    /// </summary>
     protected override double DamageFloorRatio()
     {
         if (!UsesKageEncounter)
             return base.DamageFloorRatio();
-        return Phase switch { 1 => .75, 2 or 3 => .50, 4 => .25, _ => 0.0 };
+        if (StagnantMirrorActive || Dying || DebugPhaseLocked)
+            return 0.0;
+        return (double)PhaseGovernor.DamageFloor(nextGateHp: 1) / Math.Max(1, MaxHp);
     }
 
     private void BeginStagnantMirror()
     {
         if (StagnantMirrorActive || StagnantMirrorCleared)
             return;
-        Hp = Math.Max(1, MaxHp / 2);
+        // A level-ten encounter has no midpoint act: the mirror is the closing
+        // endurance check, opened when the health bar runs out.
+        Hp = 1;
+        RebasePhaseHealth();
         SetSinPhase(3);
     }
 
@@ -145,10 +177,27 @@ public class Kage : SinChemesthesisBoss
 
         _phaseDeclarations = 0;
         StagnantMirrorActive = Phase == 3;
-        if (Phase >= 4)
-            StagnantMirrorCleared = true;
+        // Deliberately does NOT infer "cleared" from a high phase index any
+        // more: reactions four and five are now in the rotation from the
+        // start, and inferring it there would skip the closing survival.
+        // Only TickSurvivalPhase and DebugSetPhase clear it.
         if (StagnantMirrorActive)
             StagnantMirrorRemaining = StagnantMirrorDuration;
+    }
+
+    protected override void TickSurvivalPhase(double dt)
+    {
+        if (!UsesKageEncounter || !StagnantMirrorActive || DebugPhaseLocked)
+            return;
+        StagnantMirrorRemaining = Math.Max(0.0, StagnantMirrorRemaining - dt);
+        if (StagnantMirrorRemaining > 0)
+            return;
+        // The mirror is the closing endurance check: surviving it ends the
+        // encounter, so there is no reaction to hand off to.
+        StagnantMirrorActive = false;
+        StagnantMirrorCleared = true;
+        Hp = 0;
+        BeginDeathSpectacle();
     }
 
     protected override void UpdatePhase()
@@ -158,44 +207,20 @@ public class Kage : SinChemesthesisBoss
             base.UpdatePhase();
             return;
         }
+        // The countdown itself lives in TickSurvivalPhase; UpdatePhase is
+        // skipped for the duration of a phase interlude and would strand it.
         if (StagnantMirrorActive)
-        {
-            if (!DebugPhaseLocked)
-            {
-                StagnantMirrorRemaining = Math.Max(
-                    0.0, StagnantMirrorRemaining - Seconds());
-                if (StagnantMirrorRemaining <= 0)
-                {
-                    StagnantMirrorActive = false;
-                    StagnantMirrorCleared = true;
-                    Hp = Math.Max(1, MaxHp / 2);
-                    SetSinPhase(4);
-                }
-            }
             return;
-        }
         if (DebugPhaseLocked || Dying)
             return;
 
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        if (!StagnantMirrorCleared)
+        if (!StagnantMirrorCleared && Hp <= 1)
         {
-            if (ratio <= .5)
-            {
-                if (_phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-                    BeginStagnantMirror();
-                return;
-            }
-            int desired = ratio > .75 ? 1 : 2;
-            if (desired != Phase &&
-                _phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-                SetSinPhase(desired);
+            BeginStagnantMirror();
             return;
         }
-        int lateDesired = ratio > .25 ? 4 : 5;
-        if (lateDesired != Phase
-            && _phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-            SetSinPhase(lateDesired);
+        if (PhaseGovernor.ReadyToAdvance)
+            SetSinPhase(PhaseRotation.Choose(KageDamagePhasePool, Phase, Rng));
     }
 
     public override HitResult TakeDamage(double amount, string partId = "body",
@@ -206,58 +231,24 @@ public class Kage : SinChemesthesisBoss
         if (StagnantMirrorActive || Dying)
             return new HitResult(false, false, 0, true);
 
-        if (!StagnantMirrorCleared)
-        {
-            double floorRatio = Phase == 1 ? .75 : .50;
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * floorRatio));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-                {
-                    if (Phase == 1)
-                        SetSinPhase(2);
-                    else
-                        BeginStagnantMirror();
-                }
-                return new HitResult(false, false, 0, true);
-            }
-            var result = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            if (Hp <= floor && _phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-            {
-                if (Phase == 1)
-                    SetSinPhase(2);
-                else
-                    BeginStagnantMirror();
-            }
-            return new HitResult(result.Applied, false, result.Amount, result.Blocked);
-        }
+        // A reaction surrenders at most its damage budget; the bar bottoms out
+        // at one, where the stagnant mirror opens.
+        int floor = PhaseGovernor.DamageFloor(nextGateHp: 1);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
+            return new HitResult(false, false, 0, true);
 
-        if (StagnantMirrorCleared && Phase == 4)
+        int healthBefore = Hp;
+        var result = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (Hp <= 1)
         {
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * .25));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-                    SetSinPhase(5);
-                return new HitResult(false, false, 0, true);
-            }
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            if (Hp <= floor && _phaseDeclarations >= MinimumKageDamagePhaseDeclarations)
-                SetSinPhase(5);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+            if (!StagnantMirrorCleared)
+                BeginStagnantMirror();
+            else
+                BeginDeathSpectacle();
         }
-
-        if (Phase == 5 && _phaseDeclarations < MinimumKageDamagePhaseDeclarations)
-        {
-            double permitted = Math.Max(0, Hp - 1);
-            if (permitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
-        return base.TakeDamage(amount, partId, source);
+        return new HitResult(result.Applied, false, result.Amount, result.Blocked);
     }
 
     protected override void FireSinPattern(float playerX, float playerY, EnemyUpdateContext context)

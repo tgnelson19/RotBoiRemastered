@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Entities;
@@ -13,7 +14,7 @@ namespace RotBoiRemastered.Entities;
 public sealed class Bair : PlagueTouchBoss
 {
     public const int MinimumDamagePhaseDeclarations = 2;
-    public const double RuinDuration = 14.0;
+    public const double RuinDuration = 20.0;
 
     public static readonly PathChaseBossConfig BairConfig = BaseConfig with
     {
@@ -53,6 +54,8 @@ public sealed class Bair : PlagueTouchBoss
     public double RuinSurvivalRemaining { get; private set; }
     public int PhaseDeclarations => _phaseDeclarations;
 
+    protected override bool EncounterSurvivalActive => RuinSurvivalActive;
+
     protected override bool VisualSurvivalActive => RuinSurvivalActive || base.VisualSurvivalActive;
     protected override double PortalFireCadence => 1.30;
     protected override double PortalWarningDuration => .55;
@@ -66,11 +69,31 @@ public sealed class Bair : PlagueTouchBoss
     {
     }
 
+    /// <summary>
+    /// Bair's wall declarations. Ruin (4) is the closing survival and is not
+    /// part of the rotation.
+    /// </summary>
+    private static readonly int[] BairDamagePhasePool = { 1, 2, 3, 5 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Settle;
+
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 15.0,
+        2 => 16.0,
+        3 => 18.0,
+        5 => 20.0,
+        _ => 16.0,
+    };
+
     private void BeginRuinSurvival()
     {
         if (RuinSurvivalActive || RuinSurvivalCleared)
             return;
-        Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+        // A level-ten encounter has no midpoint act: Ruin is the closing
+        // endurance check, opened when the health bar runs out.
+        Hp = 1;
+        RebasePhaseHealth();
         SetPlaguePhase(4);
     }
 
@@ -79,8 +102,9 @@ public sealed class Bair : PlagueTouchBoss
         base.SetPlaguePhase(phase);
         _phaseDeclarations = 0;
         RuinSurvivalActive = Phase == 4;
-        if (Phase >= 5)
-            RuinSurvivalCleared = true;
+        // Deliberately does NOT infer "cleared" from a high phase index any
+        // more: Solitary is in the rotation from the start, and inferring it
+        // there would skip the closing survival entirely.
         if (RuinSurvivalActive)
         {
             RuinSurvivalRemaining = RuinDuration;
@@ -88,44 +112,37 @@ public sealed class Bair : PlagueTouchBoss
         }
     }
 
+    protected override void TickSurvivalPhase(double dt)
+    {
+        if (!RuinSurvivalActive || DebugPhaseLocked)
+            return;
+        RuinSurvivalRemaining = Math.Max(0.0, RuinSurvivalRemaining - dt);
+        if (RuinSurvivalRemaining > 0)
+            return;
+        // Ruin is the closing endurance check: surviving it ends the
+        // encounter, so there is no declaration to hand off to.
+        RuinSurvivalActive = false;
+        RuinSurvivalCleared = true;
+        Hp = 0;
+        BeginDeathSpectacle();
+    }
+
     protected override void UpdatePhase()
     {
+        // The countdown itself lives in TickSurvivalPhase; UpdatePhase is
+        // skipped for the duration of a phase interlude and would strand it.
         if (RuinSurvivalActive)
-        {
-            if (!DebugPhaseLocked)
-            {
-                RuinSurvivalRemaining = Math.Max(0.0, RuinSurvivalRemaining - Seconds());
-                if (RuinSurvivalRemaining <= 0)
-                {
-                    RuinSurvivalActive = false;
-                    RuinSurvivalCleared = true;
-                    Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
-                    SetPlaguePhase(5);
-                }
-            }
             return;
-        }
         if (DebugPhaseLocked || Dying)
             return;
 
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        if (!RuinSurvivalCleared)
+        if (!RuinSurvivalCleared && Hp <= 1)
         {
-            if (ratio <= .5)
-            {
-                if (_phaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    BeginRuinSurvival();
-                return;
-            }
-
-            int desired = ratio > .82 ? 1 : ratio > .66 ? 2 : 3;
-            if (desired != Phase && _phaseDeclarations >= MinimumDamagePhaseDeclarations)
-                SetPlaguePhase(desired);
+            BeginRuinSurvival();
             return;
         }
-
-        if (Phase != 5)
-            SetPlaguePhase(5);
+        if (PhaseGovernor.ReadyToAdvance)
+            SetPlaguePhase(PhaseRotation.Choose(BairDamagePhasePool, Phase, Rng));
     }
 
     public override HitResult TakeDamage(double amount, string partId = "body",
@@ -136,43 +153,24 @@ public sealed class Bair : PlagueTouchBoss
         if (RuinSurvivalActive || Dying)
             return new HitResult(false, false, 0, true);
 
-        if (!RuinSurvivalCleared)
-        {
-            double floorRatio = Phase switch { 1 => .82, 2 => .66, _ => .50 };
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * floorRatio));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations >= MinimumDamagePhaseDeclarations)
-                {
-                    if (Phase >= 3)
-                        BeginRuinSurvival();
-                    else
-                        SetPlaguePhase(Phase + 1);
-                }
-                return new HitResult(false, false, 0, true);
-            }
+        // A declaration surrenders at most its damage budget; the bar bottoms
+        // out at one, where Ruin opens.
+        int floor = PhaseGovernor.DamageFloor(nextGateHp: 1);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
+            return new HitResult(false, false, 0, true);
 
-            var result = ApplyPlagueBodyDamage(Math.Min(amount, permitted), partId, source);
-            if (Hp <= floor && _phaseDeclarations >= MinimumDamagePhaseDeclarations)
-            {
-                if (Phase >= 3)
-                    BeginRuinSurvival();
-                else
-                    SetPlaguePhase(Phase + 1);
-            }
-            return new HitResult(result.Applied, false, result.Amount, result.Blocked);
-        }
-
-        if (Phase == 5 && _phaseDeclarations < MinimumDamagePhaseDeclarations)
+        int healthBefore = Hp;
+        var result = ApplyPlagueBodyDamage(Math.Min(amount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (Hp <= 1)
         {
-            double permitted = Math.Max(0, Hp - 1);
-            if (permitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var gated = ApplyPlagueBodyDamage(Math.Min(amount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+            if (!RuinSurvivalCleared)
+                BeginRuinSurvival();
+            else
+                BeginDeathSpectacle();
         }
-        return ApplyPlagueBodyDamage(amount, partId, source);
+        return new HitResult(result.Applied, false, result.Amount, result.Blocked);
     }
 
     private EnemyProjectile DeclaredShot(List<EnemyProjectile> sink, float direction,

@@ -105,12 +105,16 @@ public class BeaudisTests
         Assert.Equal(220, boss.Damage);
         Assert.Equal(1, boss.Phase);
         Assert.Equal("APPROACH", boss.PhaseLabel);
-        Assert.Equal(14.0, boss.SurvivalDuration);
+        Assert.Equal(20.0, boss.SurvivalDuration);
         Assert.Equal(2, Beaudis.MinimumDamagePhaseDeclarations);
     }
 
-    [Fact]
-    public void FourDamageMovementsRequireTwoDeclarationsAtEveryGate()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void EveryGrammarSurrendersOnlyItsOwnBudgetThenRunsItsClock(int phase)
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -118,64 +122,58 @@ public class BeaudisTests
         boss.EntranceRemaining = 0;
         var context = MakeContext(boss, battleground);
 
-        int[] expectedFloors =
-        {
-            (int)Math.Round(boss.MaxHp * .75),
-            (int)Math.Round(boss.MaxHp * .50),
-            (int)Math.Round(boss.MaxHp * .25),
-            1,
-        };
-        int[] phases = { 1, 2, 4, 5 };
+        boss.DebugSetPhase(phase);
+        boss.DebugPhaseLocked = false;
+        ClearPhaseProtection(boss, context);
+        boss.DebugRebasePhaseHealth();
+        int before = boss.Hp;
 
-        for (int index = 0; index < phases.Length; index++)
-        {
-            context.ProjectileSink.Clear();
-            boss.DebugSetPhase(phases[index]);
-            boss.DebugPhaseLocked = false;
-            ClearPhaseProtection(boss, context);
-            boss.TakeDamage(boss.MaxHp);
-            Assert.Equal(expectedFloors[index], boss.Hp);
-            Assert.Equal(phases[index], boss.Phase);
-            Assert.False(boss.Dying);
+        boss.TakeDamage(boss.MaxHp);
+        Assert.Equal(
+            before - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
+        Assert.Equal(phase, boss.Phase);
+        Assert.False(boss.Dying);
 
-            ReachDeclarations(boss, context, Beaudis.MinimumDamagePhaseDeclarations);
-            boss.TakeDamage(1);
-            if (phases[index] == 5)
-                Assert.True(boss.Dying);
-            else
-                Assert.Equal(phases[index] + 1, boss.Phase);
-        }
+        // A level-ten encounter releases the phase seven seconds after the
+        // threshold rather than riding the whole clock. The stagger this hit
+        // also earns parks the clock while it plays, so allow for that.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * 30 && boss.Phase == phase; tick++)
+            Step(boss, context);
+        Assert.NotEqual(phase, boss.Phase);
+        Assert.True(boss.PhaseClockElapsed
+            <= BossPhaseGovernor.LowerTierHoldSeconds + 1.0);
     }
 
     [Fact]
-    public void EndureIsOneHalfHealthSurvivalThenOpensPress()
+    public void InterferenceIsTheClosingTwentySecondSurvivalThatEndsTheFight()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var boss = MakeBoss(battleground, 4);
         boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(2);
-        boss.DebugPhaseLocked = false;
         var context = MakeContext(boss, battleground);
         ClearPhaseProtection(boss, context);
+        boss.Hp = 2;
+        boss.DebugRebasePhaseHealth();
 
         boss.TakeDamage(boss.MaxHp);
-        ReachDeclarations(boss, context, 2);
-        boss.TakeDamage(1);
 
         Assert.Equal(3, boss.Phase);
         Assert.Equal("INTERFERENCE", boss.PhaseLabel);
         Assert.True(boss.SurvivalActive);
         Assert.Equal(4, boss.ProjectilePortals.Count);
-        Assert.Equal(14.0, boss.SurvivalRemaining);
+        Assert.Equal(20.0, boss.SurvivalRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 14 + 5; tick++)
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (20 + BossPhaseInterlude.DefaultDuration) + 5;
+             tick++)
             Step(boss, context);
 
         Assert.False(boss.SurvivalActive);
-        Assert.Equal(4, boss.Phase);
-        Assert.Equal("REDLINE", boss.PhaseLabel);
+        Assert.True(boss.Dying);
     }
 
     [Fact]
@@ -243,7 +241,12 @@ public class BeaudisTests
         boss.DebugSetPhase(5);
         boss.DebugPhaseLocked = false;
         var context = MakeContext(boss, battleground);
-        ReachDeclarations(boss, context, 2);
+        ClearPhaseProtection(boss, context);
+        // A single hit only removes one grammar's budget, so the bar is walked
+        // down to its last sliver first. Interference is already spent here.
+        boss.DebugCompleteClosingSurvival();
+        boss.Hp = 2;
+        boss.DebugRebasePhaseHealth();
 
         var result = boss.TakeDamage(boss.MaxHp);
         Assert.True(boss.Dying);

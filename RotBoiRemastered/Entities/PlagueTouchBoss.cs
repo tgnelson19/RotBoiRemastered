@@ -154,12 +154,16 @@ public class PlagueTouchBoss : PathChaseBoss
         int portalCount = PortalCountForPhase(Phase);
         if (portalCount > 0)
             DeployTouchPortals(portalCount);
+        EnterPhase(Phase);
     }
 
     public override void DebugSetPhase(int phase)
     {
-        SetPlaguePhase(phase);
+        // Lock first: the debug hook places the boss into a phase outright,
+        // and EnterPhase reads DebugPhaseLocked to skip the transition beat
+        // that a genuine in-fight rotation would play.
         DebugPhaseLocked = true;
+        SetPlaguePhase(phase);
         AttackCooldown = 0f;
     }
 
@@ -346,6 +350,7 @@ public class PlagueTouchBoss : PathChaseBoss
 
     public sealed override void Update(EnemyUpdateContext context)
     {
+        TickEncounterClock(Seconds());
         if (UpdateDeathSpectacle())
             return;
         double dt = Seconds();
@@ -354,7 +359,18 @@ public class PlagueTouchBoss : PathChaseBoss
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
+        // The base class advances this for its own arena ring; this override
+        // replaced the whole frame and never did, so Bair's and Sting's ring
+        // sat frozen. It now carries the phase clock, so it has to move.
+        ArenaRingSeconds += dt;
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
+        if (PhaseInterlude.Active)
+        {
+            SettleDuringInterlude(dt);
+            AdvanceAge();
+            FinishMovementTracking();
+            return;
+        }
         UpdatePhase();
         UpdateLocomotion(context);
         UpdateTouchPortals(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
@@ -478,12 +494,7 @@ public class PlagueTouchBoss : PathChaseBoss
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
         if (Dying)
             return;
-        var screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
-        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        if (PhaseAnnouncementTimer > 0)
-        {
-            UiTheme.DrawText(spriteBatch, PhaseFlavor, 11, PhaseAccent,
-                new Vector2(rect.Center.X, rect.Y - 18), "midbottom");
-        }
+        // The phase-flavour caption that used to float above the body is gone:
+        // a movement reads from what the boss does and from its sigil.
     }
 }

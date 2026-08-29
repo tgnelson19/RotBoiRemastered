@@ -260,18 +260,17 @@ public class DissonanceTests
     }
 
     [Theory]
-    [InlineData(1, 2.0 / 3, 3)]
-    [InlineData(4, 1.0 / 3, 6)]
-    [InlineData(7, 0.0, 9)]
-    public void HealthGate_UnlocksTheCorrectActsSurvivalPhase(int startPhase, double hpRatio, int expectedPhase)
+    [InlineData(1, .5, 6)]
+    [InlineData(4, 0.0, 9)]
+    public void HealthGate_UnlocksTheCorrectSurvivalRune(int startPhase, double hpRatio, int expectedPhase)
     {
         var boss = MakeBoss();
         boss.DebugSetPhase(startPhase);
         boss.TransitionRemaining = 0; // debug jump still primes a transition; the health gate check needs it clear
         boss.NextSurvivalPhase = expectedPhase;
         var context = MakeContext(boss.WorldX, boss.WorldY);
-        ReachDeclarations(boss, context, Dissonance.MinimumDamagePhaseDeclarations);
-        boss.Hp = (int)(boss.MaxHp * hpRatio);
+        boss.Hp = Math.Max(1, (int)(boss.MaxHp * hpRatio));
+        boss.DebugRebasePhaseHealth();
 
         boss.Update(context);
 
@@ -280,33 +279,36 @@ public class DissonanceTests
     }
 
     [Fact]
-    public void Update_PhaseTimeLimitElapsed_ForcesADamagePhaseChange()
+    public void Update_PhaseClockElapsed_ForcesADamageRuneChange()
     {
         var boss = MakeBoss();
-        Assert.Equal(36.0, boss.PhaseTimeLimit);
+        // Every rune's clock sits inside the authored fifteen-to-twenty-five
+        // second band.
+        Assert.InRange(boss.PhaseTimeLimit, 15.0, 25.0);
         var context = MakeContext(boss.WorldX, boss.WorldY);
-        ReachDeclarations(boss, context, Dissonance.MinimumDamagePhaseDeclarations);
-        boss.PhaseElapsed = boss.PhaseTimeLimit;
+        boss.DebugCompletePhaseClock();
 
         boss.Update(context);
 
         Assert.NotEqual(1, boss.Phase);
         Assert.True(boss.PhaseForcedByTimer);
-        Assert.Equal(150000, boss.Hp); // no damage taken, so health gate never fires -- only the timer did
+        Assert.Equal(150000, boss.Hp); // no damage taken, so the health gate never fired
     }
 
     [Fact]
-    public void Update_SurvivalCompletionMidRun_AdvancesToNextAct()
+    public void Update_MidpointSurvivalCompletion_ReturnsToTheDamageRotation()
     {
         var boss = MakeBoss();
-        boss.DebugSetPhase(3);
+        boss.DebugSetPhase(6);
         boss.TransitionRemaining = 0;
         boss.SurvivalRemaining = 0;
 
         boss.Update(MakeContext(boss.WorldX, boss.WorldY));
 
-        Assert.Equal(6, boss.NextSurvivalPhase);
-        Assert.Contains(boss.Phase, new[] { 4, 5 });
+        // Only the closing rune remains gated on health; the rotation resumes
+        // across the whole damage arsenal rather than a fixed act pair.
+        Assert.Equal(9, boss.NextSurvivalPhase);
+        Assert.Contains(boss.Phase, new[] { 1, 2, 3, 4, 5, 7, 8 });
         Assert.False(boss.SurvivalActive);
     }
 
@@ -326,14 +328,14 @@ public class DissonanceTests
     }
 
     [Fact]
-    public void JeraGrandFinaleLastsFortySecondsAndDeathLastsTen()
+    public void JeraGrandFinaleIsTheStandardTwentyFiveSecondSurvivalAndDeathLastsTen()
     {
         var boss = MakeBoss();
 
         boss.DebugSetPhase(9);
 
-        Assert.Equal(40.0, boss.SurvivalDuration);
-        Assert.Equal(40.0, boss.SurvivalRemaining);
+        Assert.Equal(25.0, boss.SurvivalDuration);
+        Assert.Equal(25.0, boss.SurvivalRemaining);
         Assert.Equal(10.0, boss.DeathDuration);
         Assert.True(boss.TakeDamage(1000).Blocked);
     }
@@ -532,7 +534,7 @@ public class DissonanceTests
         var hitboxes = boss.GetWorldHitboxes();
         Assert.Contains(hitboxes, h => h.Part == "portal:0");
 
-        boss.DebugSetPhase(3); // a survival phase
+        boss.DebugSetPhase(6); // the half-health survival rune
         boss.TransitionRemaining = 0;
         Assert.DoesNotContain(boss.GetWorldHitboxes(), h => h.Part.StartsWith("portal:"));
     }
@@ -557,29 +559,43 @@ public class DissonanceTests
     }
 
     [Theory]
-    [InlineData(1, 3, 2.0 / 3)]
-    [InlineData(4, 6, 1.0 / 3)]
-    [InlineData(7, 9, 0.0)]
-    public void ActGatesCannotSkipTheCurrentDamagePhrase(int phase, int survivalPhase, double ratio)
+    [InlineData(1, 6)]
+    [InlineData(4, 6)]
+    [InlineData(7, 9)]
+    public void EveryRuneSurrendersOnlyItsOwnBudgetThenRunsItsClock(int phase, int survivalPhase)
     {
         Simulation.ResetForTests();
         var boss = MakeBoss();
         boss.DebugSetPhase(phase);
+        boss.DebugPhaseLocked = false;
+        boss.TransitionRemaining = 0;
+        boss.PhaseProtectionTimer = 0;
         boss.NextSurvivalPhase = survivalPhase;
         var context = MakeContext(boss.WorldX + 300, boss.WorldY);
+        boss.DebugRebasePhaseHealth();
+        int before = boss.Hp;
 
         boss.TakeDamage(boss.MaxHp * 4.0);
 
-        int floor = survivalPhase == 9 ? 1 : (int)Math.Round(boss.MaxHp * ratio);
-        Assert.Equal(floor, boss.Hp);
+        // A rune surrenders at most fifteen percent of maximum health, so no
+        // single hit can walk the encounter to its next endurance check.
+        Assert.Equal(
+            before - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.Equal(phase, boss.Phase);
         Assert.False(boss.IsDead());
+        Assert.False(boss.SurvivalActive);
 
-        ReachDeclarations(boss, context, Dissonance.MinimumDamagePhaseDeclarations);
-        Step(boss, context);
+        // The stagger this hit also earns parks the clock while it plays, so
+        // step until it recovers and the rune turns over.
+        boss.DebugCompletePhaseClock();
+        for (int tick = 0; tick < Simulation.FrameRate * 40 && boss.Phase == phase; tick++)
+        {
+            boss.DebugCompletePhaseClock();
+            Step(boss, context);
+        }
 
-        Assert.Equal(survivalPhase, boss.Phase);
-        Assert.True(boss.SurvivalActive);
+        Assert.NotEqual(phase, boss.Phase);
     }
 
     [Fact]

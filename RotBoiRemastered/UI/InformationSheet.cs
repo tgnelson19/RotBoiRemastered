@@ -112,6 +112,17 @@ public sealed class InformationSheet
     /// drag mechanic/feel as equipment/stash/crate instead of a separate implementation.
     /// </summary>
     private sealed record VaultDragSource(int Index) : DragSource;
+    /// <summary>
+    /// The Soul's Developer Armory (SoulHub.DeveloperArmoryItems) -- only
+    /// reachable when the caller passes armorySlotRects into HandleDrag, same
+    /// gating as VaultDragSource. Unlike every other source, this one never
+    /// actually removes anything: the armory is an infinite catalog, so
+    /// ResolveDrop only ever *places* the dragged copy and requires an empty
+    /// destination (see its ArmoryDragSource branches) rather than swapping,
+    /// which both matches the old click-to-copy behavior (also required a
+    /// free slot) and means nothing is ever silently discarded.
+    /// </summary>
+    private sealed record ArmoryDragSource(int Index) : DragSource;
 
     private float _uiScale;
     private int _screenWidth;
@@ -123,8 +134,6 @@ public sealed class InformationSheet
 
     private string? _tooltip;
     private ItemDrop? _tooltipItem;
-    private ItemDrop? _inspectionItem;
-    private string? _inspectionSource;
     private ItemDrop? _draggingItem;
     private DragSource? _draggingSource;
     private readonly Dictionary<string, Rectangle> _equipmentSlotRects = new();
@@ -147,15 +156,23 @@ public sealed class InformationSheet
     private double _summaryProjectileCount;
     private double _summaryBulletRange;
     private IReadOnlyList<Rectangle> _vaultSlotRects = Array.Empty<Rectangle>();
+    private IReadOnlyList<Rectangle> _armorySlotRects = Array.Empty<Rectangle>();
     private bool _allowWorldDrop = true;
     private Rectangle _levelUpButtonRect;
     private Rectangle _reforgeButtonRect;
     private Rectangle _dossierLevelRect;
     private Rectangle _dossierReforgeRect;
-    private Rectangle _dossierDropRect;
+    // The compact stash panel (DrawDossier) is fixed-size and has no
+    // scrollable content or explicit "drop to world" zone -- both are
+    // leftovers from the old full-screen dossier it replaced (see the doc
+    // comment on DrawDossier). Left at their default/empty values on
+    // purpose rather than removing the read sites, so ScrollDossier and
+    // HandleDossierDrag stay harmless no-ops until/unless this panel grows
+    // scrollable content again.
+    private Rectangle _dossierDropRect = Rectangle.Empty;
     private Rectangle _explicitDropRect;
     private double _dossierScroll;
-    private int _dossierContentHeight;
+    private int _dossierContentHeight = 0;
     private string _presentationPath = "sound";
     private float _presentationTime;
 
@@ -1239,115 +1256,114 @@ public sealed class InformationSheet
     /// class's established item hit-rect and drag controller so loadout rules
     /// remain identical in the dossier, nearby loot, and the Soul Vault.
     /// </summary>
-    public void DrawDossier(
-        SpriteBatch spriteBatch,
-        RunState state,
-        Vector2 playerWorldPosition,
-        BountyInfo? currentBounty,
-        Point mousePosition,
-        PathRun? pathRun = null)
+    /// <summary>
+    /// The compact Tab/hud_toggle "stash" panel -- deliberately not the old
+    /// full-screen run dossier it replaced. No run-specific stats (level,
+    /// timer, kills, build readout) and no equipment slots: equipment lives
+    /// only in the footer bar now (GameSession.DrawDossier feeds this
+    /// panel the footer's live equipment rects before drawing it, via
+    /// ConfigureLiveLootLayout), so this screen shows persistent player
+    /// info plus the carried stash -- the two things dragging actually
+    /// needs on this side. Identical whether opened from a run or from The
+    /// Mind. <paramref name="revealT"/> (0 = just opened, 1 = fully
+    /// settled) drives the open animation: the panel slides up and fades in
+    /// over its reveal window, and detailed content only renders once
+    /// mostly settled so nothing has to lay out at a transitional size.
+    /// </summary>
+    public void DrawDossier(SpriteBatch spriteBatch, RunState state, Point mousePosition, float revealT)
     {
-        _playerLevelCap = pathRun is null
-            ? Progression.MaxLevel
-            : Progression.DungeonMaxLevel;
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         SyncLayout(viewport.Width, viewport.Height);
-        _presentationPath = pathRun?.CurrentSenseKey ?? GamePaths.Active().Key;
         _presentationTime = (float)state.RunTimeSeconds;
         _tooltip = null;
         _tooltipItem = null;
-        _inspectionItem = null;
-        _inspectionSource = null;
-        _equipmentSlotRects.Clear();
         _inventorySlotRects.Clear();
         _lootPanelSlotRects.Clear();
         _loadoutFocus.BeginFrame();
 
-        Primitives2D.FillRect(spriteBatch, viewport.Bounds, UiTheme.Ink * .86f);
-        int margin = Math.Max(Px(12), (int)(viewport.Width * .025f));
-        var frame = new Rectangle(margin, margin,
-            viewport.Width - margin * 2, viewport.Height - margin * 2);
-        UiTheme.DrawFramedPanel(spriteBatch, frame,
-            UiTheme.Void * .98f, UiTheme.Cream, shadow: 9);
+        float eased = Math.Clamp(revealT, 0f, 1f);
+        eased = eased * eased * (3f - 2f * eased);
 
-        int headerHeight = Px(66);
-        int contentTop = frame.Y + headerHeight;
-        int contentBottom = frame.Bottom - Px(14);
-        int contentLeft = frame.X + Px(18);
-        int contentWidth = frame.Width - Px(48);
-        DrawSheetText(spriteBatch, "RUN DOSSIER", Px(22), UiTheme.Text,
-            new Vector2(frame.X + Px(22), frame.Y + Px(15)));
-        string pathLabel = pathRun is null
-            ? GamePaths.Active().Title.ToUpperInvariant()
-            : $"FLOOR {pathRun.FloorNumber:D2}/{PathRun.TotalFloors:D2}  //  {pathRun.SenseDisplayName.ToUpperInvariant()}  //  {(pathRun.IsSecondAct ? "DESCENT II" : "DESCENT I")}";
-        DrawSheetText(spriteBatch, pathLabel, Px(9),
-            pathRun?.CurrentSense.Accent ?? UiTheme.Purple,
-            new Vector2(frame.X + Px(24), frame.Y + Px(44)));
-        var elapsed = TimeSpan.FromSeconds(Math.Max(0, state.RunTimeSeconds));
-        DrawSheetText(spriteBatch,
-            $"LEVEL {state.CurrentLevel:D2}  //  {elapsed.Minutes:D2}:{elapsed.Seconds:D2}{(state.HardMode ? "  //  HARD MODE" : "")}{(state.NewGamePlusLevel > 0 ? $"  //  NG+{state.NewGamePlusLevel}" : "")}",
-            Px(9), UiTheme.Muted, new Vector2(frame.Right - Px(24), frame.Y + Px(44)), "topright");
-        Primitives2D.Line(spriteBatch, new Vector2(frame.X + Px(16), contentTop - Px(5)),
-            new Vector2(frame.Right - Px(16), contentTop - Px(5)), UiTheme.Border, Px(1));
+        int margin = (int)(viewport.Width * .10f);
+        int footerReserved = FooterHud.ReservedHeight(viewport.Width, viewport.Height);
+        var panel = new Rectangle(margin, margin,
+            Math.Max(Px(200), viewport.Width - margin * 2),
+            Math.Max(Px(160), viewport.Height - footerReserved - margin * 2));
 
-        GraphicsDevice graphicsDevice = spriteBatch.GraphicsDevice;
-        Rectangle previousScissor = graphicsDevice.ScissorRectangle;
-        spriteBatch.End();
-        graphicsDevice.ScissorRectangle = new Rectangle(contentLeft, contentTop,
-            contentWidth, Math.Max(1, contentBottom - contentTop));
-        spriteBatch.Begin(rasterizerState: ScissorRasterizerState);
+        Primitives2D.FillRect(spriteBatch, viewport.Bounds, UiTheme.Ink * (.7f * eased));
+        int slide = (int)((1f - eased) * Px(46));
+        var animatedPanel = new Rectangle(panel.X, panel.Y + slide, panel.Width, panel.Height);
+        UiTheme.DrawFramedPanel(spriteBatch, animatedPanel,
+            UiTheme.Void * Math.Max(.08f, .97f * eased), UiTheme.Cream * Math.Max(.15f, eased), shadow: 9);
 
-        int y = contentTop - (int)_dossierScroll;
-        int sectionGap = Px(10);
+        if (eased < .4f)
+            return;
 
-        int runHeight = Px(112);
-        var runRect = new Rectangle(contentLeft, y, contentWidth, runHeight);
-        if (runRect.Bottom >= contentTop && runRect.Y <= contentBottom)
-            DrawDossierRunHeader(spriteBatch, runRect, state, currentBounty, playerWorldPosition, mousePosition);
-        y = runRect.Bottom + sectionGap;
+        int pad = Px(24);
+        UiTheme.DrawText(spriteBatch, "STASH", Px(30), UiTheme.Text,
+            new Vector2(animatedPanel.Center.X, animatedPanel.Y + Px(20)), "midtop");
+        UiTheme.DrawText(spriteBatch, "DRAG TO/FROM YOUR EQUIPPED GEAR IN THE FOOTER BELOW", Px(9), UiTheme.Muted,
+            new Vector2(animatedPanel.Center.X, animatedPanel.Y + Px(58)), "midtop");
 
-        int loadoutHeight = Px(state.NearbyCrate is { Items.Count: > 0 } ? 250 : 194);
-        var loadoutRect = new Rectangle(contentLeft, y, contentWidth, loadoutHeight);
-        if (loadoutRect.Bottom >= contentTop && loadoutRect.Y <= contentBottom)
-            DrawDossierLoadout(spriteBatch, loadoutRect, state, mousePosition);
-        y = loadoutRect.Bottom + sectionGap;
-
-        int buildHeight = Px(226);
-        var buildRect = new Rectangle(contentLeft, y, contentWidth, buildHeight);
-        if (buildRect.Bottom >= contentTop && buildRect.Y <= contentBottom)
-            DrawDossierBuild(spriteBatch, buildRect, state, mousePosition);
-        y = buildRect.Bottom + sectionGap;
-
-        IReadOnlyList<QuestDefinition> quests = ActiveTrackedQuests(GameProfile.Profile);
-        int progressHeight = Px(150 + Math.Max(1, quests.Count) * 26);
-        var progressRect = new Rectangle(contentLeft, y, contentWidth, progressHeight);
-        if (progressRect.Bottom >= contentTop && progressRect.Y <= contentBottom)
-            DrawDossierProgress(spriteBatch, progressRect, state, currentBounty, playerWorldPosition, quests);
-        y = progressRect.Bottom + Px(18);
-        _dossierContentHeight = Math.Max(0, y - contentTop);
-        int visibleHeight = Math.Max(1, contentBottom - contentTop);
-        _dossierScroll = Math.Clamp(_dossierScroll, 0, Math.Max(0, _dossierContentHeight - visibleHeight));
-
-        spriteBatch.End();
-        graphicsDevice.ScissorRectangle = previousScissor;
-        spriteBatch.Begin();
-
-        if (_dossierContentHeight > visibleHeight)
+        // Generic, persistent player info -- nothing tied to the current run.
+        string[] stats =
         {
-            var track = new Rectangle(frame.Right - Px(18), contentTop, Px(4), visibleHeight);
-            Primitives2D.FillRect(spriteBatch, track, UiTheme.Ink);
-            int thumbHeight = Math.Max(Px(24), (int)(visibleHeight * (visibleHeight / (float)_dossierContentHeight)));
-            int thumbY = track.Y + (int)((track.Height - thumbHeight)
-                * (_dossierScroll / Math.Max(1, _dossierContentHeight - visibleHeight)));
-            Primitives2D.FillRect(spriteBatch,
-                new Rectangle(track.X, thumbY, track.Width, thumbHeight), UiTheme.Purple);
+            $"MIND TOKENS  {GameProfile.Profile.MindTokens:N0}",
+            $"VAULT  {GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}",
+            $"QUESTS  {GameProfile.Profile.CompletedQuests.Count}/{MetaProgression.Quests.Count}",
+            $"BEST DPS  {GameProfile.Profile.BestDummyDps:0}",
+        };
+        int statGap = Px(28);
+        var statFont = UiTheme.Font(Px(10));
+        float totalStatsWidth = stats.Sum(text => statFont.MeasureString(text).X) + statGap * (stats.Length - 1);
+        float statX = animatedPanel.Center.X - totalStatsWidth / 2f;
+        int statsY = animatedPanel.Y + Px(84);
+        foreach (string text in stats)
+        {
+            UiTheme.DrawText(spriteBatch, text, Px(10), UiTheme.Cream, new Vector2(statX, statsY));
+            statX += statFont.MeasureString(text).X + statGap;
         }
+
+        // The stash itself -- a single centered row. Equipment is
+        // deliberately absent from this panel (see the doc comment above);
+        // this row is the other half of the same drag gesture with the
+        // footer's equipment icons.
+        int slotGap = Px(14);
+        int available = animatedPanel.Width - pad * 2;
+        int slotSize = Math.Clamp((available - slotGap * (InventorySlotCount - 1)) / InventorySlotCount, Px(48), Px(96));
+        int rowWidth = slotSize * InventorySlotCount + slotGap * (InventorySlotCount - 1);
+        int slotX = animatedPanel.Center.X - rowWidth / 2;
+        int slotY = animatedPanel.Y + Px(126);
+        for (int index = 0; index < InventorySlotCount; index++)
+        {
+            var rect = new Rectangle(slotX + index * (slotSize + slotGap), slotY, slotSize, slotSize);
+            _inventorySlotRects.Add(rect);
+            DrawSoulSlot(spriteBatch, $"inventory:{index}", rect, state.Inventory[index],
+                _draggingSource is InventoryDragSource source && source.Index == index, mousePosition);
+            // A dulled shadow numeral badge, drawn on top so it stays
+            // legible whether or not the slot holds an item, labeling this
+            // slot's position -- pairs with the "Stash: Swap Slot N" entry
+            // in Settings (Keybinds.Actions) that says which physical key
+            // actually triggers it, since that binding is rebindable and a
+            // raw key name (e.g. "D1") would be a less legible badge here
+            // than just the slot's own ordinal.
+            if (Keybinds.KeyFor($"stash_swap_{index + 1}") is not null)
+            {
+                var badge = new Rectangle(rect.X + Px(3), rect.Y + Px(3), Px(15), Px(15));
+                Primitives2D.FillRect(spriteBatch, badge, UiTheme.Shadow * .78f);
+                UiTheme.DrawText(spriteBatch, index + 1, slotSize * .28, UiTheme.Muted,
+                    badge.Center.ToVector2(), "center");
+            }
+        }
+        UiTheme.DrawText(spriteBatch,
+            $"{state.Inventory.Count(item => item is not null)}/{InventorySlotCount} CARRIED",
+            Px(9), UiTheme.Muted, new Vector2(animatedPanel.Center.X, slotY + slotSize + Px(14)), "midtop");
 
         if (_draggingItem is not null)
         {
-            int slotSize = Px(44);
+            int dragSize = Px(44);
             ItemCards.DrawItemCard(spriteBatch,
-                new Rectangle(mousePosition.X - slotSize / 2, mousePosition.Y - slotSize / 2, slotSize, slotSize),
+                new Rectangle(mousePosition.X - dragSize / 2, mousePosition.Y - dragSize / 2, dragSize, dragSize),
                 _draggingItem, hovered: true, animationTime: _presentationTime);
         }
         else
@@ -1467,142 +1483,6 @@ public sealed class InformationSheet
         return true;
     }
 
-    private void DrawDossierRunHeader(
-        SpriteBatch spriteBatch,
-        Rectangle rect,
-        RunState state,
-        BountyInfo? bounty,
-        Vector2 playerWorldPosition,
-        Point mousePosition)
-    {
-        UiTheme.DrawFramedPanel(spriteBatch, rect,
-            UiTheme.PanelRaised, UiTheme.Purple, shadow: 4);
-        RefreshSummaryCache(state, rect.Width - Px(32));
-        DrawSheetText(spriteBatch, _summaryTitle, Px(16), UiTheme.Purple,
-            new Vector2(rect.X + Px(14), rect.Y + Px(12)));
-        DrawSheetText(spriteBatch, _summaryStrength, Px(9), UiTheme.Text,
-            new Vector2(rect.X + Px(14), rect.Y + Px(37)));
-        DrawSheetText(spriteBatch, _summaryCaution, Px(8), UiTheme.Muted,
-            new Vector2(rect.X + Px(14), rect.Y + Px(55)));
-        var (name, detail) = BountyDetails(bounty, state, playerWorldPosition);
-        DrawSheetText(spriteBatch, name, Px(10), UiTheme.Gold,
-            new Vector2(rect.Center.X, rect.Y + Px(16)), "midtop");
-        DrawSheetText(spriteBatch, detail, Px(8), UiTheme.Muted,
-            new Vector2(rect.Center.X, rect.Y + Px(39)), "midtop");
-
-        bool canLevel = state.CurrentLevel < _playerLevelCap
-            && state.ExpCount >= state.ExpNeededForNextLevel;
-        _dossierLevelRect = new Rectangle(rect.Right - Px(190), rect.Y + Px(18), Px(170), Px(36));
-        _loadoutFocus.Register("dossier:level", _dossierLevelRect, canLevel);
-        UiTheme.DrawButton(spriteBatch, _dossierLevelRect,
-            state.CurrentLevel >= _playerLevelCap ? "MAX LEVEL" : canLevel ? "CHOOSE UPGRADE" : $"{state.ExpCount:0}/{state.ExpNeededForNextLevel:0} XP",
-            mousePosition, enabled: canLevel, accentColor: UiTheme.Gold, textSize: Px(9));
-        if (_loadoutFocus.IsFocused("dossier:level") && canLevel)
-            Primitives2D.RectOutline(spriteBatch, _dossierLevelRect, UiTheme.Cream, Px(2));
-        DrawSheetText(spriteBatch, "RUN STATE", Px(8), UiTheme.Muted,
-            new Vector2(rect.Right - Px(105), rect.Bottom - Px(16)), "center");
-    }
-
-    private void DrawDossierLoadout(SpriteBatch spriteBatch, Rectangle rect, RunState state, Point mousePosition)
-    {
-        UiTheme.DrawFramedPanel(spriteBatch, rect,
-            UiTheme.PanelRaised, UiTheme.Cream, shadow: 4);
-        DrawSheetText(spriteBatch, "LOADOUT", Px(12), UiTheme.Text,
-            new Vector2(rect.X + Px(14), rect.Y + Px(10)));
-        DrawSheetText(spriteBatch, "EQUIPPED", Px(8), UiTheme.Muted,
-            new Vector2(rect.X + Px(16), rect.Y + Px(36)));
-
-        string[] keys = ["weapon", "armor", "ring", "accessory_1", "accessory_2"];
-        int slot = Px(43), gap = Px(7);
-        int equipmentX = rect.X + Px(16);
-        int slotY = rect.Y + Px(53);
-        for (int index = 0; index < keys.Length; index++)
-        {
-            Rectangle slotRect = new(equipmentX + index * (slot + gap), slotY, slot, slot);
-            _equipmentSlotRects[keys[index]] = slotRect;
-            DrawDossierItem(spriteBatch, $"equipment:{keys[index]}", slotRect, state.Equipment.GetValueOrDefault(keys[index]),
-                _draggingSource is EquipmentDragSource source && source.Key == keys[index], mousePosition);
-            if (state.Equipment.GetValueOrDefault(keys[index]) is null)
-            {
-                Rectangle glyph = slotRect;
-                glyph.Inflate(-Px(10), -Px(10));
-                ItemCards.DrawItemSymbol(spriteBatch, EquipmentSlotTypes[keys[index]], glyph, UiTheme.Muted);
-            }
-        }
-
-        int stashX = equipmentX + keys.Length * (slot + gap) + Px(32);
-        DrawSheetText(spriteBatch, "STASH", Px(8), UiTheme.Muted,
-            new Vector2(stashX, rect.Y + Px(36)));
-        for (int index = 0; index < InventorySlotCount; index++)
-        {
-            int column = index % 4, row = index / 4;
-            Rectangle slotRect = new(stashX + column * (slot + gap), slotY + row * (slot + gap), slot, slot);
-            _inventorySlotRects.Add(slotRect);
-            DrawDossierItem(spriteBatch, $"inventory:{index}", slotRect, state.Inventory[index],
-                _draggingSource is InventoryDragSource source && source.Index == index, mousePosition);
-        }
-
-        _dossierReforgeRect = new Rectangle(rect.Right - Px(240), rect.Bottom - Px(48), Px(112), Px(32));
-        bool canReforge = state.Equipment.Values.Any(item => item is not null);
-        _loadoutFocus.Register("dossier:reforge", _dossierReforgeRect, canReforge);
-        UiTheme.DrawButton(spriteBatch, _dossierReforgeRect, "REFORGE EQUIPMENT", mousePosition,
-            enabled: canReforge, accentColor: UiTheme.Purple, textSize: Px(8));
-        _dossierDropRect = new Rectangle(rect.Right - Px(120), rect.Bottom - Px(48), Px(104), Px(32));
-        _loadoutFocus.Register("dossier:drop", _dossierDropRect, _draggingItem is not null);
-        UiTheme.DrawButton(spriteBatch, _dossierDropRect, "DROP TO GROUND", mousePosition,
-            enabled: _draggingItem is not null, accentColor: UiTheme.Red, textSize: Px(8));
-        if (_loadoutFocus.IsFocused("dossier:reforge") && canReforge)
-            Primitives2D.RectOutline(spriteBatch, _dossierReforgeRect, UiTheme.Cream, Px(2));
-        if (_loadoutFocus.IsFocused("dossier:drop") && _draggingItem is not null)
-            Primitives2D.RectOutline(spriteBatch, _dossierDropRect, UiTheme.Cream, Px(2));
-
-        if (state.NearbyCrate is { } crate && crate.Items.Count > 0)
-        {
-            int lootY = rect.Bottom - Px(61);
-            DrawSheetText(spriteBatch, "NEARBY LOOT", Px(8), UiTheme.Gold,
-                new Vector2(rect.X + Px(16), lootY));
-            int lootSlotY = lootY + Px(15);
-            for (int index = 0; index < CrateSlotCount; index++)
-            {
-                Rectangle slotRect = new(rect.X + Px(120) + index * (slot + gap), lootSlotY, slot, slot);
-                _lootPanelSlotRects.Add(slotRect);
-                ItemDrop? item = index < crate.Items.Count ? crate.Items[index] : null;
-                DrawDossierItem(spriteBatch, $"crate:{index}", slotRect, item,
-                    _draggingSource is CrateDragSource source
-                        && ReferenceEquals(source.Crate, crate) && source.Index == index, mousePosition);
-            }
-        }
-        DrawItemInspection(spriteBatch, rect, state);
-    }
-
-    private void DrawDossierItem(SpriteBatch spriteBatch, string focusId, Rectangle rect, ItemDrop? item,
-        bool dragging, Point mousePosition)
-    {
-        _loadoutFocus.Register(focusId, rect, item is not null || _draggingItem is not null);
-        if (item is not null && !dragging)
-        {
-            bool hovered = rect.Contains(mousePosition);
-            ItemCards.DrawItemCard(spriteBatch, rect, item, hovered, _presentationTime);
-            if (hovered)
-                _tooltipItem = item;
-            if (hovered || _loadoutFocus.IsFocused(focusId))
-            {
-                _inspectionItem = item;
-                _inspectionSource = focusId;
-            }
-            if (_loadoutFocus.IsFocused(focusId))
-                Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(UiTheme.SmallCornerRadiusPx));
-            return;
-        }
-        Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, Px(UiTheme.SmallCornerRadiusPx));
-        bool incompatible = _draggingItem is not null && focusId.StartsWith("equipment:")
-            && EquipmentSlotTypes.GetValueOrDefault(focusId[10..]) != _draggingItem.SlotType;
-        Primitives2D.RoundedRectOutline(spriteBatch, rect,
-            incompatible ? UiTheme.Shadow : rect.Contains(mousePosition) ? UiTheme.Cream : UiTheme.Border, Px(2), Px(UiTheme.SmallCornerRadiusPx));
-        if (_loadoutFocus.IsFocused(focusId))
-            Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Cream, Px(2), Px(UiTheme.SmallCornerRadiusPx));
-    }
-
     public static IReadOnlyList<(string Stat, double Delta)> ItemEffectDeltas(
         ItemDrop candidate, ItemDrop? equipped)
     {
@@ -1621,122 +1501,6 @@ public sealed class InformationSheet
             .Select(stat => (stat, next.GetValueOrDefault(stat) - current.GetValueOrDefault(stat)))
             .OrderByDescending(entry => Math.Abs(entry.Item2)).ThenBy(entry => entry.Item1, StringComparer.Ordinal)
             .ToList();
-    }
-
-    private void DrawItemInspection(SpriteBatch spriteBatch, Rectangle loadout, RunState state)
-    {
-        ItemDrop? item = _draggingItem ?? _inspectionItem;
-        int width = Px(240);
-        var pane = new Rectangle(loadout.Right - width - Px(16), loadout.Y + Px(10), width, Px(126));
-        Primitives2D.FillRoundedRect(spriteBatch, pane, UiTheme.Ink, Px(UiTheme.SmallCornerRadiusPx));
-        Primitives2D.RoundedRectOutline(spriteBatch, pane, item is null ? UiTheme.Border : UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Border), Px(1), Px(UiTheme.SmallCornerRadiusPx));
-        if (item is null)
-        {
-            DrawSheetText(spriteBatch, "INSPECT AN ITEM", Px(9), UiTheme.Muted,
-                new Vector2(pane.Center.X, pane.Center.Y), "center");
-            return;
-        }
-
-        DrawSheetText(spriteBatch, item.Name.ToUpperInvariant(), Px(9), UiTheme.Text,
-            new Vector2(pane.X + Px(9), pane.Y + Px(8)));
-        DrawSheetText(spriteBatch, $"{item.Rarity.ToUpperInvariant()}  //  {Items.ModifierUnlockCount(item.Rarity)}/{item.Definition.ModifierLadder.Count} MODIFIERS",
-            Px(7), UiTheme.RarityColors.GetValueOrDefault(item.Rarity, UiTheme.Muted),
-            new Vector2(pane.X + Px(9), pane.Y + Px(25)));
-        string targetKey = item.SlotType == "accessory" ? "accessory_1" : item.SlotType;
-        ItemDrop? equipped = _inspectionSource?.StartsWith("equipment:") == true
-            ? null : state.Equipment.GetValueOrDefault(targetKey);
-        var deltas = ItemEffectDeltas(item, equipped).Take(3).ToList();
-        int y = pane.Y + Px(44);
-        foreach (var (stat, delta) in deltas)
-        {
-            string marker = delta > .005 ? "+" : delta < -.005 ? "-" : "=";
-            Color color = delta > .005 ? UiTheme.Green : delta < -.005 ? UiTheme.Red : UiTheme.Muted;
-            DrawSheetText(spriteBatch, $"{marker} {stat.ToUpperInvariant()}  {Math.Abs(delta):0.##}", Px(7.5), color,
-                new Vector2(pane.X + Px(9), y));
-            y += Px(15);
-        }
-        string action = _draggingItem is not null ? "PLACE / SWAP  •  BACK: CANCEL"
-            : _inspectionSource?.StartsWith("crate:") == true ? "CONFIRM: QUICK EQUIP"
-            : _inspectionSource?.StartsWith("inventory:") == true ? "CONFIRM: EQUIP / MOVE"
-            : "CONFIRM: MOVE  •  REFORGE BELOW";
-        DrawSheetText(spriteBatch, action, Px(6.5), UiTheme.Muted,
-            new Vector2(pane.X + Px(9), pane.Bottom - Px(8)), "bottomleft");
-    }
-
-    private void DrawDossierBuild(SpriteBatch spriteBatch, Rectangle rect, RunState state, Point mousePosition)
-    {
-        UiTheme.DrawFramedPanel(spriteBatch, rect,
-            UiTheme.PanelRaised, UiTheme.Blue, shadow: 4);
-        DrawSheetText(spriteBatch, "BUILD READOUT", Px(12), UiTheme.Blue,
-            new Vector2(rect.X + Px(14), rect.Y + Px(10)));
-        IReadOnlyList<StatDisplayDefinition> rows = StatDisplay.Definitions.Take(10).ToList();
-        int columns = 5;
-        int cellGap = Px(7);
-        int cellWidth = (rect.Width - Px(28) - cellGap * (columns - 1)) / columns;
-        int startY = rect.Y + Px(38);
-        for (int index = 0; index < rows.Count; index++)
-        {
-            int column = index % columns, row = index / columns;
-            var cell = new Rectangle(rect.X + Px(14) + column * (cellWidth + cellGap),
-                startY + row * Px(72), cellWidth, Px(64));
-            Primitives2D.FillRoundedRect(spriteBatch, cell, UiTheme.Panel, Px(UiTheme.SmallCornerRadiusPx));
-            var icon = new Rectangle(cell.X + Px(8), cell.Y + Px(9), Px(28), Px(28));
-            StatDisplayDefinition definition = rows[index];
-            StatCards.DrawStatSymbol(spriteBatch, definition.IconKey, icon, UiTheme.Cream);
-            DrawSheetText(spriteBatch, definition.Abbreviation, Px(8), UiTheme.Muted,
-                new Vector2(icon.Right + Px(7), cell.Y + Px(8)));
-            DrawSheetText(spriteBatch, definition.Format(state), Px(11), UiTheme.Text,
-                new Vector2(icon.Right + Px(7), cell.Bottom - Px(9)), "bottomleft");
-            if (cell.Contains(mousePosition))
-                _tooltip = $"{definition.Abbreviation} — {definition.Tooltip}";
-        }
-        IReadOnlyList<(string Category, int Count)> families = FamilyCounts(state);
-        string familyText = families.Count == 0
-            ? "NO UPGRADE FAMILY YET"
-            : string.Join("   ", families.Take(4).Select(family => $"{family.Category.ToUpperInvariant()} x{family.Count}"));
-        DrawSheetText(spriteBatch, familyText, Px(8), UiTheme.Purple,
-            new Vector2(rect.X + Px(14), rect.Bottom - Px(12)), "bottomleft");
-    }
-
-    private void DrawDossierProgress(
-        SpriteBatch spriteBatch,
-        Rectangle rect,
-        RunState state,
-        BountyInfo? bounty,
-        Vector2 playerWorldPosition,
-        IReadOnlyList<QuestDefinition> quests)
-    {
-        UiTheme.DrawFramedPanel(spriteBatch, rect,
-            UiTheme.PanelRaised, UiTheme.Green, shadow: 4);
-        DrawSheetText(spriteBatch, "PROGRESS", Px(12), UiTheme.Green,
-            new Vector2(rect.X + Px(14), rect.Y + Px(10)));
-        var (name, detail) = BountyDetails(bounty, state, playerWorldPosition);
-        var (level, milestone) = NextMilestone(state);
-        DrawSheetText(spriteBatch, name, Px(10), UiTheme.Gold,
-            new Vector2(rect.X + Px(16), rect.Y + Px(38)));
-        DrawSheetText(spriteBatch, detail, Px(8), UiTheme.Muted,
-            new Vector2(rect.X + Px(16), rect.Y + Px(58)));
-        DrawSheetText(spriteBatch, $"NEXT  //  LEVEL {level}  //  {milestone.ToUpperInvariant()}", Px(8), UiTheme.Text,
-            new Vector2(rect.X + Px(16), rect.Y + Px(79)));
-
-        DrawSheetText(spriteBatch, "ACTIVE QUESTS", Px(8), UiTheme.Muted,
-            new Vector2(rect.X + Px(16), rect.Y + Px(108)));
-        int y = rect.Y + Px(128);
-        foreach (QuestDefinition quest in quests)
-        {
-            long value = Math.Min(quest.Target, GameProfile.Profile.QuestProgress.GetValueOrDefault(quest.Counter));
-            DrawSheetText(spriteBatch, quest.Name.ToUpperInvariant(), Px(8), UiTheme.Text,
-                new Vector2(rect.X + Px(18), y));
-            DrawSheetText(spriteBatch, $"{value:N0}/{quest.Target:N0}", Px(8), UiTheme.Muted,
-                new Vector2(rect.Right - Px(18), y), "topright");
-            UiTheme.DrawProgress(spriteBatch,
-                new Rectangle(rect.X + Px(18), y + Px(15), rect.Width - Px(36), Px(5)),
-                (float)value / Math.Max(1, quest.Target), UiTheme.Green, 10);
-            y += Px(26);
-        }
-        if (quests.Count == 0)
-            DrawSheetText(spriteBatch, "ALL QUESTS COMPLETE", Px(9), UiTheme.Cream,
-                new Vector2(rect.X + Px(18), y));
     }
 
     /// <summary>
@@ -1907,9 +1671,11 @@ public sealed class InformationSheet
     /// </summary>
     public void HandleDrag(RunState state, Vector2 playerWorldPosition, Point mousePosition, bool mouseDown, bool mousePressed,
         IReadOnlyList<Rectangle>? vaultSlotRects = null, bool allowWorldDrop = true,
-        Rectangle? explicitDropRect = null, bool lootOnlyPickup = false)
+        Rectangle? explicitDropRect = null, bool lootOnlyPickup = false,
+        IReadOnlyList<Rectangle>? armorySlotRects = null)
     {
         _vaultSlotRects = vaultSlotRects ?? Array.Empty<Rectangle>();
+        _armorySlotRects = armorySlotRects ?? Array.Empty<Rectangle>();
         _allowWorldDrop = allowWorldDrop;
         _explicitDropRect = explicitDropRect ?? Rectangle.Empty;
         if (mousePressed)
@@ -1960,6 +1726,16 @@ public sealed class InformationSheet
                     {
                         _draggingItem = Items.Deserialize(GameProfile.Profile.Storage[index]);
                         _draggingSource = new VaultDragSource(index);
+                        DragInProgress = true;
+                        return;
+                    }
+                }
+                for (int index = 0; index < _armorySlotRects.Count; index++)
+                {
+                    if (_armorySlotRects[index].Contains(mousePosition) && index < SoulHub.DeveloperArmoryItems.Count)
+                    {
+                        _draggingItem = Items.DeveloperArmoryDrop(SoulHub.DeveloperArmoryItems[index]);
+                        _draggingSource = new ArmoryDragSource(index);
                         DragInProgress = true;
                         return;
                     }
@@ -2023,6 +1799,16 @@ public sealed class InformationSheet
                 PlaceInVault(equipFromVault.Index, displaced);
                 MetaProgression.SyncCarriedItems(state);
             }
+            else if (source is ArmoryDragSource)
+            {
+                // Infinite catalog, not a real slot to swap with -- only ever
+                // places into an empty slot; an occupied one just cancels the
+                // drag instead of discarding whatever's equipped there.
+                if (state.Equipment[targetKey] is not null)
+                    return;
+                state.Equipment[targetKey] = item;
+                GameProfile.IncrementQuest("items_found", state: state);
+            }
             return;
         }
 
@@ -2064,6 +1850,15 @@ public sealed class InformationSheet
                 state.Inventory[targetInventoryIndex] = item;
                 PlaceInVault(stashFromVault.Index, displaced);
                 MetaProgression.SyncCarriedItems(state);
+            }
+            else if (source is ArmoryDragSource)
+            {
+                // See the equipment-slot ArmoryDragSource branch above -- same
+                // "only into an empty slot, nothing ever displaced" rule.
+                if (state.Inventory[targetInventoryIndex] is not null)
+                    return;
+                state.Inventory[targetInventoryIndex] = item;
+                GameProfile.IncrementQuest("items_found", state: state);
             }
             return;
         }

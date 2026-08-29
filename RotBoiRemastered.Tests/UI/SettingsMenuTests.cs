@@ -8,9 +8,9 @@ namespace RotBoiRemastered.Tests.UI;
 public sealed class SettingsMenuTests
 {
     [Theory]
-    [InlineData(100, .70)]
-    [InlineData(300, 3.0)]
-    [InlineData(200, 1.85)]
+    [InlineData(100, .60)]
+    [InlineData(300, 3.5)]
+    [InlineData(200, 2.05)]
     public void TextSizeSliderMapsItsFullTrackToTheSupportedRange(
         int mouseX, double expected)
     {

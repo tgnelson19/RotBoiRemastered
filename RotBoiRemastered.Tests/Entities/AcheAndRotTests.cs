@@ -263,13 +263,10 @@ public class AcheTests
         var context = Context(boss, battleground);
         ClearOpening(boss, context);
         boss.DebugPhaseLocked = false;
-        boss.DebugSetPhase(3);
-        boss.DebugPhaseLocked = false;
+        boss.Hp = (int)Math.Round(boss.MaxHp * .6);
+        boss.DebugRebasePhaseHealth();
 
         boss.TakeDamage(boss.MaxHp);
-        Assert.False(boss.MidpointSurvivalActive);
-        ReachAcheDeclarations(boss, context, 2);
-        StepAche(boss, context);
 
         Assert.True(boss.MidpointSurvivalActive);
         Assert.Equal("PROVOCATION", boss.PhaseLabel);
@@ -278,7 +275,7 @@ public class AcheTests
     }
 
     [Fact]
-    public void HugeOpeningHitStopsAtFirstChaoticLesson()
+    public void HugeOpeningHitStopsAtThisRetaliationsDamageBudget()
     {
         var battleground = MakeBattleground();
         var boss = new Ache(1000, 1000, battleground, new Random(2));
@@ -287,16 +284,19 @@ public class AcheTests
 
         boss.TakeDamage(boss.MaxHp);
 
-        Assert.Equal((int)(boss.MaxHp * .84), boss.Hp);
+        // One retaliation surrenders at most fifteen percent of maximum
+        // health however much damage arrives.
+        Assert.Equal(
+            boss.MaxHp - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.False(boss.MidpointSurvivalActive);
     }
 
     [Theory]
-    [InlineData(2, .67, 3)]
-    [InlineData(5, .25, 6)]
-    [InlineData(6, .12, 7)]
-    public void IntermediateDamageMovementsCannotBeSkippedBeforeTwoDeclarations(
-        int phase, double floorRatio, int nextPhase)
+    [InlineData(2)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void EveryRetaliationSurrendersOnlyItsOwnBudgetThenRunsItsClock(int phase)
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -305,18 +305,21 @@ public class AcheTests
         boss.DebugSetPhase(phase);
         ClearOpening(boss, context);
         boss.DebugPhaseLocked = false;
+        int before = boss.Hp;
 
         boss.TakeDamage(boss.MaxHp);
-        Assert.Equal((int)Math.Round(boss.MaxHp * floorRatio), boss.Hp);
+        Assert.Equal(
+            before - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.Equal(phase, boss.Phase);
 
-        ReachAcheDeclarations(boss, context, 2);
+        boss.DebugCompletePhaseClock();
         StepAche(boss, context);
-        Assert.Equal(nextPhase, boss.Phase);
+        Assert.NotEqual(phase, boss.Phase);
     }
 
     [Fact]
-    public void WhiteAcheMustDeclareTwiceBeforeOverload()
+    public void OverloadOpensOnceTheLastRetaliationRunsTheHealthBarOut()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -324,13 +327,15 @@ public class AcheTests
         var context = Context(boss, battleground);
         boss.DebugSetPhase(7);
         ClearOpening(boss, context);
+        boss.DebugPhaseLocked = false;
 
         boss.TakeDamage(boss.MaxHp);
-        Assert.Equal(1, boss.Hp);
         Assert.False(boss.FinaleActive);
 
-        ReachAcheDeclarations(boss, context, 2);
-        boss.TakeDamage(1);
+        boss.Hp = (int)Math.Round(boss.MaxHp * .1);
+        boss.DebugRebasePhaseHealth();
+        boss.TakeDamage(boss.MaxHp);
+
         Assert.True(boss.FinaleActive);
         Assert.Equal(8, boss.Phase);
     }
@@ -383,7 +388,10 @@ public class AcheTests
             // giving a proportionally bigger room more time to be covered.
             var pressure = SimulatePressure(phase, seed, duration: 36.0);
 
-            Assert.InRange(pressure.PeakProjectiles, 1, 50);
+            // Ceiling raised with the deliberate density increase; still far
+            // under Ache's own ActiveThreatSoftCap and the session overflow
+            // limit, which the OverflowCount assertion below guards.
+            Assert.InRange(pressure.PeakProjectiles, 1, 68);
             Assert.InRange(pressure.PeakPersistentHazards, 1, 28);
             Assert.Equal(0, pressure.OverflowCount);
             Assert.True(pressure.HazardQuadrants.Count >= 2,
@@ -650,7 +658,10 @@ public class AcheTests
 
             Assert.True(pressure.ProjectileThreats >= minimumThreats,
                 $"Phase {phase} produced only {pressure.ProjectileThreats} direct threats at {position}.");
-            Assert.InRange(pressure.PeakProjectiles, 1, 50);
+            // Ceiling raised with the deliberate density increase; still far
+            // under Ache's own ActiveThreatSoftCap and the session overflow
+            // limit, which the OverflowCount assertion below guards.
+            Assert.InRange(pressure.PeakProjectiles, 1, 68);
             Assert.Equal(0, pressure.OverflowCount);
         }
     }
@@ -734,7 +745,7 @@ public class AcheTests
     }
 
     [Fact]
-    public void Overload_IsThirtySecondsThenTenSecondDeath()
+    public void Overload_IsTheStandardTwentyFiveSecondSurvivalThenTenSecondDeath()
     {
         var battleground = MakeBattleground();
         var boss = new Ache(1000, 1000, battleground, new Random(5));
@@ -743,7 +754,7 @@ public class AcheTests
         boss.DebugSetPhase(8);
 
         Assert.True(boss.FinaleActive);
-        Assert.Equal(30.0, boss.FinaleRemaining);
+        Assert.Equal(25.0, boss.FinaleRemaining);
         Assert.Equal(3, boss.OverloadConstellationNodeCount);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
@@ -882,13 +893,10 @@ public class RotTests
         var battleground = MakeBattleground();
         var boss = new Rot(1000, 1000, battleground, new Random(2));
         boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(3);
-        boss.DebugPhaseLocked = false;
+        boss.Hp = (int)Math.Round(boss.MaxHp * .6);
+        boss.DebugRebasePhaseHealth();
 
         boss.TakeDamage(boss.MaxHp);
-        Assert.False(boss.MidpointSurvivalActive);
-        ReachRotDeclarations(boss, Context(boss, battleground), 2);
-        boss.Update(Context(boss, battleground));
 
         Assert.True(boss.MidpointSurvivalActive);
         Assert.Equal("METABOLISM", boss.PhaseLabel);
@@ -897,15 +905,42 @@ public class RotTests
     }
 
     [Fact]
-    public void HugeOpeningHitStopsAtSeepGate()
+    public void HugeOpeningHitStopsAtThisMovementsDamageBudget()
     {
         var boss = new Rot(1000, 1000, MakeBattleground(), new Random(2));
         boss.EntranceRemaining = 0;
 
         boss.TakeDamage(boss.MaxHp);
 
-        Assert.Equal((int)Math.Round(boss.MaxHp * .84), boss.Hp);
+        // One movement surrenders at most fifteen percent of maximum health,
+        // however much damage arrives -- burial cannot be reached by burst.
+        Assert.Equal(
+            boss.MaxHp - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.False(boss.MidpointSurvivalActive);
+    }
+
+    [Fact]
+    public void AMovementRunsItsFullClockEvenWhenBurstedToItsFloor()
+    {
+        var battleground = MakeBattleground();
+        var boss = new Rot(1000, 1000, battleground, new Random(2));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        int opening = boss.Phase;
+
+        boss.TakeDamage(boss.MaxHp);
+        Assert.True(boss.PhaseDamageThresholdReached);
+
+        // Sitting at the floor does not hand the player the next movement:
+        // the clock still has to run out.
+        for (int tick = 0; tick < Simulation.FrameRate * 10; tick++)
+            StepRot(boss, context);
+        Assert.Equal(opening, boss.Phase);
+
+        boss.DebugCompletePhaseClock();
+        StepRot(boss, context);
+        Assert.NotEqual(opening, boss.Phase);
     }
 
     [Fact]
@@ -1005,41 +1040,39 @@ public class RotTests
         var context = Context(boss, battleground);
         boss.EntranceRemaining = 0;
         boss.TransitionCleanupRequested = false;
+        int opening = boss.Phase;
 
-        boss.TakeDamage(boss.MaxHp);
-        ReachRotDeclarations(boss, context, 2);
+        boss.DebugCompletePhaseClock();
         boss.Update(context);
 
-        Assert.Equal(2, boss.Phase);
+        // Rot is accumulation made animate: an ordinary rotation never washes
+        // the room, only the survival and burial boundaries do.
+        Assert.NotEqual(opening, boss.Phase);
         Assert.False(boss.TransitionCleanupRequested);
     }
 
     [Fact]
-    public void MiasmaDamageMovementMustDeclareTwiceBeforeBurial()
+    public void BurialOpensOnceTheLastMovementRunsTheHealthBarOut()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var boss = new Rot(1000, 1000, battleground, new Random(10));
-        var context = Context(boss, battleground);
         boss.EntranceRemaining = 0;
         boss.DebugSetPhase(6);
+        boss.DebugPhaseLocked = false;
+        boss.Hp = (int)Math.Round(boss.MaxHp * .1);
+        boss.DebugRebasePhaseHealth();
 
         boss.TakeDamage(boss.MaxHp);
-        Assert.Equal(1, boss.Hp);
-        Assert.False(boss.FinaleActive);
-
-        ReachRotDeclarations(boss, context, 2);
-        boss.TakeDamage(1);
 
         Assert.True(boss.FinaleActive);
         Assert.Equal(7, boss.Phase);
     }
 
     [Theory]
-    [InlineData(2, .67, 3)]
-    [InlineData(5, .25, 6)]
-    public void IntermediateDamageGatesCannotSkipBeforeTwoDeclarations(
-        int phase, double floorRatio, int nextPhase)
+    [InlineData(2)]
+    [InlineData(5)]
+    public void EveryDamageMovementSurrendersOnlyItsOwnBudget(int phase)
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -1048,15 +1081,19 @@ public class RotTests
         boss.EntranceRemaining = 0;
         boss.DebugSetPhase(phase);
         boss.DebugPhaseLocked = false;
+        int before = boss.Hp;
 
         boss.TakeDamage(boss.MaxHp);
-        Assert.Equal((int)Math.Round(boss.MaxHp * floorRatio), boss.Hp);
+
+        Assert.Equal(
+            before - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.Equal(phase, boss.Phase);
 
-        ReachRotDeclarations(boss, context, 2);
+        boss.DebugCompletePhaseClock();
         boss.Update(context);
 
-        Assert.Equal(nextPhase, boss.Phase);
+        Assert.NotEqual(phase, boss.Phase);
     }
 
     [Fact]
@@ -1188,7 +1225,7 @@ public class RotTests
     }
 
     [Fact]
-    public void Burial_IsThirtyFiveSecondsThenTenSecondExpandingDeath()
+    public void Burial_IsTheStandardTwentyFiveSecondSurvivalThenTenSecondExpandingDeath()
     {
         var battleground = MakeBattleground();
         var boss = new Rot(1000, 1000, battleground, new Random(4));
@@ -1197,11 +1234,11 @@ public class RotTests
         boss.DebugSetPhase(7);
 
         Assert.True(boss.FinaleActive);
-        Assert.Equal(35.0, boss.FinaleRemaining);
+        Assert.Equal(25.0, boss.FinaleRemaining);
         Assert.Equal(1, boss.BurialLayerCount);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 18; tick++)
+        for (int tick = 0; tick < Simulation.FrameRate * 13; tick++)
             StepRot(boss, context);
         Assert.InRange(boss.BurialLayerCount, 3, Rot.BurialStrataCount);
 

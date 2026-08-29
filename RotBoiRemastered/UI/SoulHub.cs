@@ -67,9 +67,27 @@ public class SoulHub
     private sealed record DummyHit(double Time, double Damage);
     private readonly Queue<DummyHit> _dummyHits = new();
     private readonly Dictionary<string, Rectangle> _targets = new();
+    /// <summary>Snapshot of last frame's overlay-target rects, taken right before this frame's DrawWorld clears _targets -- see ComputeFocusedTargetKey.</summary>
+    private Dictionary<string, Rectangle> _previousOverlayTargets = new();
+    /// <summary>The overlay target currently controller-focused, resolved once per DrawOverlay call and consulted inline by each list's own draw loop.</summary>
+    private string? _focusedTargetKey;
     private readonly Dictionary<string, Vector2> _stationWorld = new();
     private readonly Dictionary<string, Vector2> _pathPortalWorld = new();
     private int _overlayFocusIndex;
+    /// <summary>
+    /// 0 = the duality menu is fully collapsed back into its totem, 1 =
+    /// fully expanded to its resting DualPanelRects. Eases toward 1 while
+    /// _overlay is open and back toward 0 once it closes -- see Update and
+    /// DrawOverlay. Kept separate from _overlay itself (which drives real
+    /// interaction instantly) so the *visual* open/close always gets to
+    /// play out even after the player has already walked out of range.
+    /// </summary>
+    private float _menuAnimT;
+    /// <summary>Which overlay's panels are being animated/shown right now -- lags one closing animation behind _overlay, which goes null immediately on walk-away.</summary>
+    private string? _menuAnimKey;
+    /// <summary>World position the menu is expanding from / collapsing to -- captured once when _menuAnimKey changes, not re-read from _stationWorld every frame (that entry can disappear mid-animation, e.g. a brazier prerequisite going dark).</summary>
+    private Vector2 _menuAnimOriginWorld;
+    private const float MenuAnimSeconds = .32f;
     private Vector2 _dummyWorld;
     private TrainingDummy _dummy = new(0, 0);
     private string? _overlay;
@@ -210,6 +228,7 @@ public class SoulHub
         SyncDeveloperArmoryStation();
         SyncGoldenFlameStation();
         SyncVoidStation();
+        UpdateMenuAnimation(elapsedSeconds);
         _seconds += Math.Min(.05, elapsedSeconds);
         session.UpdateEntrySplash(elapsedSeconds);
         _dummyHitFlash = Math.Max(0, _dummyHitFlash - elapsedSeconds);
@@ -398,6 +417,11 @@ public class SoulHub
         {
             session.HandleCarriedLoadoutDrag(mouse, mouseDown, mousePressed,
                 _vaultSlotRects);
+        }
+        else if (_overlay == "developer_armory")
+        {
+            session.HandleArmoryLoadoutDrag(mouse, mouseDown, mousePressed,
+                _armorySlotRects);
         }
         if (!mousePressed)
             return null;
@@ -737,6 +761,34 @@ public class SoulHub
         _overlay = null;
         _overlayFocusIndex = 0;
         session.InformationSheet.CancelDrag();
+    }
+
+    /// <summary>
+    /// Eases _menuAnimT toward 1 (fully expanded) while a menu is open and
+    /// back toward 0 (collapsed into its totem) once it closes -- see
+    /// DrawOverlay for how this drives the actual expand/collapse geometry.
+    /// _menuAnimKey (and its origin point) only get reassigned when the
+    /// *open* target changes, so a plain walk-away-and-close always finishes
+    /// collapsing toward the totem it came from rather than snapping.
+    /// </summary>
+    private void UpdateMenuAnimation(double elapsedSeconds)
+    {
+        if (_overlay is not null)
+        {
+            if (_menuAnimKey != _overlay)
+            {
+                _menuAnimKey = _overlay;
+                _menuAnimOriginWorld = StationWorld(_overlay);
+                _menuAnimT = 0f;
+            }
+            _menuAnimT = Math.Min(1f, _menuAnimT + (float)(elapsedSeconds / MenuAnimSeconds));
+        }
+        else if (_menuAnimT > 0f)
+        {
+            _menuAnimT = Math.Max(0f, _menuAnimT - (float)(elapsedSeconds / MenuAnimSeconds));
+            if (_menuAnimT <= 0f)
+                _menuAnimKey = null;
+        }
     }
 
     private string? NearbyPathPortal(GameSession session) => _pathPortalWorld
@@ -1372,11 +1424,8 @@ public class SoulHub
             DrawDevTestingToggle(spriteBatch, session, mouse, mouseDown);
             DrawDevUnlockControls(spriteBatch, session, mouse, mouseDown);
         }
-        if (_overlay is not null)
-        {
-            DrawOverlay(spriteBatch, session, mouse);
-            DrawOverlayControllerFocus(spriteBatch);
-        }
+        if (_menuAnimKey is not null)
+            DrawOverlay(spriteBatch, session, mouse, _menuAnimKey, _menuAnimT);
         if (_confirmingPortalKey is not null) DrawPortalConfirm(spriteBatch, session, mouse, mouseDown);
         if (_overlay is null && _confirmingPortalKey is null)
             session.DrawSoulFooter(spriteBatch, mouse, (float)_seconds);
@@ -1481,15 +1530,38 @@ public class SoulHub
         }
     }
 
-    private void DrawOverlayControllerFocus(SpriteBatch spriteBatch)
+    /// <summary>
+    /// The controller-focus outline used to be drawn as one final pass over
+    /// everything (see git history) -- since that ran after scissoring had
+    /// already ended for every scrollable list, it could paint outside a
+    /// list's clipped bounds and land on top of unrelated content. It's now
+    /// drawn inline, item by item, at the same "z" as the item itself (see
+    /// IsFocusedTarget/each list's own draw loop) so it never escapes that
+    /// item's own clip region.
+    /// </summary>
+    private bool IsFocusedTarget(string key) => key == _focusedTargetKey;
+
+    /// <summary>
+    /// Which overlay target is controller-focused right now, resolved from
+    /// _previousOverlayTargets (this same overlay's target rects as they
+    /// stood at the end of last frame's Draw -- the same data
+    /// HandleOverlayControllerInput navigated over during this frame's
+    /// Update, since Update always runs before Draw). Using a snapshot
+    /// rather than the live _targets dict sidesteps the chicken-and-egg
+    /// problem of needing every item's rect before any of them have been
+    /// laid out this frame.
+    /// </summary>
+    private string? ComputeFocusedTargetKey()
     {
-        List<string> targets = OrderedOverlayTargets();
-        if (targets.Count == 0)
-            return;
-        _overlayFocusIndex = Math.Clamp(_overlayFocusIndex, 0, targets.Count - 1);
-        Rectangle target = _targets[targets[_overlayFocusIndex]];
-        target.Inflate(Px(3), Px(3));
-        Primitives2D.RectOutline(spriteBatch, target, UiTheme.Cream, Math.Max(2, Px(2)));
+        List<string> ordered = _previousOverlayTargets
+            .Where(pair => IsOverlayTarget(pair.Key))
+            .OrderBy(pair => pair.Value.Y)
+            .ThenBy(pair => pair.Value.X)
+            .Select(pair => pair.Key)
+            .ToList();
+        if (ordered.Count == 0)
+            return null;
+        return ordered[Math.Clamp(_overlayFocusIndex, 0, ordered.Count - 1)];
     }
 
     private void DrawCampaignStatues(SpriteBatch spriteBatch, GameSession session)
@@ -2195,24 +2267,81 @@ public class SoulHub
     /// claimed (right); the wardrobe pairs the full unlockable collection
     /// (left) with a live preview of what's actually equipped (right).
     /// </summary>
-    private void DrawOverlay(SpriteBatch spriteBatch, GameSession session, Point mouse)
-    {
-        _tooltip = null;
-        var (left, right) = DualPanelRects(session);
-        Color accent = _overlay switch
-        {
-            "storage" => UiTheme.Gold,
-            "quests" => UiTheme.Green,
-            "skills" => UiTheme.Purple,
-            "wardrobe" => UiTheme.Blue,
-            "developer_armory" => UiTheme.Gold,
-            _ when BrazierKeys.Contains(_overlay!) => Braziers[_overlay!].Accent,
-            _ => UiTheme.Cream,
-        };
-        SoulVisualRenderer.DrawOverlayFrame(spriteBatch, left, _overlay!, accent);
-        SoulVisualRenderer.DrawOverlayFrame(spriteBatch, right, _overlay!, accent);
+    /// <summary>Fraction of the expand/collapse animation spent settled at full size before real content is allowed to render -- see DrawOverlay.</summary>
+    private const float MenuContentRevealT = .92f;
 
-        switch (_overlay)
+    /// <summary>Primary palette (right panel) per menu -- see MenuAltAccent for the left panel's alternative.</summary>
+    private static Color MenuAccent(string overlayKey) => overlayKey switch
+    {
+        "storage" => UiTheme.Gold,
+        "quests" => UiTheme.Green,
+        "skills" => UiTheme.Purple,
+        "wardrobe" => UiTheme.Blue,
+        "developer_armory" => UiTheme.Gold,
+        _ when BrazierKeys.Contains(overlayKey) => Braziers[overlayKey].Accent,
+        _ => UiTheme.Cream,
+    };
+
+    /// <summary>
+    /// Alternative palette for the left panel -- a distinct but related hue
+    /// from the right panel's primary color (MenuAccent), so each totem
+    /// reads as having its own two-toned identity instead of both sides
+    /// sharing one flat accent.
+    /// </summary>
+    private static Color MenuAltAccent(string overlayKey) => overlayKey switch
+    {
+        "storage" => new Color(191, 140, 66),
+        "developer_armory" => new Color(200, 150, 70),
+        "quests" => new Color(94, 156, 130),
+        "skills" => new Color(150, 108, 196),
+        "wardrobe" => new Color(96, 168, 196),
+        _ when BrazierKeys.Contains(overlayKey) => Color.Lerp(Braziers[overlayKey].Accent, UiTheme.Muted, .55f),
+        _ => UiTheme.Muted,
+    };
+
+    /// <summary>
+    /// The Mind's duality theme: every station opened by SyncMenuOverlay
+    /// expands out of its own totem into two independent tall rectangles
+    /// pinned to the left and right edges of the screen -- never a
+    /// fullscreen takeover -- so the world (and the player, still free to
+    /// walk away) stays visible between them, and collapses back into the
+    /// totem the moment the player leaves. Storage and the developer
+    /// armory pair a permanent catalog (left) with the player's live
+    /// carried loadout (right); quests and skills pair what's still
+    /// outstanding (left) with what's already been claimed (right); the
+    /// wardrobe pairs the full unlockable collection (left) with a live
+    /// preview of what's actually equipped (right). Each side also gets its
+    /// own half of the totem's two-toned palette (MenuAccent/MenuAltAccent).
+    /// </summary>
+    private void DrawOverlay(SpriteBatch spriteBatch, GameSession session, Point mouse, string overlayKey, float animT)
+    {
+        var (leftTarget, rightTarget) = DualPanelRects(session);
+        Color accent = MenuAccent(overlayKey);
+        Color altAccent = MenuAltAccent(overlayKey);
+        // Smoothstep, not linear -- the panels ease into and out of motion
+        // instead of starting/stopping abruptly.
+        float eased = animT * animT * (3f - 2f * animT);
+
+        if (eased < MenuContentRevealT)
+        {
+            Vector2 origin = session.Camera.WorldToScreen(_menuAnimOriginWorld, session.PlayerWorldCenter, Vector2.Zero);
+            float morphT = eased / MenuContentRevealT;
+            DrawMenuMaterializing(spriteBatch, LerpRectFromPoint(origin, leftTarget, morphT), altAccent, morphT);
+            DrawMenuMaterializing(spriteBatch, LerpRectFromPoint(origin, rightTarget, morphT), accent, morphT);
+            return;
+        }
+
+        // Fully open (or close enough): snap to the exact resting rects so
+        // the last fraction of the ease-out never leaves content looking
+        // slightly undersized, and render the real menu.
+        _tooltip = null;
+        _focusedTargetKey = ComputeFocusedTargetKey();
+        var left = leftTarget;
+        var right = rightTarget;
+        SoulVisualRenderer.DrawOverlayFrame(spriteBatch, left, overlayKey, altAccent);
+        SoulVisualRenderer.DrawOverlayFrame(spriteBatch, right, overlayKey, accent);
+
+        switch (overlayKey)
         {
             case "storage":
                 session.BeginLoadoutFocus();
@@ -2238,6 +2367,44 @@ public class SoulHub
                 DrawBrazierDual(spriteBatch, left, right, mouse, brazier);
                 break;
         }
+        _previousOverlayTargets = new Dictionary<string, Rectangle>(_targets.Where(pair => IsOverlayTarget(pair.Key)));
+    }
+
+    /// <summary>
+    /// A panel still mid-expand (or mid-collapse): no detailed content yet
+    /// (item grids/wrapped text aren't designed to render sanely at an
+    /// arbitrary shrinking size), just a glowing plate growing from the
+    /// totem toward its resting rect, plus a scatter of motes drifting
+    /// outward to sell the "bursting out of the totem" feel.
+    /// </summary>
+    private void DrawMenuMaterializing(SpriteBatch spriteBatch, Rectangle rect, Color accent, float morphT)
+    {
+        if (rect.Width < 2 || rect.Height < 2)
+            return;
+        Primitives2D.FillRect(spriteBatch, rect, Color.Lerp(UiTheme.Ink, accent, .3f) * (.35f + morphT * .5f));
+        Primitives2D.RectOutline(spriteBatch, rect, accent * (.5f + morphT * .5f), Math.Max(2, Px(2)));
+        float t = (float)_seconds;
+        for (int index = 0; index < 5; index++)
+        {
+            float seed = index * 2.4f;
+            float travel = ((morphT * 1.3f) + index * .17f) % 1f;
+            var toward = new Vector2(
+                MathHelper.Lerp(rect.Center.X, rect.X + (index % 2 == 0 ? rect.Width : 0), travel),
+                MathHelper.Lerp(rect.Center.Y, rect.Y + rect.Height * ((index + 1) / 6f), travel));
+            float alpha = (1f - travel) * morphT;
+            if (alpha <= .03f) continue;
+            Primitives2D.FillCircle(spriteBatch, toward, Px(2f) + MathF.Sin(t * 4f + seed) * Px(1f), accent * alpha);
+        }
+    }
+
+    /// <summary>Lerps a rect from a single origin point (near-zero size) to its full resting rect -- the geometry behind every duality menu's expand/collapse animation.</summary>
+    private static Rectangle LerpRectFromPoint(Vector2 origin, Rectangle target, float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+        Vector2 center = Vector2.Lerp(origin, target.Center.ToVector2(), t);
+        float width = MathHelper.Lerp(0f, target.Width, t);
+        float height = MathHelper.Lerp(0f, target.Height, t);
+        return new Rectangle((int)(center.X - width / 2f), (int)(center.Y - height / 2f), (int)width, (int)height);
     }
 
     /// <summary>Shared geometry for every duality menu: two tall strips pinned to the screen's left and right edges.</summary>
@@ -2247,11 +2414,51 @@ public class SoulHub
         int marginX = Px(22);
         int top = Px(78);
         int bottom = Px(46);
-        int stripWidth = Math.Clamp((int)(screenWidth * .24f), Px(230), Px(360));
+        // Wide enough for two quest/skill cards side by side (see
+        // DrawQuestList/DrawSkillList's 2-column layout) -- every other
+        // duality menu was restructured to make good use of the same width
+        // rather than leaving it as a menu-specific special case.
+        int stripWidth = Math.Clamp((int)(screenWidth * .36f), Px(420), Px(620));
         int height = Math.Max(Px(120), screenHeight - top - bottom);
         var left = new Rectangle(marginX, top, stripWidth, height);
         var right = new Rectangle(screenWidth - marginX - stripWidth, top, stripWidth, height);
         return (left, right);
+    }
+
+    /// <summary>
+    /// Draws a panel's title as large as it can be while still fitting the
+    /// panel's width (shrinking a step at a time until it does, the same
+    /// technique DrawPortalConfirm already uses for its NG label), then an
+    /// optional smaller subtitle line under it. Both are centered on the
+    /// panel rather than pinned to its left edge -- DrawOverlayFrame's arch
+    /// and corner ornaments live along the top edge too, and a wide left-
+    /// aligned title/subtitle can run right into the corner ones or sit
+    /// off-center under the arch. Centering keeps the header clear of both.
+    /// Positioned with enough top margin to clear the arch outright, and
+    /// returns the Y content should start below -- so every menu gives its
+    /// title a real, consistent header band instead of a cramped label.
+    /// </summary>
+    private int DrawMenuTitle(SpriteBatch spriteBatch, Rectangle panel, string title, Color color,
+        int pad, string? subtitle = null, Color? subtitleColor = null)
+    {
+        double size = Fs(26);
+        double minSize = Fs(15);
+        float maxWidth = panel.Width - pad * 2;
+        while (size > minSize && UiTheme.Font(size).MeasureString(title).X > maxWidth)
+            size -= 1;
+        int titleY = panel.Y + Px(30);
+        UiTheme.DrawText(spriteBatch, title, size, color, new Vector2(panel.Center.X, titleY), "midtop");
+        int y = titleY + (int)(size * 1.2) + Px(2);
+        if (subtitle is not null)
+        {
+            foreach (var line in UiTheme.WrapLines(subtitle, Fs(9), maxWidth))
+            {
+                UiTheme.DrawText(spriteBatch, line, Fs(9), subtitleColor ?? UiTheme.Muted, new Vector2(panel.Center.X, y), "midtop");
+                y += Px(13);
+            }
+            y += Px(4);
+        }
+        return y + Px(14);
     }
 
     private static readonly RasterizerState ScissorRasterizer = new() { ScissorTestEnable = true };
@@ -2286,12 +2493,25 @@ public class SoulHub
     /// needed) in scissoring and a scroll offset. Clamps <paramref
     /// name="scroll"/> to the real overflow, draws a thin scrollbar when the
     /// content doesn't fit, and hands the caller the effective top-of-content
-    /// Y (region.Y - scroll) to lay rows out from inside <paramref
-    /// name="draw"/>.
+    /// Y to lay rows out from inside <paramref name="draw"/>.
     /// </summary>
-    private void DrawScrollRegion(SpriteBatch spriteBatch, Rectangle region, ref float scroll,
+    /// <param name="outer">
+    /// The full available area below the panel's header. A visible margin is
+    /// inset from every edge of this before it becomes the actual scissor
+    /// clip, so scrolled content is always hard-cut with room to spare
+    /// rather than potentially touching (or, at the scissor boundary itself,
+    /// visually bleeding into) the panel's frame border -- it should read as
+    /// contained inside the menu, not butted flush against its edge.
+    /// </param>
+    private void DrawScrollRegion(SpriteBatch spriteBatch, Rectangle outer, ref float scroll,
         int contentHeight, Action<int> draw)
     {
+        int sideInset = Px(6);
+        int topInset = Px(4);
+        int bottomInset = Px(14);
+        var region = new Rectangle(
+            outer.X + sideInset, outer.Y + topInset,
+            outer.Width - sideInset * 2, outer.Height - topInset - bottomInset);
         int maxScroll = Math.Max(0, contentHeight - region.Height);
         scroll = Math.Clamp(scroll, 0, maxScroll);
         BeginScissor(spriteBatch, region);
@@ -2307,39 +2527,49 @@ public class SoulHub
         Primitives2D.FillRect(spriteBatch, new Rectangle(track.X, thumbY, track.Width, thumbHeight), UiTheme.Cream * .8f);
     }
 
+    /// <summary>
+    /// Rects for the armory grid, refreshed each frame -- fed into
+    /// GameSession.HandleArmoryLoadoutDrag so a card can be dragged straight
+    /// into an equipment/stash slot, same mechanic as the Vault's
+    /// _vaultSlotRects. Unlike the Vault, the source card is never removed:
+    /// it's an infinite catalog, so every slot keeps showing (and stays
+    /// draggable) regardless of what's already been taken from it.
+    /// </summary>
+    private List<Rectangle> _armorySlotRects = new();
+
     private void DrawDeveloperArmory(SpriteBatch spriteBatch, Rectangle panel, Point mouse, GameSession session)
     {
-        UiTheme.DrawText(spriteBatch, "ARMORY", Fs(16), UiTheme.Gold, new Vector2(panel.X + Px(16), panel.Y + Px(14)));
-        int free = session.State.Inventory.Count(item => item is null);
-        int textY = panel.Y + Px(36);
+        int pad = Px(16);
+        int textY = DrawMenuTitle(spriteBatch, panel, "ARMORY", UiTheme.Gold, pad);
         foreach (var line in UiTheme.WrapLines(
-            $"MYTHICAL // FULL MODIFIER LADDER // CLICK TO COPY // {free} FREE SLOTS",
-            Fs(8), panel.Width - Px(32)))
+            "MYTHICAL // FULL MODIFIER LADDER // DRAG TO COPY -- NEVER RUNS OUT",
+            Fs(8), panel.Width - pad * 2))
         {
-            UiTheme.DrawText(spriteBatch, line, Fs(8), free > 0 ? UiTheme.Cream : UiTheme.Red, new Vector2(panel.X + Px(18), textY));
+            UiTheme.DrawText(spriteBatch, line, Fs(8), UiTheme.Cream, new Vector2(panel.Center.X, textY), "midtop");
             textY += Px(11);
         }
+        textY += Px(6);
 
         int count = DeveloperArmoryItems.Count;
-        int pad = Px(16);
         int available = panel.Width - pad * 2;
-        int columns = Math.Clamp(available / Px(50), 3, 5);
+        int columns = Math.Clamp(available / Px(58), 4, 8);
         int gap = Px(8);
         int size = Math.Max(Px(30), (available - gap * (columns - 1)) / columns);
         int left = panel.X + pad;
         int rows = (count + columns - 1) / columns;
         int contentHeight = rows * (size + gap);
-        var region = new Rectangle(panel.X, textY + Px(10), panel.Width, panel.Bottom - textY - Px(18));
+        var region = new Rectangle(panel.X, textY, panel.Width, panel.Bottom - textY);
+        _armorySlotRects = new List<Rectangle>(count);
         DrawScrollRegion(spriteBatch, region, ref _leftScroll, contentHeight, top =>
         {
             for (int index = 0; index < count; index++)
             {
                 int column = index % columns, row = index / columns;
                 var rect = new Rectangle(left + column * (size + gap), top + row * (size + gap), size, size);
+                _armorySlotRects.Add(rect);
                 ItemDrop drop = Items.DeveloperArmoryDrop(DeveloperArmoryItems[index]);
                 bool hovered = rect.Contains(mouse);
                 ItemCards.DrawItemCard(spriteBatch, rect, drop, hovered, (float)_seconds);
-                if (free > 0) _targets[$"armory:{index}"] = rect;
                 if (hovered)
                     _tooltip = $"{drop.Name}  //  {drop.Rarity}  //  {Items.ModifierUnlockCount(drop.Rarity)}/{drop.Definition.ModifierLadder.Count} MODIFIERS";
             }
@@ -2356,39 +2586,46 @@ public class SoulHub
     /// (see its VaultDragSource), fed this panel's slot rects via
     /// GameSession.HandleCarriedLoadoutDrag.
     /// </summary>
-    /// <summary>Vault grid is always exactly 3 columns wide -- capacity (MetaProgression.StorageCapacity) is always a multiple of 3, so the grid, and the triple-wide "buy a row" button below it, both fit cleanly.</summary>
-    private const int VaultColumns = 3;
+    /// <summary>The purchase increment (MetaProgression.StorageRowSize) is always 3, but the *displayed* grid is a separate, wider column count now -- see DrawVault.</summary>
     private static readonly Color DullGreen = new(72, 104, 76);
 
     private void DrawVault(SpriteBatch spriteBatch, Rectangle panel, Point mouse,
         GameSession session)
     {
-        UiTheme.DrawText(spriteBatch, "VAULT", Fs(16), UiTheme.Text, new Vector2(panel.X + Px(16), panel.Y + Px(14)));
-        UiTheme.DrawText(spriteBatch, "PERMANENT  //  DRAG TO CARRY", Fs(8), UiTheme.Gold,
-            new Vector2(panel.X + Px(18), panel.Y + Px(36)));
-
         int pad = Px(16);
+        int headerY = DrawMenuTitle(spriteBatch, panel, "VAULT", UiTheme.Text, pad,
+            "PERMANENT  //  DRAG TO CARRY", UiTheme.Gold);
+
         int available = panel.Width - pad * 2;
         int gap = Px(8);
-        int slotSize = (available - gap * (VaultColumns - 1)) / VaultColumns;
-        int vaultLeft = panel.X + pad;
-        int vaultRows = MetaProgression.StorageCapacity / VaultColumns;
+        // The grid's own column count is independent of the purchase
+        // increment (MetaProgression.StorageRowSize) -- it just fills the panel's
+        // width with reasonably sized slots instead of stretching 3 columns
+        // across a much wider panel than the Vault used to have.
+        int columns = Math.Clamp(available / Px(66), 4, 8);
+        int slotSize = Math.Min(Px(72), (available - gap * (columns - 1)) / columns);
+        int gridWidth = slotSize * columns + gap * (columns - 1);
+        int vaultLeft = panel.X + pad + (available - gridWidth) / 2;
+        int vaultRows = (MetaProgression.StorageCapacity + columns - 1) / columns;
         int gridHeight = vaultRows * (slotSize + gap);
-        int buttonHeight = slotSize;
+        int buttonHeight = Px(40);
         int countLineHeight = Px(24);
         int historyHeaderHeight = Px(24);
-        int historyRowHeight = Px(34);
+        int historyColumnGap = Px(14);
+        int historyColumnWidth = (available - historyColumnGap) / 2;
+        int historyRowHeight = Px(36);
         int historyCount = GameProfile.Profile.ExtractedRuns.Count;
-        int historyHeight = historyCount == 0 ? Px(24) : historyCount * historyRowHeight;
+        int historyPairs = (historyCount + 1) / 2;
+        int historyHeight = historyCount == 0 ? Px(24) : historyPairs * historyRowHeight;
         int contentHeight = gridHeight + buttonHeight + Px(16) + countLineHeight + historyHeaderHeight + historyHeight;
 
-        var region = new Rectangle(panel.X, panel.Y + Px(58), panel.Width, panel.Height - Px(58));
+        var region = new Rectangle(panel.X, headerY, panel.Width, panel.Bottom - headerY);
         DrawScrollRegion(spriteBatch, region, ref _leftScroll, contentHeight, vaultTop =>
         {
             _vaultSlotRects = new List<Rectangle>();
             for (int index = 0; index < MetaProgression.StorageCapacity; index++)
             {
-                int column = index % VaultColumns, row = index / VaultColumns;
+                int column = index % columns, row = index / columns;
                 _vaultSlotRects.Add(new Rectangle(
                     vaultLeft + column * (slotSize + gap),
                     vaultTop + row * (slotSize + gap), slotSize, slotSize));
@@ -2409,26 +2646,29 @@ public class SoulHub
                     Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, Px(2));
             }
 
-            // Triple-wide "buy a row" button -- spends Mind Tokens to
-            // permanently grow the Vault by one row (see
+            // Full-width "buy a row" button -- spends Mind Tokens to
+            // permanently grow the Vault by MetaProgression.StorageRowSize slots (see
             // MetaProgression.PurchaseStorageRow). Cost climbs by 1 with
-            // each row already bought, capped at MaxStorageRowCost.
+            // each row already bought, capped at MaxStorageRowCost. Its own
+            // width no longer needs to match the display grid's column
+            // count now that the two are decoupled.
             int buttonY = vaultTop + gridHeight;
-            var button = new Rectangle(vaultLeft, buttonY, slotSize * VaultColumns + gap * (VaultColumns - 1), buttonHeight);
+            var button = new Rectangle(panel.X + pad, buttonY, available, buttonHeight);
             int cost = MetaProgression.NextStorageRowCost;
             bool affordable = GameProfile.Profile.MindTokens >= cost;
             Primitives2D.FillRect(spriteBatch, button, affordable ? DullGreen : Color.Lerp(DullGreen, UiTheme.Ink, .5f));
             Primitives2D.RectOutline(spriteBatch, button, affordable ? UiTheme.Green : UiTheme.Border, Px(2));
-            UiTheme.DrawText(spriteBatch, "+", Fs(22), UiTheme.Cream, new Vector2(button.Center.X, button.Center.Y - Px(6)), "center");
-            UiTheme.DrawText(spriteBatch, $"{cost} TOKEN{(cost == 1 ? "" : "S")}  //  +{VaultColumns} SLOTS", Fs(8),
-                affordable ? UiTheme.Cream : UiTheme.Red, new Vector2(button.Center.X, button.Bottom - Px(11)), "center");
+            UiTheme.DrawText(spriteBatch, $"+  {cost} TOKEN{(cost == 1 ? "" : "S")}  //  +{MetaProgression.StorageRowSize} SLOTS", Fs(11),
+                affordable ? UiTheme.Cream : UiTheme.Red, button.Center.ToVector2(), "center");
             _targets["vault:add_row"] = button;
+            if (IsFocusedTarget("vault:add_row"))
+                Primitives2D.RectOutline(spriteBatch, button, UiTheme.Cream, Px(2));
             if (button.Contains(mouse))
-                _tooltip = $"Spend {cost} Mind Token{(cost == 1 ? "" : "s")} to permanently add {VaultColumns} Vault slots.";
+                _tooltip = $"Spend {cost} Mind Token{(cost == 1 ? "" : "s")} to permanently add {MetaProgression.StorageRowSize} Vault slots.";
 
             int y = button.Bottom + Px(16);
             UiTheme.DrawText(spriteBatch, $"{GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", Fs(8), UiTheme.Muted,
-                new Vector2(vaultLeft, y));
+                new Vector2(panel.X + pad, y));
             y += countLineHeight;
             UiTheme.DrawText(spriteBatch, "RUN HISTORY", Fs(9), UiTheme.Muted, new Vector2(panel.X + pad, y));
             y += historyHeaderHeight;
@@ -2437,16 +2677,22 @@ public class SoulHub
                 UiTheme.DrawText(spriteBatch, "No runs logged yet.", Fs(8), UiTheme.Cream, new Vector2(panel.X + pad, y));
                 return;
             }
-            for (int index = 0; index < historyCount; index++)
+            for (int row = 0; row < historyPairs; row++)
             {
-                var rect = new Rectangle(panel.X + pad, y, available, historyRowHeight - Px(4));
+                DrawHistoryCard(new Rectangle(panel.X + pad, y, historyColumnWidth, historyRowHeight - Px(4)), row * 2);
+                if (row * 2 + 1 < historyCount)
+                    DrawHistoryCard(new Rectangle(panel.X + pad + historyColumnWidth + historyColumnGap, y, historyColumnWidth, historyRowHeight - Px(4)), row * 2 + 1);
+                y += historyRowHeight;
+            }
+
+            void DrawHistoryCard(Rectangle rect, int index)
+            {
                 var run = GameProfile.Profile.ExtractedRuns[index];
                 UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, UiTheme.Green);
                 UiTheme.DrawText(spriteBatch, $"{run.Path.ToUpperInvariant()}  //  {run.Outcome}", Fs(8), UiTheme.Text,
                     new Vector2(rect.X + Px(7), rect.Y + Px(5)));
                 UiTheme.DrawText(spriteBatch, $"LV {run.Level:00}  •  {run.Kills} KILLS  •  {TimeLabel(run.Seconds)}", Fs(7), UiTheme.Muted,
                     new Vector2(rect.X + Px(7), rect.Bottom - Px(14)));
-                y += historyRowHeight;
             }
         });
     }
@@ -2461,31 +2707,65 @@ public class SoulHub
         DrawQuestList(spriteBatch, right, mouse, "FULFILLED VOWS", fulfilled, complete: true, ref _rightScroll);
     }
 
+    /// <summary>
+    /// Quests, skills, and each brazier's active-challenge list all lay out
+    /// in this same 2-card-wide grid now -- the panel width was specifically
+    /// grown to fit two cards side by side (see DualPanelRects), so a single
+    /// wide column would just be wasting the extra room.
+    /// </summary>
     private void DrawQuestList(SpriteBatch spriteBatch, Rectangle panel, Point mouse, string title,
         IReadOnlyList<QuestDefinition> quests, bool complete, ref float scroll)
     {
-        UiTheme.DrawText(spriteBatch, title, Fs(14), UiTheme.Text, new Vector2(panel.X + Px(16), panel.Y + Px(14)));
-        int pad = Px(16);
-        int rowHeight = Px(58);
-        var region = new Rectangle(panel.X, panel.Y + Px(40), panel.Width, panel.Height - Px(40));
-        int contentHeight = quests.Count == 0 ? Px(20) : quests.Count * rowHeight;
+        int pad = Px(22);
+        int headerY = DrawMenuTitle(spriteBatch, panel, title, UiTheme.Text, pad);
+        int columnGap = Px(14);
+        int rowGap = Px(16);
+        int columnWidth = (panel.Width - pad * 2 - columnGap) / 2;
+        int iconSize = Px(38);
+        int textWidth = columnWidth - iconSize - Px(18);
+        double titleFontSize = Fs(9);
+        int titleLineHeight = Px(13);
+        int pairCount = (quests.Count + 1) / 2;
+        // Each row's height grows to fit whichever of its two cards needs
+        // more lines for its wrapped name (see UiTheme.WrapLines) instead of
+        // a fixed height that would let a long name/oversized text setting
+        // spill out of its card.
+        int CardHeight(int index) => Math.Max(iconSize + Px(12),
+            Px(10) + UiTheme.WrapLines(quests[index].Name.ToUpperInvariant(), titleFontSize, textWidth).Count * titleLineHeight + Px(14));
+        var rowHeights = Enumerable.Range(0, pairCount)
+            .Select(row => Math.Max(CardHeight(row * 2), row * 2 + 1 < quests.Count ? CardHeight(row * 2 + 1) : 0))
+            .ToList();
+        var region = new Rectangle(panel.X, headerY, panel.Width, panel.Bottom - headerY);
+        int contentHeight = quests.Count == 0 ? Px(20) : rowHeights.Sum() + rowGap * pairCount;
         string? tooltip = null;
         DrawScrollRegion(spriteBatch, region, ref scroll, contentHeight, startY =>
         {
-            int y = startY;
-            foreach (var quest in quests)
+            void DrawCard(Rectangle rect, QuestDefinition quest)
             {
-                var rect = new Rectangle(panel.X + pad, y, panel.Width - pad * 2, rowHeight - Px(6));
                 UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, complete ? UiTheme.Green : UiTheme.Border, hovered: rect.Contains(mouse));
-                var symbol = new Rectangle(rect.X + Px(6), rect.Y + Px(6), rect.Height - Px(12), rect.Height - Px(12));
+                var symbol = new Rectangle(rect.X + Px(6), rect.Y + Px(6), iconSize, iconSize);
                 Primitives2D.FillRect(spriteBatch, symbol, complete ? UiTheme.Green : UiTheme.Ink);
                 DrawQuestSymbol(spriteBatch, quest.Symbol, symbol, complete ? UiTheme.Ink : UiTheme.Gold);
-                UiTheme.DrawText(spriteBatch, quest.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(symbol.Right + Px(8), rect.Y + Px(6)));
+                int textY = rect.Y + Px(6);
+                foreach (var line in UiTheme.WrapLines(quest.Name.ToUpperInvariant(), titleFontSize, textWidth))
+                {
+                    UiTheme.DrawText(spriteBatch, line, titleFontSize, UiTheme.Text, new Vector2(symbol.Right + Px(8), textY));
+                    textY += titleLineHeight;
+                }
                 long value = Math.Min(quest.Target, GameProfile.Profile.QuestProgress.GetValueOrDefault(quest.Counter));
                 UiTheme.DrawText(spriteBatch, complete ? "COMPLETE" : $"{value:N0} / {quest.Target:N0}", Fs(8),
                     complete ? UiTheme.Green : UiTheme.Muted, new Vector2(symbol.Right + Px(8), rect.Bottom - Px(16)));
                 if (rect.Contains(mouse)) tooltip = $"{quest.Description}  Reward: {quest.Reward} Mind Token{(quest.Reward == 1 ? "" : "s")}.";
-                y += rowHeight;
+            }
+
+            int y = startY;
+            for (int row = 0; row < pairCount; row++)
+            {
+                int leftIndex = row * 2, rightIndex = leftIndex + 1;
+                DrawCard(new Rectangle(panel.X + pad, y, columnWidth, rowHeights[row]), quests[leftIndex]);
+                if (rightIndex < quests.Count)
+                    DrawCard(new Rectangle(panel.X + pad + columnWidth + columnGap, y, columnWidth, rowHeights[row]), quests[rightIndex]);
+                y += rowHeights[row] + rowGap;
             }
             if (quests.Count == 0)
                 UiTheme.DrawText(spriteBatch, complete ? "None fulfilled yet." : "Every vow is fulfilled.", Fs(9), UiTheme.Muted,
@@ -2555,40 +2835,69 @@ public class SoulHub
             .Where(node => GameProfile.Profile.SkillLevels.GetValueOrDefault(node.Key) == 0).ToList();
         var awakened = MetaProgression.SkillNodes
             .Where(node => GameProfile.Profile.SkillLevels.GetValueOrDefault(node.Key) > 0).ToList();
-        UiTheme.DrawText(spriteBatch, $"{GameProfile.Profile.MindTokens} TOKENS", Fs(8), UiTheme.Purple,
-            new Vector2(left.X + Px(16), left.Y + Px(36)));
-        DrawSkillList(spriteBatch, left, mouse, "SEALED PETALS", sealedNodes, ref _leftScroll);
+        DrawSkillList(spriteBatch, left, mouse, "SEALED PETALS", sealedNodes, ref _leftScroll,
+            $"{GameProfile.Profile.MindTokens} MIND TOKENS AVAILABLE");
         DrawSkillList(spriteBatch, right, mouse, "AWAKENED PETALS", awakened, ref _rightScroll);
     }
 
     private void DrawSkillList(SpriteBatch spriteBatch, Rectangle panel, Point mouse, string title,
-        IReadOnlyList<SkillNode> nodes, ref float scroll)
+        IReadOnlyList<SkillNode> nodes, ref float scroll, string? subtitle = null)
     {
-        UiTheme.DrawText(spriteBatch, title, Fs(14), UiTheme.Text, new Vector2(panel.X + Px(16), panel.Y + Px(14)));
-        int pad = Px(16);
-        int rowHeight = Px(64);
-        var region = new Rectangle(panel.X, panel.Y + Px(40), panel.Width, panel.Height - Px(40));
-        int contentHeight = nodes.Count == 0 ? Px(20) : nodes.Count * rowHeight;
+        int pad = Px(22);
+        int headerY = DrawMenuTitle(spriteBatch, panel, title, UiTheme.Text, pad, subtitle, UiTheme.Purple);
+        int columnGap = Px(14);
+        int rowGap = Px(16);
+        int columnWidth = (panel.Width - pad * 2 - columnGap) / 2;
+        int iconSize = Px(42);
+        int textWidth = columnWidth - iconSize - Px(18);
+        double titleFontSize = Fs(9);
+        int titleLineHeight = Px(13);
+        // Room below the name for the cost/mastery line and progress bar,
+        // same idea as the quest list: the card grows to fit however many
+        // lines the wrapped name needs instead of letting it overflow.
+        const int fixedFooterHeight = 34;
+        int pairCount = (nodes.Count + 1) / 2;
+        int CardHeight(int index) => Math.Max(iconSize + Px(12),
+            Px(6) + UiTheme.WrapLines(nodes[index].Name.ToUpperInvariant(), titleFontSize, textWidth).Count * titleLineHeight + Px(fixedFooterHeight));
+        var rowHeights = Enumerable.Range(0, pairCount)
+            .Select(row => Math.Max(CardHeight(row * 2), row * 2 + 1 < nodes.Count ? CardHeight(row * 2 + 1) : 0))
+            .ToList();
+        var region = new Rectangle(panel.X, headerY, panel.Width, panel.Bottom - headerY);
+        int contentHeight = nodes.Count == 0 ? Px(20) : rowHeights.Sum() + rowGap * pairCount;
         string? tooltip = null;
         DrawScrollRegion(spriteBatch, region, ref scroll, contentHeight, startY =>
         {
-            int y = startY;
-            foreach (var node in nodes)
+            void DrawCard(Rectangle rect, SkillNode node)
             {
-                var rect = new Rectangle(panel.X + pad, y, panel.Width - pad * 2, rowHeight - Px(6));
                 int level = GameProfile.Profile.SkillLevels.GetValueOrDefault(node.Key), cost = node.BaseCost + level / 2;
                 bool maxed = level >= node.MaxLevel, affordable = GameProfile.Profile.MindTokens >= cost;
                 UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, level > 0 ? UiTheme.Green : UiTheme.Purple, hovered: rect.Contains(mouse));
-                var symbol = new Rectangle(rect.X + Px(6), rect.Y + Px(6), rect.Height - Px(12), rect.Height - Px(12));
+                var symbol = new Rectangle(rect.X + Px(6), rect.Y + Px(6), iconSize, iconSize);
                 StatCards.DrawStatSymbol(spriteBatch, node.Stat, symbol, level > 0 ? UiTheme.Green : UiTheme.Purple);
-                UiTheme.DrawText(spriteBatch, node.Name.ToUpperInvariant(), Fs(9), UiTheme.Text, new Vector2(symbol.Right + Px(8), rect.Y + Px(5)));
+                int textY = rect.Y + Px(5);
+                foreach (var line in UiTheme.WrapLines(node.Name.ToUpperInvariant(), titleFontSize, textWidth))
+                {
+                    UiTheme.DrawText(spriteBatch, line, titleFontSize, UiTheme.Text, new Vector2(symbol.Right + Px(8), textY));
+                    textY += titleLineHeight;
+                }
                 UiTheme.DrawText(spriteBatch, maxed ? "MASTERED" : $"{cost} TOKEN{(cost == 1 ? "" : "S")}", Fs(8),
-                    maxed ? UiTheme.Green : affordable ? UiTheme.Gold : UiTheme.Red, new Vector2(symbol.Right + Px(8), rect.Y + Px(18)));
+                    maxed ? UiTheme.Green : affordable ? UiTheme.Gold : UiTheme.Red, new Vector2(symbol.Right + Px(8), rect.Bottom - Px(28)));
                 UiTheme.DrawProgress(spriteBatch, new Rectangle(symbol.Right + Px(8), rect.Bottom - Px(14), rect.Width - symbol.Width - Px(24), Px(8)),
                     (float)level / node.MaxLevel, UiTheme.Green, segments: node.MaxLevel);
                 _targets[$"skill:{node.Key}"] = rect;
+                if (IsFocusedTarget($"skill:{node.Key}"))
+                    Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, Px(2));
                 if (rect.Contains(mouse)) tooltip = $"{node.Description}  Rank {level}/{node.MaxLevel}.";
-                y += rowHeight;
+            }
+
+            int y = startY;
+            for (int row = 0; row < pairCount; row++)
+            {
+                int leftIndex = row * 2, rightIndex = leftIndex + 1;
+                DrawCard(new Rectangle(panel.X + pad, y, columnWidth, rowHeights[row]), nodes[leftIndex]);
+                if (rightIndex < nodes.Count)
+                    DrawCard(new Rectangle(panel.X + pad + columnWidth + columnGap, y, columnWidth, rowHeights[row]), nodes[rightIndex]);
+                y += rowHeights[row] + rowGap;
             }
             if (nodes.Count == 0)
                 UiTheme.DrawText(spriteBatch, "None here.", Fs(9), UiTheme.Muted, new Vector2(panel.X + pad, startY));
@@ -2596,12 +2905,15 @@ public class SoulHub
         if (tooltip is not null) DrawTooltip(spriteBatch, mouse, panel, tooltip);
     }
 
-    /// <summary>Analytic height of a 3-per-row swatch column (DrawColorColumn/DrawProjectileColorColumn) at a given width -- lets DrawWardrobeDual size its scroll region without a throwaway first draw pass.</summary>
+    /// <summary>Swatch columns per row (DrawColorColumn/DrawProjectileColorColumn) -- 4 now that the panel is wide enough to fit them without shrinking below a comfortable tap/click size.</summary>
+    private const int SwatchColumns = 4;
+
+    /// <summary>Analytic height of a swatch column at a given width -- lets DrawWardrobeDual size its scroll region without a throwaway first draw pass.</summary>
     private int ColorColumnHeight(int count, int width)
     {
-        int tile = Math.Min(Px(52), (width - Px(16)) / 3);
         int gap = Px(8);
-        int rows = (count + 2) / 3;
+        int tile = (width - gap * (SwatchColumns - 1)) / SwatchColumns;
+        int rows = (count + SwatchColumns - 1) / SwatchColumns;
         return Px(30) + rows * (tile + gap);
     }
 
@@ -2610,9 +2922,8 @@ public class SoulHub
     /// <summary>The Vestment Mirror's duality: the full unlockable collection to browse and pick from on the left, a live preview of what's actually equipped on the right.</summary>
     private void DrawWardrobeDual(SpriteBatch spriteBatch, Rectangle left, Rectangle right, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "COLLECTION", Fs(14), UiTheme.Text, new Vector2(left.X + Px(16), left.Y + Px(14)));
-        UiTheme.DrawText(spriteBatch, "TAP TO EQUIP", Fs(8), UiTheme.Blue, new Vector2(left.X + Px(18), left.Y + Px(34)));
         int pad = Px(16);
+        int leftHeaderY = DrawMenuTitle(spriteBatch, left, "COLLECTION", UiTheme.Text, pad, "TAP TO EQUIP", UiTheme.Blue);
         int sectionGap = Px(22);
         int columnWidth = left.Width - pad * 2;
         int coreHeight = ColorColumnHeight(Cosmetics.CoreColors.Count, columnWidth);
@@ -2620,7 +2931,7 @@ public class SoulHub
         int shotColorHeight = ColorColumnHeight(Cosmetics.ProjectileColors.Count, columnWidth);
         int shotDesignHeight = DesignColumnHeight(Cosmetics.ProjectileDesigns.Count);
         int contentHeight = coreHeight + edgeHeight + shotColorHeight + shotDesignHeight + sectionGap * 3;
-        var region = new Rectangle(left.X, left.Y + Px(52), left.Width, left.Height - Px(52));
+        var region = new Rectangle(left.X, leftHeaderY, left.Width, left.Bottom - leftHeaderY);
         DrawScrollRegion(spriteBatch, region, ref _leftScroll, contentHeight, startY =>
         {
             int y = startY;
@@ -2636,14 +2947,29 @@ public class SoulHub
         });
         if (_tooltip is not null) DrawTooltip(spriteBatch, mouse, left, _tooltip);
 
-        UiTheme.DrawText(spriteBatch, "EQUIPPED", Fs(14), UiTheme.Text, new Vector2(right.X + Px(16), right.Y + Px(14)));
-        var preview = new Rectangle(right.Center.X - Px(60), right.Y + Px(44), Px(120), Px(104));
+        int rightHeaderY = DrawMenuTitle(spriteBatch, right, "EQUIPPED", UiTheme.Text, pad);
+        // Sized as a straight fraction of the panel's own current width --
+        // deliberately not Px()/_uiScale-derived, so it stays ~60% of the
+        // menu regardless of the player's GUI Scale setting rather than
+        // drifting whenever DualPanelRects' own clamping kicks in.
+        int previewWidth = (int)(right.Width * .6f);
+        int previewHeight = (int)(previewWidth * (104f / 120f));
+        var preview = new Rectangle(right.Center.X - previewWidth / 2, rightHeaderY, previewWidth, previewHeight);
         UiTheme.DrawPanel(spriteBatch, preview, UiTheme.Panel, UiTheme.Blue, shadow: 5);
-        var body = new Rectangle(preview.X + Px(16), preview.Y + Px(22), Px(40), Px(40));
-        Primitives2D.FillRect(spriteBatch, new Rectangle(body.X + Px(4), body.Y + Px(5), body.Width, body.Height), UiTheme.Shadow);
+        // Every element inside scales off the same ratio (against the
+        // original 120px-wide design) so the character/shot preview itself
+        // grows to fill the bigger box instead of staying pinned at its old
+        // small size inside a larger frame.
+        float previewScale = previewWidth / 120f;
+        var body = new Rectangle(preview.X + (int)(16 * previewScale), preview.Y + (int)(22 * previewScale),
+            (int)(40 * previewScale), (int)(40 * previewScale));
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(body.X + (int)(4 * previewScale), body.Y + (int)(5 * previewScale), body.Width, body.Height),
+            UiTheme.Shadow);
         Primitives2D.FillRect(spriteBatch, body, Cosmetics.SelectedCore.Color);
-        Primitives2D.RectOutline(spriteBatch, body, Cosmetics.SelectedEdge.Color, Px(4));
-        ProjectileVisuals.Draw(spriteBatch, new Vector2(preview.X + Px(88), preview.Y + Px(42)), Vector2.UnitX, Px(24),
+        Primitives2D.RectOutline(spriteBatch, body, Cosmetics.SelectedEdge.Color, Math.Max(1, (int)(4 * previewScale)));
+        ProjectileVisuals.Draw(spriteBatch,
+            new Vector2(preview.X + 88 * previewScale, preview.Y + 42 * previewScale), Vector2.UnitX, 24 * previewScale,
             Cosmetics.SelectedProjectile.Core, Cosmetics.SelectedProjectile.Edge, Cosmetics.SelectedDesign.Id,
             animationTime: (float)_seconds, drawShadow: true,
             intensity: (float)GameProfile.Profile.VisualEffectsIntensity);
@@ -2670,9 +2996,8 @@ public class SoulHub
     {
         var info = Braziers[focusKey];
         bool enabled = info.IsEnabled();
-        UiTheme.DrawText(spriteBatch, $"CHALLENGE OF {info.Title}", Fs(13), info.Accent, new Vector2(left.X + Px(16), left.Y + Px(14)));
-        int pad = Px(16);
-        int y = left.Y + Px(42);
+        int pad = Px(22);
+        int y = DrawMenuTitle(spriteBatch, left, $"CHALLENGE OF {info.Title}", info.Accent, pad);
         foreach (var line in UiTheme.WrapLines(info.Description, Fs(9), left.Width - pad * 2))
         {
             UiTheme.DrawText(spriteBatch, line, Fs(9), UiTheme.Cream, new Vector2(left.X + pad, y));
@@ -2694,6 +3019,8 @@ public class SoulHub
         Primitives2D.RectOutline(spriteBatch, button, enabled ? UiTheme.Red : info.Accent, Px(2));
         UiTheme.DrawText(spriteBatch, enabled ? "DEACTIVATE  //  F" : "ACTIVATE  //  F", Fs(11), UiTheme.Cream, button.Center.ToVector2(), "center");
         _targets[$"brazier:{focusKey}"] = button;
+        if (IsFocusedTarget($"brazier:{focusKey}"))
+            Primitives2D.RectOutline(spriteBatch, button, UiTheme.Cream, Px(2));
         y = button.Bottom + Px(12);
         UiTheme.DrawText(spriteBatch, enabled ? "LIT" : "UNLIT", Fs(9), enabled ? UiTheme.Green : UiTheme.Muted, new Vector2(left.X + pad, y));
 
@@ -2703,16 +3030,30 @@ public class SoulHub
     /// <summary>The right half of every brazier's duality: which challenges are currently lit (with their rewards) plus any vague combo flavor text those unlock (see BrazierComboHints).</summary>
     private void DrawBrazierStatus(SpriteBatch spriteBatch, Rectangle panel, Point mouse)
     {
-        UiTheme.DrawText(spriteBatch, "ACTIVE CHALLENGES", Fs(13), UiTheme.Text, new Vector2(panel.X + Px(16), panel.Y + Px(14)));
+        int pad = Px(22);
+        int headerY = DrawMenuTitle(spriteBatch, panel, "ACTIVE CHALLENGES", UiTheme.Text, pad);
         var active = Braziers.Where(pair => pair.Value.IsEnabled()).Select(pair => pair.Value).ToList();
         var hints = BrazierComboHints();
-        int pad = Px(16);
-        int rowCardHeight = Px(44);
         int hintLineHeight = Px(13);
         // Same breathing room between each active challenge card as between
         // each benefit below -- both read as a list of separate standalone
         // entries, not a run-on block.
         int itemGap = Px(16);
+        int columnGap = Px(14);
+        int columnWidth = (panel.Width - pad * 2 - columnGap) / 2;
+        int pairCount = (active.Count + 1) / 2;
+        // Each card grows to fit however many lines its title/reward wrap to
+        // (see UiTheme.WrapLines) instead of a fixed height that would clip
+        // a long reward line or an oversized text-size setting.
+        int CardHeight(int index)
+        {
+            int titleLines = UiTheme.WrapLines(active[index].Title, Fs(10), columnWidth - Px(16)).Count;
+            int rewardLines = UiTheme.WrapLines(active[index].Reward, Fs(7), columnWidth - Px(16)).Count;
+            return Math.Max(Px(44), Px(12) + titleLines * Px(13) + Px(4) + rewardLines * Px(10) + Px(8));
+        }
+        var rowHeights = Enumerable.Range(0, pairCount)
+            .Select(row => Math.Max(CardHeight(row * 2), row * 2 + 1 < active.Count ? CardHeight(row * 2 + 1) : 0))
+            .ToList();
         int hintsHeight = hints.Sum(hint =>
         {
             int lines = UiTheme.WrapLines(hint.Prefix, Fs(8), panel.Width - pad * 2).Count;
@@ -2720,24 +3061,42 @@ public class SoulHub
                 lines += UiTheme.WrapLines(hint.Highlight, Fs(9), panel.Width - pad * 2).Count;
             return lines * hintLineHeight + itemGap;
         });
-        int contentHeight = (active.Count == 0 ? Px(20) : active.Count * (rowCardHeight + itemGap))
+        int contentHeight = (active.Count == 0 ? Px(20) : rowHeights.Sum() + itemGap * pairCount)
             + (hints.Count > 0 ? Px(28) + hintsHeight : 0);
-        var region = new Rectangle(panel.X, panel.Y + Px(40), panel.Width, panel.Height - Px(40));
+        var region = new Rectangle(panel.X, headerY, panel.Width, panel.Bottom - headerY);
         DrawScrollRegion(spriteBatch, region, ref _rightScroll, contentHeight, startY =>
         {
+            void DrawCard(Rectangle rect, BrazierInfo info)
+            {
+                UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, info.Accent, hovered: rect.Contains(mouse));
+                int textY = rect.Y + Px(6);
+                foreach (var line in UiTheme.WrapLines(info.Title, Fs(10), rect.Width - Px(16)))
+                {
+                    UiTheme.DrawText(spriteBatch, line, Fs(10), info.Accent, new Vector2(rect.X + Px(8), textY));
+                    textY += Px(13);
+                }
+                var rewardLines = UiTheme.WrapLines(info.Reward, Fs(7), rect.Width - Px(16));
+                int rewardY = rect.Bottom - Px(6) - rewardLines.Count * Px(10);
+                foreach (var line in rewardLines)
+                {
+                    UiTheme.DrawText(spriteBatch, line, Fs(7), UiTheme.Cream, new Vector2(rect.X + Px(8), rewardY));
+                    rewardY += Px(10);
+                }
+            }
+
             int y = startY;
             if (active.Count == 0)
             {
                 UiTheme.DrawText(spriteBatch, "No challenges lit.", Fs(9), UiTheme.Muted, new Vector2(panel.X + pad, y));
                 y += Px(20);
             }
-            foreach (var info in active)
+            for (int row = 0; row < pairCount; row++)
             {
-                var rect = new Rectangle(panel.X + pad, y, panel.Width - pad * 2, rowCardHeight);
-                UiTheme.DrawPanel(spriteBatch, rect, UiTheme.Panel, info.Accent, hovered: rect.Contains(mouse));
-                UiTheme.DrawText(spriteBatch, info.Title, Fs(10), info.Accent, new Vector2(rect.X + Px(8), rect.Y + Px(6)));
-                UiTheme.DrawText(spriteBatch, info.Reward, Fs(7), UiTheme.Cream, new Vector2(rect.X + Px(8), rect.Bottom - Px(15)));
-                y += rowCardHeight + itemGap;
+                int leftIndex = row * 2, rightIndex = leftIndex + 1;
+                DrawCard(new Rectangle(panel.X + pad, y, columnWidth, rowHeights[row]), active[leftIndex]);
+                if (rightIndex < active.Count)
+                    DrawCard(new Rectangle(panel.X + pad + columnWidth + columnGap, y, columnWidth, rowHeights[row]), active[rightIndex]);
+                y += rowHeights[row] + itemGap;
             }
             if (hints.Count == 0)
                 return;
@@ -2839,19 +3198,22 @@ public class SoulHub
         IReadOnlyList<CosmeticColor> colors, string selected, Point mouse)
     {
         UiTheme.DrawText(spriteBatch, title, Fs(12), UiTheme.Text, new Vector2(column.X, column.Y));
-        int tile = Math.Min(Px(52), (column.Width - Px(16)) / 3), gap = Px(8);
+        int gap = Px(8);
+        int tile = (column.Width - gap * (SwatchColumns - 1)) / SwatchColumns;
         int startY = column.Y + Px(30);
         for (int index = 0; index < colors.Count; index++)
         {
             var option = colors[index];
             bool unlocked = Cosmetics.IsUnlocked(category, option.Id);
-            int row = index / 3, col = index % 3;
+            int row = index / SwatchColumns, col = index % SwatchColumns;
             var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
             Primitives2D.FillRect(spriteBatch, rect, unlocked ? option.Color : Color.Lerp(option.Color, UiTheme.Ink, .72f));
             Primitives2D.RectOutline(spriteBatch, rect, option.Id == selected ? UiTheme.Cream : UiTheme.Ink, option.Id == selected ? Px(4) : Px(2));
             if (!unlocked)
                 UiTheme.DrawText(spriteBatch, "?", Fs(16), UiTheme.Muted, new Vector2(rect.Center.X, rect.Center.Y), "center");
             _targets[$"cosmetic:{category}:{option.Id}"] = rect;
+            if (IsFocusedTarget($"cosmetic:{category}:{option.Id}"))
+                Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, Px(2));
             if (rect.Contains(mouse))
                 _tooltip = unlocked
                     ? $"{option.Name} {title.ToLowerInvariant()}."
@@ -2862,13 +3224,14 @@ public class SoulHub
     private void DrawProjectileColorColumn(SpriteBatch spriteBatch, Rectangle column, Point mouse)
     {
         UiTheme.DrawText(spriteBatch, "SHOT COLOR", Fs(12), UiTheme.Text, new Vector2(column.X, column.Y));
-        int tile = Math.Min(Px(52), (column.Width - Px(16)) / 3), gap = Px(8);
+        int gap = Px(8);
+        int tile = (column.Width - gap * (SwatchColumns - 1)) / SwatchColumns;
         int startY = column.Y + Px(30);
         for (int index = 0; index < Cosmetics.ProjectileColors.Count; index++)
         {
             var option = Cosmetics.ProjectileColors[index];
             bool unlocked = Cosmetics.IsUnlocked("projectile", option.Id);
-            int row = index / 3, col = index % 3;
+            int row = index / SwatchColumns, col = index % SwatchColumns;
             var rect = new Rectangle(column.X + col * (tile + gap), startY + row * (tile + gap), tile, tile);
             Primitives2D.FillRect(spriteBatch, rect, unlocked ? option.Edge : Color.Lerp(option.Edge, UiTheme.Ink, .72f));
             var inner = rect;
@@ -2879,6 +3242,8 @@ public class SoulHub
             if (!unlocked)
                 UiTheme.DrawText(spriteBatch, "?", Fs(16), UiTheme.Muted, new Vector2(rect.Center.X, rect.Center.Y), "center");
             _targets[$"cosmetic:projectile:{option.Id}"] = rect;
+            if (IsFocusedTarget($"cosmetic:projectile:{option.Id}"))
+                Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, Px(2));
             if (rect.Contains(mouse))
                 _tooltip = unlocked
                     ? $"{option.Name} projectile palette."
@@ -2910,6 +3275,8 @@ public class SoulHub
                 UiTheme.DrawText(spriteBatch, "LOCKED", Fs(9), UiTheme.Muted, new Vector2(rect.X + Px(72), rect.Center.Y), "midleft");
             }
             _targets[$"cosmetic:design:{option.Id}"] = rect;
+            if (IsFocusedTarget($"cosmetic:design:{option.Id}"))
+                Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, Px(2));
             if (rect.Contains(mouse))
                 _tooltip = unlocked
                     ? option.Description

@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Entities;
@@ -19,8 +20,10 @@ public sealed class Hypno : PhantasiaBoss
 {
     public const int MinimumDamagePhaseDeclarations = 2;
     public const int ActiveThreatSoftCap = 48;
-    public const double ChosenSurvivalDuration = 14.0;
+    public const double ChosenSurvivalDuration = 20.0;
     protected override bool UsesSharedDreamHealthGates => false;
+    protected override bool EncounterSurvivalActive => ChosenSurvivalActive;
+
     protected override bool VisualSurvivalActive =>
         ChosenSurvivalActive || base.VisualSurvivalActive;
 
@@ -90,11 +93,31 @@ public sealed class Hypno : PhantasiaBoss
         }
     }
 
+    /// <summary>
+    /// Hypno's laws. Chosen (4) is the closing survival and is not part of
+    /// the rotation.
+    /// </summary>
+    private static readonly int[] HypnoDamagePhasePool = { 1, 2, 3, 5 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Curtain;
+
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 15.0,
+        2 => 16.0,
+        3 => 18.0,
+        5 => 20.0,
+        _ => 16.0,
+    };
+
     private void BeginChosenSurvival()
     {
         if (ChosenSurvivalActive || ChosenSurvivalCleared)
             return;
-        Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+        // A level-ten encounter has no midpoint act: Chosen is the closing
+        // endurance check, opened when the health bar runs out.
+        Hp = 1;
+        RebasePhaseHealth();
         SetDreamPhase(4);
         ChosenSurvivalActive = true;
         ChosenSurvivalRemaining = ChosenSurvivalDuration;
@@ -105,22 +128,13 @@ public sealed class Hypno : PhantasiaBoss
     {
         if (DebugPhaseLocked || ChosenSurvivalActive || Dying)
             return;
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        if (!ChosenSurvivalCleared)
+        if (!ChosenSurvivalCleared && Hp <= 1)
         {
-            if (ratio <= .5)
-            {
-                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    BeginChosenSurvival();
-                return;
-            }
-            int desired = ratio > .75 ? 1 : ratio > .625 ? 2 : 3;
-            if (desired != Phase && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                SetDreamPhase(desired);
+            BeginChosenSurvival();
             return;
         }
-        if (Phase != 5)
-            SetDreamPhase(5);
+        if (PhaseGovernor.ReadyToAdvance)
+            SetDreamPhase(PhaseRotation.Choose(HypnoDamagePhasePool, Phase, Rng));
     }
 
     public override void DebugSetPhase(int phase)
@@ -128,7 +142,7 @@ public sealed class Hypno : PhantasiaBoss
         phase = Math.Clamp(phase, 1, 5);
         DebugPhaseLocked = true;
         ChosenSurvivalActive = false;
-        if (phase >= 5)
+        if (phase == 5)
             ChosenSurvivalCleared = true;
         SetDreamPhase(phase);
         AttackCooldown = 0f;
@@ -145,32 +159,24 @@ public sealed class Hypno : PhantasiaBoss
         if (ChosenSurvivalActive || Dying)
             return new HitResult(false, false, 0, true);
 
-        if (!ChosenSurvivalCleared)
-        {
-            double floorRatio = Phase switch { 1 => .75, 2 => .625, _ => .50 };
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * floorRatio));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    UpdatePhase();
-                return new HitResult(false, false, 0, true);
-            }
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            if (Hp <= floor && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                UpdatePhase();
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
+        // A law surrenders at most its damage budget; the bar bottoms out at
+        // one, where Chosen opens.
+        int floor = PhaseGovernor.DamageFloor(nextGateHp: 1);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
+            return new HitResult(false, false, 0, true);
 
-        if (Phase == 5 && PhaseDeclarations < MinimumDamagePhaseDeclarations)
+        int healthBefore = Hp;
+        var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (Hp <= 1)
         {
-            double permitted = Math.Max(0, Hp - 1);
-            if (permitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+            if (!ChosenSurvivalCleared)
+                BeginChosenSurvival();
+            else
+                BeginDeathSpectacle();
         }
-        return base.TakeDamage(amount, partId, source);
+        return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
     }
 
     public override void Update(EnemyUpdateContext context)
@@ -184,13 +190,19 @@ public sealed class Hypno : PhantasiaBoss
         base.Update(context);
         if (!ChosenSurvivalActive || Dying)
             return;
+        // The transition beat clears the arena first; the endurance clock only
+        // runs once it lands.
+        if (PhaseInterludeActive)
+            return;
         ChosenSurvivalRemaining = Math.Max(0.0, ChosenSurvivalRemaining - Seconds());
         if (ChosenSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {
+            // Chosen is the closing endurance check: surviving it ends the
+            // encounter, so there is no law to hand off to.
             ChosenSurvivalActive = false;
             ChosenSurvivalCleared = true;
-            Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
-            SetDreamPhase(5);
+            Hp = 0;
+            BeginDeathSpectacle();
         }
     }
 

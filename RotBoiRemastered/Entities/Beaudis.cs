@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -43,10 +44,58 @@ public sealed class Beaudis : Enemy
     public const int ActiveThreatSoftCap = 36;
     private const string FinalFlavor = "You can't escape me...";
     private const int PhaseCount = 5;
-    private const double PhaseTimeLimit = 28.0;
     private const double EntranceDuration = 1.25;
     private const double StaggerDuration = 3.0;
     private const int SurvivalPhase = 3;
+
+    /// <summary>
+    /// Beaudis's pursuit grammars. Interference (3) is the closing survival
+    /// and is not part of the rotation.
+    /// </summary>
+    private static readonly int[] DamagePhasePool = { 1, 2, 4, 5 };
+
+    /// <summary>
+    /// Beaudis derives straight from Enemy rather than PathChaseBoss, so it
+    /// composes the same phase choreography rather than inheriting it.
+    /// </summary>
+    private readonly BossPhaseGovernor _governor =
+        new() { HoldStyle = BossPhaseHoldStyle.SevenSecondCap };
+    private readonly BossPhaseRotation _rotation = new();
+    private readonly BossPhaseInterlude _interlude =
+        new() { Style = BossInterludeStyle.Chord };
+    private bool _survivalCleared;
+    private bool _hasEnteredAPhase;
+
+    public bool PhaseInterludeActive => _interlude.Active;
+    public float PhaseInterludeProgress => _interlude.Progress;
+    public double PhaseClockElapsed => _governor.Elapsed;
+    public bool PhaseDamageThresholdReached => _governor.ThresholdReached;
+
+    /// <summary>Debug and test hook: fast-forwards the current phase's clock.</summary>
+    public void DebugCompletePhaseClock() => _governor.Tick(_governor.TimeLimit + 1.0);
+
+    /// <summary>Debug and test hook: re-baselines the phase damage budget.</summary>
+    public void DebugRebasePhaseHealth() => _governor.RebaseHealth(Hp, MaxHp);
+
+    /// <summary>
+    /// Debug and test hook: marks the closing survival already spent, so the
+    /// next time the health bar runs out the encounter ends instead of
+    /// opening Interference.
+    /// </summary>
+    public void DebugCompleteClosingSurvival()
+    {
+        SurvivalActive = false;
+        _survivalCleared = true;
+    }
+
+    private static double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 15.0,
+        2 => 17.0,
+        4 => 18.0,
+        5 => 20.0,
+        _ => 16.0,
+    };
 
     private static readonly IReadOnlyDictionary<int, (string Label, string Flavor, Color Accent)> PhaseMetadata =
         new Dictionary<int, (string, string, Color)>
@@ -104,7 +153,7 @@ public sealed class Beaudis : Enemy
     public double MinimumStaggerPerHit { get; } = 4.0;
 
     public bool SurvivalActive { get; private set; }
-    public double SurvivalDuration { get; } = 14.0;
+    public double SurvivalDuration { get; } = 20.0;
     public double SurvivalRemaining { get; private set; }
     public double SurvivalCooldown { get; private set; } = .7;
 
@@ -156,6 +205,19 @@ public sealed class Beaudis : Enemy
         {
             ClearPortals();
         }
+
+        _governor.BeginPhase(PhaseTimeLimitFor(phase), Hp, MaxHp);
+        bool firstPhase = !_hasEnteredAPhase;
+        _hasEnteredAPhase = true;
+        // The opening phase has no outgoing pattern to sweep and nothing to
+        // travel back from, and the debug hook places the boss outright.
+        if (firstPhase || DebugPhaseLocked || Dying || EntranceRemaining > 0)
+            return;
+        if (_interlude.Begin())
+        {
+            TransitionSweepRequested = true;
+            PhaseInterludeInvulnerabilitySeconds = BossPhaseInterlude.DefaultDuration;
+        }
     }
 
     /// <summary>Dev/testing hotkey support. Ported from debug_set_phase().</summary>
@@ -172,6 +234,7 @@ public sealed class Beaudis : Enemy
         if (Dying || SurvivalActive || _phaseProtectionTimer > 0)
             return new HitResult(false, false, 0, true);
         double multiplier = IsStaggered ? 1.25 : 1.0;
+        int healthBefore = Hp;
         int applied = (int)Math.Round(amount * multiplier);
         Hp -= applied;
         if (source == DamageSource.Direct)
@@ -184,25 +247,25 @@ public sealed class Beaudis : Enemy
         }
         if (!DebugPhaseLocked)
         {
-            int floor = Phase switch
-            {
-                1 => (int)Math.Round(MaxHp * .75),
-                2 => (int)Math.Round(MaxHp * .50),
-                4 => (int)Math.Round(MaxHp * .25),
-                _ => 1,
-            };
+            // A pursuit grammar surrenders at most its damage budget; the bar
+            // bottoms out at one, where Interference opens. Reaching the floor
+            // no longer advances anything -- the phase clock owns that.
+            int floor = _governor.DamageFloor(nextGateHp: 1);
             if (Hp <= floor)
             {
                 Hp = floor;
-                if (_phaseDeclarations >= MinimumDamagePhaseDeclarations)
+                if (Hp <= 1)
                 {
-                    if (Phase == 5)
-                        BeginFade();
+                    if (!_survivalCleared)
+                        SetPhase(SurvivalPhase);
                     else
-                        SetPhase(Phase + 1);
+                        BeginFade();
                 }
             }
         }
+        // Health actually removed, not damage requested: the floor clamp above
+        // routinely discards most of a large hit.
+        _governor.RecordDamage(healthBefore - Hp);
         Hp = Dying ? Math.Max(1, Hp) : Math.Max(0, Hp);
         // Dying is a protected three-second spectacle, not an immediate kill.
         // GameSession removes HitResult.Killed enemies in the damage pass.
@@ -387,11 +450,18 @@ public sealed class Beaudis : Enemy
             portal.FireToward(sink, new Vector2(playerX, playerY), 2, .22f, .72f, 1.0f, PhaseAccent, "survival");
             MarkAttack(.28f);
             _portalIndex += 1;
-            SurvivalCooldown = .85;
+            // A level-ten closing survival is longer but thinner than a sense
+            // finale's: the same lesson, fewer shots to read at once.
+            SurvivalCooldown = 1.15;
         }
         if (SurvivalRemaining <= 0)
         {
-            SetPhase(4);
+            // Interference is the closing endurance check: surviving it ends
+            // the encounter, so there is no grammar to hand off to.
+            SurvivalActive = false;
+            _survivalCleared = true;
+            ClearPortals();
+            BeginFade();
         }
     }
 
@@ -413,6 +483,11 @@ public sealed class Beaudis : Enemy
         double dt = Seconds();
         AdvanceAge();
         _phaseElapsed += dt;
+        _interlude.Tick(dt);
+        _governor.Suspended = DebugPhaseLocked || Dying || IsStaggered
+            || SurvivalActive || EntranceRemaining > 0 || _interlude.Active;
+        if (!_governor.Suspended)
+            _governor.Tick(dt);
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         _phaseProtectionTimer = Math.Max(0.0, _phaseProtectionTimer - dt);
         if (Dying)
@@ -440,19 +515,29 @@ public sealed class Beaudis : Enemy
             FinishMovementTracking();
             return;
         }
+        if (_interlude.Active)
+        {
+            // Firing stops for the whole beat while the arena is cleared and
+            // the body walks back to the centre of its raceway.
+            var arenaCenter = new Vector2(
+                context.Battleground.Width * Simulation.TileSize / 2f,
+                context.Battleground.Height * Simulation.TileSize / 2f);
+            Vector2 settled = BossPhaseInterlude.SettleToward(Center(), arenaCenter, dt);
+            WorldX = settled.X - Size / 2f;
+            WorldY = settled.Y - Size / 2f;
+            FinishMovementTracking();
+            return;
+        }
         if (SurvivalActive)
         {
             UpdateSurvival(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink, dt);
         }
         else
         {
-            if (!DebugPhaseLocked && _phaseElapsed >= PhaseTimeLimit &&
-                Phase is 1 or 2 or 4 or 5 &&
-                _phaseDeclarations >= MinimumDamagePhaseDeclarations)
+            if (_governor.ReadyToAdvance)
             {
-                _phaseElapsed = 0;
-                _attackCooldown = 0;
                 PhaseForcedByTimer = true;
+                SetPhase(_rotation.Choose(DamagePhasePool, Phase, Random.Shared));
             }
             UpdateDamagePhase(context.PlayerWorldX, context.PlayerWorldY,
                 context.PlayerMovementSpeed, context.ProjectileSink, dt, context.Battleground);
@@ -507,15 +592,8 @@ public sealed class Beaudis : Enemy
                 (index == Phase - 1 ? UiTheme.Cream : color) * fade);
         }
 
-        if (Dying)
-        {
-            UiTheme.DrawText(spriteBatch, FinalFlavor, Math.Max(12, Size * .17), UiTheme.Cream * fade,
-                new Vector2(rect.Center.X, screenPosition.Y - 12), "midbottom");
-        }
-        else if (PhaseAnnouncementTimer > 0)
-        {
-            UiTheme.DrawText(spriteBatch, PhaseFlavor, Math.Max(11, Size * .13), PhaseAccent,
-                new Vector2(rect.Center.X, screenPosition.Y - 10), "midbottom", bold: true);
-        }
+        // Neither the death line nor the phase-flavour caption is drawn any
+        // more -- the boss speaks through its silhouette and its wake, not
+        // through text.
     }
 }

@@ -16,7 +16,8 @@ public readonly record struct EnemyRenderPose(
     Vector2 WorldDown,
     float WalkPhase,
     float AttackPulse,
-    bool HitFlash);
+    bool HitFlash,
+    bool HasFacing);
 
 /// <summary>Ported from enemy.py's HitResult frozen dataclass.</summary>
 public sealed record HitResult(bool Applied, bool Killed, double Amount = 0, bool Blocked = false);
@@ -190,9 +191,28 @@ public class Enemy
     /// phase or subphase handoff. Ordinary recovery remains disabled.
     /// </summary>
     public bool MilestoneHealRequested { get; set; }
+    /// <summary>
+    /// Seconds of player invulnerability requested by a boss phase interlude.
+    /// The between-phase transition sweeps the outgoing phase's shots off the
+    /// arena at speed (see <see cref="TransitionSweepRequested"/>); those
+    /// accelerating bullets are close to undodgeable, so the interlude buys
+    /// the player grace for its own duration rather than asking them to
+    /// survive a pattern that is deliberately being destroyed. GameSession
+    /// folds this into RunState.GracePeriod and clears the request, so a boss
+    /// sets it once per interlude instead of every frame.
+    /// </summary>
+    public double PhaseInterludeInvulnerabilitySeconds { get; set; }
 
     private Vector2 _lastVisualWorld;
     private Vector2 _visualFacing = Vector2.UnitX;
+    /// <summary>
+    /// True once this enemy has actually moved and so has a real facing.
+    /// Before that, `_visualFacing`'s arbitrary UnitX default would give
+    /// spawns-that-never-move (turrets, stationary blockers) a shadow
+    /// pointing in an arbitrary direction instead of the shared south rest
+    /// pose every other idle shadow uses.
+    /// </summary>
+    private bool _hasFacing;
     private float _visualAttackDuration = Simulation.FrameRate * .22f;
     private readonly Random _rng;
     private Vector2 _lastCollisionSafePosition;
@@ -357,7 +377,10 @@ public class Enemy
         Vector2 delta = current - _lastVisualWorld;
         Moved = delta.LengthSquared() > .0004f;
         if (Moved)
+        {
             _visualFacing = Vector2.Normalize(delta);
+            _hasFacing = true;
+        }
         _lastVisualWorld = current;
     }
 
@@ -627,7 +650,8 @@ public class Enemy
             camera.WorldVectorToScreen(Vector2.UnitY),
             walk,
             attackPulse,
-            VisualHitTimer > 0);
+            VisualHitTimer > 0,
+            _hasFacing);
     }
 
     private void DrawStatusAccents(SpriteBatch spriteBatch, EnemyRenderPose pose)

@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -58,6 +59,27 @@ public sealed class Ache : Kage
     public const int NerveBreaksNeeded = 3;
     public const int OverloadConstellationMaxNodes = 12;
     protected override bool UsesKageEncounter => false;
+    protected override bool EncounterSurvivalActive => MidpointSurvivalActive;
+
+    /// <summary>
+    /// Every retaliation Ache owns, drawn from throughout the fight. The
+    /// reflex storm (4) and the overload (8) are the fixed points.
+    /// </summary>
+    private static readonly int[] DamagePhasePool = { 1, 2, 3, 5, 6, 7 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Recoil;
+
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 17.0,
+        2 => 19.0,
+        3 => 18.0,
+        5 => 21.0,
+        6 => 23.0,
+        7 => 24.0,
+        _ => 20.0,
+    };
+
     protected override bool VisualSurvivalActive => MidpointSurvivalActive || FinaleActive || base.VisualSurvivalActive;
 
     public static readonly PathChaseBossConfig AcheConfig = KageConfig with
@@ -84,7 +106,7 @@ public sealed class Ache : Kage
             "SPLINTER", "REFLEX STORM", "OVERREACTION", "OVERLOAD",
         },
         FinalHealth = 305000, FinalContactDamage = 880, FinalRewardExperience = 840,
-        FinaleDuration = 30.0,
+        FinaleDuration = 25.0,
     };
 
     public static readonly SinSigilConfig AcheSinConfig = new(
@@ -233,15 +255,23 @@ public sealed class Ache : Kage
         }
     }
 
-    protected override double DamageFloorRatio() => Phase switch
+    /// <summary>
+    /// The chemesthesis base re-clamps health to this floor after applying a
+    /// hit, which is what stops the stagger multiplier from overshooting.
+    /// Ache reports its live phase budget here rather than a per-phase-index
+    /// ratio -- an index ladder cannot express a rotation that revisits
+    /// retaliations, and the old one clamped health back *up* whenever the
+    /// rotation landed on a low-numbered movement.
+    /// </summary>
+    protected override double DamageFloorRatio()
     {
-        1 => .84,
-        2 => .67,
-        3 or 4 => .50,
-        5 => .25,
-        6 => .12,
-        _ => 0.0,
-    };
+        if (MidpointSurvivalActive || FinaleActive || Dying || DebugPhaseLocked)
+            return 0.0;
+        int nextGate = MidpointSurvivalCleared
+            ? 1
+            : Math.Max(1, (int)Math.Round(MaxHp * .5));
+        return (double)PhaseGovernor.DamageFloor(nextGate) / Math.Max(1, MaxHp);
+    }
 
     private void BeginMidpointSurvival()
     {
@@ -257,27 +287,18 @@ public sealed class Ache : Kage
 
     protected override void UpdatePhase()
     {
-        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive)
+        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive || Dying)
             return;
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        int desired;
-        if (!MidpointSurvivalCleared)
+        // Half health is the one health-driven transition left; retaliations
+        // otherwise rotate on the phase clock, so provoking Ache no longer
+        // lets the player skip past a reaction they were meant to read.
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
         {
-            if (ratio <= .5)
-            {
-                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    BeginMidpointSurvival();
-                return;
-            }
-            desired = ratio > .84 ? 1 : ratio > .67 ? 2 : 3;
+            BeginMidpointSurvival();
+            return;
         }
-        else
-        {
-            desired = ratio > .25 ? 5 : ratio > .12 ? 6 : 7;
-        }
-        if (desired != Phase &&
-            PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-            SetSinPhase(desired);
+        if (PhaseGovernor.ReadyToAdvance)
+            SetSinPhase(PhaseRotation.Choose(DamagePhasePool, Phase, Rng));
     }
 
     public override void DebugSetPhase(int phase)
@@ -308,33 +329,25 @@ public sealed class Ache : Kage
         if (partId.StartsWith("crystal:"))
             return base.TakeDamage(amount, partId, source);
 
-        if (MidpointSurvivalCleared && Phase == 7 &&
-            PhaseDeclarations < MinimumDamagePhaseDeclarations)
-        {
-            double declarationPermitted = Math.Max(0, Hp - 1);
-            if (declarationPermitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var declarationGated = base.TakeDamage(
-                Math.Min(amount, declarationPermitted), partId, source);
-            return new HitResult(declarationGated.Applied, false,
-                declarationGated.Amount, declarationGated.Blocked);
-        }
-
-        int floor = Math.Max(0, (int)Math.Round(MaxHp * DamageFloorRatio()));
-        double permitted = floor > 0 ? Math.Max(0, Hp - floor) : amount;
-        if (floor > 0 && permitted <= 0)
-        {
-            if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                UpdatePhase();
+        // A retaliation surrenders at most its damage budget, bounded by the
+        // next authored gate -- half health before the reflex storm, one
+        // afterwards. Reaching the floor no longer advances anything: the
+        // phase clock owns that.
+        int nextGate = MidpointSurvivalCleared
+            ? 1
+            : Math.Max(1, (int)Math.Round(MaxHp * .5));
+        int floor = PhaseGovernor.DamageFloor(nextGate);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
             return new HitResult(false, false, 0, true);
-        }
-        var result = base.TakeDamage(floor > 0 ? Math.Min(amount, permitted) : amount, partId, source);
-        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5 &&
-            PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+
+        int healthBefore = Hp;
+        var result = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
             BeginMidpointSurvival();
-        else if (floor > 0 && Hp <= floor &&
-                 PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-            UpdatePhase();
+        else if (MidpointSurvivalCleared && Hp <= 1 && !FinaleActive)
+            BeginFinaleSequence();
         if (FinaleActive)
             SetSinPhase(8);
         return new HitResult(result.Applied, false, result.Amount, result.Blocked);
@@ -359,11 +372,15 @@ public sealed class Ache : Kage
             return;
         }
 
+        // This branch never reaches base.Update, so the shared phase clock has
+        // to be advanced here or it would freeze for the whole survival.
+        TickEncounterClock(dt);
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
         PhaseProtectionTimer = Math.Max(0.0, PhaseProtectionTimer - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         AdvanceAge();
         MidpointSurvivalRemaining = Math.Max(0.0, MidpointSurvivalRemaining - dt);
         _survivalCooldown -= dt;
@@ -380,6 +397,7 @@ public sealed class Ache : Kage
             MidpointSurvivalActive = false;
             MidpointSurvivalCleared = true;
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+            RebasePhaseHealth();
             SetSinPhase(5);
         }
         FinishMovementTracking();
@@ -712,14 +730,14 @@ public sealed class Ache : Kage
                 orange,
                 -arm.Angle * 1.3f,
                 arm.Angle * .73f,
-                seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f));
+                seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f), escalation: SecondFormBlend);
         }
 
         bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
         float coreYaw = facingActive ? _facingYaw : seconds * 2.46f;
         BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
             coreYaw, .58f + BossAnimation.Sine(seconds, .79f) * .32f,
-            BossAnimation.Sine(seconds, .98f) * .18f);
+            BossAnimation.Sine(seconds, .98f) * .18f, escalation: SecondFormBlend);
 
         float energyRadius = Size * (.075f + .012f * BossAnimation.Sine(seconds, .57f));
         Primitives2D.FillCircle(spriteBatch, jittered, (int)energyRadius + 5, UiTheme.Ink);
@@ -739,7 +757,7 @@ public sealed class Ache : Kage
                 orange,
                 -arm.Angle * 1.3f,
                 arm.Angle * .73f,
-                seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f));
+                seconds * (.78f + index * .11f) * (index == 1 ? -1f : 1f), escalation: SecondFormBlend);
         }
 
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .78f), (int)(Size * .92f), 6));
@@ -883,7 +901,7 @@ public sealed class Ache : Kage
                 (index % 3) * .025f);
             BossVisuals.RotatingCube3D(spriteBatch, nodes[index], extent,
                 face, UiTheme.Lighten(face, 28), edge,
-                Age * (.004f + index * .0003f), index * .31f, -index * .17f);
+                Age * (.004f + index * .0003f), index * .31f, -index * .17f, escalation: SecondFormBlend);
         }
     }
 
@@ -1070,15 +1088,18 @@ public sealed class Ache : Kage
 
     private int ChoosePattern()
     {
+        // Widened so no retaliation runs one family for a whole clock: every
+        // phase can now reach at least five of the eight reaction types, and
+        // the later ones reach nearly all of them.
         int[] choices = Phase switch
         {
-            1 => new[] { 0, 0, 1, 2, 6 },
-            2 => new[] { 0, 1, 1, 6 },
-            3 => new[] { 0, 1, 2, 3, 6 },
-            4 => new[] { 0, 1, 2, 3, 6, 7 },
-            5 => new[] { 1, 2, 4, 4, 6, 7 },
-            6 => new[] { 1, 3, 4, 6, 7 },
-            7 => new[] { 1, 2, 4, 5, 6, 7 },
+            1 => new[] { 0, 0, 1, 2, 3, 6 },
+            2 => new[] { 0, 1, 1, 2, 3, 6 },
+            3 => new[] { 0, 1, 2, 3, 4, 6 },
+            4 => new[] { 0, 1, 2, 3, 4, 6, 7 },
+            5 => new[] { 0, 1, 2, 4, 4, 5, 6, 7 },
+            6 => new[] { 1, 2, 3, 4, 5, 6, 7 },
+            7 => new[] { 0, 1, 2, 4, 5, 6, 7 },
             _ => new[] { 0, 1, 2, 3, 4, 5, 6, 7 },
         };
         var eligible = choices.Where(pattern => pattern != _lastPattern).ToList();
@@ -1263,13 +1284,17 @@ public sealed class Ache : Kage
             MarkStationaryReflex(sink, new Vector2(playerX, playerY));
         if (MidpointSurvivalActive)
             ReflexSpiral(sink, aimed);
+        // A second, unbaited layer underneath the retaliation the player did
+        // provoke -- Ache's nerve is always firing at something.
+        else if (Phase >= 3 && PatternRotation % 3 == 0)
+            ReflexSpiral(sink, aimed + MathF.PI);
         _castsSinceDirectedThreat = directed ? 0 : _castsSinceDirectedThreat + 1;
         _lastPattern = pattern;
         _patternHistory.Add(pattern);
         if (_patternHistory.Count > 32)
             _patternHistory.RemoveAt(0);
 
-        if (Phase >= 4 && !directed && PatternRotation % 2 == 1)
+        if (Phase >= 3 && !directed && PatternRotation % 2 == 1)
             QueueReactiveCounter(aimed);
 
         if (FinaleActive && PatternRotation % 2 == 0)

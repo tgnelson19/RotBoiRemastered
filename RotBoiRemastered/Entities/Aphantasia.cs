@@ -160,6 +160,15 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double DamageCapSharedPhaseFraction = .5;
     public const double DamageCapSoloPhaseFraction = .25;
     public const double DamageCapInvincibilityDuration = 10.0;
+
+    /// <summary>
+    /// Seconds a movement must have been on screen before it is allowed to
+    /// hand over to the next scripted beat. Sits at the bottom of the
+    /// authored fifteen-to-twenty-five second phase band the rest of the
+    /// bosses use, so steady damage cannot delete a movement any more than a
+    /// single burst can.
+    /// </summary>
+    public const double MinimumGateSeconds = 15.0;
     public const double VoidVortexGrowDuration = 6.0;
     public const double TesseractTransitionDuration = 5.0;
     public const int ProjectileCapacityMultiplier = 5;
@@ -408,6 +417,13 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             return CurrentPattern.Label;
         }
     }
+    /// <summary>
+    /// Debug and test hook: satisfies the minimum on-screen hold so the next
+    /// health gate resolves immediately instead of shielding first.
+    /// </summary>
+    public void DebugCompleteGateHold() =>
+        _subphaseCombatElapsed = Math.Max(_subphaseCombatElapsed, MinimumGateSeconds);
+
     public bool DamageCapShieldActive => _burstShieldRemaining > 0;
     public double DamageCapShieldRemaining => _burstShieldRemaining;
     public string ObjectiveText => EncounterState switch
@@ -1276,6 +1292,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         // handoff's own camera settle reads as a clean beat, not one still
         // littered with the last phase's danger.
         TransitionSweepRequested = true;
+        // Those swept shots accelerate away and are close to undodgeable, so
+        // the handoff carries the player's grace for its whole length.
+        PhaseInterludeInvulnerabilitySeconds = PhaseHandoffDuration;
     }
 
     private void UpdatePhaseHandoff(double dt)
@@ -2654,14 +2673,24 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         int applied = before - Hp;
         if (Hp <= floor && gate is not null)
         {
-            // A single hit big enough to blow past the cap for the active
-            // bar shields the boss instead of firing the gate on the spot --
-            // the fight holds open for DamageCapInvincibilityDuration so a
-            // burst nuke can't skip straight through a scripted beat.
+            // Two separate holds, both resolved through _pendingGate.
+            //
+            // A single hit big enough to blow past the cap for the active bar
+            // shields the boss for DamageCapInvincibilityDuration so a burst
+            // nuke can't skip straight through a scripted beat.
+            //
+            // Accumulated damage is held too: a movement never hands over
+            // before it has been on screen for MinimumGateSeconds, so a player
+            // who chews through a bar with steady damage still has to dodge
+            // the movement rather than deleting it.
             double capFraction = Phase <= 2 ? DamageCapSharedPhaseFraction : DamageCapSoloPhaseFraction;
-            if (requested >= _barMaxHp * capFraction)
+            bool burstNuke = requested >= _barMaxHp * capFraction;
+            double remainingHold = Math.Max(0, MinimumGateSeconds - _subphaseCombatElapsed);
+            if (burstNuke || remainingHold > 0)
             {
-                _burstShieldRemaining = DamageCapInvincibilityDuration;
+                _burstShieldRemaining = burstNuke
+                    ? Math.Max(DamageCapInvincibilityDuration, remainingHold)
+                    : remainingHold;
                 _pendingGate = gate;
                 _pendingGateFloorOne = floor == 1;
             }

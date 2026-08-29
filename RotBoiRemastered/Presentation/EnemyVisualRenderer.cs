@@ -31,10 +31,23 @@ public static class EnemyVisualRenderer
         var geometry = new BodyGeometry(
             pose.Center, axisX, axisY, halfX, halfY);
 
-        Vector2 shadow = axisX * Math.Max(2f, authoredSize * .055f)
-            + axisY * Math.Max(3f, authoredSize * .075f);
-        DrawChassis(spriteBatch, profile.BodyKind, geometry, pose.Center + shadow,
-            axisX, axisY, halfX, halfY, UiTheme.Shadow);
+        // The body's axes rotate with the camera (WorldRight/WorldDown),
+        // which made the shadow swing like a flag as the world spun. The
+        // shadow should instead follow the enemy's own facing -- the same
+        // aim-based orientation the player's shadow uses -- so it only
+        // turns when the enemy actually turns. An enemy that has never
+        // moved has no real facing yet (Facing falls back to an arbitrary
+        // UnitX), so it gets Player.ScreenOrientation's own zero-vector
+        // fallback instead, which resolves to the same south rest pose
+        // every idle shadow should share.
+        (Vector2 shadowAxisX, Vector2 shadowAxisY, _) =
+            Player.ScreenOrientation(pose.HasFacing ? pose.Facing : Vector2.Zero);
+        Vector2 shadowOffset = shadowAxisX * Math.Max(2f, authoredSize * .055f)
+            + shadowAxisY * Math.Max(3f, authoredSize * .075f);
+        var shadowGeometry = new BodyGeometry(
+            pose.Center + shadowOffset, shadowAxisX, shadowAxisY, halfX, halfY);
+        DrawChassis(spriteBatch, profile.BodyKind, shadowGeometry, pose.Center + shadowOffset,
+            shadowAxisX, shadowAxisY, halfX, halfY, UiTheme.Shadow);
         DrawChassis(spriteBatch, profile.BodyKind, geometry, pose.Center,
             axisX, axisY, halfX, halfY, bodyColor);
         DrawOutline(spriteBatch, profile.BodyKind, geometry,

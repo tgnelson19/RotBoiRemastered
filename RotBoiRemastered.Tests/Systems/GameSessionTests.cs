@@ -1070,6 +1070,10 @@ public class GameSessionTests
             session.State.RunTimeSeconds = 15;
             session.UpdateEnemies();
             guardian.Hp = 10;
+            // A lesson only ever surrenders its own damage budget, measured
+            // from the health it started the lesson on -- re-baseline after
+            // writing health directly or the killing blow is refused.
+            guardian.DebugRebasePhaseHealth();
             guardian.TakeDamage(1000);
             for (int frame = 0; frame < 300 && !guardian.IsDead(); frame++)
             {

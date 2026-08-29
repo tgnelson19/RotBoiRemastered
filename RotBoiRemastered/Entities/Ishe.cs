@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -58,11 +59,13 @@ public class Ishe : PathChaseBoss
 
     public bool FlashSurvivalActive { get; private set; }
     public bool FlashSurvivalCleared { get; private set; }
-    public double FlashSurvivalDuration { get; } = 12.0;
+    public double FlashSurvivalDuration { get; } = 20.0;
     public double FlashSurvivalRemaining { get; private set; }
     public int IshePatternRotation => _ishePatternRotation;
     public int IshePhaseDeclarations => _phaseDeclarations;
     protected virtual bool UsesIsheEncounter => true;
+    protected override bool EncounterSurvivalActive => FlashSurvivalActive;
+
     protected override bool VisualSurvivalActive => FlashSurvivalActive || base.VisualSurvivalActive;
 
     /// <summary>Internal rather than protected: Aphantasia's finale sigil borrows every earlier boss's glyph data directly, Ishe's included.</summary>
@@ -119,13 +122,35 @@ public class Ishe : PathChaseBoss
         AttackCooldown = Math.Min(AttackCooldown ?? 0f, Simulation.FrameRate * .45f);
         _pendingVolleys.Clear();
         TransitionCleanupRequested = true;
+        EnterPhase(Phase);
     }
+
+    /// <summary>
+    /// Ishe's damage snapshots. Flash (3) is the closing survival and is not
+    /// part of the rotation.
+    /// </summary>
+    private static readonly int[] IsheDamagePhasePool = { 1, 2, 4, 5 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Settle;
+
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 15.0,
+        2 => 16.0,
+        4 => 18.0,
+        5 => 20.0,
+        _ => 16.0,
+    };
 
     private void BeginFlashSurvival()
     {
         if (FlashSurvivalActive || FlashSurvivalCleared)
             return;
-        Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+        // A level-ten encounter has no midpoint act: Flash is the closing
+        // endurance check, opened when the health bar runs out rather than at
+        // halfway.
+        Hp = 1;
+        RebasePhaseHealth();
         ApplyIshePhase(3);
         FlashSurvivalActive = true;
         FlashSurvivalRemaining = FlashSurvivalDuration;
@@ -139,31 +164,15 @@ public class Ishe : PathChaseBoss
             base.UpdatePhase();
             return;
         }
-        if (DebugPhaseLocked || FlashSurvivalActive)
+        if (DebugPhaseLocked || FlashSurvivalActive || Dying)
             return;
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        int desired;
-        if (!FlashSurvivalCleared)
+        if (!FlashSurvivalCleared && Hp <= 1)
         {
-            if (ratio <= .5)
-            {
-                if (_phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
-                    return;
-                BeginFlashSurvival();
-                return;
-            }
-            if (Phase == 1 && ratio <= .72 && _phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
-                return;
-            desired = ratio > .72 ? 1 : 2;
+            BeginFlashSurvival();
+            return;
         }
-        else
-        {
-            desired = ratio > .25 ? 4 : 5;
-            if (desired != Phase && _phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
-                return;
-        }
-        if (desired != Phase)
-            ApplyIshePhase(desired);
+        if (PhaseGovernor.ReadyToAdvance)
+            ApplyIshePhase(PhaseRotation.Choose(IsheDamagePhasePool, Phase, Rng));
     }
 
     public override void DebugSetPhase(int phase)
@@ -195,54 +204,26 @@ public class Ishe : PathChaseBoss
         if (FlashSurvivalActive || Dying)
             return new HitResult(false, false, 0, true);
 
-        if (!FlashSurvivalCleared)
+        // A snapshot surrenders at most its damage budget; the bar bottoms out
+        // at one, where Flash opens. Reaching the floor no longer advances
+        // anything -- the phase clock owns that, released early once the
+        // player has spent seven seconds past the threshold.
+        int floor = PhaseGovernor.DamageFloor(nextGateHp: 1);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
+            return new HitResult(false, false, 0, true);
+
+        int healthBefore = Hp;
+        var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (Hp <= 1)
         {
-            double floorRatio = Phase == 1 ? .72 : .50;
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * floorRatio));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
-                    return new HitResult(false, false, 0, true);
-                if (Phase == 1)
-                    ApplyIshePhase(2);
-                else
-                    BeginFlashSurvival();
-                return new HitResult(false, false, 0, true);
-            }
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            if (Hp <= MaxHp * .5 && _phaseDeclarations >= MinimumIsheDamagePhaseDeclarations)
+            if (!FlashSurvivalCleared)
                 BeginFlashSurvival();
-            else if (Hp <= MaxHp * .72 && _phaseDeclarations >= MinimumIsheDamagePhaseDeclarations)
-                ApplyIshePhase(2);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
+            else
+                BeginDeathSpectacle();
         }
-
-        if (FlashSurvivalCleared && Phase == 4)
-        {
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * .25));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations >= MinimumIsheDamagePhaseDeclarations)
-                    ApplyIshePhase(5);
-                return new HitResult(false, false, 0, true);
-            }
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            if (Hp <= floor && _phaseDeclarations >= MinimumIsheDamagePhaseDeclarations)
-                ApplyIshePhase(5);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
-
-        if (Phase == 5 && _phaseDeclarations < MinimumIsheDamagePhaseDeclarations)
-        {
-            double permitted = Math.Max(0, Hp - 1);
-            if (permitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
-        return base.TakeDamage(amount, partId, source);
+        return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
     }
 
     private void OriginWarning(List<EnemyProjectile> sink, Vector2 origin,
@@ -436,6 +417,9 @@ public class Ishe : PathChaseBoss
             return;
         }
 
+        // This branch never reaches base.Update, so the shared phase clock has
+        // to be advanced here or it would freeze for the whole survival.
+        TickEncounterClock(dt);
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
@@ -447,14 +431,18 @@ public class Ishe : PathChaseBoss
         {
             FireFlashHorizon(context.PlayerWorldX, context.PlayerWorldY, context.ProjectileSink);
             double elapsed = FlashSurvivalDuration - FlashSurvivalRemaining;
-            _flashCooldown = elapsed < FlashSurvivalDuration * .5 ? 1.62 : 1.32;
+            // A level-ten closing survival is longer but thinner than a sense
+            // finale's: the same lesson, fewer shots to read at once.
+            _flashCooldown = elapsed < FlashSurvivalDuration * .5 ? 2.15 : 1.80;
         }
         if (FlashSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {
+            // Flash is the closing endurance check: surviving it is what ends
+            // the encounter, so there is no movement to hand off to.
             FlashSurvivalActive = false;
             FlashSurvivalCleared = true;
-            Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
-            ApplyIshePhase(4);
+            Hp = 0;
+            BeginDeathSpectacle();
         }
         FinishMovementTracking();
     }
@@ -572,9 +560,7 @@ public class Ishe : PathChaseBoss
             return;
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
-        if (EntranceRemaining > 0)
-        {
-            UiTheme.DrawText(spriteBatch, CurrentSightSymbolName(), 9, PhaseAccent, new Vector2(rect.Center.X, rect.Y - 12), "midbottom");
-        }
+        // The sight symbol's spelled-out name is no longer drawn -- the glyph
+        // painted on the body is the symbol the player learns.
     }
 }

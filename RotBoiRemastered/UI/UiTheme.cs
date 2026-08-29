@@ -70,12 +70,12 @@ public static class UiTheme
     public const int ReferenceHeight = 1080;
     public const float MinDisplayScale = .6f;
     public const float MaxDisplayScale = 2.4f;
-    public const double MinTextScale = .70;
-    public const double MaxTextScale = 3.0;
-    public const double MinGuiScale = .70;
-    public const double MaxGuiScale = 1.75;
-    public const double MinDamageTextScale = .40;
-    public const double MaxDamageTextScale = 3.0;
+    public const double MinTextScale = .60;
+    public const double MaxTextScale = 3.5;
+    public const double MinGuiScale = .65;
+    public const double MaxGuiScale = 2.25;
+    public const double MinDamageTextScale = .30;
+    public const double MaxDamageTextScale = 4.0;
 
     /// <summary>
     /// Legacy preset values remain available for compatibility with callers
@@ -142,6 +142,37 @@ public static class UiTheme
 
     /// <summary>User-configurable text size preference, layered on top of DisplayScale.</summary>
     public static double TextScaleMultiplier() => GameProfile.Profile.TextSize;
+
+    /// <summary>
+    /// A clean starting point for GuiScale/TextSize/DamageTextSize on the
+    /// current display, rather than always defaulting to 100%/100%/80%
+    /// regardless of resolution or aspect ratio. DisplayScale already
+    /// auto-adjusts raw pixel sizes for resolution (ReferenceWidth/Height),
+    /// but that alone assumes a 16:9-ish aspect; an ultrawide or a
+    /// narrower-than-16:9 display has less matching room in one axis at the
+    /// same DisplayScale, so its GUI/text reads smaller than a 16:9 display
+    /// at the same setting would. This nudges the three settings back
+    /// toward what 16:9 would have felt like, snapped to 5% steps to match
+    /// the sliders' own step size -- a starting point to tune from, not a
+    /// scientifically "correct" value.
+    /// </summary>
+    public static (double GuiScale, double TextSize, double DamageTextSize) SuggestedScales(
+        int screenWidth, int screenHeight)
+    {
+        float aspect = screenWidth / (float)Math.Max(1, screenHeight);
+        float referenceAspect = ReferenceWidth / (float)ReferenceHeight;
+        float aspectDelta = aspect - referenceAspect;
+        double guiScale = 1.0 - aspectDelta * .05;
+        double textSize = 1.0 - aspectDelta * .04;
+        double damageTextSize = .8 - aspectDelta * .04;
+        return (
+            SnapScale(guiScale, MinGuiScale, MaxGuiScale),
+            SnapScale(textSize, MinTextScale, MaxTextScale),
+            SnapScale(damageTextSize, MinDamageTextScale, MaxDamageTextScale));
+    }
+
+    private static double SnapScale(double value, double minimum, double maximum) =>
+        Math.Round(Math.Clamp(value, minimum, maximum) / .05) * .05;
 
     /// <summary>
     /// `italic` is accepted for signature parity with uiTheme.py's font()
@@ -724,4 +755,29 @@ public static class UiTheme
         Math.Min(255, color.G + amount),
         Math.Min(255, color.B + amount),
         color.A);
+
+    /// <summary>
+    /// Pushes a colour away from its own grey, deepening the hue without
+    /// changing which hue it is. <paramref name="amount"/> is 0 for no change
+    /// and 1 for a full push to the most saturated form of the same colour;
+    /// values above 1 are clamped.
+    ///
+    /// Added for the half-health second form every boss now commits to: the
+    /// body keeps its authored palette and simply stops being washed out.
+    /// </summary>
+    public static Color Saturate(Color color, float amount)
+    {
+        amount = Math.Clamp(amount, 0f, 1f);
+        if (amount <= 0f)
+            return color;
+        // Rec. 601 luma -- the perceptual grey this colour would collapse to.
+        float grey = color.R * .299f + color.G * .587f + color.B * .114f;
+        static int Push(float channel, float grey, float amount) =>
+            (int)Math.Clamp(MathF.Round(channel + (channel - grey) * amount), 0f, 255f);
+        return new Color(
+            Push(color.R, grey, amount),
+            Push(color.G, grey, amount),
+            Push(color.B, grey, amount),
+            (int)color.A);
+    }
 }

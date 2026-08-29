@@ -215,12 +215,16 @@ public abstract class PhantasiaBoss : PathChaseBoss
         }
         if (UsesDreamRules && Phase == Config.PhaseLabels.Count)
             PlaceOfferings();
+        EnterPhase(Phase);
     }
 
     public override void DebugSetPhase(int phase)
     {
-        SetDreamPhase(phase);
+        // Lock first: the debug hook places the boss into a phase outright,
+        // and EnterPhase reads DebugPhaseLocked to skip the transition beat
+        // that a genuine in-fight rotation would play.
         DebugPhaseLocked = true;
+        SetDreamPhase(phase);
         AttackCooldown = 0f;
     }
 
@@ -381,6 +385,7 @@ public abstract class PhantasiaBoss : PathChaseBoss
 
     public override void Update(EnemyUpdateContext context)
     {
+        TickEncounterClock(Seconds());
         if (UpdateDeathSpectacle())
             return;
         double dt = Seconds();
@@ -394,6 +399,13 @@ public abstract class PhantasiaBoss : PathChaseBoss
         PhaseAnnouncementTimer = Math.Max(0.0, PhaseAnnouncementTimer - dt);
         PhaseElapsed += dt;
         ArenaRingSeconds += dt;
+        if (PhaseInterlude.Active)
+        {
+            SettleDuringInterlude(dt);
+            AdvanceAge();
+            FinishMovementTracking();
+            return;
+        }
         UpdatePhase();
         UpdateSpecialRules(context.PlayerWorldX, context.PlayerWorldY, dt, context);
         if (EntranceRemaining > 0 || ActTransitionTimer > 0)
@@ -608,9 +620,10 @@ public abstract class PhantasiaBoss : PathChaseBoss
         int curtain = (int)(viewport.Width * Math.Min(.5, progress * .7));
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, curtain, viewport.Height), curtainColor);
         Primitives2D.FillRect(spriteBatch, new Rectangle(viewport.Width - curtain, 0, curtain, viewport.Height), curtainColor);
-        UiTheme.DrawText(spriteBatch, ActTitle, 34, PhaseAccent, new Vector2(viewport.Width / 2f, viewport.Height * .4f), "center");
-        string name = DrawCommandmentSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .55f), 44, Math.Min(1.0, progress * 2.5), null, 255, 0.0);
-        UiTheme.DrawText(spriteBatch, name, 11, UiTheme.Cream, new Vector2(viewport.Width / 2f, viewport.Height * .65f), "center");
+        // The act title and the sigil's spelled-out name are deliberately not
+        // drawn: an act reads through its sigil and its colour alone. The
+        // sigil itself is still drawn -- it is the symbol the player learns.
+        DrawCommandmentSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .52f), 52, Math.Min(1.0, progress * 2.5), null, 255, 0.0);
     }
 
     /// <summary>Ported from `getattr(self, "_draw_dream_body", None)`: only Malady defines a fully custom body, replacing the generic arena+ellipse+mask rendering entirely.</summary>
@@ -665,14 +678,8 @@ public abstract class PhantasiaBoss : PathChaseBoss
             UiTheme.DrawText(spriteBatch, RuleText, 11, ruleColor, new Vector2(banner.Center.X, banner.Center.Y), "center");
         }
 
-        if (PhaseAnnouncementTimer > 0 && ActTransitionTimer <= 0)
-        {
-            int width = Math.Min((int)(viewport.Width * .56f), 680);
-            var banner = new Rectangle(viewport.Width / 2 - width / 2, viewport.Height - 32 - 66, width, 66);
-            UiTheme.DrawPanel(spriteBatch, banner, UiTheme.Panel, PhaseAccent, shadow: 6);
-            UiTheme.DrawText(spriteBatch, PhaseFlavor, 11, UiTheme.Cream,
-                new Vector2(banner.Center.X, banner.Center.Y), "center");
-        }
+        // The phase-flavour announcement panel is gone: movements are read
+        // from what the boss does and from its sigil, never from prose.
 
         if (UsesDreamRules && Config.FinalBoss && Phase == Config.PhaseLabels.Count)
         {

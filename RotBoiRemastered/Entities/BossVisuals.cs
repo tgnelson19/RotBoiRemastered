@@ -72,10 +72,11 @@ internal static class BossVisuals
 
     /// <summary>Draw a genuinely rotating perspective cube for the cores that must read as three-dimensional.</summary>
     public static void RotatingCube3D(SpriteBatch batch, Vector2 center, float extent, Color primary,
-        Color secondary, Color accent, float yaw, float pitch, float roll = 0f) =>
+        Color secondary, Color accent, float yaw, float pitch, float roll = 0f,
+        float escalation = 0f) =>
         RotatingSolid3D(batch, center, extent, CubeVertices, CubeFaces,
             faceIndex => PhysicalCubeFaceColor(faceIndex, primary, secondary, accent),
-            yaw, pitch, roll, edgeAccent: accent);
+            yaw, pitch, roll, edgeAccent: accent, escalation: escalation);
 
     /// <summary>
     /// Generalization of the rotate -> project -> backface-cull -> depth-sort
@@ -97,8 +98,10 @@ internal static class BossVisuals
         float pitch,
         float roll = 0f,
         Color? edgeAccent = null,
-        float cameraZ = 4.2f)
+        float cameraZ = 4.2f,
+        float escalation = 0f)
     {
+        escalation = Math.Clamp(escalation, 0f, 1f);
         int vertexCount = localVertices.Length;
         Span<Vector3> rotatedVertices = vertexCount <= 32 ? stackalloc Vector3[vertexCount] : new Vector3[vertexCount];
         Span<Vector3> projected = vertexCount <= 32 ? stackalloc Vector3[vertexCount] : new Vector3[vertexCount];
@@ -193,10 +196,37 @@ internal static class BossVisuals
                 faceBuffer[vertex] = new Vector2(p.X, p.Y);
             }
             var points = faceBuffer[..face.Length];
-            Primitives2D.FillPolygonSpan(batch, points, faceColor(physicalFace));
+            Color fill = UiTheme.Saturate(faceColor(physicalFace), escalation * .55f);
+            Primitives2D.FillPolygonSpan(batch, points, fill);
             Primitives2D.PolygonOutlineSpan(batch, points, UiTheme.Ink, Math.Max(2, (int)(extent * .095f)));
+
+            // Second form: an inset facet inside each visible face plus a
+            // bevelled silhouette. Both are layering rather than new geometry
+            // -- the solid keeps its authored shape and simply gains depth.
+            if (escalation > .01f)
+            {
+                Span<Vector2> inset = stackalloc Vector2[8];
+                Vector2 faceMiddle = Vector2.Zero;
+                for (int vertex = 0; vertex < face.Length; vertex++)
+                    faceMiddle += points[vertex];
+                faceMiddle /= face.Length;
+                float pull = .18f + .22f * escalation;
+                for (int vertex = 0; vertex < face.Length; vertex++)
+                    inset[vertex] = Vector2.Lerp(points[vertex], faceMiddle, pull);
+                var innerPoints = inset[..face.Length];
+                Primitives2D.FillPolygonSpan(batch, innerPoints,
+                    UiTheme.Saturate(Color.Lerp(fill, UiTheme.Ink, .3f), escalation * .8f));
+                Primitives2D.DrawPolygonBevel(batch, innerPoints,
+                    UiTheme.Saturate(fill, escalation), Math.Max(1, (int)(extent * .03f)));
+            }
+
             if (edgeAccent.HasValue)
-                Primitives2D.Line(batch, points[0], points[1], UiTheme.Lighten(edgeAccent.Value, 34), Math.Max(1, (int)(extent * .035f)));
+            {
+                Color edge = UiTheme.Saturate(
+                    UiTheme.Lighten(edgeAccent.Value, 34), escalation);
+                Primitives2D.Line(batch, points[0], points[1], edge,
+                    Math.Max(1, (int)(extent * (.035f + .022f * escalation))));
+            }
         }
     }
 

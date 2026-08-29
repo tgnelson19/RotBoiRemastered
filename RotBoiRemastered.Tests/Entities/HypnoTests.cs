@@ -99,86 +99,61 @@ public class HypnoTests
         Assert.Equal(360, boss.Damage);
         Assert.Equal(1, boss.Phase);
         Assert.Equal("LAW OF MOTION", boss.PhaseLabel);
-        Assert.Equal(14.0, Hypno.ChosenSurvivalDuration);
+        Assert.Equal(20.0, Hypno.ChosenSurvivalDuration);
         Assert.Equal(2, Hypno.MinimumDamagePhaseDeclarations);
     }
 
     [Fact]
-    public void PreSurvivalHealthGatesRequireTwoCompleteSuggestions()
+    public void EveryLawSurrendersOnlyItsOwnBudgetThenRunsItsClock()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var boss = MakeBoss(battleground);
         boss.EntranceRemaining = 0;
         var context = MakeContext(boss, battleground);
-        double[] floors = { .75, .625, .50 };
+        int opening = boss.Phase;
 
-        for (int phase = 1; phase <= 3; phase++)
-        {
-            context.ProjectileSink.Clear();
-            boss.TakeDamage(boss.MaxHp);
-            Assert.Equal((int)Math.Round(boss.MaxHp * floors[phase - 1]), boss.Hp);
-            Assert.Equal(phase, boss.Phase);
-            Assert.False(boss.ChosenSurvivalActive);
+        boss.TakeDamage(boss.MaxHp);
+        Assert.Equal(
+            boss.MaxHp - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
+        Assert.Equal(opening, boss.Phase);
+        Assert.False(boss.ChosenSurvivalActive);
 
-            ReachDeclarations(boss, context, Hypno.MinimumDamagePhaseDeclarations);
-            boss.TakeDamage(1);
-            Assert.Equal(phase + 1, boss.Phase);
-        }
-
-        Assert.True(boss.ChosenSurvivalActive);
+        // A level-ten encounter releases the phase seven seconds after the
+        // threshold rather than riding the whole clock.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (BossPhaseGovernor.LowerTierHoldSeconds + 1); tick++)
+            Step(boss, context);
+        Assert.NotEqual(opening, boss.Phase);
     }
 
     [Fact]
-    public void ChosenIsFourteenSecondInvulnerableLessonThenOffering()
+    public void ChosenIsTheClosingTwentySecondLessonThatEndsTheFight()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var boss = MakeBoss(battleground, 3);
         boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(3);
-        boss.DebugPhaseLocked = false;
         var context = MakeContext(boss, battleground);
-
-        boss.TakeDamage(boss.MaxHp);
-        ReachDeclarations(boss, context, 2);
-        boss.TakeDamage(1);
+        boss.Hp = 1;
+        boss.DebugRebasePhaseHealth();
+        Step(boss, context);
 
         Assert.True(boss.ChosenSurvivalActive);
         Assert.Equal(4, boss.Phase);
         Assert.Equal("HERESY", boss.PhaseLabel);
-        Assert.Equal(14.0, boss.ChosenSurvivalRemaining);
+        Assert.Equal(20.0, boss.ChosenSurvivalRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 14 + 5; tick++)
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (20 + BossPhaseInterlude.DefaultDuration) + 5;
+             tick++)
             Step(boss, context);
 
         Assert.False(boss.ChosenSurvivalActive);
         Assert.True(boss.ChosenSurvivalCleared);
-        Assert.Equal(5, boss.Phase);
-        Assert.Equal("CONTRADICTION", boss.PhaseLabel);
-        Assert.Equal(4, boss.OfferingPositions.Count);
-    }
-
-    [Fact]
-    public void OfferingCannotBeBurstDownBeforeTwoDebtDeclarations()
-    {
-        Simulation.ResetForTests();
-        var battleground = MakeBattleground();
-        var boss = MakeBoss(battleground);
-        boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(5);
-        boss.DebugPhaseLocked = false;
-        var context = MakeContext(boss, battleground);
-
-        boss.TakeDamage(boss.MaxHp);
-        Assert.Equal(1, boss.Hp);
-        Assert.False(boss.Dying);
-
-        ReachDeclarations(boss, context, 2);
-        boss.TakeDamage(1);
         Assert.True(boss.Dying);
-        Assert.False(boss.IsDead());
     }
 
     private static void FireUntilProjectiles(Hypno boss, EnemyUpdateContext context)

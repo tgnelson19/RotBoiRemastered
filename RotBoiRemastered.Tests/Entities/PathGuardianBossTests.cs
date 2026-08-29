@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -146,7 +147,7 @@ public sealed class PathGuardianBossTests
     }
 
     [Fact]
-    public void DamageThresholds_AdvanceThroughThreeInvulnerableTransitions()
+    public void LessonsAdvanceOnTheirClockThroughInvulnerableTransitions()
     {
         Simulation.ResetForTests();
         var layout = PathFloorGenerator.Generate("sound", 1, new Random(5));
@@ -154,21 +155,52 @@ public sealed class PathGuardianBossTests
             "sound", 1, float.PositiveInfinity, new Random(6));
         var context = Context(layout.Battleground, new List<EnemyProjectile>());
 
-        for (int frame = 0; frame < 900
-            && boss.AttacksCompletedInPhase < PathGuardianBoss.MinimumAttacksPerPhase; frame++)
-            boss.Update(context);
+        ReachPhaseAttackRequirement(boss, context);
         Assert.Equal(PathGuardianBoss.MinimumAttacksPerPhase, boss.AttacksCompletedInPhase);
-        var phaseTwo = boss.TakeDamage(boss.MaxHp * .4);
-        Assert.True(phaseTwo.Applied);
-        Assert.Equal(2, boss.Phase);
-        Assert.True(boss.Invulnerable);
 
-        for (int frame = 0; frame < 900
-            && boss.AttacksCompletedInPhase < PathGuardianBoss.MinimumAttacksPerPhase; frame++)
-            boss.Update(context);
-        var phaseThree = boss.TakeDamage(boss.MaxHp * .35);
-        Assert.True(phaseThree.Applied);
+        // A lesson surrenders at most its budget; health no longer advances
+        // the encounter on its own.
+        var hit = boss.TakeDamage(boss.MaxHp * .4);
+        Assert.True(hit.Applied);
+        Assert.Equal(1, boss.Phase);
+
+        AdvanceUntilLessonTurnsOver(boss, context, 1);
+        Assert.Equal(2, boss.Phase);
+        // Every handover is protected while the arena clears.
+        Assert.True(boss.Invulnerable);
+        DrainTransition(boss, context);
+
+        ReachPhaseAttackRequirement(boss, context);
+        AdvanceToNextLesson(boss, context, 2);
         Assert.Equal(3, boss.Phase);
+        // Guardians are the simplest encounters and hold no survival trial.
+        Assert.False(boss.TrialActive);
+    }
+
+    /// <summary>
+    /// Runs the guardian until its phase clock hands over to the next lesson.
+    /// </summary>
+    private static void AdvanceUntilLessonTurnsOver(
+        PathGuardianBoss boss, EnemyUpdateContext context, int fromPhase)
+    {
+        for (int frame = 0; frame < 6000 && boss.Phase == fromPhase; frame++)
+        {
+            boss.DebugCompletePhaseClock();
+            boss.Update(context);
+        }
+    }
+
+    private static void DrainTransition(PathGuardianBoss boss, EnemyUpdateContext context)
+    {
+        for (int frame = 0; frame < 600 && boss.TransitionRemaining > 0; frame++)
+            boss.Update(context);
+    }
+
+    private static void AdvanceToNextLesson(
+        PathGuardianBoss boss, EnemyUpdateContext context, int fromPhase)
+    {
+        AdvanceUntilLessonTurnsOver(boss, context, fromPhase);
+        DrainTransition(boss, context);
     }
 
     [Theory]
@@ -192,25 +224,21 @@ public sealed class PathGuardianBossTests
         Assert.Equal(first, boss.PhaseLabel);
         boss.TakeDamage(boss.MaxHp);
         Assert.Equal(1, boss.Phase);
-        Assert.Equal((int)Math.Ceiling(boss.MaxHp * .67), boss.Hp);
+        // One lesson surrenders at most fifteen percent of maximum health.
+        Assert.Equal(
+            boss.MaxHp - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.True(boss.TakeDamage(100).Blocked);
 
-        for (int frame = 0; frame < 900
-            && boss.AttacksCompletedInPhase < PathGuardianBoss.MinimumAttacksPerPhase; frame++)
-            boss.Update(context);
-        for (int frame = 0; frame < 120 && boss.Phase == 1; frame++)
-            boss.Update(context);
+        ReachPhaseAttackRequirement(boss, context);
+        AdvanceToNextLesson(boss, context, 1);
         Assert.Equal(2, boss.Phase);
         Assert.Equal(second, boss.PhaseLabel);
 
-        for (int frame = 0; frame < 900
-            && boss.AttacksCompletedInPhase < PathGuardianBoss.MinimumAttacksPerPhase; frame++)
-            boss.Update(context);
-        boss.TakeDamage(boss.MaxHp);
+        ReachPhaseAttackRequirement(boss, context);
+        AdvanceToNextLesson(boss, context, 2);
         Assert.Equal(3, boss.Phase);
-        Assert.True(boss.TrialActive);
-        for (int frame = 0; frame < 1200 && boss.TrialActive; frame++)
-            boss.Update(context);
+        Assert.False(boss.TrialActive);
         Assert.Equal(third, boss.PhaseLabel);
         Assert.True(boss.Hp > 0);
     }
@@ -258,14 +286,17 @@ public sealed class PathGuardianBossTests
         while (boss.EntranceRemaining > 0)
             boss.Update(context);
         ReachPhaseAttackRequirement(boss, context);
-        boss.TakeDamage(boss.MaxHp);
-        while (boss.TransitionRemaining > 0)
-            boss.Update(context);
+        AdvanceToNextLesson(boss, context, 1);
         ReachPhaseAttackRequirement(boss, context);
+        AdvanceToNextLesson(boss, context, 2);
 
-        boss.TakeDamage(boss.MaxHp);
-
+        // The trial is no longer part of the natural flow -- guardians are
+        // the one tier with no survival phase -- but the debug hook that
+        // exercises its presentation still works.
         Assert.Equal(3, boss.Phase);
+        Assert.False(boss.TrialActive);
+        boss.DebugStartTrial();
+
         Assert.True(boss.TrialActive);
         Assert.Equal(trialLabel, boss.PhaseLabel);
         Assert.True(boss.TakeDamage(1000).Blocked);
@@ -455,6 +486,7 @@ public sealed class PathGuardianBossTests
             "sound", 4, float.PositiveInfinity, new Random(95));
         boss.DebugSetPhase(3);
         boss.Hp = 10;
+        boss.DebugRebasePhaseHealth();
         var context = Context(layout.Battleground,
             new List<EnemyProjectile>());
 
@@ -489,7 +521,9 @@ public sealed class PathGuardianBossTests
 
         boss.TakeDamage(boss.MaxHp);
         Assert.Equal(1, boss.Phase);
-        Assert.Equal((int)Math.Ceiling(boss.MaxHp * .67), boss.Hp);
+        Assert.Equal(
+            boss.MaxHp - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
 
         ReachPhaseAttackRequirement(boss, context);
         Assert.True(boss.PhaseGatePending);

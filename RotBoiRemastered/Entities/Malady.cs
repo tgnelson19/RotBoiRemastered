@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -34,9 +35,50 @@ public sealed class Malady : PhantasiaBoss
     public const int ActiveThreatSoftCap = 132;
     private const int PatternThreatReservation = 28;
     protected override bool UsesDreamRules => false;
+
+    /// <summary>
+    /// Malady owns its own damage budget (see TakeDamage), so the shared
+    /// uniform one-movement-per-tenth ladder in PhantasiaBoss is opted out of
+    /// -- that ladder is keyed to phase index and cannot express a rotation
+    /// that revisits movements.
+    /// </summary>
+    protected override bool UsesSharedDreamHealthGates => false;
+
+    /// <summary>The fixed half-health survival movement.</summary>
+    private const int IntermissionPhase = 6;
+
+    private bool _intermissionCleared;
     protected override bool UsesSharedDeathSpectacle => true;
+    protected override bool EncounterSurvivalActive => SurvivalActive;
+
     protected override bool VisualSurvivalActive => SurvivalActive || FinaleActive || base.VisualSurvivalActive;
-    private static readonly Dictionary<int, double> SurvivalPhases = new() { [6] = 18.0 };
+    private static readonly Dictionary<int, double> SurvivalPhases = new() { [6] = 20.0 };
+
+    /// <summary>
+    /// Every movement Malady owns, drawn from throughout the fight. The
+    /// intermission (6) and the apotheosis (10) are the fixed points.
+    /// </summary>
+    private static readonly int[] DamagePhasePool = { 1, 2, 3, 4, 5, 7, 8, 9 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Curtain;
+
+    /// <summary>
+    /// Malady is slow and deliberate: every movement is a large, wide display
+    /// that needs room to complete, so its clocks sit at the long end of the
+    /// band rather than the short.
+    /// </summary>
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 20.0,
+        2 => 22.0,
+        3 => 23.0,
+        4 => 22.0,
+        5 => 24.0,
+        7 => 23.0,
+        8 => 25.0,
+        9 => 25.0,
+        _ => 22.0,
+    };
     private static readonly int[] PortalCounts = { 3, 4, 3, 4, 5, 3, 6, 6, 5, 6 };
     private static readonly string[] PortalPaths =
         { "orbit", "figure8", "wave", "square", "tornado", "orbit", "square", "figure8", "wave", "tornado" };
@@ -67,7 +109,7 @@ public sealed class Malady : PhantasiaBoss
             BossMovementPhaseProfile.Stationary(),
         },
         FinalHealth = 320000, FinalContactDamage = 900, FinalRewardExperience = 880,
-        FinaleDuration = 30.0,
+        FinaleDuration = 25.0,
     };
 
     public static readonly PhantasiaSigilConfig MaladySigilConfig = new(
@@ -204,16 +246,23 @@ public sealed class Malady : PhantasiaBoss
     {
         if (DebugPhaseLocked || FinaleActive || SurvivalActive || Dying)
             return;
-        int count = Config.PhaseLabels.Count;
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        int desired = Math.Min(count, (int)((1.0 - ratio) * count + 1e-9) + 1);
-        if (desired != Phase && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-            SetDreamPhase(desired);
+        // Half health opens the intermission; every other movement rotates on
+        // the phase clock, replacing the old uniform one-movement-per-tenth
+        // health split that let a strong build walk the whole gallery.
+        if (!_intermissionCleared && Hp <= MaxHp * .5)
+        {
+            SetDreamPhase(IntermissionPhase);
+            return;
+        }
+        if (PhaseGovernor.ReadyToAdvance)
+            SetDreamPhase(PhaseRotation.Choose(DamagePhasePool, Phase, Rng));
     }
 
     public override void DebugSetPhase(int phase)
     {
         base.DebugSetPhase(phase);
+        if (Phase > IntermissionPhase)
+            _intermissionCleared = true;
         if (Phase == Config.PhaseLabels.Count && !FinaleActive)
             BeginFinaleSequence();
     }
@@ -222,16 +271,30 @@ public sealed class Malady : PhantasiaBoss
     {
         if (SurvivalActive || FinaleActive || Dying)
             return new HitResult(false, false, 0, true);
-        if (Phase == Config.PhaseLabels.Count &&
-            PhaseDeclarations < MinimumDamagePhaseDeclarations)
-        {
-            double permitted = Math.Max(0, Hp - 1);
-            if (permitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var gated = base.TakeDamage(Math.Min(amount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
-        return base.TakeDamage(amount, partId, source);
+        if (ActTransitionTimer > 0 || PhaseProtectionTimer > 0)
+            return new HitResult(false, false, 0, true);
+
+        // A movement surrenders at most its damage budget, bounded by the next
+        // authored gate -- half health before the intermission, one afterwards.
+        // This replaces PhantasiaBoss's uniform per-phase ladder, which cannot
+        // express a rotation that revisits movements.
+        int nextGate = _intermissionCleared
+            ? 1
+            : Math.Max(1, (int)Math.Round(MaxHp * .5));
+        int floor = DebugPhaseLocked ? 0 : PhaseGovernor.DamageFloor(nextGate);
+        double permitted = floor > 0 ? Math.Max(0, Hp - floor) : amount;
+        if (floor > 0 && permitted <= 0)
+            return new HitResult(false, false, 0, true);
+
+        int healthBefore = Hp;
+        var result = base.TakeDamage(floor > 0 ? Math.Min(amount, permitted) : amount, partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (!_intermissionCleared && Hp <= MaxHp * .5)
+            SetDreamPhase(IntermissionPhase);
+        else if (_intermissionCleared && Hp <= 1 && !FinaleActive)
+            BeginFinaleSequence();
+        return new HitResult(result.Applied, false,
+            Math.Max(0, healthBefore - Hp), result.Blocked);
     }
 
     private static int ActiveMaladyThreats(List<EnemyProjectile> sink)
@@ -535,8 +598,10 @@ public sealed class Malady : PhantasiaBoss
                 if (SurvivalRemaining <= 0)
                 {
                     SurvivalActive = false;
-                    Hp = Math.Max(1, (int)Math.Round(MaxHp * .4));
-                    SetDreamPhase(7);
+                    _intermissionCleared = true;
+                    Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+                    RebasePhaseHealth();
+                    SetDreamPhase(PhaseRotation.Choose(DamagePhasePool, Phase, Rng));
                 }
             }
         }
@@ -642,17 +707,20 @@ public sealed class Malady : PhantasiaBoss
 
         switch (Phase)
         {
+            // Malady is slow and deliberate: every movement is one large,
+            // fully telegraphed display that has to be walked around, so the
+            // escalation goes into petal count and reach rather than speed.
             case 1: // Petals open around a lane pointing directly at the player.
-                RadialWithGap(sink, center, target, 14, 1, .9f, 320, "overture_petals", "sine");
+                RadialWithGap(sink, center, target, Difficulty.Shots(14), 1, .9f, 320, "overture_petals", "sine");
                 break;
             case 2: // Alternating portals flood inward but preserve the player's current shore.
                 for (int index = PatternRotation % 2; index < ProjectilePortals.Count; index += 2)
-                    RadialWithGap(sink, PortalOrigin(index), target, 8, 1, .95f, 325, "petal_flood", "sine");
+                    RadialWithGap(sink, PortalOrigin(index), target, Difficulty.Shots(8), 1, .95f, 325, "petal_flood", "sine");
                 break;
             case 3: // Two rigid portal gears turn around player-facing runs of missing teeth.
-                RadialWithGap(sink, PortalOrigin(PatternRotation), target, 12, 2, .9f, 340,
+                RadialWithGap(sink, PortalOrigin(PatternRotation), target, Difficulty.Shots(12), 2, .9f, 340,
                     "impossible_engine_drive", "linear");
-                RadialWithGap(sink, PortalOrigin(PatternRotation + 1), target, 12, 2, .9f, 340,
+                RadialWithGap(sink, PortalOrigin(PatternRotation + 1), target, Difficulty.Shots(12), 2, .9f, 340,
                     "impossible_engine_counterdrive", "linear");
                 break;
             case 4: // One long ribbon now threads between two portals instead of two separate ribbons.
@@ -674,7 +742,7 @@ public sealed class Malady : PhantasiaBoss
                 break;
             case 6: // A flower and one reaching thought alternate around a deliberately empty center.
                 if (PatternRotation % 2 == 0)
-                    RadialWithGap(sink, center, target, 16, 2, .85f, 340, "intermission_flower", "sine");
+                    RadialWithGap(sink, center, target, Difficulty.Shots(16), 2, .85f, 340, "intermission_flower", "sine");
                 else
                     PortalTentacle(sink, PatternRotation, target, PatternRotation % 4 == 1 ? 1.7f : -1.7f,
                         "intermission_tentacle", 7, .86f);
@@ -685,7 +753,7 @@ public sealed class Malady : PhantasiaBoss
                     SurvivalAmalgamVeil(sink);
                 break;
             case 7:
-                RadialWithGap(sink, center, target, 16, 2, 1.0f, 355, "luminous_tide", "sine");
+                RadialWithGap(sink, center, target, Difficulty.Shots(16), 2, 1.0f, 355, "luminous_tide", "sine");
                 if (PatternRotation % 2 == 0)
                     FirePortalPhrase(sink, target, wide: true);
                 break;
@@ -732,7 +800,7 @@ public sealed class Malady : PhantasiaBoss
                 }
                 else
                 {
-                    RadialWithGap(sink, center, target, 18, 3, .98f, 380, "apotheosis_corolla");
+                    RadialWithGap(sink, center, target, Difficulty.Shots(18), 3, .98f, 380, "apotheosis_corolla");
                     for (int index = 0; index < ProjectilePortals.Count; index += 2)
                     {
                         var origin = PortalOrigin(index);
@@ -743,7 +811,10 @@ public sealed class Malady : PhantasiaBoss
                 break;
             }
         }
-        if (!SurvivalPhases.ContainsKey(Phase) && Phase is not (7 or 10) && PatternRotation % 2 == 0)
+        // No movement runs one family for a whole clock: the portal phrase
+        // now underlies every damage movement rather than only the even ones,
+        // so a second slow display is always crossing the first.
+        if (!SurvivalPhases.ContainsKey(Phase) && Phase is not (7 or 10))
             FirePortalPhrase(sink, target, wide: Phase >= 7);
         PatternRotation++;
         MarkAttack(.72f);
@@ -802,7 +873,7 @@ public sealed class Malady : PhantasiaBoss
             float angle = MathHelper.Lerp(previous.Angle, current.Angle, constellationBlend);
             float extent = Size * (.07f + index % 3 * .018f);
             BossVisuals.RotatingCube3D(spriteBatch, core + offset, extent, indigo, violet, luminous,
-                angle, angle * .53f, seconds * .36f);
+                angle, angle * .53f, seconds * .36f, escalation: SecondFormBlend);
         }
     }
 
@@ -890,13 +961,13 @@ public sealed class Malady : PhantasiaBoss
 
         BossVisuals.RotatingSolid3D(spriteBatch, core, Size * .58f, PillarVertices, BoxFaces,
             faceIndex => BossVisuals.PhysicalCubeFaceColor(faceIndex, primary, secondary, accent),
-            bodyYaw, bodyPitch, edgeAccent: accent);
+            bodyYaw, bodyPitch, edgeAccent: accent, escalation: SecondFormBlend);
 
         // The orb-lens turns slowly at the torso, in front of the pillar --
         // a real convex disc of stored inspiration rather than a flat dot.
         BossVisuals.RotatingSolid3D(spriteBatch, core, Size * .13f, LensVertices, LensFaces,
             faceIndex => LensFaceColor(faceIndex, primary),
-            Age * .01f, .4f + MathF.Sin(Age * .017f) * .3f, edgeAccent: accent);
+            Age * .01f, .4f + MathF.Sin(Age * .017f) * .3f, edgeAccent: accent, escalation: SecondFormBlend);
 
         for (; armIndex < armCount; armIndex++)
             DrawArm(spriteBatch, _floatingCubeScratch[armIndex], armIndex, primary, secondary, accent, seconds);
@@ -915,11 +986,11 @@ public sealed class Malady : PhantasiaBoss
         {
             BossVisuals.RotatingSolid3D(spriteBatch, arm.Center, arm.Extent, ArmRectangleVertices, BoxFaces,
                 faceIndex => BossVisuals.PhysicalCubeFaceColor(faceIndex, secondary, primary, accent),
-                yaw, pitch, roll, edgeAccent: accent);
+                yaw, pitch, roll, edgeAccent: accent, escalation: SecondFormBlend);
         }
         else
         {
-            BossVisuals.RotatingCube3D(spriteBatch, arm.Center, arm.Extent, primary, secondary, accent, yaw, pitch, roll);
+            BossVisuals.RotatingCube3D(spriteBatch, arm.Center, arm.Extent, primary, secondary, accent, yaw, pitch, roll, escalation: SecondFormBlend);
         }
     }
 

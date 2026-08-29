@@ -116,6 +116,10 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         PhaseLabel = Config.PhaseLabels[Phase - 1];
         PhaseFlavor = SinConfig.PhaseFlavors[Phase - 1];
         PhaseAccent = SinConfig.PhaseColors[Phase - 1];
+        // The chemesthesis family was the only one whose phase setter left
+        // PhaseElapsed running from the previous phase; every sibling zeroes
+        // it here, and the shared phase clock depends on the reset.
+        PhaseElapsed = 0.0;
         AttackCooldown = Math.Min(AttackCooldown!.Value, Simulation.FrameRate * .45f);
         TransitionCleanupRequested = true;
         SigilTransitionTimer = SigilTransitionDuration;
@@ -125,12 +129,16 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
             ActTransitionTimer = ActTransitionDuration;
             PhaseProtectionTimer = ActTransitionDuration;
         }
+        EnterPhase(Phase);
     }
 
     public override void DebugSetPhase(int phase)
     {
-        SetSinPhase(phase);
+        // Lock first: the debug hook places the boss into a phase outright,
+        // and EnterPhase reads DebugPhaseLocked to skip the transition beat
+        // that a genuine in-fight rotation would play.
         DebugPhaseLocked = true;
+        SetSinPhase(phase);
         AttackCooldown = 0f;
     }
 
@@ -293,6 +301,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     public override void Update(EnemyUpdateContext context)
     {
+        TickEncounterClock(Seconds());
         if (UpdateDeathSpectacle())
             return;
         double dt = Seconds();
@@ -306,6 +315,13 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         ArenaRingSeconds += dt;
         SigilTransitionTimer = Math.Max(0.0, SigilTransitionTimer - dt);
         UpdateTerrain(context.PlayerWorldX, context.PlayerWorldY, dt, context);
+        if (PhaseInterlude.Active)
+        {
+            SettleDuringInterlude(dt);
+            AdvanceAge();
+            FinishMovementTracking();
+            return;
+        }
         UpdatePhase();
         if (EntranceRemaining > 0 || ActTransitionTimer > 0)
         {
@@ -423,7 +439,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         BossVisuals.RotatingCube3D(spriteBatch, jittered, cubeSize * .45f,
             orange, purple, PhaseAccent, seconds * 2.1f,
             .55f + BossAnimation.Sine(seconds, 1.9f) * .36f,
-            BossAnimation.Sine(seconds, 1.3f, .2f) * .24f);
+            BossAnimation.Sine(seconds, 1.3f, .2f) * .24f, escalation: SecondFormBlend);
         var inner = new Rectangle((int)(jittered.X - cubeSize * .13f), (int)(jittered.Y - cubeSize * .13f), (int)(cubeSize * .26f), (int)(cubeSize * .26f));
         Primitives2D.FillRect(spriteBatch, inner, UiTheme.Void);
         Primitives2D.RectOutline(spriteBatch, inner,
@@ -532,7 +548,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         Primitives2D.FillRect(spriteBatch,
             new Rectangle(0, (int)(viewport.Height * .3f), viewport.Width, (int)(viewport.Height * .4f)),
             UiTheme.Void * (alpha / 255f));
-        UiTheme.DrawText(spriteBatch, PhaseFlavor, 15, UiTheme.Lighten(PhaseAccent, 45), new Vector2(viewport.Width / 2f, viewport.Height * .48f), "center");
+        // Prose removed: the act reads through its sigil and colour alone.
         DrawSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .61f), 34,
             Math.Min(1.0, progress * 2.4), 0, 255, Phase);
     }

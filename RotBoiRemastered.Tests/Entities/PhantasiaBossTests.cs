@@ -1,4 +1,5 @@
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -45,12 +46,14 @@ public class PhantasiaBossTests
     public void TakeDamage_PinsHealthToCurrentPhaseFloor()
     {
         var hypno = new Hypno(1000, 1000, MakeBattleground(), new Random(1));
-        // Idol owns the opening quarter and cannot be burst through before
-        // its two complete suggestions.
+        // A law surrenders at most its own damage budget, however much damage
+        // arrives, so no single hit can walk the encounter forward.
         var result = hypno.TakeDamage(1_000_000);
 
         Assert.True(result.Applied);
-        Assert.Equal((int)Math.Round(hypno.MaxHp * .75), hypno.Hp);
+        Assert.Equal(
+            hypno.MaxHp - (int)Math.Round(hypno.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            hypno.Hp);
         Assert.Equal(1, hypno.Phase);
     }
 

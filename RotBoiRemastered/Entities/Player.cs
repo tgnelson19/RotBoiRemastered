@@ -132,13 +132,29 @@ public sealed class Player
         inputX = worldInput.X;
         inputY = worldInput.Y;
 
-        if (dashPressed && state.CurrDashCooldown <= 0 && (inputX != 0 || inputY != 0))
+        if (dashPressed && state.CurrDashCooldown <= 0)
         {
-            state.Dashing = true;
-            state.CurrDashCooldown = state.DashCooldownMax;
-            state.FdX = inputX;
-            state.FdY = inputY;
-            state.PlayerInvulnerabilityTimer = Math.Max(state.PlayerInvulnerabilityTimer, state.DashDuration);
+            float dashDirX = inputX, dashDirY = inputY;
+            if (dashDirX == 0 && dashDirY == 0)
+            {
+                // Standing still: dash toward the cursor/aim direction instead
+                // of doing nothing.
+                // inputX/inputY use an inverted convention (positive = left/up,
+                // since DX/DY are subtracted from world position below), so the
+                // aim vector -- which points from the player toward the cursor
+                // in normal screen coordinates -- has to be flipped to match.
+                Vector2 aimWorld = camera.ScreenVectorToWorld(_visualAimDirection);
+                dashDirX = -aimWorld.X;
+                dashDirY = -aimWorld.Y;
+            }
+            if (dashDirX != 0 || dashDirY != 0)
+            {
+                state.Dashing = true;
+                state.CurrDashCooldown = state.DashCooldownMax;
+                state.FdX = dashDirX;
+                state.FdY = dashDirY;
+                state.PlayerInvulnerabilityTimer = Math.Max(state.PlayerInvulnerabilityTimer, state.DashDuration);
+            }
         }
 
         if (state.CurrDashCooldown > 0)

@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -61,12 +62,12 @@ public sealed class Rot : PathChaseBoss
             BossMovementPhaseProfile.Stationary(),
         },
         FinalHealth = 330000, FinalContactDamage = 980, FinalRewardExperience = 900,
-        FinaleDuration = 35.0,
+        FinaleDuration = 25.0,
     };
 
     public bool MidpointSurvivalActive { get; private set; }
     public bool MidpointSurvivalCleared { get; private set; }
-    public double MidpointSurvivalDuration { get; } = 22.0;
+    public double MidpointSurvivalDuration { get; } = 20.0;
     public double MidpointSurvivalRemaining { get; private set; }
     public int PatternRotation { get; private set; }
     public int PhaseDeclarations { get; private set; }
@@ -97,7 +98,32 @@ public sealed class Rot : PathChaseBoss
     public double BurrowRemaining => _burrowRemaining;
     public bool BurrowUntargetable => BurrowState == RotBurrowState.Submerged;
 
+    protected override bool EncounterSurvivalActive => MidpointSurvivalActive;
+
     protected override bool VisualSurvivalActive => MidpointSurvivalActive || FinaleActive || base.VisualSurvivalActive;
+
+    /// <summary>
+    /// Every damage movement Rot owns, drawn from throughout the fight rather
+    /// than split into a fixed first and second half. Burial (7) and the
+    /// midpoint survival (4) are the only fixed points left.
+    /// </summary>
+    private static readonly int[] DamagePhasePool = { 1, 2, 3, 5, 6 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Compost;
+
+    /// <summary>
+    /// Weighted by how much there is to survive: the opening castoff is a
+    /// statement, miasma layers two material generations over a burrow.
+    /// </summary>
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 18.0,
+        2 => 20.0,
+        3 => 21.0,
+        5 => 22.0,
+        6 => 24.0,
+        _ => 20.0,
+    };
 
     public Rot(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, RotConfig, rng)
@@ -121,8 +147,15 @@ public sealed class Rot : PathChaseBoss
         // Rot is accumulation made animate. Minor damage movements retain the
         // previous layer; survival boundaries still wash the room clean so the
         // authored endurance checks always begin from a fair, known state.
-        bool accumulatingTransition = (previousPhase, Phase) is (1, 2) or (2, 3) or (5, 6);
-        TransitionCleanupRequested = !accumulatingTransition;
+        // Rot is accumulation made animate, so its terrain is never purged on
+        // an ordinary rotation -- the interlude's projectile sweep skips
+        // persistent hazards, which preserves the layering that used to be
+        // protected by an authored list of "accumulating" phase pairs (that
+        // list stopped meaning anything once phases rotate at random).
+        // Survival boundaries still wash the room so the endurance checks
+        // begin from a fair, known state.
+        TransitionCleanupRequested = Phase is 4 or 7 || previousPhase is 4 or 7;
+        EnterPhase(Phase);
     }
 
     private void BeginMidpointSurvival()
@@ -138,26 +171,18 @@ public sealed class Rot : PathChaseBoss
 
     protected override void UpdatePhase()
     {
-        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive)
+        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive || Dying)
             return;
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        int desired;
-        if (!MidpointSurvivalCleared)
+        // Half health is the one health-driven transition left; everything
+        // between the gates rotates on the phase clock, so burst damage can
+        // no longer skip a movement the player was meant to survive.
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
         {
-            if (ratio <= .5)
-            {
-                if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    BeginMidpointSurvival();
-                return;
-            }
-            desired = ratio > .84 ? 1 : ratio > .67 ? 2 : 3;
+            BeginMidpointSurvival();
+            return;
         }
-        else
-        {
-            desired = ratio > .25 ? 5 : 6;
-        }
-        if (desired != Phase && PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-            ApplyPhase(desired);
+        if (PhaseGovernor.ReadyToAdvance)
+            ApplyPhase(PhaseRotation.Choose(DamagePhasePool, Phase, Rng));
     }
 
     public override void DebugSetPhase(int phase)
@@ -186,36 +211,25 @@ public sealed class Rot : PathChaseBoss
         if (MidpointSurvivalActive || FinaleActive || Dying || BurrowUntargetable)
             return new HitResult(false, false, 0, true);
 
-        if (MidpointSurvivalCleared && Phase == 6 &&
-            PhaseDeclarations < MinimumDamagePhaseDeclarations)
-        {
-            double phasePermitted = Math.Max(0, Hp - 1);
-            if (phasePermitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var declarationGated = base.TakeDamage(Math.Min(amount, phasePermitted), partId, source);
-            return new HitResult(declarationGated.Applied, false,
-                declarationGated.Amount, declarationGated.Blocked);
-        }
-
-        double floorRatio = !MidpointSurvivalCleared
-            ? Phase switch { 1 => .84, 2 => .67, _ => .50 }
-            : Phase == 5 ? .25 : 0.0;
-        int floor = Math.Max(0, (int)Math.Round(MaxHp * floorRatio));
-        double permitted = floor > 0 ? Math.Max(0, Hp - floor) : amount;
-        if (floor > 0 && permitted <= 0)
-        {
-            if (PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-                UpdatePhase();
+        // A movement surrenders at most its damage budget, bounded further by
+        // the next authored gate -- half health before burial is unlocked,
+        // one afterwards. Reaching the floor no longer advances anything: the
+        // phase clock owns that, so a burst build still has to dodge the rest.
+        int nextGate = MidpointSurvivalCleared
+            ? 1
+            : Math.Max(1, (int)Math.Round(MaxHp * .5));
+        int floor = PhaseGovernor.DamageFloor(nextGate);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
             return new HitResult(false, false, 0, true);
-        }
 
-        var result = base.TakeDamage(floor > 0 ? Math.Min(amount, permitted) : amount, partId, source);
-        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5 &&
-            PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+        int healthBefore = Hp;
+        var result = base.TakeDamage(Math.Min(amount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
             BeginMidpointSurvival();
-        else if (floor > 0 && Hp <= floor &&
-                 PhaseDeclarations >= MinimumDamagePhaseDeclarations)
-            UpdatePhase();
+        else if (MidpointSurvivalCleared && Hp <= 1 && !FinaleActive)
+            BeginFinaleSequence();
         if (FinaleActive)
             ApplyPhase(7);
         return new HitResult(result.Applied, false, result.Amount, result.Blocked);
@@ -609,11 +623,18 @@ public sealed class Rot : PathChaseBoss
                     SeedBuriedCharges(sink, SafeCorridorAngle, 4);
                 break;
         }
-        PressureRake(sink, playerX, playerY,
-            Phase == 7 ? "burial_rake" : $"{PhaseLabel.ToLowerInvariant().Replace(' ', '_')}_rake");
-        if (Phase >= 3 && PatternRotation % 3 == 0)
-            GraspReach(sink, playerX, playerY,
-                Phase == 7 ? "burial_grasp" : $"{PhaseLabel.ToLowerInvariant().Replace(' ', '_')}_grasp");
+        string family = Phase == 7
+            ? "burial"
+            : PhaseLabel.ToLowerInvariant().Replace(' ', '_');
+        PressureRake(sink, playerX, playerY, $"{family}_rake",
+            links: Difficulty.Shots(9));
+        // No movement runs a single family for its whole clock: the reach and
+        // the spore layer alternate underneath whatever the phase declared,
+        // so two material generations always overlap.
+        if (Phase >= 3 && PatternRotation % 2 == 0)
+            GraspReach(sink, playerX, playerY, $"{family}_grasp");
+        else if (Phase >= 2)
+            SporeSpiral(sink, Difficulty.Shots(5), $"{family}_drift");
         PatternRotation++;
         PhaseDeclarations++;
         MarkAttack(.7f);
@@ -629,6 +650,9 @@ public sealed class Rot : PathChaseBoss
         _graspVisualRemaining = Math.Max(0.0, _graspVisualRemaining - dt);
         if (BurrowState != RotBurrowState.Surface)
         {
+            // The burrow interlude never reaches base.Update; tick the shared
+            // phase clock here so a submerged Rot still spends phase time.
+            TickEncounterClock(dt);
             UpdateBurrow(dt);
             return;
         }
@@ -642,9 +666,13 @@ public sealed class Rot : PathChaseBoss
             return;
         }
 
+        // This branch never reaches base.Update, so the shared phase clock has
+        // to be advanced here or it would freeze for the whole survival.
+        TickEncounterClock(dt);
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         AdvanceAge();
         MidpointSurvivalRemaining = Math.Max(0.0, MidpointSurvivalRemaining - dt);
         _survivalCooldown -= dt;
@@ -674,6 +702,7 @@ public sealed class Rot : PathChaseBoss
             MidpointSurvivalActive = false;
             MidpointSurvivalCleared = true;
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+            RebasePhaseHealth();
             ApplyPhase(5);
         }
         FinishMovementTracking();
@@ -913,7 +942,7 @@ public sealed class Rot : PathChaseBoss
             BossVisuals.RotatingCube3D(spriteBatch, cubeCenter, Size * .36f,
                 new Color(91, 61, 37), new Color(48, 76, 42),
                 Color.Lerp(new Color(73, 101, 48), PhaseAccent, .25f),
-                bodyYaw, bodyPitch, bodyRoll);
+                bodyYaw, bodyPitch, bodyRoll, escalation: SecondFormBlend);
 
             BossVisuals.OscillatingAura(spriteBatch, cubeCenter, Age, Size * .42f,
                 Color.Lerp(new Color(73, 101, 48), PhaseAccent, .3f), bands: 3, speed: .55f);

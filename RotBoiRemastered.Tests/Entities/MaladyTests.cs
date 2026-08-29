@@ -39,6 +39,18 @@ public class MaladyTests
         context.ProjectileSink.AddRange(children);
     }
 
+    /// <summary>
+    /// Runs off the opening act transition, which the constructor arms and
+    /// which blocks all damage while it plays.
+    /// </summary>
+    private static void ClearOpening(Malady boss, EnemyUpdateContext context)
+    {
+        boss.EntranceRemaining = 0;
+        for (int tick = 0; tick < 600 && boss.TakeDamage(0).Blocked; tick++)
+            Step(boss, context);
+        boss.DebugRebasePhaseHealth();
+    }
+
     private static void ReachDeclarations(Malady boss, EnemyUpdateContext context, int count)
     {
         for (int tick = 0; tick < 2400 && boss.PhaseDeclarations < count; tick++)
@@ -164,15 +176,15 @@ public class MaladyTests
         boss.DebugSetPhase(6);
 
         Assert.True(boss.SurvivalActive);
-        Assert.Equal(18.0, boss.SurvivalRemaining);
+        Assert.Equal(20.0, boss.SurvivalRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
     }
 
     [Theory]
-    [InlineData(1, .9, 2)]
-    [InlineData(5, .5, 6)]
-    [InlineData(9, .1, 10)]
-    public void DamageMovementsCannotSkipTheirSecondIdea(int phase, double floorRatio, int nextPhase)
+    [InlineData(1)]
+    [InlineData(5)]
+    [InlineData(9)]
+    public void EveryMovementSurrendersOnlyItsOwnBudgetThenRunsItsClock(int phase)
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -181,25 +193,28 @@ public class MaladyTests
         boss.DebugSetPhase(phase);
         boss.DebugPhaseLocked = false;
         var context = Context(boss, battleground);
+        ClearOpening(boss, context);
+        int before = boss.Hp;
 
-        ReachDeclarations(boss, context, 1);
         boss.TakeDamage(boss.MaxHp * 4.0);
 
-        Assert.Equal((int)Math.Round(boss.MaxHp * floorRatio), boss.Hp);
+        // A movement surrenders at most fifteen percent of maximum health,
+        // whatever arrives, so the gallery cannot be walked by burst damage.
+        Assert.Equal(
+            before - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.Equal(phase, boss.Phase);
         Assert.False(boss.FinaleActive);
 
-        ReachDeclarations(boss, context, Malady.MinimumDamagePhaseDeclarations);
+        boss.DebugCompletePhaseClock();
         Step(boss, context);
 
-        Assert.Equal(nextPhase, boss.Phase);
-        if (nextPhase == 6)
-            Assert.True(boss.SurvivalActive);
+        Assert.NotEqual(phase, boss.Phase);
         Assert.False(boss.FinaleActive);
     }
 
     [Fact]
-    public void ApotheosisRequiresTwoPhaseTenDeclarationsBeforeVitalitySeals()
+    public void ApotheosisOpensOnceTheLastMovementRunsTheHealthBarOut()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
@@ -207,22 +222,17 @@ public class MaladyTests
         boss.EntranceRemaining = 0;
         boss.DebugSetPhase(9);
         boss.DebugPhaseLocked = false;
-        var context = Context(boss, battleground);
-
-        ReachDeclarations(boss, context, 1);
-        boss.TakeDamage(boss.MaxHp * 4.0);
-        ReachDeclarations(boss, context, 2);
-        Step(boss, context);
-        Assert.Equal(10, boss.Phase);
+        ClearOpening(boss, Context(boss, battleground));
 
         boss.TakeDamage(boss.MaxHp * 4.0);
-        Assert.Equal(1, boss.Hp);
         Assert.False(boss.FinaleActive);
 
-        ReachDeclarations(boss, context, 2);
-        boss.TakeDamage(1);
+        boss.Hp = (int)Math.Round(boss.MaxHp * .1);
+        boss.DebugRebasePhaseHealth();
+        boss.TakeDamage(boss.MaxHp * 4.0);
+
         Assert.True(boss.FinaleActive);
-        Assert.Equal(30.0, boss.FinaleRemaining);
+        Assert.Equal(25.0, boss.FinaleRemaining);
     }
 
     [Fact]
@@ -239,9 +249,16 @@ public class MaladyTests
         for (int tick = 0; tick < 3200 && boss.SurvivalActive; tick++)
             boss.Update(context);
 
+        // The intermission now hands off to a randomly chosen movement rather
+        // than always to Luminous Tide, and never back to itself.
         Assert.False(boss.SurvivalActive);
-        Assert.Equal(7, boss.Phase);
-        Assert.Equal("LUMINOUS TIDE", boss.PhaseLabel);
+        Assert.NotEqual(6, boss.Phase);
+        Assert.False(boss.FinaleActive);
+        Assert.Equal((int)Math.Round(boss.MaxHp * .5), boss.Hp);
+
+        for (int tick = 0; tick < 600; tick++)
+            boss.Update(context);
+        Assert.False(boss.SurvivalActive);
     }
 
     [Fact]
@@ -267,7 +284,14 @@ public class MaladyTests
         var petals = context.ProjectileSink.Where(shot => shot.Owner == "malady_phantasia_overture_petals").ToList();
         Assert.NotEmpty(petals);
         Assert.All(petals, petal => Assert.Equal("sine", petal.Path));
-        Assert.True(petals.Count < 14); // at least the player-facing wedge was omitted
+        // The corolla is authored at fourteen slots and scaled by the shared
+        // difficulty curve; whatever it resolves to, the player-facing wedge
+        // is still omitted, so fewer petals fire than there are slots.
+        int slots = BossDifficultyScalars.Finale.Shots(14);
+        Assert.True(petals.Count < slots,
+            $"Expected fewer than {slots} petals, saw {petals.Count}.");
+        Assert.True(petals.Count > 14,
+            $"Expected the corolla to have grown past its authored fourteen, saw {petals.Count}.");
     }
 
     [Fact]
@@ -417,7 +441,7 @@ public class MaladyTests
     }
 
     [Fact]
-    public void Apotheosis_IsThirtySecondsThenTenSecondCollapse()
+    public void Apotheosis_IsTheStandardTwentyFiveSecondSurvivalThenTenSecondCollapse()
     {
         var battleground = MakeBattleground();
         var boss = new Malady(1000, 1000, battleground, new Random(5));
@@ -426,7 +450,7 @@ public class MaladyTests
         boss.DebugSetPhase(10);
 
         Assert.True(boss.FinaleActive);
-        Assert.Equal(30.0, boss.FinaleRemaining);
+        Assert.Equal(25.0, boss.FinaleRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
         for (int tick = 0; tick < 5000 && !boss.Collapsing; tick++)
@@ -448,10 +472,10 @@ public class MaladyTests
         var context = Context(boss, battleground);
 
         Assert.Equal(Malady.InitialApotheosisCrownPetals, boss.ApotheosisCrownPetalCount);
-        for (int tick = 0; tick < Simulation.FrameRate * 15; tick++)
+        for (int tick = 0; tick < Simulation.FrameRate * 12.5; tick++)
             boss.Update(context);
         Assert.InRange(boss.ApotheosisCrownPetalCount, 12, 13);
-        for (int tick = 0; tick < Simulation.FrameRate * 14.5; tick++)
+        for (int tick = 0; tick < Simulation.FrameRate * 12; tick++)
             boss.Update(context);
         Assert.Equal(Malady.FinaleBodyCubeCount, boss.ApotheosisCrownPetalCount);
     }

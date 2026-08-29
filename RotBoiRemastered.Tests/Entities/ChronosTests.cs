@@ -31,8 +31,10 @@ public class ChronosTests
         Assert.Equal(24, Chronos.FinaleMoteCount);
         Assert.True(Chronos.ChronosConfig.MovementSpeed < Ishe.IsheConfig.MovementSpeed);
         Assert.True(boss.MaxHp < new Malady(1000, 1000, MakeBattleground(), new Random(2)).MaxHp);
-        Assert.True(boss.FinaleDuration > new Ache(1000, 1000, MakeBattleground(), new Random(3)).FinaleDuration);
-        Assert.True(boss.FinaleDuration <= new Rot(1000, 1000, MakeBattleground(), new Random(4)).FinaleDuration);
+        // Every sense finale now closes on the same standardized survival.
+        Assert.Equal(25.0, boss.FinaleDuration);
+        Assert.Equal(boss.FinaleDuration, new Ache(1000, 1000, MakeBattleground(), new Random(3)).FinaleDuration);
+        Assert.Equal(boss.FinaleDuration, new Rot(1000, 1000, MakeBattleground(), new Random(4)).FinaleDuration);
         Assert.True(Chronos.ActiveRouteSoftCap < GameSession.MaxBossProjectiles);
     }
 
@@ -42,12 +44,8 @@ public class ChronosTests
         var battleground = MakeBattleground();
         var boss = new Chronos(1000, 1000, battleground, new Random(2));
         boss.EntranceRemaining = 0;
-        boss.DebugSetPhase(3);
-        boss.DebugPhaseLocked = false;
-        var context = Context(boss, battleground);
-        for (int tick = 0; tick < Simulation.FrameRate * 6 &&
-             boss.PhaseDeclarations < Chronos.MinimumDamagePhaseDeclarations; tick++)
-            boss.Update(context);
+        boss.Hp = (int)Math.Round(boss.MaxHp * .6);
+        boss.DebugRebasePhaseHealth();
 
         boss.TakeDamage(boss.MaxHp);
 
@@ -58,14 +56,18 @@ public class ChronosTests
     }
 
     [Fact]
-    public void HugeOpeningHitStopsAtFirstLessonInsteadOfSkippingToSurvival()
+    public void HugeOpeningHitStopsAtThisCommitmentsDamageBudget()
     {
         var boss = new Chronos(1000, 1000, MakeBattleground(), new Random(2));
         boss.EntranceRemaining = 0;
 
         boss.TakeDamage(boss.MaxHp);
 
-        Assert.Equal((int)Math.Round(boss.MaxHp * .84), boss.Hp);
+        // One commitment surrenders at most fifteen percent of maximum
+        // health, so the still second cannot be reached by burst damage.
+        Assert.Equal(
+            boss.MaxHp - (int)Math.Round(boss.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            boss.Hp);
         Assert.Equal(1, boss.Phase);
         Assert.False(boss.MidpointSurvivalActive);
     }
@@ -206,6 +208,40 @@ public class ChronosTests
         });
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void EveryCommitmentContestsTheGroundBehindItself(int phase)
+    {
+        var battleground = MakeBattleground();
+        var boss = new Chronos(1000, 1000, battleground, new Random(63 + phase));
+        var context = Context(boss, battleground);
+        boss.EntranceRemaining = 0;
+        boss.DebugSetPhase(phase);
+
+        // Reading a forked route means walking away from it, so a movement
+        // that only sent routes forward was a footrace. Abandoned hours land
+        // on the retreat, making the answer a weave rather than a sprint.
+        for (int tick = 0; tick < Simulation.FrameRate * 12 && !context.ProjectileSink.Any(
+                 shot => shot.Owner?.Contains("abandoned_hour") == true); tick++)
+            boss.Update(context);
+
+        var hazards = context.ProjectileSink
+            .Where(shot => shot.Owner?.Contains("abandoned_hour") == true).ToList();
+        Assert.NotEmpty(hazards);
+        Assert.All(hazards, hazard =>
+        {
+            Assert.Equal("pool", hazard.Path);
+            Assert.True(hazard.TelegraphDuration >= 1.0f);
+            Assert.StartsWith("chronos_sight_", hazard.Owner);
+            Assert.True(Vector2.Distance(
+                new Vector2(hazard.WorldX + hazard.Size / 2f, hazard.WorldY + hazard.Size / 2f),
+                boss.ArenaCenter) <= boss.ArenaRadius);
+        });
+    }
+
     [Fact]
     public void WearyingLashDeclaresRearRevisionOnAReadableSecondBeat()
     {
@@ -231,7 +267,7 @@ public class ChronosTests
     }
 
     [Fact]
-    public void KingsAttritionIsThirtyFiveSecondsThenTenSecondCollapse()
+    public void KingsAttritionIsTheStandardTwentyFiveSecondSurvivalThenTenSecondCollapse()
     {
         var battleground = MakeBattleground();
         var boss = new Chronos(1000, 1000, battleground, new Random(5));
@@ -240,7 +276,7 @@ public class ChronosTests
         boss.DebugSetPhase(7);
 
         Assert.True(boss.FinaleActive);
-        Assert.Equal(35.0, boss.FinaleRemaining);
+        Assert.Equal(25.0, boss.FinaleRemaining);
         Assert.True(boss.TakeDamage(1000).Blocked);
 
         for (int tick = 0; tick < 5000 && !boss.Dying; tick++)
@@ -275,23 +311,23 @@ public class ChronosTests
     }
 
     [Fact]
-    public void ThornDamagePhaseMustDeclareTwiceBeforeKingsAttrition()
+    public void KingsAttritionOpensOnceTheLastCommitmentRunsTheHealthBarOut()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var boss = new Chronos(1000, 1000, battleground, new Random(56));
-        var context = Context(boss, battleground);
         boss.EntranceRemaining = 0;
         boss.DebugSetPhase(6);
+        boss.DebugPhaseLocked = false;
 
+        // A commitment still surrenders only its own budget, so reaching the
+        // attrition takes several of them rather than one large hit.
         boss.TakeDamage(boss.MaxHp);
-
-        Assert.Equal(1, boss.Hp);
         Assert.False(boss.FinaleActive);
-        for (int tick = 0; tick < Simulation.FrameRate * 6 &&
-             boss.PhaseDeclarations < Chronos.MinimumDamagePhaseDeclarations; tick++)
-            boss.Update(context);
-        boss.TakeDamage(10);
+
+        boss.Hp = (int)Math.Round(boss.MaxHp * .1);
+        boss.DebugRebasePhaseHealth();
+        boss.TakeDamage(boss.MaxHp);
 
         Assert.True(boss.FinaleActive);
         Assert.Equal(7, boss.Phase);

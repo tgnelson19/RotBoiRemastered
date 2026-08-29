@@ -1,4 +1,5 @@
 using RotBoiRemastered.Entities;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -29,35 +30,44 @@ public class SinChemesthesisBossTests
     }
 
     [Fact]
-    public void UpdatePhase_UsesDeclaredGatesAndTheMidpointSurvival()
+    public void UpdatePhase_RotatesOnTheClockThenOpensTheClosingSurvival()
     {
         var battleground = MakeBattleground();
         var kage = new Kage(1000, 1000, battleground, new Random(1));
         var context = MakeContext(1000, 1000, battleground);
         kage.EntranceRemaining = 0;
+        int opening = kage.Phase;
 
+        // Health alone no longer moves the encounter along.
         kage.Hp = (int)(kage.MaxHp * .75);
+        kage.DebugRebasePhaseHealth();
         kage.Update(context);
-        Assert.Equal(1, kage.Phase);
+        Assert.Equal(opening, kage.Phase);
 
-        for (int tick = 0; tick < 1200 && kage.KagePhaseDeclarations < 2; tick++)
-            kage.Update(context);
+        kage.DebugCompletePhaseClock();
         kage.Update(context);
-        Assert.Equal(2, kage.Phase);
+        Assert.NotEqual(opening, kage.Phase);
+        Assert.False(kage.StagnantMirrorActive);
 
-        kage.Hp = kage.MaxHp / 2;
-        for (int tick = 0; tick < 1200 && kage.KagePhaseDeclarations < 2; tick++)
+        // The rotation opens a transition beat; let it land before the bar
+        // is run out, since UpdatePhase is deliberately skipped during one.
+        for (int tick = 0; tick < 900 && kage.PhaseInterludeActive; tick++)
             kage.Update(context);
+
+        // Running the bar out is what opens the closing survival.
+        kage.Hp = 1;
+        kage.DebugRebasePhaseHealth();
         kage.Update(context);
         Assert.Equal(3, kage.Phase);
         Assert.True(kage.StagnantMirrorActive);
 
         for (int tick = 0;
-             tick < 14 * RotBoiRemastered.Core.Simulation.FrameRate + 5;
+             tick < (Kage.StagnantMirrorDuration + BossPhaseInterlude.DefaultDuration)
+                 * RotBoiRemastered.Core.Simulation.FrameRate + 5;
              tick++)
             kage.Update(context);
-        Assert.Equal(4, kage.Phase);
         Assert.True(kage.StagnantMirrorCleared);
+        Assert.True(kage.Dying);
     }
 
     [Fact]

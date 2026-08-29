@@ -580,35 +580,104 @@ internal static class SoulVisualRenderer
             new Vector2(at.X, plinth.Bottom + 7), "midtop");
     }
 
+    /// <summary>
+    /// Turns a flat polygon -- exactly the kind already authored for each
+    /// totem's old flat silhouette -- into a simple extruded "block" by
+    /// filling one shaded quad per edge along <paramref name="extrude"/>
+    /// (the totem's implied depth axis) for the sides, then redrawing the
+    /// original polygon on top as the lit face. No mesh/3D pipeline
+    /// involved, just per-face directional shading -- a cheap, general way
+    /// to give every totem real volume as a first pass to workshop further.
+    /// </summary>
+    private static void DrawExtrudedPolygon(SpriteBatch spriteBatch, IReadOnlyList<Vector2> topFace,
+        Vector2 extrude, Color color, float wake)
+    {
+        int count = topFace.Count;
+        for (int index = 0; index < count; index++)
+        {
+            Vector2 a = topFace[index];
+            Vector2 b = topFace[(index + 1) % count];
+            // Crude "light from upper-left" split: edges running rightward
+            // catch more light than edges running leftward. Not physically
+            // accurate, but it's enough per-face contrast to read as a solid
+            // block instead of a flat cutout.
+            float shade = b.X >= a.X ? .32f : .5f;
+            Primitives2D.FillQuad(spriteBatch, a, b, b + extrude, a + extrude,
+                Color.Lerp(color, Color.Black, shade) * wake);
+        }
+        Primitives2D.FillPolygon(spriteBatch, topFace, Color.Lerp(color, Color.White, .1f) * wake);
+        Primitives2D.PolygonOutline(spriteBatch, topFace, Color.Lerp(color, Color.White, .3f) * wake, 2);
+    }
+
+    /// <summary>
+    /// A disc tilted away from the viewer with real rim thickness -- top
+    /// ellipse (lit), a crude front-facing band standing in for the curved
+    /// side wall, and a darker bottom ellipse peeking out beneath it. Used
+    /// for the Mind Rose's wheel; the same "flat circle -> tilted drum"
+    /// trick generalizes to any totem that used to be a bare CircleOutline.
+    /// </summary>
+    private static void DrawTiltedDisc(SpriteBatch spriteBatch, Vector2 center, float radiusX, float radiusY,
+        float thickness, Color color, float wake)
+    {
+        var top = new Rectangle((int)(center.X - radiusX), (int)(center.Y - radiusY),
+            (int)(radiusX * 2), (int)(radiusY * 2));
+        var bottom = new Rectangle(top.X, top.Y + (int)thickness, top.Width, top.Height);
+        Primitives2D.FillEllipse(spriteBatch, bottom, Color.Lerp(color, Color.Black, .55f) * wake);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(top.X, top.Y + (int)radiusY, top.Width, (int)thickness),
+            Color.Lerp(color, Color.Black, .4f) * wake);
+        Primitives2D.FillEllipse(spriteBatch, top, Color.Lerp(color, Color.White, .08f) * wake);
+        Primitives2D.EllipseOutline(spriteBatch, top, Color.Lerp(color, Color.White, .32f) * wake, 3);
+    }
+
     private static void DrawReliquary(SpriteBatch spriteBatch, Vector2 at, Color color, float time, float wake)
     {
-        var chest = new Rectangle((int)at.X - 29, (int)at.Y - 14, 58, 36);
-        Primitives2D.FillRect(spriteBatch, chest, new Color(52, 42, 48));
-        Primitives2D.RectOutline(spriteBatch, chest, color * wake, 4);
-        Primitives2D.Line(spriteBatch, new Vector2(chest.X, chest.Y + 11),
-            new Vector2(chest.Right, chest.Y + 11), color * .7f, 3);
-        Primitives2D.FillRect(spriteBatch, new Rectangle((int)at.X - 5, (int)at.Y - 2, 10, 13), color);
+        // Chest body, extruded straight down for a real box...
+        Vector2[] body =
+        {
+            at + new Vector2(-29, -3), at + new Vector2(29, -3),
+            at + new Vector2(29, 22), at + new Vector2(-29, 22),
+        };
+        DrawExtrudedPolygon(spriteBatch, body, new Vector2(0, 9), new Color(58, 46, 52), wake);
+        // ...topped with a narrower lid wedge, extruded shallower, so the
+        // silhouette still reads as a hinged chest rather than a plain box.
+        Vector2[] lid =
+        {
+            at + new Vector2(-29, -14), at + new Vector2(29, -14),
+            at + new Vector2(25, -3), at + new Vector2(-25, -3),
+        };
+        DrawExtrudedPolygon(spriteBatch, lid, new Vector2(0, 5), color, wake * .92f);
+
+        var keyhole = new Rectangle((int)at.X - 5, (int)at.Y - 1, 10, 13);
+        Primitives2D.FillRect(spriteBatch, keyhole, Color.Lerp(color, Color.Black, .2f) * wake);
+        Primitives2D.RectOutline(spriteBatch, keyhole, Color.Lerp(color, Color.White, .3f) * wake, 2);
         for (int key = 0; key < 3; key++)
         {
             float angle = MathF.Floor(time * 6f) * .12f + key * MathF.Tau / 3f;
             Vector2 mote = at + Direction(angle) * 39;
-            Primitives2D.FillRect(spriteBatch,
-                new Rectangle((int)mote.X - 3, (int)mote.Y - 3, 6, 6), color * .7f);
+            Primitives2D.FillCircle(spriteBatch, mote, 3.5f, color * .7f);
+            Primitives2D.FillCircle(spriteBatch, mote - new Vector2(1, 1), 1.2f, Color.White * .5f);
         }
     }
 
     private static void DrawLectern(SpriteBatch spriteBatch, Vector2 at, Color color, float time, float wake)
     {
-        Primitives2D.FillPolygon(spriteBatch, new[]
+        // Each page gets a shallow extrusion of its own -- opposite
+        // directions, so the book keeps its open-V silhouette while both
+        // halves read as having real paper thickness rather than two flat
+        // cutouts glued together.
+        Vector2[] leftPage =
         {
             at + new Vector2(-31, -24), at + new Vector2(-2, -14), at + new Vector2(0, 13),
             at + new Vector2(-33, 2),
-        }, new Color(44, 48, 43));
-        Primitives2D.FillPolygon(spriteBatch, new[]
+        };
+        Vector2[] rightPage =
         {
             at + new Vector2(31, -24), at + new Vector2(2, -14), at + new Vector2(0, 13),
             at + new Vector2(33, 2),
-        }, new Color(44, 48, 43));
+        };
+        DrawExtrudedPolygon(spriteBatch, leftPage, new Vector2(-4, 5), new Color(44, 48, 43), wake);
+        DrawExtrudedPolygon(spriteBatch, rightPage, new Vector2(4, 5), new Color(44, 48, 43), wake);
         Primitives2D.Polyline(spriteBatch, new[]
         {
             at + new Vector2(-31, -24), at + new Vector2(-2, -14), at,
@@ -617,31 +686,60 @@ internal static class SoulVisualRenderer
         float page = MathF.Floor(time * 2f) % 4;
         Primitives2D.Line(spriteBatch, at + new Vector2(-22 + page * 3, -16),
             at + new Vector2(-4, -9), ChapelWarm * .72f, 2);
+
+        // A short extruded plinth stand carries the book up off the base
+        // plinth instead of it floating flush against the stone.
+        Vector2[] stand =
+        {
+            at + new Vector2(-10, 13), at + new Vector2(10, 13),
+            at + new Vector2(6, 24), at + new Vector2(-6, 24),
+        };
+        DrawExtrudedPolygon(spriteBatch, stand, new Vector2(0, 6), new Color(38, 33, 40), wake * .8f);
+
         DrawCandle(spriteBatch, at + new Vector2(-42, 9), time, 3);
         DrawCandle(spriteBatch, at + new Vector2(42, 9), time, 4);
     }
 
     private static void DrawRoseWindow(SpriteBatch spriteBatch, Vector2 at, Color color, float time, float wake)
     {
-        Vector2 center = at - new Vector2(0, 13);
-        Primitives2D.CircleOutline(spriteBatch, center, 31, color * wake, 4);
+        Vector2 center = at - new Vector2(0, 17);
+        // Squashed vertically and given rim thickness -- the window now
+        // reads as a wheel tilted back into the wall rather than a flat
+        // circle painted on it.
+        DrawTiltedDisc(spriteBatch, center, 31, 20, 9, color, wake);
         float phase = MathF.Floor(time * 4f) * MathF.PI / 12f;
         for (int spoke = 0; spoke < 8; spoke++)
         {
-            Vector2 outer = center + Direction(phase + spoke * MathF.Tau / 8f) * 29;
+            float angle = phase + spoke * MathF.Tau / 8f;
+            // Project each spoke through the same vertical squash as the
+            // rim so they read as lying flat against the tilted wheel face
+            // instead of floating in an untilted circle over it.
+            Vector2 outer = center + new Vector2(Direction(angle).X * 29, Direction(angle).Y * 18);
             Primitives2D.Line(spriteBatch, center, outer, color * .62f, 2);
-            Primitives2D.FillRect(spriteBatch,
-                new Rectangle((int)outer.X - 3, (int)outer.Y - 3, 6, 6),
-                Color.Lerp(color, Color.White, .42f));
+            Primitives2D.FillCircle(spriteBatch, outer, 3.5f, Color.Lerp(color, Color.White, .42f));
+            Primitives2D.FillCircle(spriteBatch, outer - new Vector2(.8f, .8f), 1.2f, Color.White * .55f);
         }
-        Primitives2D.FillCircle(spriteBatch, center, 7, ChapelWarm * .76f);
+        Primitives2D.FillCircle(spriteBatch, center - new Vector2(0, 2), 7, ChapelWarm * .8f);
+        Primitives2D.FillCircle(spriteBatch, center - new Vector2(1.5f, 4f), 2.5f, Color.White * .4f);
     }
 
     private static void DrawVestmentMirror(SpriteBatch spriteBatch, Vector2 at, Color color, float time, float wake)
     {
         var mirror = new Rectangle((int)at.X - 28, (int)at.Y - 47, 56, 68);
+        var frameDepth = mirror;
+        frameDepth.Offset(5, 7);
+        Primitives2D.FillRoundedRect(spriteBatch, frameDepth,
+            Color.Lerp(new Color(28, 37, 54), Color.Black, .45f) * wake, UiTheme.LargeCornerRadiusPx);
         Primitives2D.FillRoundedRect(spriteBatch, mirror, new Color(28, 37, 54), UiTheme.LargeCornerRadiusPx);
         Primitives2D.RoundedRectOutline(spriteBatch, mirror, color * wake, 4, UiTheme.LargeCornerRadiusPx);
+        // A soft diagonal gloss streak sells "glass" over a flat panel.
+        var glossInner = mirror;
+        glossInner.Inflate(-6, -6);
+        Primitives2D.FillQuad(spriteBatch,
+            new Vector2(glossInner.X, glossInner.Bottom), new Vector2(glossInner.X + glossInner.Width * .35f, glossInner.Top),
+            new Vector2(glossInner.X + glossInner.Width * .55f, glossInner.Top), new Vector2(glossInner.X + glossInner.Width * .2f, glossInner.Bottom),
+            Color.White * .07f);
+
         float phase = MathF.Floor(time * 4f) * MathF.PI / 4f;
         Vector2 projectile = at + new Vector2(MathF.Cos(phase) * 9, -14 + MathF.Sin(phase) * 4);
         Primitives2D.FillPolygon(spriteBatch, new[]
@@ -654,24 +752,43 @@ internal static class SoulVisualRenderer
             projectile + new Vector2(16, 0), projectile + new Vector2(-4, -8),
             projectile + new Vector2(-13, 0), projectile + new Vector2(-4, 8),
         }, Cosmetics.SelectedProjectile.Edge, 2);
+
+        // A short extruded base plants the standing mirror on the plinth.
+        Vector2[] stand =
+        {
+            at + new Vector2(-14, 21), at + new Vector2(14, 21),
+            at + new Vector2(10, 29), at + new Vector2(-10, 29),
+        };
+        DrawExtrudedPolygon(spriteBatch, stand, new Vector2(0, 5), new Color(24, 30, 44), wake * .85f);
     }
 
     private static void DrawTrialBrazier(SpriteBatch spriteBatch, Vector2 at, Color color,
         float time, float wake, bool enabled)
     {
-        var bowl = new Rectangle((int)at.X - 29, (int)at.Y - 1, 58, 18);
-        Primitives2D.FillPolygon(spriteBatch, new[]
+        // Extruded urn body -- was a single flat trapezoid, now a real
+        // pedestal with a lit top rim and shaded sides.
+        Vector2[] bowl =
         {
-            new Vector2(bowl.Left, bowl.Top), new Vector2(bowl.Right, bowl.Top),
-            new Vector2(at.X + 19, bowl.Bottom), new Vector2(at.X - 19, bowl.Bottom),
-        }, new Color(51, 36, 40));
-        Primitives2D.PolygonOutline(spriteBatch, new[]
-        {
-            new Vector2(bowl.Left, bowl.Top), new Vector2(bowl.Right, bowl.Top),
-            new Vector2(at.X + 19, bowl.Bottom), new Vector2(at.X - 19, bowl.Bottom),
-        }, color * wake, 3);
+            new Vector2(at.X - 29, at.Y - 1), new Vector2(at.X + 29, at.Y - 1),
+            new Vector2(at.X + 19, at.Y + 17), new Vector2(at.X - 19, at.Y + 17),
+        };
+        DrawExtrudedPolygon(spriteBatch, bowl, new Vector2(0, 8), new Color(51, 36, 40), wake);
+        // An elliptical rim opening (rather than the old dead-straight top
+        // edge) so the urn reads as being looked slightly down into.
+        var rim = new Rectangle((int)at.X - 29, (int)at.Y - 8, 58, 14);
+        Primitives2D.FillEllipse(spriteBatch, rim, Color.Lerp(new Color(30, 20, 22), Color.Black, .35f) * wake);
+        Primitives2D.EllipseOutline(spriteBatch, rim, color * wake, 3);
+
         int flameHeight = 24 + (int)MathF.Round(MathF.Sin(time * (enabled ? 5f : 2f)) * 5);
         Color flame = enabled ? UiTheme.Red : UiTheme.Muted;
+        // A wider, dimmer outer glow layer behind the core flame gives the
+        // fire itself a little depth instead of one flat silhouette.
+        Primitives2D.FillPolygon(spriteBatch, new[]
+        {
+            at + new Vector2(-21, 0), at + new Vector2(-9, -flameHeight - 4),
+            at + new Vector2(0, -flameHeight + 5), at + new Vector2(11, -flameHeight - 12),
+            at + new Vector2(22, 0),
+        }, flame * (enabled ? .35f : .18f));
         Primitives2D.FillPolygon(spriteBatch, new[]
         {
             at + new Vector2(-17, -2), at + new Vector2(-7, -flameHeight),

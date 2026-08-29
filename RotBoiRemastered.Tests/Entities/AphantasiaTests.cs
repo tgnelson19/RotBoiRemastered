@@ -59,12 +59,17 @@ public sealed class AphantasiaTests
     private static HitResult DealDamageBelowTheCap(
         Aphantasia boss, string partId = "body")
     {
+        // A movement will not hand over before it has been on screen for its
+        // minimum hold, so satisfy that first -- these tests are about the
+        // health gates themselves, not about the hold.
+        boss.DebugCompleteGateHold();
         double increment = boss.MaxHp * .1;
         HitResult result = new(false, false, 0, true);
         for (int attempt = 0; attempt < 20
             && boss.EncounterState == AphantasiaEncounterState.Combat; attempt++)
         {
             result = boss.TakeDamage(increment, partId);
+            boss.DebugCompleteGateHold();
         }
         return result;
     }

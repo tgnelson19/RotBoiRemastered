@@ -137,8 +137,19 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             }),
         };
 
-    private static readonly IReadOnlySet<int> SurvivalPhaseSet = new HashSet<int> { 3, 6, 9 };
-    private static readonly IReadOnlySet<int> DamagePhaseSet = new HashSet<int> { 1, 2, 4, 5, 7, 8 };
+    // Standardized to the shared two-survival shape: half health opens one
+    // endurance rune, zero opens the last. Kenaz (3) used to be a third
+    // survival and now joins the damage rotation, whose runes are drawn from
+    // across the whole encounter rather than penned into their own act.
+    private static readonly IReadOnlySet<int> SurvivalPhaseSet = new HashSet<int> { 6, 9 };
+    private static readonly IReadOnlySet<int> DamagePhaseSet = new HashSet<int> { 1, 2, 3, 4, 5, 7, 8 };
+    private static readonly int[] DamagePhasePool = { 1, 2, 3, 4, 5, 7, 8 };
+
+    /// <summary>Half-health endurance rune.</summary>
+    private const int MidpointSurvivalPhase = 6;
+
+    /// <summary>Closing endurance rune.</summary>
+    private const int FinalSurvivalPhase = 9;
 
     public static readonly IReadOnlyDictionary<int, BossMovementPhaseProfile> PhaseMovement =
         new Dictionary<int, BossMovementPhaseProfile>
@@ -231,17 +242,63 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
 
     public int Phase { get; private set; } = 1;
     private readonly List<int> _damagePhaseHistory = new() { 1 };
-    public int NextSurvivalPhase { get; set; } = 3;
+    public int NextSurvivalPhase { get; set; } = MidpointSurvivalPhase;
     public Color PhaseAccent { get; private set; } = UiTheme.Purple;
     public string PhaseLabel { get; private set; } = "ANCESTRAL HEARTH";
     public string PhaseFlavor { get; private set; } = "Othala recalls the first gathering: a sound with purpose.";
     public double PhaseAnnouncementTimer { get; set; } = 3.2;
     public double PhaseProtectionTimer { get; set; }
     public double PhaseElapsed { get; set; }
-    public double PhaseTimeLimit { get; } = 36.0;
     public bool PhaseForcedByTimer { get; private set; }
     public int PhaseDeclarations { get; private set; }
     private double _declarationCooldown;
+
+    /// <summary>
+    /// Dissonance derives straight from Enemy rather than PathChaseBoss, so
+    /// it composes the shared phase choreography rather than inheriting it.
+    /// </summary>
+    private readonly BossPhaseGovernor _governor =
+        new() { HoldStyle = BossPhaseHoldStyle.FullTimer };
+    private readonly BossPhaseRotation _rotation = new();
+
+    /// <summary>
+    /// Authored clocks per rune, weighted by how much there is to answer.
+    /// Every damage rune now runs its full length -- no amount of damage
+    /// shortens a phrase.
+    /// </summary>
+    public static double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 18.0,
+        2 => 20.0,
+        3 => 21.0,
+        4 => 22.0,
+        5 => 21.0,
+        7 => 23.0,
+        8 => 25.0,
+        _ => 20.0,
+    };
+
+    /// <summary>
+    /// Past the halfway mark Dissonance commits to a second form: deeper
+    /// colour and an extra layer of facet geometry on its core solid.
+    /// </summary>
+    public bool SecondFormActive => !Dying && Hp <= MaxHp * .5;
+    public float SecondFormBlend => SecondFormActive
+        ? (float)Math.Clamp((MaxHp * .5 - Hp) / Math.Max(1.0, MaxHp * .28), 0.0, 1.0)
+        : 0f;
+
+    /// <summary>The shared sense-finale difficulty curve.</summary>
+    private static BossDifficultyScalars Difficulty => BossDifficultyScalars.Finale;
+
+    public double PhaseTimeLimit => _governor.TimeLimit;
+    public double PhaseClockElapsed => _governor.Elapsed;
+    public bool PhaseDamageThresholdReached => _governor.ThresholdReached;
+
+    /// <summary>Debug and test hook: fast-forwards the current rune's clock.</summary>
+    public void DebugCompletePhaseClock() => _governor.Tick(_governor.TimeLimit + 1.0);
+
+    /// <summary>Debug and test hook: re-baselines the rune's damage budget.</summary>
+    public void DebugRebasePhaseHealth() => _governor.RebaseHealth(Hp, MaxHp);
 
     public double Stagger { get; set; }
     public double MaxStagger { get; } = 360.0;
@@ -313,7 +370,11 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     public double DeathBurstDuration { get; } = 10.0;
     public bool DebugPhaseLocked { get; set; }
 
-    public double SurvivalDuration { get; } = 40.0;
+    /// <summary>The standardized closing survival length shared by every sense finale.</summary>
+    public double SurvivalDuration { get; } = 25.0;
+
+    /// <summary>The standardized half-health survival length shared by every sense finale.</summary>
+    public double MidpointSurvivalDuration { get; } = 20.0;
     public double SurvivalRemaining { get; set; }
     public bool SurvivalActive { get; private set; }
     public double SurvivalCooldown { get; set; } = .2;
@@ -355,6 +416,10 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             portal.ResetForPhase(PhaseRunes[Phase].Strokes);
             portal.HitsToDisable = 15;
         }
+        // The opening rune is never routed through SetPhase, so seed its clock
+        // and damage budget here -- an unseeded governor reports a zero time
+        // limit and would never rotate.
+        _governor.BeginPhase(PhaseTimeLimitFor(Phase), Hp, MaxHp);
     }
 
     private static double Seconds() => Simulation.GetTimerStep() / Math.Max(1, Simulation.FrameRate);
@@ -477,6 +542,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         if (IsStaggered)
         {
             double multiplier = 1.35 + Fracture * .02;
+            int staggerHealthBefore = Hp;
             int applied = (int)Math.Round(amount * multiplier);
             Hp -= applied;
             if (source == DamageSource.Direct)
@@ -485,8 +551,12 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             var center = Center();
             BurstParticles(center.X, center.Y, UiTheme.Cream, 4, 1.0f);
             EnforceDamageFloor();
+            // Health actually removed, not damage requested: the floor clamp
+            // routinely discards most of a large hit.
+            _governor.RecordDamage(staggerHealthBefore - Hp);
             return new HitResult(true, false, applied);
         }
+        int healthBefore = Hp;
         int normalApplied = (int)Math.Round(amount * .45);
         Hp -= normalApplied;
         HitFlash = .08;
@@ -513,6 +583,9 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         if (source == DamageSource.Direct && Stagger >= MaxStagger)
             TriggerStagger();
         EnforceDamageFloor();
+        // Health actually removed, not damage requested: the floor clamp
+        // routinely discards most of a large hit.
+        _governor.RecordDamage(healthBefore - Hp);
         return new HitResult(true, false, normalApplied);
     }
 
@@ -523,17 +596,17 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             Hp = Math.Max(0, Hp);
             return;
         }
-        int floor = NextSurvivalPhase switch
+        // A rune surrenders at most its own damage budget, bounded by the next
+        // authored gate -- half health before the midpoint rune, one after.
+        // Reaching the floor no longer advances anything: the phase clock owns
+        // that, so a burst build still has to answer the phrase.
+        int gate = NextSurvivalPhase switch
         {
-            3 => (int)Math.Round(MaxHp * (2.0 / 3)),
-            6 => (int)Math.Round(MaxHp * (1.0 / 3)),
-            9 => 1,
+            MidpointSurvivalPhase => (int)Math.Round(MaxHp * .5),
+            FinalSurvivalPhase => 1,
             _ => 0,
         };
-        if (Hp <= floor && PhaseDeclarations < MinimumDamagePhaseDeclarations)
-            Hp = floor;
-        else
-            Hp = Math.Max(0, Hp);
+        Hp = Math.Max(_governor.DamageFloor(gate), Math.Max(0, Hp));
     }
 
     public override bool IsDead() => Dying && Hp <= 0;
@@ -636,13 +709,23 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         PhaseAnnouncementTimer = 5.0;
         PhaseProtectionTimer = CinematicTransitionsEnabled ? 5.0 : 0.0;
         SurvivalActive = SurvivalPhaseSet.Contains(phase);
-        SurvivalRemaining = SurvivalActive ? (phase == 9 ? SurvivalDuration : 20.0) : 0.0;
+        // Standardized: the half-health rune endures twenty seconds, the
+        // closing rune twenty-five.
+        SurvivalRemaining = SurvivalActive
+            ? (phase == FinalSurvivalPhase ? SurvivalDuration : MidpointSurvivalDuration)
+            : 0.0;
         SurvivalCooldown = .2;
         _bossBurstQueue.Clear();
+        _governor.BeginPhase(PhaseTimeLimitFor(phase), Hp, MaxHp);
         if (CinematicTransitionsEnabled)
         {
             TransitionRemaining = TransitionDuration;
             TransitionCleanupRequested = true;
+            // The cinematic doubles as the shared phase interlude: sweep the
+            // outgoing rune's shots off the arena and grant the player grace
+            // for the beat, since accelerating shots are close to undodgeable.
+            TransitionSweepRequested = true;
+            PhaseInterludeInvulnerabilitySeconds = TransitionDuration;
             ClearField();
             ClearPortals();
             _transitionStart = (WorldX, WorldY);
@@ -739,38 +822,21 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     }
 
     /// <summary>Cycle attacks within the current act until its HP gate is reached.</summary>
-    private int ChooseDamagePhase()
-    {
-        IReadOnlyList<int> actPhases = NextSurvivalPhase switch
-        {
-            3 => new[] { 1, 2 },
-            6 => new[] { 4, 5 },
-            9 => new[] { 7, 8 },
-            _ => DamagePhaseSet.ToList(),
-        };
-        var recent = _damagePhaseHistory.Count > 3
-            ? _damagePhaseHistory.Skip(_damagePhaseHistory.Count - 3)
-            : _damagePhaseHistory;
-        var recentSet = recent.ToHashSet();
-        var choices = actPhases.Where(phase => !recentSet.Contains(phase)).ToList();
-        if (choices.Count == 0)
-            choices = actPhases.Where(phase => phase != Phase).ToList();
-        if (choices.Count == 0)
-            choices = actPhases.ToList();
-        return choices[_rng.Next(choices.Count)];
-    }
+    /// <summary>
+    /// Draws the next rune from the whole damage arsenal, refusing anything
+    /// in recent memory. Delegates to the shared rotation so every boss uses
+    /// one no-repeat rule.
+    /// </summary>
+    private int ChooseDamagePhase() =>
+        _rotation.Choose(DamagePhasePool, Phase, _rng);
 
     /// <summary>Return the next ordered survival rune once its HP gate is reached.</summary>
     private int? HealthUnlockedSurvival()
     {
-        if (PhaseDeclarations < MinimumDamagePhaseDeclarations)
-            return null;
-        if (NextSurvivalPhase == 3 && Hp <= MaxHp * (2.0 / 3))
-            return 3;
-        if (NextSurvivalPhase == 6 && Hp <= MaxHp * (1.0 / 3))
-            return 6;
-        if (NextSurvivalPhase == 9 && Hp <= 1)
-            return 9;
+        if (NextSurvivalPhase == MidpointSurvivalPhase && Hp <= MaxHp * .5)
+            return MidpointSurvivalPhase;
+        if (NextSurvivalPhase == FinalSurvivalPhase && Hp <= 1)
+            return FinalSurvivalPhase;
         return null;
     }
 
@@ -1175,28 +1241,35 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             FireSurvivalBarrier(sink);
             SpecialAttackCooldown = 5.8;
         }
+        // Every mode now stacks two families under whatever rune is playing,
+        // so no phrase is ever a single attack type for its whole clock, and
+        // the cadence between callbacks is tightened by the shared curve.
         else if (mode == 1)
         {
             FireLaser(sink, playerX, playerY);
             LobBomb(sink, playerX, playerY);
-            SpecialAttackCooldown = 5.8;
+            FireRicochet(sink, playerX, playerY);
+            SpecialAttackCooldown = Difficulty.Delay(5.8);
         }
         else if (mode == 2)
         {
             FireLaser(sink, playerX, playerY);
             FireSpeedBurst(sink, playerX, playerY);
-            SpecialAttackCooldown = 5.2;
+            LobBomb(sink, playerX, playerY);
+            SpecialAttackCooldown = Difficulty.Delay(5.2);
         }
         else if (mode == 3)
         {
             FireLaser(sink, playerX, playerY);
             FireRicochet(sink, playerX, playerY);
-            SpecialAttackCooldown = 5.4;
+            FireSpeedBurst(sink, playerX, playerY);
+            SpecialAttackCooldown = Difficulty.Delay(5.4);
         }
         else
         {
             FireLaser(sink, playerX, playerY);
-            SpecialAttackCooldown = 4.8;
+            LobBomb(sink, playerX, playerY);
+            SpecialAttackCooldown = Difficulty.Delay(4.8);
         }
         CallbackIndex += 1;
     }
@@ -1760,6 +1833,10 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         foreach (var portal in ProjectilePortals)
             portal.ShowTether = true;
         PhaseElapsed += dt;
+        _governor.Suspended = DebugPhaseLocked || Dying || SurvivalActive
+            || IsStaggered || TransitionRemaining > 0 || EntranceRemaining > 0;
+        if (!_governor.Suspended)
+            _governor.Tick(dt);
         _stagedThreatScratch.Clear();
         var stagedThreats = _stagedThreatScratch;
         UpdateBossBursts(stagedThreats, dt);
@@ -1772,8 +1849,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
                 SetPhase(survivalPhase.Value);
                 stagedThreats.Clear();
             }
-            else if (PhaseElapsed >= PhaseTimeLimit && DamagePhaseSet.Contains(Phase) &&
-                PhaseDeclarations >= MinimumDamagePhaseDeclarations)
+            else if (_governor.ReadyToAdvance && DamagePhaseSet.Contains(Phase))
             {
                 SetPhase(ChooseDamagePhase());
                 PhaseForcedByTimer = true;
@@ -1792,9 +1868,10 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             if (SurvivalRemaining <= 0)
             {
                 SurvivalActive = false;
-                if (Phase < 9)
+                if (Phase < FinalSurvivalPhase)
                 {
-                    NextSurvivalPhase = Phase == 3 ? 6 : 9;
+                    NextSurvivalPhase = FinalSurvivalPhase;
+                    _governor.RebaseHealth(Hp, MaxHp);
                     SetPhase(ChooseDamagePhase());
                     FinishMovementTracking();
                     return;
@@ -2502,7 +2579,8 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             var (yaw, pitch) = CoreCubeOrientation(Age, Phase);
             BossVisuals.RotatingSolid3D(spriteBatch, rectCenter, Size * .43f,
                 CoreVertices, CubeFaceIndices, CoreFaceColor,
-                (float)yaw, (float)pitch, edgeAccent: PhaseAccent, cameraZ: 3.8f);
+                (float)yaw, (float)pitch, edgeAccent: PhaseAccent, cameraZ: 3.8f,
+                escalation: SecondFormBlend);
         }
 
         double coreVisibility = Math.Max(.15, 1 - entranceSpread * .22);
@@ -2525,13 +2603,13 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         Primitives2D.RectOutline(spriteBatch, innerPulse, PhaseAccent, 1);
         int deathRune = Dying || (Phase == 9 && SurvivalActive) ? 9 : Phase;
         string runeName = PhaseRunes[deathRune].Name;
-        UiTheme.DrawText(spriteBatch, runeName, Math.Max(8, Size * .075), PhaseAccent,
-            new Vector2(rect.Center.X, core.Bottom + Size * .045f), "midtop");
+        // The rune's spelled-out name is not drawn: the rune glyph itself is
+        // the symbol the player is meant to read.
         DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: true);
 
         DrawJeraGrandStaff(spriteBatch);
-        if (PhaseAnnouncementTimer > 0)
-            DrawPhaseAnnouncement(spriteBatch, rect);
+        // The word-wrapped speech bubble and the act-transition prose banner
+        // are both gone -- Dissonance no longer talks to the player.
         if (ActTransitionTimer > 0)
             DrawActTransition(spriteBatch);
         if (PerfectBreakFlash > 0)
@@ -2619,60 +2697,13 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         double progress = 1 - ActTransitionTimer / 2.2;
         float alpha = (float)Math.Min(1.0, Math.Min(progress * 5, (1 - progress) * 5)) * 185f;
         Primitives2D.FillRect(spriteBatch, new Rectangle(0, (int)(viewport.Height * .3f), viewport.Width, (int)(viewport.Height * .4f)), UiTheme.Void * (alpha / 255f));
+        // A wordless band: the act is announced by the rune the boss is about
+        // to draw, not by a caption.
         int jitter = (int)Age % 4 == 0 ? 2 : 0;
-        UiTheme.DrawText(spriteBatch, PhaseFlavor, 18, UiTheme.Ink, new Vector2(viewport.Width / 2f + 4, viewport.Height * .47f + 5), "center");
-        UiTheme.DrawText(spriteBatch, PhaseFlavor, 18, PhaseAccent, new Vector2(viewport.Width / 2f + jitter, viewport.Height * .47f), "center");
+        float span = viewport.Width * .18f * (float)Math.Min(1.0, progress * 3);
+        var line = new Vector2(viewport.Width / 2f + jitter, viewport.Height * .5f);
+        Primitives2D.Line(spriteBatch, line - new Vector2(span, 0), line + new Vector2(span, 0),
+            PhaseAccent * (alpha / 255f), 3);
     }
 
-    private void DrawPhaseAnnouncement(SpriteBatch spriteBatch, Rectangle bossRect)
-    {
-        var viewport = spriteBatch.GraphicsDevice.Viewport;
-        var flavorFont = UiTheme.Font(16);
-        float maxTextWidth = Math.Min(viewport.Width * .68f, 680f);
-        var words = PhaseFlavor.Split(' ');
-        var lines = new List<string>();
-        string current = "";
-        foreach (var word in words)
-        {
-            string candidate = (current + " " + word).Trim();
-            if (current.Length > 0 && flavorFont.MeasureString(candidate).X > maxTextWidth)
-            {
-                lines.Add(current);
-                current = word;
-            }
-            else
-            {
-                current = candidate;
-            }
-        }
-        if (current.Length > 0 || lines.Count == 0)
-            lines.Add(current);
-
-        float widestFlavor = lines.Max(line => flavorFont.MeasureString(line).X);
-        int lineGap = 2;
-        float flavorHeight = lines.Sum(line => flavorFont.MeasureString(line).Y) + lineGap * (lines.Count - 1);
-        float width = widestFlavor + 28;
-        float height = flavorHeight + 18;
-        var bubble = new Rectangle(0, 0, (int)width, (int)height);
-        bubble.X = bossRect.Center.X - bubble.Width / 2;
-        bubble.Y = bossRect.Top - 18 - bubble.Height;
-        var bounds = viewport.Bounds;
-        bounds.Inflate(-12, -12);
-        bubble.X = Math.Clamp(bubble.X, bounds.X, Math.Max(bounds.X, bounds.Right - bubble.Width));
-        bubble.Y = Math.Clamp(bubble.Y, bounds.Y, Math.Max(bounds.Y, bounds.Bottom - bubble.Height));
-
-        UiTheme.DrawPanel(spriteBatch, bubble, UiTheme.PanelRaised, PhaseAccent, shadow: 4);
-        float flavorY = bubble.Bottom - 7 - flavorHeight;
-        foreach (var line in lines)
-        {
-            UiTheme.DrawText(spriteBatch, line, 16, UiTheme.Text, new Vector2(bubble.Center.X, flavorY), "midtop");
-            flavorY += flavorFont.MeasureString(line).Y + lineGap;
-        }
-        var pointer = new[]
-        {
-            new Vector2(bossRect.Center.X - 7, bubble.Bottom), new Vector2(bossRect.Center.X + 7, bubble.Bottom),
-            new Vector2(bossRect.Center.X, bubble.Bottom + 10),
-        };
-        Primitives2D.FillPolygon(spriteBatch, pointer, PhaseAccent);
-    }
 }

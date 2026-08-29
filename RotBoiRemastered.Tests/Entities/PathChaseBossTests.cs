@@ -1,5 +1,6 @@
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.Tests.Entities;
@@ -42,34 +43,30 @@ public class PathChaseBossTests
     }
 
     [Fact]
-    public void DamageGatesTeachGlimpseThenBlinkWithoutSkippingFlash()
+    public void EverySnapshotSurrendersOnlyItsOwnBudgetThenRunsItsClock()
     {
         var battleground = MakeBattleground();
         var ishe = new Ishe(1000, 1000, battleground, new Random(1));
         var context = MakeContext(ishe.WorldX + 500, ishe.WorldY, battleground);
         ishe.EntranceRemaining = 0;
+        int opening = ishe.Phase;
 
         ishe.TakeDamage(ishe.MaxHp);
 
-        Assert.Equal((int)Math.Round(ishe.MaxHp * .72), ishe.Hp);
-        Assert.Equal(1, ishe.Phase);
+        Assert.Equal(
+            ishe.MaxHp - (int)Math.Round(ishe.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            ishe.Hp);
+        Assert.Equal(opening, ishe.Phase);
         Assert.False(ishe.FlashSurvivalActive);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 6 && ishe.Phase == 1; tick++)
+        // A level-ten encounter releases the phase seven seconds after the
+        // threshold rather than riding the whole clock.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (BossPhaseGovernor.LowerTierHoldSeconds + 1); tick++)
             ishe.Update(context);
 
-        Assert.Equal(2, ishe.Phase);
+        Assert.NotEqual(opening, ishe.Phase);
         Assert.False(ishe.FlashSurvivalActive);
-
-        ishe.TakeDamage(ishe.MaxHp);
-
-        Assert.Equal(2, ishe.Phase);
-        for (int tick = 0; tick < Simulation.FrameRate * 6 && !ishe.FlashSurvivalActive; tick++)
-            ishe.Update(context);
-
-        Assert.Equal(3, ishe.Phase);
-        Assert.True(ishe.FlashSurvivalActive);
-        Assert.Equal(ishe.MaxHp / 2, ishe.Hp);
     }
 
     [Fact]
@@ -88,31 +85,30 @@ public class PathChaseBossTests
     }
 
     [Fact]
-    public void FlashIsTwelveSecondSurvivalThenAfterglow()
+    public void FlashIsTheClosingTwentySecondSurvivalThatEndsTheFight()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var ishe = new Ishe(1000, 1000, battleground, new Random(11));
         var context = MakeContext(ishe.WorldX + 500, ishe.WorldY + 100, battleground);
         ishe.EntranceRemaining = 0;
-        ishe.DebugSetPhase(2);
-        for (int tick = 0; tick < Simulation.FrameRate * 5 &&
-             ishe.IshePhaseDeclarations < Ishe.MinimumIsheDamagePhaseDeclarations; tick++)
-            ishe.Update(context);
-        ishe.DebugPhaseLocked = false;
-        ishe.TakeDamage(ishe.MaxHp);
+        ishe.Hp = 1;
+        ishe.DebugRebasePhaseHealth();
+        ishe.Update(context);
 
         Assert.True(ishe.FlashSurvivalActive);
-        Assert.Equal(12.0, ishe.FlashSurvivalRemaining);
+        Assert.Equal(20.0, ishe.FlashSurvivalRemaining);
         Assert.True(ishe.TakeDamage(1000).Blocked);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 14 && ishe.FlashSurvivalActive; tick++)
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (20 + BossPhaseInterlude.DefaultDuration) + 5
+                 && ishe.FlashSurvivalActive;
+             tick++)
             ishe.Update(context);
 
         Assert.False(ishe.FlashSurvivalActive);
         Assert.True(ishe.FlashSurvivalCleared);
-        Assert.Equal(4, ishe.Phase);
-        Assert.Equal("NEGATIVE", ishe.PhaseLabel);
+        Assert.True(ishe.Dying);
     }
 
     [Fact]
@@ -359,11 +355,15 @@ public class PathChaseBossTests
         var battleground = MakeBattleground();
         var boss = new Ishe(battleground.SpawnPosition.X, battleground.SpawnPosition.Y, battleground, new Random(1));
         var context = MakeContext(boss.WorldX + 500, boss.WorldY, battleground);
+        // Phase five puts Ishe past its closing survival, so lethal damage
+        // resolves straight into the reward spectacle.
         boss.DebugSetPhase(5);
+        boss.DebugPhaseLocked = false;
         boss.EntranceRemaining = 0;
-        for (int tick = 0; tick < Simulation.FrameRate * 5 &&
-             boss.IshePhaseDeclarations < Ishe.MinimumIsheDamagePhaseDeclarations; tick++)
-            boss.Update(context);
+        // A single hit only ever removes one snapshot's damage budget, so the
+        // bar is walked down to its last sliver first.
+        boss.Hp = 2;
+        boss.DebugRebasePhaseHealth();
 
         var result = boss.TakeDamage(1_000_000);
 

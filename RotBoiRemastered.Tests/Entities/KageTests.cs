@@ -116,80 +116,59 @@ public class KageTests
         Assert.Equal(
             new[] { "SPARK / FUEL", "PRESSURE / HEAT", "SOLVENT / CRYSTAL", "CHAIN REACTION", "CRITICAL MIXTURE" },
             Kage.KageConfig.PhaseLabels);
-        Assert.Equal(14.0, Kage.StagnantMirrorDuration);
+        Assert.Equal(20.0, Kage.StagnantMirrorDuration);
     }
 
     [Fact]
-    public void DamageGatesRequireTwoCompositeDeclarations()
+    public void EveryReactionSurrendersOnlyItsOwnBudgetThenRunsItsClock()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var kage = MakeCenteredKage(battleground);
         var context = MakeContext(kage, battleground);
         kage.EntranceRemaining = 0;
+        int opening = kage.Phase;
 
         kage.TakeDamage(kage.MaxHp);
-        Assert.Equal((int)Math.Round(kage.MaxHp * .75), kage.Hp);
-        Assert.Equal(1, kage.Phase);
+        Assert.Equal(
+            kage.MaxHp - (int)Math.Round(kage.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            kage.Hp);
+        Assert.Equal(opening, kage.Phase);
 
-        ReachDeclarations(kage, context, 2);
-        Step(kage, context);
-        Assert.Equal(2, kage.Phase);
-
-        kage.TakeDamage(kage.MaxHp);
-        Assert.Equal(kage.MaxHp / 2, kage.Hp);
+        // A level-ten encounter releases the phase seven seconds after the
+        // threshold rather than riding the whole clock.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (BossPhaseGovernor.LowerTierHoldSeconds + 1); tick++)
+            Step(kage, context);
+        Assert.NotEqual(opening, kage.Phase);
         Assert.False(kage.StagnantMirrorActive);
-
-        ReachDeclarations(kage, context, 2);
-        Step(kage, context);
-        Assert.True(kage.StagnantMirrorActive);
-        Assert.Equal(3, kage.Phase);
     }
 
     [Fact]
-    public void StagnantMirrorIsFourteenSecondInvulnerableSurvivalThenLure()
+    public void StagnantMirrorIsTheClosingTwentySecondSurvivalThatEndsTheFight()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var kage = MakeCenteredKage(battleground, 4);
         var context = MakeContext(kage, battleground);
-        kage.DebugSetPhase(2);
-        kage.DebugPhaseLocked = false;
         kage.EntranceRemaining = 0;
-        kage.TakeDamage(kage.MaxHp);
-        ReachDeclarations(kage, context, 2);
+        kage.Hp = 1;
+        kage.DebugRebasePhaseHealth();
         Step(kage, context);
 
         Assert.True(kage.StagnantMirrorActive);
-        Assert.Equal(14.0, kage.StagnantMirrorRemaining);
+        Assert.Equal(20.0, kage.StagnantMirrorRemaining);
         Assert.True(kage.TakeDamage(1000).Blocked);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 14 + 5; tick++)
+        // The survival starts behind a phase interlude: the arena is swept
+        // clear and the boss walks back to centre before the clock runs.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (20 + BossPhaseInterlude.DefaultDuration) + 5;
+             tick++)
             Step(kage, context);
 
         Assert.False(kage.StagnantMirrorActive);
         Assert.True(kage.StagnantMirrorCleared);
-        Assert.Equal(4, kage.Phase);
-        Assert.Equal("CHAIN REACTION", kage.PhaseLabel);
-    }
-
-    [Fact]
-    public void LureCannotBeBurstDownBeforeTwoSynthesisPatterns()
-    {
-        Simulation.ResetForTests();
-        var battleground = MakeBattleground();
-        var kage = MakeCenteredKage(battleground, 5);
-        var context = MakeContext(kage, battleground);
-        kage.DebugSetPhase(5);
-        kage.DebugPhaseLocked = false;
-        kage.EntranceRemaining = 0;
-
-        kage.TakeDamage(kage.MaxHp);
-        Assert.Equal(1, kage.Hp);
-        Assert.False(kage.Dying);
-
-        ReachDeclarations(kage, context, 2);
-        kage.TakeDamage(1);
         Assert.True(kage.Dying);
     }
 

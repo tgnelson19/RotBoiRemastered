@@ -40,6 +40,11 @@ public class RotBoiGame : Game
     private GameSession? _session;
     private RunResultReport? _resultReport;
     private GameState _pauseReturnState = GameState.GameRun;
+    /// <summary>Which state the compact stash panel (GameState.Dossier) should return to on close -- it's reachable from both a run and The Mind now.</summary>
+    private GameState _dossierReturnState = GameState.GameRun;
+    /// <summary>GameTime.TotalGameTime.TotalSeconds when the stash panel was last opened -- drives its slide/fade-in reveal animation in DrawDossier.</summary>
+    private double _dossierOpenedAt = -1000;
+    private const double DossierRevealSeconds = .22;
 
     private KeyboardState _previousKeyboardState;
     private ButtonState _previousMouseButtonState = ButtonState.Released;
@@ -182,7 +187,10 @@ public class RotBoiGame : Game
             }
             else if (State == GameState.Dossier && InputState.ControllerPausePressed)
             {
-                _pauseReturnState = GameState.GameRun;
+                // The stash panel is reachable from a run or from The Mind now
+                // (see GameState.Dossier's redesign) -- pause needs to resume
+                // wherever it was actually opened from, not always GameRun.
+                _pauseReturnState = _dossierReturnState;
                 State = GameState.Paused;
                 _session?.InformationSheet.CancelDrag();
                 enteredPause = true;
@@ -196,9 +204,9 @@ public class RotBoiGame : Game
             }
         }
 
-        bool enteredDossier = State == GameState.GameRun
+        bool enteredDossier = (State == GameState.GameRun || (State == GameState.Soul && !_soulHub.OverlayOpen))
             && (Keybinds.Pressed("hud_toggle") || InputState.ControllerViewPressed);
-        UpdateInputToggles();
+        UpdateInputToggles(gameTime);
         UpdateCameraControls(gameTime);
 
         // Do not let the Escape press that opened pause immediately resume it.
@@ -441,7 +449,7 @@ public class RotBoiGame : Game
         origin + InputState.ControllerAim * (ControllerAimRadiusPx * UiTheme.DisplayScale(viewportWidth, viewportHeight));
 
     /// <summary>Ported from main.py's update_input_toggles().</summary>
-    private void UpdateInputToggles()
+    private void UpdateInputToggles(GameTime gameTime)
     {
         if (Keybinds.Pressed("autofire") || InputState.ControllerAutofirePressed)
         {
@@ -450,9 +458,14 @@ public class RotBoiGame : Game
                 _session.State.AutoFire = GameProfile.Profile.AutoFire;
             GameProfile.SaveProfile();
         }
+        // Reachable from a run and from The Mind alike -- see GameState.Dossier's
+        // redesign doc comment on InformationSheet.DrawDossier. Skipped while a
+        // Soul totem menu is already open so the two overlay systems never fight.
         if ((Keybinds.Pressed("hud_toggle") || InputState.ControllerViewPressed)
-            && State == GameState.GameRun)
+            && (State == GameState.GameRun || (State == GameState.Soul && !_soulHub.OverlayOpen)))
         {
+            _dossierReturnState = State;
+            _dossierOpenedAt = gameTime.TotalGameTime.TotalSeconds;
             State = GameState.Dossier;
             _session!.InformationSheet.CancelDrag();
         }
@@ -534,6 +547,8 @@ public class RotBoiGame : Game
         }
         if (footerAction == FooterAction.OpenDossier)
         {
+            _dossierReturnState = GameState.GameRun;
+            _dossierOpenedAt = gameTime.TotalGameTime.TotalSeconds;
             State = GameState.Dossier;
             return;
         }
@@ -630,7 +645,7 @@ public class RotBoiGame : Game
             || InputState.ControllerBackPressed && !loadoutHandled)
         {
             session.InformationSheet.CancelDrag();
-            State = GameState.GameRun;
+            State = _dossierReturnState;
             return;
         }
         if (loadoutHandled)
@@ -641,7 +656,7 @@ public class RotBoiGame : Game
         switch (action)
         {
             case DossierAction.Close:
-                State = GameState.GameRun;
+                State = _dossierReturnState;
                 return;
             case DossierAction.LevelUp:
                 if (session.TryPurchaseLevelUp())
@@ -650,6 +665,19 @@ public class RotBoiGame : Game
             case DossierAction.Reforge:
                 State = GameState.Reforging;
                 return;
+        }
+        // Number-key shortcuts: instantly swap a stash slot with its
+        // equipped counterpart (see GameSession.SwapStashSlotWithEquipment).
+        // Skipped mid-drag for the same reason HandleDossierAction already
+        // ignores its own buttons then -- a held item shouldn't also react
+        // to unrelated key presses.
+        if (!session.InformationSheet.DragInProgress)
+        {
+            for (int index = 0; index < InformationSheet.InventorySlotCount; index++)
+            {
+                if (Keybinds.Pressed($"stash_swap_{index + 1}"))
+                    session.SwapStashSlotWithEquipment(index);
+            }
         }
         session.HandleDossierDrag(
             InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
@@ -815,7 +843,7 @@ public class RotBoiGame : Game
                 DrawReforging();
                 break;
             case GameState.Dossier:
-                DrawDossier();
+                DrawDossier(gameTime);
                 break;
             case GameState.TitleScreen:
                 DrawTitleScreen();
@@ -934,13 +962,19 @@ public class RotBoiGame : Game
         }
     }
 
-    private void DrawDossier()
+    private void DrawDossier(GameTime gameTime)
     {
-        DrawGameRun();
+        // Draws whichever scene it was actually opened over -- a run or The
+        // Mind -- behind the stash panel, same idea as DrawPaused below.
+        if (_dossierReturnState == GameState.Soul)
+            DrawSoul();
+        else
+            DrawGameRun();
         var session = _session!;
+        float revealT = (float)Math.Clamp(
+            (gameTime.TotalGameTime.TotalSeconds - _dossierOpenedAt) / DossierRevealSeconds, 0, 1);
         _spriteBatch.Begin();
-        session.DrawDossier(
-            _spriteBatch, InputState.MousePosition, session.SelectBountyTarget());
+        session.DrawDossier(_spriteBatch, InputState.MousePosition, revealT);
         _spriteBatch.End();
     }
 

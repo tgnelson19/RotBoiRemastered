@@ -18,6 +18,7 @@ public sealed class SettingsMenu
         ("gameplay", "GAMEPLAY"),
         ("accessibility", "ACCESSIBILITY"),
         ("display", "DISPLAY"),
+        ("scaling", "DISPLAY SCALING"),
         ("interface", "INTERFACE"),
         ("controls", "CONTROLS"),
     };
@@ -30,6 +31,42 @@ public sealed class SettingsMenu
     private double _scroll;
     private bool _lastInputWasMouse = true;
     private float _drawScale = 1f;
+    private int _screenWidth = UiTheme.ReferenceWidth;
+    private int _screenHeight = UiTheme.ReferenceHeight;
+
+    // GUI Scale / Text Size / Damage Text Size live here as *pending*
+    // values while the player is tuning them on the Display Scaling tab --
+    // nothing on screen actually changes size until "APPLY CHANGES" writes
+    // these into GameProfile.Profile. Null means "no pending edit yet",
+    // i.e. fall through to whatever's already committed.
+    private double? _pendingGuiScale;
+    private double? _pendingTextSize;
+    private double? _pendingDamageTextSize;
+
+    private double PendingGuiScale => _pendingGuiScale ?? GameProfile.Profile.GuiScale;
+    private double PendingTextSize => _pendingTextSize ?? GameProfile.Profile.TextSize;
+    private double PendingDamageTextSize => _pendingDamageTextSize ?? GameProfile.Profile.DamageTextSize;
+    private bool HasPendingScalingChanges => _pendingGuiScale is not null
+        || _pendingTextSize is not null || _pendingDamageTextSize is not null;
+
+    /// <summary>Writes the staged scaling values into the live profile -- the one moment anything on this tab actually takes visible effect.</summary>
+    private void ApplyPendingScaling()
+    {
+        if (_pendingGuiScale is { } gui) GameProfile.Profile.GuiScale = gui;
+        if (_pendingTextSize is { } text) GameProfile.Profile.TextSize = text;
+        if (_pendingDamageTextSize is { } damage) GameProfile.Profile.DamageTextSize = damage;
+        GameProfile.SaveProfile();
+        _pendingGuiScale = null;
+        _pendingTextSize = null;
+        _pendingDamageTextSize = null;
+    }
+
+    /// <summary>Stages (does not apply) a clean starting point for the current display -- see UiTheme.SuggestedScales.</summary>
+    private void StageSuggestedScaling()
+    {
+        (_pendingGuiScale, _pendingTextSize, _pendingDamageTextSize) =
+            UiTheme.SuggestedScales(_screenWidth, _screenHeight);
+    }
 
     // Kept non-constant so Menus can retain its old rendering code as a
     // compatibility fallback without creating unreachable-code warnings.
@@ -65,6 +102,8 @@ public sealed class SettingsMenu
 
         float scale = Scale(screenWidth, screenHeight);
         _drawScale = scale;
+        _screenWidth = screenWidth;
+        _screenHeight = screenHeight;
         int margin = Math.Max(8, (int)(14 * scale));
         int titleHeight = Math.Max(32, (int)(46 * scale));
         var root = new Rectangle(margin, margin, screenWidth - margin * 2,
@@ -152,6 +191,12 @@ public sealed class SettingsMenu
             var rect = new Rectangle(viewport.X, y, viewport.Width, rowHeight);
             if (rect.Top >= viewport.Top && rect.Bottom <= viewport.Bottom)
             {
+                if (row.Id == "setting:ApplyScaling")
+                {
+                    DrawApplyScalingRow(spriteBatch, rect, mouse, scale);
+                    y += rowHeight + gap;
+                    continue;
+                }
                 Register(row.Id, rect, row.Enabled);
                 bool hovered = row.Enabled && rect.Contains(mouse);
                 Primitives2D.FillRect(spriteBatch, rect,
@@ -189,6 +234,30 @@ public sealed class SettingsMenu
         }
     }
 
+    /// <summary>
+    /// The Display Scaling tab's "APPLY CHANGES" row -- deliberately not a
+    /// generic row. Its label previews the pending Text Size/GUI Scale
+    /// live as they're dragged (the only thing on this whole screen that
+    /// does), while everything else -- this row's own background/border
+    /// thickness included -- keeps rendering at the normal, *committed*
+    /// size until the button is actually pressed.
+    /// </summary>
+    private void DrawApplyScalingRow(SpriteBatch spriteBatch, Rectangle rect, Point mouse, float scale)
+    {
+        Register("setting:ApplyScaling", rect, HasPendingScalingChanges);
+        bool hovered = HasPendingScalingChanges && rect.Contains(mouse);
+        Color accent = HasPendingScalingChanges ? UiTheme.Green : UiTheme.Muted;
+        Primitives2D.FillRect(spriteBatch, rect, hovered ? UiTheme.PanelHover : UiTheme.PanelRaised);
+        Primitives2D.RectOutline(spriteBatch, rect, accent, 2);
+        float textPreview = (float)Math.Clamp(PendingTextSize / Math.Max(.05, GameProfile.Profile.TextSize), .6, 2.2);
+        float guiPreview = (float)Math.Clamp(PendingGuiScale / Math.Max(.05, GameProfile.Profile.GuiScale), .6, 1.8);
+        string label = HasPendingScalingChanges ? "APPLY CHANGES" : "NO CHANGES PENDING";
+        UiTheme.DrawText(spriteBatch, label, 13 * scale * textPreview * guiPreview, accent,
+            rect.Center.ToVector2(), "center");
+        if (_focus.IsFocused("setting:ApplyScaling") && HasPendingScalingChanges)
+            Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream, 2);
+    }
+
     private static Rectangle ScaleSliderTrack(Rectangle row, float scale)
     {
         int inset = Math.Max(8, (int)(12 * scale));
@@ -197,15 +266,18 @@ public sealed class SettingsMenu
             Math.Max(1, row.Width - inset * 2), height);
     }
 
-    private static void DrawScaleSlider(SpriteBatch spriteBatch, Rectangle row,
+    private void DrawScaleSlider(SpriteBatch spriteBatch, Rectangle row,
         float scale, string key)
     {
         Rectangle track = ScaleSliderTrack(row, scale);
+        // Reads the *pending* (staged, not-yet-applied) value -- these three
+        // sliders only ever appear on the Display Scaling tab now, see
+        // RowsForCategory/ApplyPendingScaling.
         (double value, double minimum, double maximum, Color color) = key switch
         {
-            "GuiScale" => (GameProfile.Profile.GuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale, UiTheme.Blue),
-            "DamageTextSize" => (GameProfile.Profile.DamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, UiTheme.Red),
-            _ => (GameProfile.Profile.TextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale, UiTheme.Cream),
+            "GuiScale" => (PendingGuiScale, UiTheme.MinGuiScale, UiTheme.MaxGuiScale, UiTheme.Blue),
+            "DamageTextSize" => (PendingDamageTextSize, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale, UiTheme.Red),
+            _ => (PendingTextSize, UiTheme.MinTextScale, UiTheme.MaxTextScale, UiTheme.Cream),
         };
         double progress = (value - minimum) / (maximum - minimum);
         progress = Math.Clamp(progress, 0, 1);
@@ -260,16 +332,24 @@ public sealed class SettingsMenu
                 new("setting:HighContrast", "HIGH CONTRAST", OnOff(profile.HighContrast), "Strengthen hostile warnings", UiTheme.Gold),
                 new("setting:ScreenShake", "SCREEN SHAKE", $"{profile.ScreenShake * 100:0}%", "Impact-driven camera movement", UiTheme.Gold),
                 new("setting:VisualEffects", "VISUAL EFFECTS", $"{profile.VisualEffectsIntensity * 100:0}%", "Ambient motion and particles", UiTheme.Purple),
-                new("setting:TextSize", "TEXT SIZE", $"{profile.TextSize * 100:0}%", "Menu and interface type", UiTheme.Cream),
-                new("setting:DamageTextSize", "DAMAGE TEXT SIZE", $"{profile.DamageTextSize * 100:0}%", "Floating combat type", UiTheme.Red),
             },
             "display" => new List<SettingRow>
             {
                 new("setting:Fullscreen", "FULLSCREEN", OnOff(profile.Fullscreen), "Borderless native display", UiTheme.Blue),
-                new("setting:GuiScale", "GUI SCALE", $"{profile.GuiScale * 100:0}%", "Drag, or use left/right for 5% steps", UiTheme.Blue),
                 new("setting:CameraZoom", "CAMERA ZOOM", $"{profile.CameraZoom * 100:0}%", "Default combat camera distance", UiTheme.Purple),
                 new("setting:MaxFrameRate", "FPS CAP", $"{profile.MaxFrameRate}", "Maximum update and presentation rate", UiTheme.Green),
                 new("setting:VSync", "VERTICAL SYNC", OnOff(profile.VSync), "Match display refresh when supported", UiTheme.Green),
+            },
+            "scaling" => new List<SettingRow>
+            {
+                new("setting:GuiScale", "GUI SCALE", $"{PendingGuiScale * 100:0}%", "Overall interface size", UiTheme.Blue),
+                new("setting:TextSize", "TEXT SIZE", $"{PendingTextSize * 100:0}%", "Menu and interface type", UiTheme.Cream),
+                new("setting:DamageTextSize", "DAMAGE TEXT SIZE", $"{PendingDamageTextSize * 100:0}%", "Floating combat type", UiTheme.Red),
+                new("setting:SuggestScaling", "SUGGEST FOR THIS DISPLAY", "",
+                    $"Clean starting point for {_screenWidth}x{_screenHeight}", UiTheme.Purple),
+                new("setting:ApplyScaling", HasPendingScalingChanges ? "APPLY CHANGES" : "NO CHANGES PENDING", "",
+                    "Nothing above changes on screen until you press this",
+                    HasPendingScalingChanges ? UiTheme.Green : UiTheme.Muted, HasPendingScalingChanges),
             },
             "interface" => new List<SettingRow>
             {
@@ -458,6 +538,10 @@ public sealed class SettingsMenu
         if (InputState.ControllerBackPressed || keysPressed.Contains(Keys.Escape))
             return MenuAction.Resume;
 
+        // These three are staged, not applied live -- see the pending
+        // fields/ApplyPendingScaling above and RowsForCategory's "scaling"
+        // tab -- so dragging updates _pending*, never GameProfile.Profile or
+        // SaveProfile, directly.
         if (mouseDown && hovered is "setting:TextSize" or "setting:DamageTextSize" or "setting:GuiScale"
             && _controls.TryGetValue(hovered, out Rectangle scaleRow))
         {
@@ -467,16 +551,15 @@ public sealed class SettingsMenu
                 "setting:DamageTextSize" => ScaleForSliderPosition(mouse.X, scaleRow, _drawScale, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale),
                 _ => TextSizeForSliderPosition(mouse.X, scaleRow, _drawScale),
             };
-            if (hovered == "setting:GuiScale") GameProfile.Profile.GuiScale = value;
-            else if (hovered == "setting:DamageTextSize") GameProfile.Profile.DamageTextSize = value;
-            else GameProfile.Profile.TextSize = value;
-            GameProfile.SaveProfile();
+            if (hovered == "setting:GuiScale") _pendingGuiScale = value;
+            else if (hovered == "setting:DamageTextSize") _pendingDamageTextSize = value;
+            else _pendingTextSize = value;
             return MenuAction.None;
         }
 
         if (adjustingScale)
         {
-            ChangeSetting(_focus.FocusedId![8..], right ? 1 : -1);
+            AdjustPendingScale(_focus.FocusedId![8..], right ? 1 : -1);
             return MenuAction.None;
         }
         if (activated is null)
@@ -503,9 +586,35 @@ public sealed class SettingsMenu
             else _rebindingAction = action;
             return MenuAction.None;
         }
+        if (activated == "setting:SuggestScaling")
+        {
+            StageSuggestedScaling();
+            return MenuAction.None;
+        }
+        if (activated == "setting:ApplyScaling")
+        {
+            if (HasPendingScalingChanges) ApplyPendingScaling();
+            return MenuAction.None;
+        }
+        if (activated is "setting:GuiScale" or "setting:TextSize" or "setting:DamageTextSize")
+        {
+            AdjustPendingScale(activated[8..], right ? 1 : left ? -1 : 1);
+            return MenuAction.None;
+        }
         if (activated.StartsWith("setting:"))
             ChangeSetting(activated[8..], right ? 1 : left ? -1 : 1);
         return MenuAction.None;
+    }
+
+    /// <summary>Arrow-key/click-step counterpart to the mouse-drag branch above -- same staged-not-applied rule.</summary>
+    private void AdjustPendingScale(string key, int direction)
+    {
+        if (key == "GuiScale")
+            _pendingGuiScale = Math.Clamp(PendingGuiScale + direction * .05, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
+        else if (key == "TextSize")
+            _pendingTextSize = Math.Clamp(PendingTextSize + direction * .05, UiTheme.MinTextScale, UiTheme.MaxTextScale);
+        else if (key == "DamageTextSize")
+            _pendingDamageTextSize = Math.Clamp(PendingDamageTextSize + direction * .05, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
     }
 
     internal static void ChangeSetting(string key, int direction)
@@ -537,12 +646,6 @@ public sealed class SettingsMenu
             profile.ScreenShake = Cycle(profile.ScreenShake, new[] { 0d, .35, .65, 1d }, direction);
         else if (key == "VisualEffects")
             profile.VisualEffectsIntensity = Math.Clamp(profile.VisualEffectsIntensity + direction * .25, 0, 1);
-        else if (key == "TextSize")
-            profile.TextSize = Math.Clamp(profile.TextSize + direction * .05, UiTheme.MinTextScale, UiTheme.MaxTextScale);
-        else if (key == "DamageTextSize")
-            profile.DamageTextSize = Math.Clamp(profile.DamageTextSize + direction * .05, UiTheme.MinDamageTextScale, UiTheme.MaxDamageTextScale);
-        else if (key == "GuiScale")
-            profile.GuiScale = Math.Clamp(profile.GuiScale + direction * .05, UiTheme.MinGuiScale, UiTheme.MaxGuiScale);
         else if (key == "CameraZoom")
             profile.CameraZoom = Math.Clamp(profile.CameraZoom + direction * .1, Camera.MinDefaultZoomScale, Camera.MaxDefaultZoomScale);
         else if (key == "MaxFrameRate")

@@ -116,90 +116,63 @@ public class PlagueTouchBossTests
         Assert.Equal(
             new[] { "INTAKE", "QUARTERING", "MOVING CELL", "RELEASE", "SOLITARY" },
             Bair.BairConfig.PhaseLabels);
-        Assert.Equal(14.0, Bair.RuinDuration);
+        Assert.Equal(20.0, Bair.RuinDuration);
     }
 
     [Fact]
-    public void BairHealthGatesRequireTwoCompleteDeclarations()
+    public void EveryDeclarationSurrendersOnlyItsOwnBudgetThenRunsItsClock()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var bair = MakeCenteredBair(battleground);
         var context = MakeContext(bair, battleground);
         bair.EntranceRemaining = 0;
+        int opening = bair.Phase;
 
         bair.TakeDamage(bair.MaxHp);
-        Assert.Equal((int)Math.Round(bair.MaxHp * .82), bair.Hp);
-        Assert.Equal(1, bair.Phase);
-
-        ReachDeclarations(bair, context, 2);
-        Step(bair, context);
-        Assert.Equal(2, bair.Phase);
-
-        bair.TakeDamage(bair.MaxHp);
-        Assert.Equal((int)Math.Round(bair.MaxHp * .66), bair.Hp);
-        Assert.Equal(2, bair.Phase);
-        ReachDeclarations(bair, context, 2);
-        Step(bair, context);
-        Assert.Equal(3, bair.Phase);
-
-        bair.TakeDamage(bair.MaxHp);
-        Assert.Equal(bair.MaxHp / 2, bair.Hp);
+        Assert.Equal(
+            bair.MaxHp - (int)Math.Round(bair.MaxHp * BossPhaseGovernor.DefaultThresholdFraction),
+            bair.Hp);
+        Assert.Equal(opening, bair.Phase);
         Assert.False(bair.RuinSurvivalActive);
-        ReachDeclarations(bair, context, 2);
-        Step(bair, context);
-        Assert.True(bair.RuinSurvivalActive);
-        Assert.Equal(4, bair.Phase);
+
+        // A level-ten encounter releases the phase seven seconds after the
+        // threshold rather than riding the whole clock.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (BossPhaseGovernor.LowerTierHoldSeconds + 1); tick++)
+            Step(bair, context);
+        Assert.NotEqual(opening, bair.Phase);
     }
 
     [Fact]
-    public void RuinIsFourGateFourteenSecondSurvivalThenSilence()
+    public void RuinIsTheClosingFourGateTwentySecondSurvivalThatEndsTheFight()
     {
         Simulation.ResetForTests();
         var battleground = MakeBattleground();
         var bair = MakeCenteredBair(battleground, 4);
         var context = MakeContext(bair, battleground);
         bair.EntranceRemaining = 0;
-        bair.DebugSetPhase(3);
-        bair.DebugPhaseLocked = false;
-        bair.TakeDamage(bair.MaxHp);
-        ReachDeclarations(bair, context, 2);
+        bair.Hp = 1;
+        bair.DebugRebasePhaseHealth();
         Step(bair, context);
 
         Assert.True(bair.RuinSurvivalActive);
-        Assert.Equal(14.0, bair.RuinSurvivalRemaining);
+        Assert.Equal(20.0, bair.RuinSurvivalRemaining);
         Assert.True(bair.TakeDamage(1000).Blocked);
         var gates = bair.GetScreenHitboxes(new Camera(),
             new Vector2(bair.WorldX, bair.WorldY), Vector2.Zero)
             .Count(hitbox => hitbox.Part.StartsWith("portal:"));
         Assert.Equal(4, gates);
 
-        for (int tick = 0; tick < Simulation.FrameRate * 14 + 5; tick++)
+        // The survival starts behind a phase interlude: the arena is swept
+        // clear and the boss walks back to centre before the clock runs.
+        for (int tick = 0;
+             tick < Simulation.FrameRate * (20 + BossPhaseInterlude.DefaultDuration) + 5;
+             tick++)
             Step(bair, context);
 
         Assert.False(bair.RuinSurvivalActive);
         Assert.True(bair.RuinSurvivalCleared);
-        Assert.Equal(5, bair.Phase);
-        Assert.Equal("SOLITARY", bair.PhaseLabel);
-    }
-
-    [Fact]
-    public void SilenceCannotBeBurstDownBeforeShowingItsSynthesisTwice()
-    {
-        Simulation.ResetForTests();
-        var battleground = MakeBattleground();
-        var bair = MakeCenteredBair(battleground, 5);
-        var context = MakeContext(bair, battleground);
-        bair.EntranceRemaining = 0;
-        bair.DebugSetPhase(5);
-        bair.DebugPhaseLocked = false;
-
-        bair.TakeDamage(bair.MaxHp);
-        Assert.Equal(1, bair.Hp);
-        Assert.False(bair.Dying);
-
-        ReachDeclarations(bair, context, 2);
-        bair.TakeDamage(1);
         Assert.True(bair.Dying);
     }
 

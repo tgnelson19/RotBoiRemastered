@@ -33,6 +33,18 @@ public static class Keybinds
         ("extract", "Extract to The Mind", Keys.R),
         ("hud_toggle", "Toggle HUD Detail", Keys.Tab),
         ("console_toggle", "DEV: Toggle Console", Keys.OemTilde),
+        // Stash panel only (see GameSession.SwapStashSlotWithEquipment): instantly
+        // trades the item in that stash slot with whatever's equipped in its slot
+        // type. Default to the number row, 1 per slot, matching the panel's own
+        // left-to-right order.
+        ("stash_swap_1", "Stash: Swap Slot 1", Keys.D1),
+        ("stash_swap_2", "Stash: Swap Slot 2", Keys.D2),
+        ("stash_swap_3", "Stash: Swap Slot 3", Keys.D3),
+        ("stash_swap_4", "Stash: Swap Slot 4", Keys.D4),
+        ("stash_swap_5", "Stash: Swap Slot 5", Keys.D5),
+        ("stash_swap_6", "Stash: Swap Slot 6", Keys.D6),
+        ("stash_swap_7", "Stash: Swap Slot 7", Keys.D7),
+        ("stash_swap_8", "Stash: Swap Slot 8", Keys.D8),
     };
 
     public static readonly IReadOnlyDictionary<string, Keys> ActionDefaults =

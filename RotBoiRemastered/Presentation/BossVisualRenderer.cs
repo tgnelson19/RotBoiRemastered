@@ -45,9 +45,15 @@ public static class BossVisualRenderer
         }
 
         // The same black soul well appears in every hierarchy. Its surround
-        // changes material and complexity rather than changing meaning.
+        // changes material and complexity rather than changing meaning. The
+        // shadow follows the boss's own facing (not axisX/axisY, which
+        // rotate with the camera and made it swing around the boss). A boss
+        // that has never moved falls back to the shared south rest pose
+        // rather than an arbitrary default facing.
+        (Vector2 shadowAxisX, Vector2 shadowAxisY, _) =
+            Player.ScreenOrientation(pose.HasFacing ? pose.Facing : Vector2.Zero);
         Primitives2D.FillRect(spriteBatch,
-            Centered(pose.Center + axisX * 3 + axisY * 4,
+            Centered(pose.Center + shadowAxisX * 3 + shadowAxisY * 4,
                 radius * 1.7f, radius * 1.7f), UiTheme.Shadow * .8f);
         DrawCoreShape(spriteBatch, path.BodyKind, pose.Center,
             axisX, axisY, radius * pulse, path.Deep);

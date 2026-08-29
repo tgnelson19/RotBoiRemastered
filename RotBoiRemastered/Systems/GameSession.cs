@@ -58,10 +58,13 @@ public sealed class GameSession
     /// Speed gained per second by a projectile swept via
     /// <see cref="Enemy.TransitionSweepRequested"/> -- large enough that
     /// even a slow shot crosses a boss arena and exits its radial boundary
-    /// (where the existing arena-bound check removes it) within roughly a
-    /// second of the sweep firing.
+    /// (where the existing arena-bound check removes it) within roughly two
+    /// seconds of the sweep firing. Halved from its original 9f: the sweep
+    /// now runs under a phase interlude several seconds long, so the shots
+    /// have time to leave, and the old value made them snap off-screen fast
+    /// enough to read as a glitch rather than as the arena being cleared.
     /// </summary>
-    private const float TransitionSweepAcceleration = 9f;
+    private const float TransitionSweepAcceleration = 4.5f;
     private const int CrateInteractRadius = 24;
     private const int MaxLootCrates = 40;
     private const int BossPortalInteractRadius = 40;
@@ -1639,9 +1642,28 @@ public sealed class GameSession
                     projectile => projectile.Owner == enemy.TransitionSweepOwner)
                 : State.EnemyProjectileHolster;
             foreach (EnemyProjectile projectile in swept)
+            {
+                // Persistent hazards are terrain, not a volley: Rot's sludge
+                // and Ache's crystal fields are meant to accumulate across a
+                // fight, so sweeping them would erase the identity of both
+                // encounters every time a phase turned over.
+                if (projectile.PersistentHazard)
+                    continue;
                 projectile.Acceleration = Math.Max(
                     projectile.Acceleration, TransitionSweepAcceleration);
+            }
             enemy.TransitionSweepRequested = false;
+        }
+
+        if (enemy.PhaseInterludeInvulnerabilitySeconds > 0)
+        {
+            if (ReferenceEquals(enemy, State.ActiveBoss))
+            {
+                State.GracePeriod = Math.Max(
+                    State.GracePeriod,
+                    Simulation.FrameRate * enemy.PhaseInterludeInvulnerabilitySeconds);
+            }
+            enemy.PhaseInterludeInvulnerabilitySeconds = 0;
         }
     }
 
@@ -4835,9 +4857,20 @@ public sealed class GameSession
             && InformationSheet.QuickEquipLoot(State, command.LootIndex, command.EquipmentKey);
     }
 
-    public void DrawDossier(SpriteBatch spriteBatch, Point mousePosition, BountyInfo? bounty) =>
-        InformationSheet.DrawDossier(
-            spriteBatch, State, PlayerWorldCenter, bounty, mousePosition, PathRun);
+    /// <summary>
+    /// The compact stash panel (see InformationSheet.DrawDossier) reads
+    /// equipment from the footer bar rather than drawing its own slots, so
+    /// the footer's live rects need to be fed in first -- same
+    /// ConfigureLiveLootLayout plumbing DrawFooter already uses, just with
+    /// no quick-loot/quick-stash rects (this screen supplies its own stash
+    /// rects when it draws).
+    /// </summary>
+    public void DrawDossier(SpriteBatch spriteBatch, Point mousePosition, float revealT)
+    {
+        InformationSheet.ConfigureLiveLootLayout(FooterHud.EquipmentSlotRects,
+            Array.Empty<Rectangle>(), Array.Empty<Rectangle>());
+        InformationSheet.DrawDossier(spriteBatch, State, mousePosition, revealT);
+    }
 
     public DossierAction HandleDossierAction(
         IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed) =>
@@ -4848,6 +4881,32 @@ public sealed class GameSession
     public void HandleDossierDrag(Point mousePosition, bool mouseDown, bool mousePressed) =>
         InformationSheet.HandleDossierDrag(
             State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed);
+
+    /// <summary>
+    /// The Stash panel's number-key shortcut (see RotBoiGame.UpdateDossier
+    /// and Keybinds' stash_swap_1..8): instantly trades the item in stash
+    /// slot <paramref name="index"/> with whatever's currently equipped in
+    /// its slot type, so pressing the same key again swaps them straight
+    /// back. A no-op if that stash slot is empty (there's no type to swap
+    /// against) or the index is out of range. Accessories have two
+    /// equipment slots, not one -- prefers whichever is empty, same
+    /// fallback InformationSheet.HandleLoadoutNavigation's crate quick-equip
+    /// already uses, so the two feel consistent.
+    /// </summary>
+    public bool SwapStashSlotWithEquipment(int index)
+    {
+        if (index < 0 || index >= InformationSheet.InventorySlotCount)
+            return false;
+        ItemDrop? stashItem = State.Inventory[index];
+        if (stashItem is null)
+            return false;
+        string key = stashItem.SlotType == "accessory"
+            ? (State.Equipment["accessory_1"] is null ? "accessory_1" : "accessory_2")
+            : stashItem.SlotType;
+        (State.Inventory[index], State.Equipment[key]) = (State.Equipment[key], State.Inventory[index]);
+        State.CombinePlayerStats();
+        return true;
+    }
 
     public bool HandleLoadoutNavigation(IReadOnlySet<Keys> keysPressed,
         IReadOnlyList<Rectangle>? vaultSlotRects = null, bool dossier = false) =>
@@ -4873,6 +4932,17 @@ public sealed class GameSession
     /// <summary>Resolve mouse transfers after the Soul loadout and Vault rects are drawn.</summary>
     public void HandleCarriedLoadoutDrag(Point mousePosition, bool mouseDown, bool mousePressed, IReadOnlyList<Rectangle> vaultSlotRects) =>
         InformationSheet.HandleDrag(State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed, vaultSlotRects, allowWorldDrop: false);
+
+    /// <summary>
+    /// Same as <see cref="HandleCarriedLoadoutDrag"/> but sourced from the
+    /// Developer Armory's infinite catalog instead of the Vault -- dragging
+    /// a card out places a copy into an empty equipment/stash slot and
+    /// leaves the armory's own grid untouched (it never runs out; see
+    /// InformationSheet's ArmoryDragSource).
+    /// </summary>
+    public void HandleArmoryLoadoutDrag(Point mousePosition, bool mouseDown, bool mousePressed, IReadOnlyList<Rectangle> armorySlotRects) =>
+        InformationSheet.HandleDrag(State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed,
+            allowWorldDrop: false, armorySlotRects: armorySlotRects);
 
     // ----- Health -----
 

@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
+using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
 using RotBoiRemastered.World;
 
@@ -54,7 +55,7 @@ public sealed class Chronos : Ishe
             BossMovementPhaseProfile.Stationary(),
         },
         FinalHealth = 310000, FinalContactDamage = 880, FinalRewardExperience = 860,
-        FinaleDuration = 35.0,
+        FinaleDuration = 25.0,
     };
 
     public bool MidpointSurvivalActive { get; private set; }
@@ -84,6 +85,26 @@ public sealed class Chronos : Ishe
 
     protected override bool UsesIsheEncounter => false;
 
+    protected override bool EncounterSurvivalActive => MidpointSurvivalActive;
+
+    /// <summary>
+    /// Every commitment Chronos owns, drawn from throughout the fight. The
+    /// still second (4) and the king's attrition (7) are the fixed points.
+    /// </summary>
+    private static readonly int[] DamagePhasePool = { 1, 2, 3, 5, 6 };
+
+    protected override BossInterludeStyle InterludeStyle => BossInterludeStyle.Rewind;
+
+    protected override double PhaseTimeLimitFor(int phase) => phase switch
+    {
+        1 => 18.0,
+        2 => 20.0,
+        3 => 22.0,
+        5 => 23.0,
+        6 => 25.0,
+        _ => 20.0,
+    };
+
     public Chronos(float worldX, float worldY, Battleground battleground, Random? rng = null)
         : base(worldX, worldY, battleground, ChronosConfig, rng)
     {
@@ -102,6 +123,7 @@ public sealed class Chronos : Ishe
         VisualTransitionRemaining = 1.4;
         AttackCooldown = Math.Min(AttackCooldown ?? 0f, Simulation.FrameRate * .6f);
         TransitionCleanupRequested = true;
+        EnterPhase(Phase);
     }
 
     private void BeginMidpointSurvival()
@@ -117,27 +139,18 @@ public sealed class Chronos : Ishe
 
     protected override void UpdatePhase()
     {
-        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive)
+        if (DebugPhaseLocked || FinaleActive || MidpointSurvivalActive || Dying)
             return;
-        double ratio = Math.Clamp((double)Hp / MaxHp, 0.0, 1.0);
-        int desired;
-        if (!MidpointSurvivalCleared)
+        // Half health is the one health-driven transition left; commitments
+        // otherwise rotate on the phase clock, so no amount of damage lets a
+        // future go unread.
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
         {
-            if (ratio <= .5)
-            {
-                if (_phaseDeclarations < MinimumDamagePhaseDeclarations)
-                    return;
-                BeginMidpointSurvival();
-                return;
-            }
-            desired = ratio > .84 ? 1 : ratio > .67 ? 2 : 3;
+            BeginMidpointSurvival();
+            return;
         }
-        else
-        {
-            desired = ratio > .25 ? 5 : 6;
-        }
-        if (desired != Phase && _phaseDeclarations >= MinimumDamagePhaseDeclarations)
-            ApplyPhase(desired);
+        if (PhaseGovernor.ReadyToAdvance)
+            ApplyPhase(PhaseRotation.Choose(DamagePhasePool, Phase, Rng));
     }
 
     public override void DebugSetPhase(int phase)
@@ -167,49 +180,28 @@ public sealed class Chronos : Ishe
             return new HitResult(false, false, 0, true);
         double adjustedAmount = amount * (TemporalFractureActive ? TemporalFractureDamageMultiplier : 1.0);
 
-        if (!MidpointSurvivalCleared)
-        {
-            double floorRatio = Phase switch { 1 => .84, 2 => .67, _ => .50 };
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * floorRatio));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    UpdatePhase();
-                return new HitResult(false, false, 0, true);
-            }
-            var result = base.TakeDamage(Math.Min(adjustedAmount, permitted), partId, source);
-            if (Hp <= MaxHp * .5 && _phaseDeclarations >= MinimumDamagePhaseDeclarations)
-                BeginMidpointSurvival();
-            return new HitResult(result.Applied, false, result.Amount, result.Blocked);
-        }
+        // A commitment surrenders at most its damage budget, bounded by the
+        // next authored gate -- half health before the still second, one
+        // afterwards. Reaching the floor no longer advances anything: the
+        // phase clock owns that.
+        int nextGate = MidpointSurvivalCleared
+            ? 1
+            : Math.Max(1, (int)Math.Round(MaxHp * .5));
+        int floor = PhaseGovernor.DamageFloor(nextGate);
+        double permitted = Math.Max(0, Hp - floor);
+        if (permitted <= 0)
+            return new HitResult(false, false, 0, true);
 
-        if (Phase == 5)
-        {
-            int floor = Math.Max(1, (int)Math.Round(MaxHp * .25));
-            double permitted = Math.Max(0, Hp - floor);
-            if (permitted <= 0)
-            {
-                if (_phaseDeclarations >= MinimumDamagePhaseDeclarations)
-                    UpdatePhase();
-                return new HitResult(false, false, 0, true);
-            }
-            var gated = base.TakeDamage(Math.Min(adjustedAmount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
-
-        if (Phase == 6 && _phaseDeclarations < MinimumDamagePhaseDeclarations)
-        {
-            double permitted = Math.Max(0, Hp - 1);
-            if (permitted <= 0)
-                return new HitResult(false, false, 0, true);
-            var gated = base.TakeDamage(Math.Min(adjustedAmount, permitted), partId, source);
-            return new HitResult(gated.Applied, false, gated.Amount, gated.Blocked);
-        }
-        var finalResult = base.TakeDamage(adjustedAmount, partId, source);
+        int healthBefore = Hp;
+        var result = base.TakeDamage(Math.Min(adjustedAmount, permitted), partId, source);
+        PhaseGovernor.RecordDamage(healthBefore - Hp);
+        if (!MidpointSurvivalCleared && Hp <= MaxHp * .5)
+            BeginMidpointSurvival();
+        else if (MidpointSurvivalCleared && Hp <= 1 && !FinaleActive)
+            BeginFinaleSequence();
         if (FinaleActive)
             ApplyPhase(7);
-        return finalResult;
+        return new HitResult(result.Applied, false, result.Amount, result.Blocked);
     }
 
     private void Tentacle(List<EnemyProjectile> sink, float baseDirection, float bend, float damage,
@@ -604,9 +596,18 @@ public sealed class Chronos : Ishe
                 1.52f, 6, 2.3f);
         }
         if (Phase >= 5)
-            ClockShards(declaration, aimed, Phase >= 7 ? 6 : 4,
+            ClockShards(declaration, aimed, Difficulty.Shots(Phase >= 7 ? 6 : 4),
                 Phase >= 7 ? 1.9f : 1.35f,
                 Phase >= 7 ? "attrition_clock_shard" : "parallax_clock_shard");
+        // No movement is allowed to be a pure footrace: every declaration
+        // also contests the ground behind the boss, which is exactly where
+        // reading a forked route sends the player.
+        if (PatternRotation % 2 == 0)
+        {
+            AbandonedHours(declaration, aimed,
+                Difficulty.Shots(Phase >= 5 ? 3 : 2),
+                $"phase{Phase}", Phase >= 5 ? 1.25f : 1f);
+        }
         bool committed = CommitDeclaredRoutes(sink, declaration);
         if (!committed && _pendingDeclarations.Count > pendingBefore)
             _pendingDeclarations.RemoveRange(pendingBefore, _pendingDeclarations.Count - pendingBefore);
@@ -620,6 +621,43 @@ public sealed class Chronos : Ishe
         }
         PatternRotation++;
         MarkAttack(.82f);
+    }
+
+    /// <summary>
+    /// "Abandoned hours": slow, fully telegraphed pools dropped behind the
+    /// boss and around the arena's outer ring while the forked routes are
+    /// still resolving.
+    ///
+    /// Chronos's declared routes are read by walking away from them, which
+    /// on its own made the earlier movements a footrace with nothing to
+    /// dodge. These leave the ground the player is retreating onto contested,
+    /// so a route has to be answered by weaving rather than by fleeing.
+    /// </summary>
+    private void AbandonedHours(List<EnemyProjectile> sink, float aimed, int count,
+        string suffix, float damageScale = 1f)
+    {
+        // Behind the declared aim, spread across the retreat arc rather than
+        // clustered on one point. Anchored on the arena rather than the body
+        // so a hazard always lands on ground the player can actually be
+        // standing on, wherever Chronos has drifted to.
+        float rear = aimed + MathF.PI;
+        for (int index = 0; index < count; index++)
+        {
+            float spread = count <= 1 ? 0f : (index / (float)(count - 1) - .5f) * 2.1f;
+            float angle = rear + spread + (float)(Rng.NextDouble() * .22 - .11);
+            float radius = ArenaRadius * (float)(.30 + Rng.NextDouble() * .45);
+            var position = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+            float size = Simulation.TileSize * (1.85f + (float)Rng.NextDouble() * .7f);
+            sink.Add(new EnemyProjectile(
+                position.X - size / 2f, position.Y - size / 2f, 0f, 0f,
+                480 * damageScale, size,
+                color: new Color(96, 132, 178), shape: "pool", path: "pool",
+                lifetime: 7.5f + (float)Rng.NextDouble() * 2.5f,
+                owner: $"chronos_sight_abandoned_hour_{suffix}", ignoreWalls: true)
+            {
+                TelegraphDuration = 1.15f,
+            });
+        }
     }
 
     private void ApplyAuthoredCadence()
@@ -659,9 +697,13 @@ public sealed class Chronos : Ishe
             return;
         }
 
+        // This branch never reaches base.Update, so the shared phase clock has
+        // to be advanced here or it would freeze for the whole survival.
+        TickEncounterClock(dt);
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
         VisualTransitionRemaining = Math.Max(0.0, VisualTransitionRemaining - dt);
         PhaseElapsed += dt;
+        ArenaRingSeconds += dt;
         AdvanceAge();
         MidpointSurvivalRemaining = Math.Max(0.0, MidpointSurvivalRemaining - dt);
         _survivalCooldown -= dt;
@@ -676,6 +718,7 @@ public sealed class Chronos : Ishe
             MidpointSurvivalActive = false;
             MidpointSurvivalCleared = true;
             Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+            RebasePhaseHealth();
             ApplyPhase(5);
         }
         FinishMovementTracking();
@@ -758,7 +801,7 @@ public sealed class Chronos : Ishe
             float echoAlpha = MathHelper.Lerp(.22f, 0f, echo / (float)(echoCount + 1));
             float echoExtent = Size * .34f * (0.92f - echo * .05f);
             BossVisuals.RotatingCube3D(spriteBatch, center, echoExtent,
-                sky * echoAlpha, ice * echoAlpha, PhaseAccent * echoAlpha, echoYaw, pitch, roll);
+                sky * echoAlpha, ice * echoAlpha, PhaseAccent * echoAlpha, echoYaw, pitch, roll, escalation: SecondFormBlend);
         }
 
         for (int index = 0; index < (FinaleActive ? FinaleMoteCount : AmbientMoteCount); index++)
@@ -772,7 +815,7 @@ public sealed class Chronos : Ishe
                 moteSize * 2, moteSize * 2), Color.Lerp(sky, UiTheme.Cream, pulse));
         }
 
-        BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll);
+        BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll, escalation: SecondFormBlend);
 
         float sweep = BossAnimation.EaseInOutSine(BossAnimation.LoopPhase(seconds, 3.8f));
         Vector2 sweepStart = center + new Vector2(-Size * .23f, Size * (.16f - sweep * .32f));

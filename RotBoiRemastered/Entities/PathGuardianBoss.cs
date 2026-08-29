@@ -122,6 +122,41 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     private double _gateTransitionDelay;
     private bool _forceRarePattern;
     private readonly BossAttackDirector _attackDirector = new();
+
+    /// <summary>
+    /// Guardians derive straight from Enemy, so they compose the shared phase
+    /// choreography. They are the simplest encounters in the game: three
+    /// lessons, no survival, and the seven-second release everything below a
+    /// sense finale uses.
+    /// </summary>
+    private readonly BossPhaseGovernor _governor =
+        new() { HoldStyle = BossPhaseHoldStyle.SevenSecondCap };
+    private readonly BossPhaseInterlude _interlude =
+        new() { Style = BossInterludeStyle.Settle };
+
+    /// <summary>Guardian lessons sit at the bottom of the authored phase band.</summary>
+    private const double GuardianPhaseSeconds = 15.0;
+
+    /// <summary>
+    /// Past the halfway mark a guardian commits to a second form: deeper
+    /// colour and an extra layer of facet geometry. Reported as a 0-1 ramp so
+    /// the body eases into it rather than popping.
+    /// </summary>
+    public bool SecondFormActive => !Dying && Hp <= MaxHp * .5;
+    public float SecondFormBlend => SecondFormActive
+        ? (float)Math.Clamp((MaxHp * .5 - Hp) / Math.Max(1.0, MaxHp * .28), 0.0, 1.0)
+        : 0f;
+
+    public bool PhaseInterludeActive => _interlude.Active;
+    public float PhaseInterludeProgress => _interlude.Progress;
+    public double PhaseClockElapsed => _governor.Elapsed;
+    public bool PhaseDamageThresholdReached => _governor.ThresholdReached;
+
+    /// <summary>Debug and test hook: fast-forwards the current lesson's clock.</summary>
+    public void DebugCompletePhaseClock() => _governor.Tick(_governor.TimeLimit + 1.0);
+
+    /// <summary>Debug and test hook: re-baselines the lesson's damage budget.</summary>
+    public void DebugRebasePhaseHealth() => _governor.RebaseHealth(Hp, MaxHp);
     private readonly BossLocomotionController _locomotion;
     private readonly List<Vector2> _playerTrail = new(8);
     private double _trailSampleCooldown;
@@ -217,6 +252,10 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             .Select(index => MathF.Sin(index * 3.17f + floorNumber * 1.31f) * .14f)
             .ToArray();
         _locomotion = new BossLocomotionController(theme, movementSeed);
+        // The opening lesson never routes through a phase change, so seed its
+        // clock and damage budget here -- an unseeded governor reports a zero
+        // time limit and would never hand over.
+        _governor.BeginPhase(GuardianPhaseSeconds, Hp, MaxHp);
     }
 
     public override bool ReceivesKnockback => false;
@@ -307,39 +346,22 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         if (Invulnerable)
             return new HitResult(false, false, 0, true);
 
-        double floorRatio = Phase switch
-        {
-            1 => IsMiniGuardian ? .50 : .67,
-            2 => .34,
-            _ => 0,
-        };
-        if (floorRatio > 0)
-        {
-            int healthFloor = (int)Math.Ceiling(MaxHp * floorRatio);
-            amount = Math.Min(amount, Math.Max(0, Hp - healthFloor));
-            if (amount <= 0)
-            {
-                if (_attacksCompletedInPhase >= MinimumAttacksPerPhase
-                    && _gateTransitionDelay <= 0)
-                    BeginNextPhase();
-                return new HitResult(false, false, 0, true);
-            }
-        }
+        // A guardian lesson surrenders at most its damage budget, so the
+        // simplest encounters still cannot be deleted before the player has
+        // read them. Advancement is the phase clock's job, not health's.
+        int floor = _governor.DamageFloor(nextGateHp: 1);
+        amount = Math.Min(amount, Math.Max(0, Hp - floor));
+        if (amount <= 0)
+            return new HitResult(false, false, 0, true);
 
+        int healthBefore = Hp;
         var result = base.TakeDamage(amount, partId, source);
-        if (result.Killed)
+        _governor.RecordDamage(healthBefore - Hp);
+        if (result.Killed || Hp <= 1)
         {
             BeginDeath();
             return new HitResult(result.Applied, false, result.Amount, result.Blocked);
         }
-
-        int desiredPhase = Phase;
-        if (Phase == 1 && Hp <= (int)Math.Ceiling(MaxHp * (IsMiniGuardian ? .50 : .67)))
-            desiredPhase = IsMiniGuardian ? 3 : 2;
-        else if (Phase == 2 && Hp <= (int)Math.Ceiling(MaxHp * .34))
-            desiredPhase = 3;
-        if (desiredPhase > Phase && _attacksCompletedInPhase >= MinimumAttacksPerPhase)
-            BeginNextPhase();
         return result;
     }
 
@@ -354,16 +376,15 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             _attacksCompletedInPhase = 0;
             _transitionRemaining = .82;
             TransitionCleanupRequested = true;
+            StartGuardianInterlude();
             AttackCooldown = Simulation.FrameRate * .48f;
             PhaseAnnouncementRemaining = 2.4;
             BossAudio.Emit(BossAudioCueKind.Stagger, SenseKey);
             return;
         }
-        if (Phase == 2)
-        {
-            BeginTrial();
-            return;
-        }
+        // Guardians are the simplest encounters in the game and no longer
+        // hold a survival trial: phase two hands straight to phase three.
+        // BeginTrial survives for the debug hook only.
         Phase += 1;
         _attackDirector.Reset();
         _attacksCompletedInPhase = 0;
@@ -375,9 +396,29 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             _ => .8,
         };
         TransitionCleanupRequested = true;
+        StartGuardianInterlude();
         AttackCooldown = Simulation.FrameRate * .55f;
         PhaseAnnouncementRemaining = 2.4;
         BossAudio.Emit(BossAudioCueKind.Stagger, SenseKey);
+    }
+
+    /// <summary>
+    /// Opens the shared between-phase beat: firing stops, the outgoing
+    /// lesson's shots are swept off the arena, and the player is granted
+    /// grace for its length because those accelerating shots are close to
+    /// undodgeable. The body settle is handled by the existing
+    /// `_transitionRemaining` pose.
+    /// </summary>
+    private void StartGuardianInterlude()
+    {
+        _governor.BeginPhase(GuardianPhaseSeconds, Hp, MaxHp);
+        if (Dying || EntranceRemaining > 0)
+            return;
+        if (_interlude.Begin())
+        {
+            TransitionSweepRequested = true;
+            PhaseInterludeInvulnerabilitySeconds = BossPhaseInterlude.DefaultDuration;
+        }
     }
 
     private void BeginTrial()
@@ -428,6 +469,16 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         double seconds = Seconds();
         UpdateAdaptiveArena(context, seconds);
         PhaseAnnouncementRemaining = Math.Max(0, PhaseAnnouncementRemaining - seconds);
+        // The lesson clock runs ahead of every early return below, so a
+        // transition pose or a trial never strands it.
+        _interlude.Tick(seconds);
+        _governor.Suspended = Dying || TrialActive || Invulnerable
+            || EntranceRemaining > 0 || _interlude.Active;
+        if (!_governor.Suspended)
+            _governor.Tick(seconds);
+        if (_governor.ReadyToAdvance && Phase < 3 && !TrialActive
+            && _attacksCompletedInPhase >= MinimumAttacksPerPhase)
+            BeginNextPhase();
         if (Dying)
         {
             AttackAnticipation = 0;
@@ -532,12 +583,14 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
         FinishMovementTracking();
     }
 
-    private bool AtCurrentHealthFloor() => Phase switch
-    {
-        1 => Hp <= (int)Math.Ceiling(MaxHp * (IsMiniGuardian ? .50 : .67)),
-        2 => Hp <= (int)Math.Ceiling(MaxHp * .34),
-        _ => false,
-    };
+    /// <summary>
+    /// True once the player has spent this lesson's whole damage budget. It
+    /// no longer advances the encounter -- the phase clock does -- but it
+    /// still schedules the short read-the-declaration delay before the
+    /// handover.
+    /// </summary>
+    private bool AtCurrentHealthFloor() =>
+        Phase < 3 && Hp <= _governor.DamageFloor(nextGateHp: 1);
 
     private void UpdateAttackAnticipation(float windowSeconds)
     {
@@ -1459,9 +1512,13 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
 
         if (PhaseAnnouncementRemaining > 0)
         {
-            UiTheme.DrawText(spriteBatch, PhaseFlavor,
-                Math.Max(9, Size * .085f), TrialActive ? SecondaryAccent : UiTheme.Cream,
-                new Vector2(center.X, body.Top - 24), "midbottom");
+            // A wordless declaration bar in place of the old prose caption:
+            // the lesson is announced by the guardian's own architecture.
+            float span = Size * .5f * (float)Math.Min(1.0, PhaseAnnouncementRemaining);
+            var bar = new Vector2(center.X, body.Top - 20);
+            Primitives2D.Line(spriteBatch, bar - new Vector2(span, 0), bar + new Vector2(span, 0),
+                TrialActive ? SecondaryAccent : UiTheme.Cream,
+                Math.Max(2, (int)(Size * .03f)));
         }
     }
 
@@ -1595,7 +1652,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 BossVisuals.RotatingCube3D(spriteBatch, jittered, body.Width * .25f,
                     bodyColor, SecondaryAccent, PhaseAccent,
                     seconds * 1.31f, .48f + BossAnimation.Sine(seconds, 2.3f) * .38f,
-                    BossAnimation.Sine(seconds, 1.7f, .2f) * .22f);
+                    BossAnimation.Sine(seconds, 1.7f, .2f) * .22f, escalation: SecondFormBlend);
                 for (int index = 0; index < 4; index++)
                 {
                     float angle = index * MathF.PI / 2f + MathF.PI / 4f
@@ -1621,7 +1678,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 BossVisuals.RotatingCube3D(spriteBatch, center, body.Width * .2f,
                     bodyColor, SecondaryAccent, PhaseAccent,
                     flow * .42f, .62f + BossAnimation.Sine(seconds, 5.1f) * .26f,
-                    BossAnimation.Sine(seconds, 6.4f) * .16f);
+                    BossAnimation.Sine(seconds, 6.4f) * .16f, escalation: SecondFormBlend);
                 for (int index = 0; index < petals; index++)
                 {
                     float angle = flow + index * MathF.Tau / petals;
