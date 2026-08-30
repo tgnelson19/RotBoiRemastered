@@ -38,4 +38,44 @@ public static class StatDisplay
 
     public static StatDisplayDefinition ById(string id) =>
         Definitions.First(definition => definition.Id == id);
+
+    /// <summary>
+    /// The Mind's footer stat grid used to sit mostly empty (no run is active
+    /// there, so combat Definitions has nothing to show) -- this is its own
+    /// 10-card set of meta-progression numbers instead, filling the same
+    /// StatSlots geometry FooterHud already reserves. Format still takes a
+    /// RunState (matching StatDisplayDefinition's shape and letting the
+    /// carried-stash card read live run data) but every other card reads
+    /// permanent profile/campaign state that exists outside any run.
+    /// </summary>
+    public static readonly IReadOnlyList<StatDisplayDefinition> HubDefinitions =
+    [
+        new("mind_tokens", "TOK", "Mind Tokens", _ => $"{GameProfile.Profile.MindTokens:N0}",
+            "Permanent currency earned from runs, spent on skills and Vault space."),
+        new("vault", "VLT", "Vault",
+            _ => $"{GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}",
+            "Items held in permanent storage, safe between runs."),
+        new("carried_stash", "STSH", "Carried Stash",
+            s => $"{s.Inventory.Count(item => item is not null)}/{InformationSheet.InventorySlotCount}",
+            "Items currently carried into your next run."),
+        new("quests", "QST", "Quests",
+            _ => $"{GameProfile.Profile.CompletedQuests.Count}/{MetaProgression.Quests.Count}",
+            "Meta-progression quests completed."),
+        new("skills", "SKL", "Skills",
+            _ => $"{GameProfile.Profile.SkillLevels.Count(pair => pair.Value > 0)}/{MetaProgression.SkillNodes.Count}",
+            "Permanent skill nodes purchased in the Mind's skill tree."),
+        new("best_dps", "DPS", "Best DPS", _ => $"{GameProfile.Profile.BestDummyDps:N0}",
+            "Highest damage-per-second recorded on the training dummy."),
+        new("new_game_plus", "NG+", "New Game Plus",
+            _ => $"{(GameProfile.Profile.NewGamePlusUnlocked.Count == 0 ? 0 : GameProfile.Profile.NewGamePlusUnlocked.Values.Max())}",
+            "Highest New Game Plus tier unlocked on any path."),
+        new("statues", "STAT", "Statues",
+            _ => $"{CampaignProgression.SenseKeys.Count(sense => CampaignProgression.Data.SilverStatues.GetValueOrDefault(sense)?.Unlocked == true) + CampaignProgression.SenseKeys.Count(sense => CampaignProgression.Data.GoldStatues.GetValueOrDefault(sense)?.Unlocked == true)}/10",
+            "Silver and Gold sense statues unlocked."),
+        new("campaign", "CMP", "Campaign",
+            _ => CampaignProgression.Data.SoulUnlocked ? "SOUL" : CampaignProgression.Data.BodyUnlocked ? "BODY" : "BODY LOCKED",
+            "Which stage of the linear Mind campaign is currently open."),
+        new("discoveries", "DISC", "Discoveries", _ => $"{GameProfile.Profile.DiscoveredItems.Count}",
+            "Distinct items identified so far across all runs."),
+    ];
 }

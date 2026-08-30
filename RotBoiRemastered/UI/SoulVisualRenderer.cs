@@ -810,6 +810,7 @@ internal static class SoulVisualRenderer
         float wake = PortalWake(state, pull) + mastery * .055f;
         float radius = Simulation.TileSize * (.82f - pull * .18f);
         DrawPortalShadow(spriteBatch, center, radius);
+        DrawPortalAmbience(spriteBatch, center, radius, path.Accent, time, wake, StableSeed(path.Key));
         Primitives2D.FillCircle(spriteBatch, center, radius * .72f, new Color(12, 10, 18));
 
         switch (path.Key)
@@ -890,6 +891,12 @@ internal static class SoulVisualRenderer
     {
         int extent = (int)radius;
         var outer = new Rectangle((int)center.X - extent, (int)center.Y - extent, extent * 2, extent * 2);
+        // A square ripple, echoing the frame outward and fading -- the
+        // "something is pressing outward" read this portal was missing.
+        float ripple = (time * 22f) % (radius * .6f);
+        var pulse = outer;
+        pulse.Inflate((int)ripple, (int)ripple);
+        Primitives2D.RectOutline(spriteBatch, pulse, color * wake * Math.Max(0f, .32f - ripple / (radius * 2f)), 2);
         Primitives2D.RectOutline(spriteBatch, outer, color * wake, 5);
         var inner = outer;
         inner.Inflate(-13, -13);
@@ -913,6 +920,18 @@ internal static class SoulVisualRenderer
         Primitives2D.FillCircle(spriteBatch, center, iris, color * .72f * wake);
         Primitives2D.FillCircle(spriteBatch, center, iris * .38f, UiTheme.Ink);
         float scan = MathF.Floor(time * 12f) * MathF.PI / 24f;
+        // Fading echoes of the last couple of scan positions, trailing
+        // behind the live beam -- the same "motion leaves a trace" idea
+        // Aphantasia's tentacle echoes use, applied to this portal's own
+        // sweeping scanline instead of a new shape.
+        for (int echo = 2; echo >= 1; echo--)
+        {
+            float echoScan = scan - echo * MathF.PI / 24f;
+            float echoAlpha = .3f / echo;
+            Primitives2D.Line(spriteBatch, center + Direction(echoScan) * iris,
+                center + Direction(echoScan) * radius * 1.12f,
+                Color.Lerp(color, Color.White, .45f) * (echoAlpha * wake), 1);
+        }
         Primitives2D.Line(spriteBatch, center + Direction(scan) * iris,
             center + Direction(scan) * radius * 1.18f, Color.Lerp(color, Color.White, .45f) * .66f, 2);
     }
@@ -942,6 +961,19 @@ internal static class SoulVisualRenderer
         Color color, float time, float wake)
     {
         float phase = MathF.Floor(time * 6f) * MathF.PI / 12f;
+        // A fading echo of the star's last position, one step behind the
+        // live rotation -- reuses the polygon build below rather than a
+        // whole new shape, same trailing-motion idea as the sight portal's
+        // scanline echo.
+        var echoStar = new Vector2[16];
+        for (int point = 0; point < echoStar.Length; point++)
+        {
+            float angle = phase - MathF.PI / 12f + point * MathF.Tau / echoStar.Length;
+            float r = point % 2 == 0 ? radius : radius * .54f;
+            echoStar[point] = center + Direction(angle) * r;
+        }
+        Primitives2D.PolygonOutline(spriteBatch, echoStar, color * wake * .22f, 2);
+
         var star = new Vector2[16];
         for (int point = 0; point < star.Length; point++)
         {
@@ -1046,6 +1078,42 @@ internal static class SoulVisualRenderer
             new Rectangle((int)(center.X - radius * 1.05f), (int)(center.Y + radius * .48f),
                 (int)(radius * 2.1f), (int)(radius * .55f)),
             UiTheme.Shadow * .8f);
+    }
+
+    /// <summary>
+    /// Shared ambient dressing for every sense's path portal (the older,
+    /// plainer 2D portals compared to the Aphantasia/Composite portals'
+    /// twinkling stars and echo trails): a soft breathing double halo plus a
+    /// handful of drifting motes orbiting the rim, in the portal's own
+    /// accent color. Deterministic/time-driven rather than pooled-particle
+    /// (BitVfxSystem.EmitBurst is tuned for one-shot combat events, not a
+    /// continuous ambient loop like this), matching how the rest of this
+    /// file already animates portals purely off `time`. Drawn once, shared
+    /// by every DrawPathPortal call, so each sense's own method only needs
+    /// to add what makes it distinct (see the echo touches in
+    /// DrawSightPortal/DrawPhantasiaPortal).
+    /// </summary>
+    private static void DrawPortalAmbience(SpriteBatch spriteBatch, Vector2 center, float radius,
+        Color color, float time, float wake, int seed)
+    {
+        float breathe = 1f + .05f * MathF.Sin(time * 1.3f + seed);
+        Primitives2D.CircleOutline(spriteBatch, center, radius * 1.32f * breathe, color * .22f * wake, 2);
+        Primitives2D.CircleOutline(spriteBatch, center, radius * 1.5f * breathe, color * .12f * wake, 1);
+
+        const int moteCount = 7;
+        for (int index = 0; index < moteCount; index++)
+        {
+            float speed = .35f + index % 3 * .12f;
+            float orbitRadius = radius * (1.05f + index % 4 * .09f);
+            float direction = index % 2 == 0 ? 1f : -1f;
+            float angle = seed * .37f + index * (MathF.Tau / moteCount) + time * speed * direction;
+            float bob = MathF.Sin(time * (1.4f + index * .13f) + index) * radius * .08f;
+            Vector2 at = center + Direction(angle) * orbitRadius + new Vector2(0, bob);
+            float twinkle = .35f + .45f * (.5f + .5f * MathF.Sin(time * (2.2f + index * .21f) + index * 3f));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)at.X - 2, (int)at.Y - 2, 4, 4),
+                Color.Lerp(color, Color.White, .3f) * (twinkle * wake));
+        }
     }
 
     private static float PortalWake(SoulPortalPresentationState state, float pull) => state switch

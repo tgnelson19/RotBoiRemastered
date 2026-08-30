@@ -250,10 +250,14 @@ public class InformationSheetTests
     }
 
     [Fact]
-    public void LiveLootDrag_DoesNotPickUpStashedItems()
+    public void LiveLootDrag_PicksUpStashedItemsEvenNearACrate()
     {
+        // The always-visible stash strip (FooterHud.DrawStash) is draggable
+        // any time during a run -- including with a crate's quick-loot
+        // strip open at the same time -- not just while no crate is nearby.
         var state = MakeState();
-        state.Inventory[0] = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Rare");
+        var stashed = new ItemDrop(Items.DefinitionsByName["Iron Sword"], "Rare");
+        state.Inventory[0] = stashed;
         var crate = new LootCrate(0, 0,
             new[] { new ItemDrop(Items.DefinitionsByName["Ash Wand"], "Rare") });
         state.NearbyCrate = crate;
@@ -265,8 +269,9 @@ public class InformationSheetTests
         sheet.HandleLiveLootDrag(state, Vector2.Zero, stashRect.Center,
             mouseDown: true, mousePressed: true);
 
-        Assert.False(sheet.DragInProgress);
-        Assert.NotNull(state.Inventory[0]);
+        Assert.True(sheet.DragInProgress);
+        Assert.Same(stashed, sheet.DraggingItem);
+        Assert.Null(state.Inventory[0]);
     }
 
     [Fact]

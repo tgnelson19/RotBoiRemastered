@@ -42,6 +42,16 @@ public sealed class FooterHudTests
         Assert.All(layout.StatSlots, slot => Assert.True(layout.Bounds.Contains(slot)));
         Assert.True(layout.Experience.Width >= layout.Bounds.Width * .9);
         Assert.True(FooterHud.SafeArea(width, height).Bottom <= layout.Bounds.Top + 12 * scale);
+
+        // The stash strip sits just below Bounds (not inside it -- see
+        // CalculateLayout's doc comment). The Bounds.Top check above already
+        // covers it being fully within the reserved/safe-area shrink (Bounds
+        // moves up by exactly the strip's height to make room for it); this
+        // just confirms the strip itself stays on-screen and its slots stay
+        // inside it.
+        Assert.Equal(InformationSheet.InventorySlotCount, layout.StashSlots.Count);
+        Assert.True(screen.Contains(layout.Stash));
+        Assert.All(layout.StashSlots, slot => Assert.True(layout.Stash.Contains(slot)));
     }
 
     [Theory]
@@ -87,8 +97,7 @@ public sealed class FooterHudTests
         Assert.True(screen.Contains(quick.Bounds));
         Assert.True(quick.Bounds.Bottom <= footer.Bounds.Top);
         Assert.Equal(InformationSheet.CrateSlotCount, quick.LootSlots.Count);
-        Assert.Equal(InformationSheet.InventorySlotCount, quick.StashSlots.Count);
-        Assert.All(quick.LootSlots.Concat(quick.StashSlots), slot =>
+        Assert.All(quick.LootSlots, slot =>
         {
             Assert.True(quick.Bounds.Contains(slot));
             Assert.Equal(quick.LootSlots[0].Y, slot.Y);
@@ -120,6 +129,5 @@ public sealed class FooterHudTests
 
         Assert.Single(oneItem.LootSlots);
         Assert.True(oneItem.Bounds.Width < fourItems.Bounds.Width);
-        Assert.Equal(InformationSheet.InventorySlotCount, oneItem.StashSlots.Count);
     }
 }

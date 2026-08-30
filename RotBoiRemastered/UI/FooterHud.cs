@@ -19,8 +19,15 @@ public sealed class FooterLayout
     public required Rectangle Resources { get; init; }
     public required Rectangle Stats { get; init; }
     public required Rectangle Experience { get; init; }
+    /// <summary>
+    /// The carried stash, always visible directly beneath Equipment (not
+    /// inside Bounds -- see CalculateLayout's doc comment on why it's its
+    /// own band below the main panel rather than squeezed into it).
+    /// </summary>
+    public required Rectangle Stash { get; init; }
     public required IReadOnlyList<Rectangle> EquipmentSlots { get; init; }
     public required IReadOnlyList<Rectangle> StatSlots { get; init; }
+    public required IReadOnlyList<Rectangle> StashSlots { get; init; }
     public bool Compact { get; init; }
 }
 
@@ -28,14 +35,16 @@ public sealed class QuickLootLayout
 {
     public required Rectangle Bounds { get; init; }
     public required Rectangle LootLabel { get; init; }
-    public required Rectangle StashLabel { get; init; }
     public required IReadOnlyList<Rectangle> LootSlots { get; init; }
-    public required IReadOnlyList<Rectangle> StashSlots { get; init; }
 }
 
 /// <summary>
-/// Compact combat HUD. Equipped and stashed items remain read-only during combat;
-/// only nearby world loot can be moved through the transient quick-loot strip.
+/// Compact combat HUD. Equipment and the carried stash are both live during
+/// combat now (see FooterLayout.Stash/StashSlots and DrawStash) -- items can
+/// be dragged between them, or swapped with the 1-8 keys
+/// (RotBoiGame.UpdateGameRun), any time during a run. Only nearby world loot
+/// still needs its own transient quick-loot strip (DrawQuickLoot), since a
+/// crate isn't always around to show a permanent panel for.
 /// </summary>
 public sealed class FooterHud
 {
@@ -45,28 +54,43 @@ public sealed class FooterHud
     private static readonly string[] EquipmentLabels = ["W", "A", "R", "1", "2"];
 
     private Rectangle _bounds;
+    private Rectangle _stashBounds;
     private Rectangle _quickLootBounds;
     private Rectangle _equipmentHit;
     private Rectangle _experienceHit;
     private ItemDrop? _tooltipItem;
     private readonly Dictionary<string, Rectangle> _equipmentSlotRects = new();
+    private readonly List<Rectangle> _stashSlotRects = new(InformationSheet.InventorySlotCount);
     private readonly List<Rectangle> _quickLootSlotRects = new(InformationSheet.CrateSlotCount);
-    private readonly List<Rectangle> _quickStashSlotRects = new(InformationSheet.InventorySlotCount);
     private int _quickLootSelection;
     private int _preferredAccessorySlot;
 
     public Rectangle Bounds => _bounds;
     public IReadOnlyDictionary<string, Rectangle> EquipmentSlotRects => _equipmentSlotRects;
+    public IReadOnlyList<Rectangle> StashSlotRects => _stashSlotRects;
     public IReadOnlyList<Rectangle> QuickLootSlotRects => _quickLootSlotRects;
-    public IReadOnlyList<Rectangle> QuickStashSlotRects => _quickStashSlotRects;
-    public bool Contains(Point point) => _bounds.Contains(point) || _quickLootBounds.Contains(point);
+    // Includes the stash strip (which sits below _bounds, not inside it --
+    // see CalculateLayout) so hovering it also suppresses aim/fire the same
+    // way hovering the rest of the footer already does (UpdateGameRun).
+    public bool Contains(Point point) =>
+        _bounds.Contains(point) || _stashBounds.Contains(point) || _quickLootBounds.Contains(point);
+
+    /// <summary>
+    /// Extra vertical band CalculateLayout reserves below Bounds for the
+    /// always-visible stash row -- shared with ReservedHeight so the world
+    /// viewport always shrinks by exactly as much room as the stash row
+    /// actually occupies, in both combat and the Mind (CalculateLayout is
+    /// shared by Draw and DrawSoul; DrawSoul just doesn't populate Stash).
+    /// </summary>
+    private static int StashStripExtra(float scale) =>
+        Math.Max(22, (int)(34 * scale)) + Math.Max(3, (int)(6 * scale));
 
     public static int ReservedHeight(int screenWidth, int screenHeight)
     {
         float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
         bool compact = screenWidth < 900 || screenWidth < 1050 * scale;
         return Math.Min(screenHeight / 2,
-            Math.Max((int)(compact ? 124 * scale : 91 * scale), (int)(66 * scale)));
+            Math.Max((int)(compact ? 124 * scale : 91 * scale), (int)(66 * scale)) + StashStripExtra(scale));
     }
 
     public static Rectangle SafeArea(int screenWidth, int screenHeight)
@@ -82,7 +106,18 @@ public sealed class FooterHud
         int width = Math.Max(1, Math.Min(screenWidth - margin * 2, (int)(1500 * scale)));
         int height = Math.Min(screenHeight / 2,
             Math.Max((int)((compact ? 116 : 84) * scale), (int)(62 * scale)));
-        var bounds = new Rectangle((screenWidth - width) / 2, screenHeight - height - margin, width, height);
+        // The stash row sits below the main panel rather than inside it: the
+        // panel's internal geometry (health/dash/equipment/resources/stats)
+        // is tuned for its own bodyHeight, and folding an 8-slot row into
+        // that would either shrink everything else or need every one of
+        // those proportions re-tuned. Reserving a second band underneath
+        // instead (bottom-anchored the same way `bounds` always was) keeps
+        // all of that untouched and just makes the whole combined panel
+        // taller -- see ReservedHeight/StashStripExtra for the matching
+        // world-viewport shrink.
+        int stashExtra = StashStripExtra(scale);
+        var bounds = new Rectangle((screenWidth - width) / 2,
+            screenHeight - height - margin - stashExtra, width, height);
         int pad = Math.Max(4, (int)(8 * scale));
         int xpHeight = Math.Max(10, (int)(17 * scale));
         var experience = new Rectangle(bounds.X + pad, bounds.Bottom - xpHeight - pad,
@@ -147,6 +182,24 @@ public sealed class FooterHud
                 statHeight))
             .ToArray();
 
+        // Below Bounds, not inside it (see the doc comment on `stashExtra`
+        // above) -- horizontally aligned under Equipment specifically, so it
+        // visibly reads as "the player's stash, right below their gear"
+        // rather than just another strip spanning the whole bar.
+        int stashGap = Math.Max(3, (int)(6 * scale));
+        int stashHeight = Math.Max(22, (int)(34 * scale));
+        var stash = new Rectangle(equipment.X, bounds.Bottom + stashGap, equipment.Width, stashHeight);
+        int stashSlotGap = Math.Max(2, (int)(4 * scale));
+        int stashSlotSize = Math.Max(14, Math.Min(stash.Height,
+            (stash.Width - stashSlotGap * (InformationSheet.InventorySlotCount - 1)) / InformationSheet.InventorySlotCount));
+        int stashSlotsWidth = stashSlotSize * InformationSheet.InventorySlotCount
+            + stashSlotGap * (InformationSheet.InventorySlotCount - 1);
+        int stashSlotsX = stash.Center.X - stashSlotsWidth / 2;
+        var stashSlots = Enumerable.Range(0, InformationSheet.InventorySlotCount)
+            .Select(index => new Rectangle(stashSlotsX + index * (stashSlotSize + stashSlotGap),
+                stash.Center.Y - stashSlotSize / 2, stashSlotSize, stashSlotSize))
+            .ToArray();
+
         return new FooterLayout
         {
             Bounds = bounds,
@@ -156,8 +209,10 @@ public sealed class FooterHud
             Resources = resources,
             Stats = stats,
             Experience = experience,
+            Stash = stash,
             EquipmentSlots = equipmentSlots,
             StatSlots = statSlots,
+            StashSlots = stashSlots,
             Compact = compact,
         };
     }
@@ -167,16 +222,18 @@ public sealed class FooterHud
     {
         lootSlotCount = Math.Clamp(lootSlotCount, 1, InformationSheet.CrateSlotCount);
         int gap = Math.Max(2, (int)MathF.Round(4 * scale));
+        // Loot-only now: the stash used to share this strip as a read-only
+        // "TAB ONLY" preview, but it's a real, always-visible, always-live
+        // panel of its own below Equipment now (see DrawStash), so showing
+        // it a second time here would just be a stale duplicate.
         int pad = Math.Max(3, (int)MathF.Round(6 * scale));
         int lootLabelWidth = Math.Max(28, (int)MathF.Round((footer.Compact ? 42 : 66) * scale));
-        int stashLabelWidth = Math.Max(34, (int)MathF.Round((footer.Compact ? 52 : 86) * scale));
-        int slotCount = lootSlotCount + InformationSheet.InventorySlotCount;
-        int availableForSlots = footer.Bounds.Width - pad * 2 - lootLabelWidth - stashLabelWidth
-            - gap * (slotCount + 1);
-        int slotSize = Math.Clamp(availableForSlots / slotCount,
+        int availableForSlots = footer.Bounds.Width - pad * 2 - lootLabelWidth
+            - gap * (lootSlotCount + 1);
+        int slotSize = Math.Clamp(availableForSlots / Math.Max(1, lootSlotCount),
             Math.Max(16, (int)(22 * scale)), Math.Max(22, (int)(44 * scale)));
-        int contentWidth = lootLabelWidth + stashLabelWidth + slotSize * slotCount
-            + gap * (slotCount + 1);
+        int contentWidth = lootLabelWidth + slotSize * lootSlotCount
+            + gap * (lootSlotCount + 1);
         int height = slotSize + pad * 2;
         int x = footer.Bounds.Center.X - contentWidth / 2;
         int y = footer.Bounds.Y - height - gap;
@@ -190,21 +247,11 @@ public sealed class FooterHud
             lootSlots.Add(new Rectangle(cursor, bounds.Y + pad, slotSize, slotSize));
             cursor += slotSize + gap;
         }
-        var stashLabel = new Rectangle(cursor, bounds.Y, stashLabelWidth - gap, bounds.Height);
-        cursor += stashLabelWidth;
-        var stashSlots = new List<Rectangle>(InformationSheet.InventorySlotCount);
-        for (int index = 0; index < InformationSheet.InventorySlotCount; index++)
-        {
-            stashSlots.Add(new Rectangle(cursor, bounds.Y + pad, slotSize, slotSize));
-            cursor += slotSize + gap;
-        }
         return new QuickLootLayout
         {
             Bounds = bounds,
             LootLabel = lootLabel,
-            StashLabel = stashLabel,
             LootSlots = lootSlots,
-            StashSlots = stashSlots,
         };
     }
 
@@ -218,11 +265,11 @@ public sealed class FooterHud
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         FooterLayout layout = CalculateLayout(viewport.Width, viewport.Height, scale);
         _bounds = layout.Bounds;
+        _stashBounds = layout.Stash;
         _equipmentHit = layout.Equipment;
         _experienceHit = layout.Experience;
         _quickLootBounds = Rectangle.Empty;
         _quickLootSlotRects.Clear();
-        _quickStashSlotRects.Clear();
         _tooltipItem = null;
 
         float chromeTime = (float)(state.RunTimeSeconds * Math.Clamp(
@@ -235,6 +282,7 @@ public sealed class FooterHud
         DrawResources(spriteBatch, layout, state, scale);
         DrawStats(spriteBatch, layout, state, scale);
         DrawExperience(spriteBatch, layout, state, scale, _playerLevelCap);
+        DrawStash(spriteBatch, layout, state, mousePosition, scale);
 
         if (state.NearbyCrate is { Items.Count: > 0 })
             DrawQuickLoot(spriteBatch, layout, state, mousePosition, scale, chromeTime,
@@ -260,26 +308,29 @@ public sealed class FooterHud
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         FooterLayout layout = CalculateLayout(viewport.Width, viewport.Height, scale);
         _bounds = layout.Bounds;
+        // The Mind keeps its own, better stash+equipment merge at the
+        // Storage station (SoulHub/DrawSoulLoadoutPanel) -- this footer
+        // doesn't duplicate a stash strip, so there's nothing live below it.
+        _stashBounds = Rectangle.Empty;
+        _stashSlotRects.Clear();
         _equipmentHit = layout.Equipment;
         _experienceHit = Rectangle.Empty;
         _quickLootBounds = Rectangle.Empty;
         _quickLootSlotRects.Clear();
-        _quickStashSlotRects.Clear();
         _tooltipItem = null;
         UiTheme.DrawFramedPanel(spriteBatch, layout.Bounds,
             UiTheme.Void * .96f, UiTheme.Cream, shadow: 7);
         DrawEquipment(spriteBatch, layout, state, mousePosition, scale);
 
-        int stashCount = state.Inventory.Count(item => item is not null);
-        UiTheme.DrawText(spriteBatch, "CARRIED STASH", 7 * scale, UiTheme.Muted,
-            new Vector2(layout.Health.X, layout.Health.Y + 2 * scale));
-        UiTheme.DrawText(spriteBatch, $"{stashCount}/{InformationSheet.InventorySlotCount}", 15 * scale, UiTheme.Text,
-            new Vector2(layout.Health.X, layout.Health.Center.Y + 2 * scale), "midleft");
-        UiTheme.DrawText(spriteBatch, $"MIND TOKENS  {GameProfile.Profile.MindTokens:N0}", 8 * scale, UiTheme.Purple,
-            new Vector2(layout.Resources.X, layout.Resources.Center.Y), "midleft");
-        UiTheme.DrawText(spriteBatch,
-            $"VAULT  {GameProfile.Profile.Storage.Count}/{MetaProgression.StorageCapacity}", 8 * scale, UiTheme.Gold,
-            new Vector2(layout.Stats.Right, layout.Stats.Center.Y), "midright");
+        // The hub reuses the exact same Health/Dash/Resources/Stats geometry
+        // combat uses (see CalculateLayout), but combat's own DrawHealth/
+        // DrawStats have nothing to show here -- no active run stats exist
+        // outside a run. Filling every reserved region with hub-relevant
+        // cards (instead of a couple of text lines dropped in corners)
+        // is what keeps the bar reading as a deliberate hub layout rather
+        // than a combat layout with holes in it.
+        DrawMindStatusCard(spriteBatch, layout, scale);
+        DrawStats(spriteBatch, layout, state, scale, StatDisplay.HubDefinitions);
         UiTheme.DrawText(spriteBatch, "VISIT THE VAULT TO MANAGE CARRIED RELICS", 8 * scale, UiTheme.Muted,
             layout.Experience.Center.ToVector2(), "center");
         if (_tooltipItem is not null)
@@ -295,7 +346,16 @@ public sealed class FooterHud
                 && state.ExpCount >= state.ExpNeededForNextLevel;
         if (canLevel && _experienceHit.Contains(mousePosition))
             return FooterAction.OpenLevelUp;
-        if (_equipmentHit.Contains(mousePosition) || _bounds.Contains(mousePosition))
+        // A press directly on an equipped item now starts a drag instead
+        // (InformationSheet.HandleLiveLootDrag, called before this every
+        // frame -- see GameSession.HandleQuickLootInput) -- opening the Tab
+        // menu out from under that same press would strand the drag mid-air
+        // on a screen that no longer has anywhere to drop it. Clicking
+        // anywhere else on the bar (background, health, stats, an empty
+        // gear slot) still opens it, same as before.
+        bool overEquippedSlot = _equipmentSlotRects.Any(pair =>
+            pair.Value.Contains(mousePosition) && state.Equipment.GetValueOrDefault(pair.Key) is not null);
+        if (!overEquippedSlot && _bounds.Contains(mousePosition))
             return FooterAction.OpenDossier;
         return FooterAction.None;
     }
@@ -339,6 +399,43 @@ public sealed class FooterHud
         UiTheme.DrawProgress(spriteBatch, dashRect, (float)dashReady, UiTheme.Blue, 4);
     }
 
+    /// <summary>
+    /// Hub-only replacement for DrawHealth: there's no health/dash to show
+    /// outside a run, so this fills the same Health+Dash+Resources footprint
+    /// with a single card of hub-relevant status (which campaign stage is
+    /// open, and which optional braziers are currently lit) instead of
+    /// leaving that whole left side of the bar blank.
+    /// </summary>
+    private static void DrawMindStatusCard(SpriteBatch spriteBatch, FooterLayout layout, float scale)
+    {
+        var rect = Rectangle.Union(Rectangle.Union(layout.Health, layout.Dash), layout.Resources);
+        int radius = UiTheme.SmallCornerRadius(scale);
+        Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, radius);
+        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Border * .72f, Math.Max(1, (int)scale), radius);
+
+        int pad = Math.Max(3, (int)(6 * scale));
+        string campaignLabel = CampaignProgression.Data.SoulUnlocked ? "THE SOUL"
+            : CampaignProgression.Data.BodyUnlocked ? "THE BODY"
+            : "THE BODY  //  LOCKED";
+        UiTheme.DrawText(spriteBatch, "CAMPAIGN", 6.5 * scale, UiTheme.Muted,
+            new Vector2(rect.X + pad, rect.Y + Math.Max(1, 2 * scale)));
+        UiTheme.DrawText(spriteBatch, campaignLabel, 11 * scale, UiTheme.Text,
+            new Vector2(rect.X + pad, rect.Y + Math.Max(1, 2 * scale) + 8 * scale));
+
+        var flags = new List<(string Label, bool Active, Color Color)>
+        {
+            ("HARD", GameProfile.Profile.HardModeEnabled, UiTheme.Red),
+            ("NO-EXTRACT", GameProfile.Profile.NoExtractEnabled, UiTheme.Gold),
+            ("GOLDEN", GameProfile.Profile.GoldenFlameEnabled, UiTheme.Gold),
+            ("VOID", GameProfile.Profile.VoidEnabled, UiTheme.Purple),
+        };
+        string flagLine = string.Join("   ", flags.Where(f => f.Active).Select(f => f.Label));
+        UiTheme.DrawText(spriteBatch,
+            flagLine.Length > 0 ? $"LIT  {flagLine}" : "NO BRAZIERS LIT",
+            6.5 * scale, flags.Any(f => f.Active) ? UiTheme.Gold : UiTheme.Muted,
+            new Vector2(rect.X + pad, rect.Bottom - Math.Max(3, (int)(6 * scale))), "bottomleft");
+    }
+
     private void DrawEquipment(SpriteBatch spriteBatch, FooterLayout layout, RunState state,
         Point mousePosition, float scale)
     {
@@ -367,6 +464,54 @@ public sealed class FooterHud
         }
     }
 
+    /// <summary>
+    /// The carried stash, always visible directly below Equipment and always
+    /// live -- draggable to/from equipment any time during a run (see
+    /// InformationSheet.HandleLiveLootDrag, which no longer requires a
+    /// nearby crate), or swapped with the 1-8 keys (RotBoiGame.UpdateGameRun,
+    /// GameSession.SwapStashSlotWithEquipment). Replaces the old
+    /// paused-Dossier-only stash grid and the read-only "TAB ONLY" quick-loot
+    /// preview -- both are gone now that this is the one live stash panel.
+    /// </summary>
+    private void DrawStash(SpriteBatch spriteBatch, FooterLayout layout, RunState state,
+        Point mousePosition, float scale)
+    {
+        _stashSlotRects.Clear();
+        int radius = UiTheme.SmallCornerRadius(scale);
+        Primitives2D.FillRoundedRect(spriteBatch, layout.Stash, UiTheme.Void * .9f, radius);
+        Primitives2D.RoundedRectOutline(spriteBatch, layout.Stash, UiTheme.Border, Math.Max(1, (int)scale), radius);
+        for (int index = 0; index < layout.StashSlots.Count; index++)
+        {
+            Rectangle rect = layout.StashSlots[index];
+            _stashSlotRects.Add(rect);
+            ItemDrop? item = state.Inventory[index];
+            bool hovered = rect.Contains(mousePosition);
+            if (item is not null)
+            {
+                ItemCards.DrawItemCard(spriteBatch, rect, item, hovered, (float)state.RunTimeSeconds);
+                if (hovered)
+                    _tooltipItem = item;
+            }
+            else
+            {
+                Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, UiTheme.SmallCornerRadius(scale));
+                Primitives2D.RoundedRectOutline(spriteBatch, rect,
+                    hovered ? UiTheme.Purple : UiTheme.Border * .7f, Math.Max(1, (int)(1.5f * scale)),
+                    UiTheme.SmallCornerRadius(scale));
+            }
+            // Matches the "Stash: Swap Slot N" keybind badge the old Dossier
+            // stash grid used to draw -- same purpose, new home.
+            if (Keybinds.KeyFor($"stash_swap_{index + 1}") is not null)
+            {
+                int badgeSize = Math.Max(9, (int)(11 * scale));
+                var badge = new Rectangle(rect.X + 1, rect.Y + 1, badgeSize, badgeSize);
+                Primitives2D.FillRect(spriteBatch, badge, UiTheme.Shadow * .78f);
+                UiTheme.DrawText(spriteBatch, index + 1, rect.Width * .3, UiTheme.Muted,
+                    badge.Center.ToVector2(), "center");
+            }
+        }
+    }
+
     private void DrawQuickLoot(SpriteBatch spriteBatch, FooterLayout footer, RunState state,
         Point mousePosition, float scale, float chromeTime, bool preferControllerPrompts)
     {
@@ -375,7 +520,6 @@ public sealed class FooterHud
         QuickLootLayout layout = CalculateQuickLootLayout(footer, scale, visibleLootCount);
         _quickLootBounds = layout.Bounds;
         _quickLootSlotRects.AddRange(layout.LootSlots);
-        _quickStashSlotRects.AddRange(layout.StashSlots);
         int lootCount = layout.LootSlots.Count;
         _quickLootSelection = Math.Clamp(_quickLootSelection, 0, Math.Max(0, lootCount - 1));
 
@@ -383,14 +527,6 @@ public sealed class FooterHud
             UiTheme.PanelRaised * .98f, UiTheme.Gold, shadow: 4);
         UiTheme.DrawText(spriteBatch, "LOOT", 6.5 * scale, UiTheme.Gold,
             layout.LootLabel.Center.ToVector2(), "center", bold: true);
-        float stashLabelY = footer.Compact
-            ? layout.StashLabel.Center.Y
-            : layout.StashLabel.Center.Y - 6 * scale;
-        UiTheme.DrawText(spriteBatch, "STASH", footer.Compact ? 6 * scale : 5.5 * scale,
-            UiTheme.Purple, new Vector2(layout.StashLabel.Center.X, stashLabelY), "center");
-        if (!footer.Compact)
-            UiTheme.DrawText(spriteBatch, "TAB ONLY", 4.75 * scale, UiTheme.Muted,
-                new Vector2(layout.StashLabel.Center.X, layout.StashLabel.Center.Y + 7 * scale), "center");
 
         string? targetKey = null;
         for (int index = 0; index < layout.LootSlots.Count; index++)
@@ -417,29 +553,6 @@ public sealed class FooterHud
             if (selected)
                 Primitives2D.RectOutline(spriteBatch, rect, UiTheme.Cream,
                     Math.Max(1, (int)(2 * scale)));
-        }
-
-        for (int index = 0; index < layout.StashSlots.Count; index++)
-        {
-            Rectangle rect = layout.StashSlots[index];
-            ItemDrop? item = state.Inventory[index];
-            bool hovered = rect.Contains(mousePosition);
-            if (item is not null)
-            {
-                ItemCards.DrawItemCard(spriteBatch, rect, item, hovered, (float)state.RunTimeSeconds);
-                if (hovered)
-                    _tooltipItem = item;
-            }
-            else
-            {
-                Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink,
-                    UiTheme.SmallCornerRadius(scale));
-                Primitives2D.RoundedRectOutline(spriteBatch, rect,
-                    hovered ? UiTheme.Purple : UiTheme.Border, Math.Max(1, (int)(1.5f * scale)),
-                    UiTheme.SmallCornerRadius(scale));
-                UiTheme.DrawText(spriteBatch, (index + 1).ToString(), 5.5 * scale, UiTheme.Muted,
-                    rect.Center.ToVector2(), "center");
-            }
         }
 
         if (targetKey is not null && _equipmentSlotRects.TryGetValue(targetKey, out Rectangle targetRect))
@@ -496,9 +609,13 @@ public sealed class FooterHud
             new Vector2(layout.Resources.Center.X, layout.Resources.Center.Y + 4 * scale), "center");
     }
 
-    private static void DrawStats(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale)
+    private static void DrawStats(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale) =>
+        DrawStats(spriteBatch, layout, state, scale, StatDisplay.Definitions);
+
+    private static void DrawStats(SpriteBatch spriteBatch, FooterLayout layout, RunState state, float scale,
+        IReadOnlyList<StatDisplayDefinition> statDefinitions)
     {
-        IReadOnlyList<StatDisplayDefinition> definitions = StatDisplay.Definitions.Take(10).ToList();
+        IReadOnlyList<StatDisplayDefinition> definitions = statDefinitions.Take(10).ToList();
         for (int index = 0; index < definitions.Count; index++)
         {
             StatDisplayDefinition definition = definitions[index];

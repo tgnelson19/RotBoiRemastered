@@ -109,6 +109,29 @@ public class RotBoiGame : Game
 
     // ----- Update -----
 
+    /// <summary>
+    /// What freezes and what keeps running, across the four ways gameplay
+    /// can be interrupted -- kept as one table because they're coordinated
+    /// by independent flags/states rather than a single "is paused" switch,
+    /// so it's easy to change one and silently break another (see the
+    /// Phase 1 walk-over-menu fix this table was written after fixing).
+    ///
+    /// | Interruption               | Player moves | Bullets fire/move | ESC opens Settings | World Update runs |
+    /// |-----------------------------|:---:|:---:|:---:|:---:|
+    /// | <see cref="GameState.Paused"/>            | no  | no  | n/a (already open) | no (switch skips it) |
+    /// | <see cref="GameState.Dossier"/> (Tab menu) | no  | no  | closes Dossier first | no (switch skips it) |
+    /// | <see cref="MindHub"/> station open (<c>SoulHub.OverlayOpen</c>, e.g. standing at Storage) | yes (deliberate -- walking off closes it) | yes | yes, layered on top, station stays open underneath | yes (only click-to-fire is claimed by the station's own UI) |
+    /// | <see cref="DevConsole"/> open              | no  | no  | n/a (console eats Escape first) | no (Update returns before the state switch) |
+    ///
+    /// DevConsole is checked first and short-circuits everything else in
+    /// <see cref="Update"/>; Paused/Dossier are enforced structurally (the
+    /// per-state switch in <see cref="Update"/> simply never calls
+    /// UpdateGameRun/UpdateSoul for those states); the Mind station case is
+    /// the odd one out -- SoulHub.OverlayOpen is a soft flag checked inline
+    /// by UpdateSoul/HandleBulletCreation rather than a GameState, which is
+    /// what let ESC and bullets get out of sync with the others in the first
+    /// place. If you add a fifth kind of interruption, add a row here too.
+    /// </summary>
     protected override void Update(GameTime gameTime)
     {
         Simulation.SetDeltaTime(gameTime.ElapsedGameTime.TotalMilliseconds);
@@ -170,12 +193,12 @@ public class RotBoiGame : Game
         bool enteredPause = false;
         if (InputState.KeysPressed.Contains(Keys.Escape) || InputState.ControllerPausePressed)
         {
-            if (State == GameState.Soul && _soulHub.OverlayOpen)
+            if (State == GameState.Soul && _soulHub.OverlayOpen
+                && _session?.InformationSheet.DragInProgress == true)
             {
-                if (_session?.InformationSheet.DragInProgress == true)
-                    _session.InformationSheet.CancelDrag();
-                else
-                    _soulHub.CloseOverlay();
+                // Mid-drag, Escape just drops the held item -- it should not
+                // also pop Settings open over the drag.
+                _session.InformationSheet.CancelDrag();
                 enteredPause = true;
             }
             else if (State == GameState.GameRun || State == GameState.Soul)
@@ -206,6 +229,11 @@ public class RotBoiGame : Game
 
         bool enteredDossier = (State == GameState.GameRun || (State == GameState.Soul && !_soulHub.OverlayOpen))
             && (Keybinds.Pressed("hud_toggle") || InputState.ControllerViewPressed);
+        // The Progress screen no longer processes drag input at all (see
+        // InformationSheet.DrawDossier's doc comment) -- cancel rather than
+        // strand an item mid-drag if Tab is pressed while one is held.
+        if (enteredDossier)
+            _session?.InformationSheet.CancelDrag();
         UpdateInputToggles(gameTime);
         UpdateCameraControls(gameTime);
 
@@ -579,6 +607,23 @@ public class RotBoiGame : Game
             controllerFiring: InputState.ControllerFireHeld);
         session.UpdateBullets();
 
+        // Number-key shortcuts: instantly swap a stash slot with its
+        // equipped counterpart (see GameSession.SwapStashSlotWithEquipment).
+        // Live during the run now (the stash strip below the footer's
+        // equipment is always visible/draggable -- see FooterHud.DrawStash),
+        // not just from the old paused Dossier stash grid. Skipped mid-drag
+        // for the same reason quick-loot input already ignores its own
+        // targets then -- a held item shouldn't also react to unrelated key
+        // presses.
+        if (!session.InformationSheet.DragInProgress)
+        {
+            for (int index = 0; index < InformationSheet.InventorySlotCount; index++)
+            {
+                if (Keybinds.Pressed($"stash_swap_{index + 1}"))
+                    session.SwapStashSlotWithEquipment(index);
+            }
+        }
+
         session.HandleEnemyCreation(interactPressed:
             Keybinds.Pressed("interact") || InputState.ControllerInteractPressed);
         session.HandleBossDebugControls(InputState.KeysPressed);
@@ -651,36 +696,8 @@ public class RotBoiGame : Game
         if (loadoutHandled)
             return;
 
-        DossierAction action = session.HandleDossierAction(
-            InputState.KeysPressed, InputState.MousePosition, InputState.MousePressed);
-        switch (action)
-        {
-            case DossierAction.Close:
-                State = _dossierReturnState;
-                return;
-            case DossierAction.LevelUp:
-                if (session.TryPurchaseLevelUp())
-                    State = GameState.Leveling;
-                return;
-            case DossierAction.Reforge:
-                State = GameState.Reforging;
-                return;
-        }
-        // Number-key shortcuts: instantly swap a stash slot with its
-        // equipped counterpart (see GameSession.SwapStashSlotWithEquipment).
-        // Skipped mid-drag for the same reason HandleDossierAction already
-        // ignores its own buttons then -- a held item shouldn't also react
-        // to unrelated key presses.
-        if (!session.InformationSheet.DragInProgress)
-        {
-            for (int index = 0; index < InformationSheet.InventorySlotCount; index++)
-            {
-                if (Keybinds.Pressed($"stash_swap_{index + 1}"))
-                    session.SwapStashSlotWithEquipment(index);
-            }
-        }
-        session.HandleDossierDrag(
-            InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
+        if (session.HandleDossierAction(InputState.KeysPressed) == DossierAction.Close)
+            State = _dossierReturnState;
     }
 
     private void UpdatePaused()
@@ -812,12 +829,20 @@ public class RotBoiGame : Game
             State = GameState.GameRun;
             return;
         }
-        if (!_soulHub.OverlayOpen && !_soulHub.IsEnteringPortal)
+        if (!_soulHub.IsEnteringPortal)
         {
             var aim = new Vector2(InputState.MousePosition.X, InputState.MousePosition.Y);
             if (InputState.ControllerAim != Vector2.Zero)
                 aim = ControllerAimTarget(session.Camera.Lock, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
-            session.HandleBulletCreation(aim, InputState.MouseDown, session.InformationSheet.DragInProgress, controllerFiring: InputState.ControllerFireHeld);
+            // Firing and bullet motion keep running while a hub menu is open
+            // (walking over Storage etc. used to freeze them mid-air) -- only
+            // the left-click-to-fire trigger is suppressed then, since that
+            // click is already claimed by the overlay's own buttons
+            // (see IsOverlayTarget/ClickTargetAt below). Auto-fire and
+            // controller-fire aren't a click on anything, so they're left
+            // alone and keep firing exactly as requested.
+            bool mouseFiring = InputState.MouseDown && !_soulHub.OverlayOpen;
+            session.HandleBulletCreation(aim, mouseFiring, session.InformationSheet.DragInProgress, controllerFiring: InputState.ControllerFireHeld);
             session.UpdateBullets();
         }
         // Always ticks, even mid-overlay/confirm/animation, so the portal

@@ -187,6 +187,41 @@ public static class StatCards
                 DrawLine(spriteBatch, drawColor, new Vector2(cx - 6 * unit, cy - 3 * unit), new Vector2(cx + 6 * unit, cy - 3 * unit), stroke);
                 break;
             }
+            case "mind tokens":
+                Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy), MathF.Round(7 * unit), drawColor, (int)stroke);
+                Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy), MathF.Round(3.5f * unit), drawColor, Math.Max(1, (int)(stroke * .7f)));
+                break;
+            case "vault":
+            {
+                var body = new Rectangle((int)(cx - 6 * unit), (int)(cy - 2 * unit), (int)(12 * unit), (int)(9 * unit));
+                Primitives2D.RectOutline(spriteBatch, body, drawColor, (int)stroke);
+                Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy - 2 * unit), MathF.Round(4 * unit), drawColor, (int)stroke);
+                Primitives2D.FillRect(spriteBatch,
+                    new Rectangle((int)(cx - unit), (int)(cy + .5f * unit), (int)(2 * unit), (int)(2 * unit)), drawColor);
+                break;
+            }
+            case "quests":
+            {
+                DrawLine(spriteBatch, drawColor, new Vector2(cx - 6 * unit, cy + 8 * unit), new Vector2(cx - 6 * unit, cy - 8 * unit), stroke);
+                Span<Vector2> flag = stackalloc Vector2[]
+                {
+                    new Vector2(cx - 6 * unit, cy - 8 * unit), new Vector2(cx + 6 * unit, cy - 5 * unit),
+                    new Vector2(cx - 6 * unit, cy - 2 * unit),
+                };
+                Primitives2D.FillPolygonSpan(spriteBatch, flag, drawColor);
+                break;
+            }
+            case "skills":
+            {
+                for (float angle = 0f; angle < 360f; angle += 72f)
+                {
+                    var direction = Rotate(new Vector2(0, -1), angle);
+                    DrawLine(spriteBatch, drawColor, new Vector2(cx, cy),
+                        new Vector2(cx + direction.X * 8 * unit, cy + direction.Y * 8 * unit), stroke);
+                }
+                Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy), MathF.Round(2.5f * unit), drawColor, (int)stroke);
+                break;
+            }
             default:
                 Primitives2D.CircleOutline(spriteBatch, new Vector2(cx, cy), MathF.Round(7 * unit), drawColor, (int)stroke);
                 DrawLine(spriteBatch, drawColor, new Vector2(cx, cy - 4 * unit), new Vector2(cx, cy + 4 * unit), stroke);

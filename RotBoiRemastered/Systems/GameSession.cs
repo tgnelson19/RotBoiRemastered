@@ -4842,7 +4842,7 @@ public sealed class GameSession
         FooterHud.Draw(spriteBatch, State, mousePosition, PathRun,
             PreferControllerPrompts, InformationSheet.DraggingItem);
         InformationSheet.ConfigureLiveLootLayout(FooterHud.EquipmentSlotRects,
-            FooterHud.QuickLootSlotRects, FooterHud.QuickStashSlotRects);
+            FooterHud.QuickLootSlotRects, FooterHud.StashSlotRects);
     }
 
     public FooterAction HandleFooterAction(Point mousePosition, bool mousePressed) =>
@@ -4865,25 +4865,16 @@ public sealed class GameSession
     /// no quick-loot/quick-stash rects (this screen supplies its own stash
     /// rects when it draws).
     /// </summary>
-    public void DrawDossier(SpriteBatch spriteBatch, Point mousePosition, float revealT)
-    {
-        InformationSheet.ConfigureLiveLootLayout(FooterHud.EquipmentSlotRects,
-            Array.Empty<Rectangle>(), Array.Empty<Rectangle>());
-        InformationSheet.DrawDossier(spriteBatch, State, mousePosition, revealT);
-    }
+    public void DrawDossier(SpriteBatch spriteBatch, Point mousePosition, float revealT) =>
+        InformationSheet.DrawDossier(spriteBatch, State, mousePosition, revealT, Expedition);
 
-    public DossierAction HandleDossierAction(
-        IReadOnlySet<Keys> keysPressed, Point mousePosition, bool mousePressed) =>
-        InformationSheet.HandleDossierAction(State, keysPressed, mousePosition, mousePressed);
+    public DossierAction HandleDossierAction(IReadOnlySet<Keys> keysPressed) =>
+        InformationSheet.HandleDossierAction(keysPressed);
 
     public void ScrollDossier(int delta) => InformationSheet.ScrollDossier(delta);
 
-    public void HandleDossierDrag(Point mousePosition, bool mouseDown, bool mousePressed) =>
-        InformationSheet.HandleDossierDrag(
-            State, PlayerWorldCenter, mousePosition, mouseDown, mousePressed);
-
     /// <summary>
-    /// The Stash panel's number-key shortcut (see RotBoiGame.UpdateDossier
+    /// The stash strip's number-key shortcut (see RotBoiGame.UpdateGameRun
     /// and Keybinds' stash_swap_1..8): instantly trades the item in stash
     /// slot <paramref name="index"/> with whatever's currently equipped in
     /// its slot type, so pressing the same key again swaps them straight

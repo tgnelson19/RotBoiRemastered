@@ -2125,7 +2125,7 @@ public class SoulHub
         }
     }
 
-    /// <summary>Centered "ENTER {PATH}?" modal shown while _confirmingPortalKey is set -- F commits, walking away or Escape cancels (Escape via OverlayOpen/CloseOverlay in Core/RotBoiGame.cs).</summary>
+    /// <summary>Centered "ENTER {PATH}?" modal shown while _confirmingPortalKey is set -- F commits, walking away or controller Back cancels. Escape no longer closes this: it opens Settings on top instead (see Core/RotBoiGame.cs Update), so keyboard players back out by walking away.</summary>
     private void DrawPortalConfirm(SpriteBatch spriteBatch, GameSession session, Point mouse, bool mouseDown)
     {
         if (_confirmingPortalKey == CorePortalKey)
