@@ -611,21 +611,6 @@ public abstract class PhantasiaBoss : PathChaseBoss
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f), (int)(center.Y - Size * .83f), (int)(Size * .92f), 6));
     }
 
-    protected virtual void DrawActTransition(SpriteBatch spriteBatch)
-    {
-        var viewport = spriteBatch.GraphicsDevice.Viewport;
-        double progress = 1 - ActTransitionTimer / ActTransitionDuration;
-        int alpha = (int)Math.Clamp(210 * Math.Min(1.0, Math.Min(progress * 6, (1 - progress) * 6)), 0, 255);
-        var curtainColor = new Color(42, 13, 52, alpha);
-        int curtain = (int)(viewport.Width * Math.Min(.5, progress * .7));
-        Primitives2D.FillRect(spriteBatch, new Rectangle(0, 0, curtain, viewport.Height), curtainColor);
-        Primitives2D.FillRect(spriteBatch, new Rectangle(viewport.Width - curtain, 0, curtain, viewport.Height), curtainColor);
-        // The act title and the sigil's spelled-out name are deliberately not
-        // drawn: an act reads through its sigil and its colour alone. The
-        // sigil itself is still drawn -- it is the symbol the player learns.
-        DrawCommandmentSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .52f), 52, Math.Min(1.0, progress * 2.5), null, 255, 0.0);
-    }
-
     /// <summary>Ported from `getattr(self, "_draw_dream_body", None)`: only Malady defines a fully custom body, replacing the generic arena+ellipse+mask rendering entirely.</summary>
     protected virtual bool HasCustomDreamBody => false;
 
@@ -698,8 +683,10 @@ public abstract class PhantasiaBoss : PathChaseBoss
         if (UsesDreamRules && RestActive)
             UiTheme.DrawText(spriteBatch, "REST // DO NOT FIRE", 16, UiTheme.Cream, new Vector2(viewport.Width / 2f, viewport.Height * .18f), "center");
 
-        if (ActTransitionTimer > 0)
-            DrawActTransition(spriteBatch);
+        // No act-transition overlay. ActTransitionTimer still gates damage and
+        // firing (see TakeDamage and Update), but the screen-wide curtain that
+        // used to announce the act is gone -- the phase change reads from the
+        // boss's own body and sigil instead.
     }
 
     /// <summary>Ported from challenge_results(). Takes DreamState explicitly (unlike Rot.ChallengeResults()) since false-rule count lives there, not cached on the boss.</summary>

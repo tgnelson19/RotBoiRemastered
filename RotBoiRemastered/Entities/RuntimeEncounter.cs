@@ -17,6 +17,17 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 public sealed class RuntimeEncounter
 {
+    /// <summary>
+    /// Gap between successive members' first attacks.
+    ///
+    /// Widened from .18s once attacks grew a braced wind-up: at the old
+    /// spacing three or four members of a five-strong encounter would be
+    /// winding up -- and so refusing damage -- at the same moment, which read
+    /// as the whole group being untouchable. This is now longer than any
+    /// authored wind-up, so their braced windows do not overlap.
+    /// </summary>
+    public const float SlotStaggerSeconds = .62f;
+
     private static int _nextId = 1;
 
     public int Id { get; }
@@ -55,7 +66,7 @@ public sealed class RuntimeEncounter
             enemy.EncounterSlot = index;
             enemy.CombatSide = index % 2 != 0 ? -1 : 1;
             if (enemy.AttackCooldown.HasValue)
-                enemy.AttackCooldown += index * Simulation.FrameRate * .18f;
+                enemy.AttackCooldown += index * Simulation.FrameRate * SlotStaggerSeconds;
         }
     }
 

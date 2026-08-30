@@ -537,19 +537,9 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
         if (!Dying)
             DrawFieldDiagram(spriteBatch, camera, playerWorldPosition, screenShake);
         base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
-        if (Dying)
-            return;
-        if (ActTransitionTimer <= 0)
-            return;
-
-        var viewport = spriteBatch.GraphicsDevice.Viewport;
-        double progress = 1 - ActTransitionTimer / ActTransitionDuration;
-        float alpha = (float)Math.Min(1.0, Math.Min(progress * 5, (1 - progress) * 5)) * 185f;
-        Primitives2D.FillRect(spriteBatch,
-            new Rectangle(0, (int)(viewport.Height * .3f), viewport.Width, (int)(viewport.Height * .4f)),
-            UiTheme.Void * (alpha / 255f));
-        // Prose removed: the act reads through its sigil and colour alone.
-        DrawSigil(spriteBatch, new Vector2(viewport.Width / 2f, viewport.Height * .61f), 34,
-            Math.Min(1.0, progress * 2.4), 0, 255, Phase);
+        // No act-transition overlay. ActTransitionTimer still gates damage and
+        // firing (see TakeDamage and Update), but the screen-wide band that
+        // used to announce the act is gone -- the phase change reads from the
+        // boss's own body and sigil instead.
     }
 }

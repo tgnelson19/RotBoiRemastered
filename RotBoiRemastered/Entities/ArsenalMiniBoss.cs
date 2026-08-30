@@ -187,9 +187,14 @@ public sealed class ArsenalMiniBoss : Enemy
         }
         if (Invulnerable)
         {
+            // Blue is the game-wide "refusing damage" tell, shared with the
+            // ordinary-enemy wind-up ring. The shape stays rectangular rather
+            // than adopting the per-sense silhouette, because the rigid
+            // low-spectacle body above is deliberate.
             var invulnRect = rect;
             invulnRect.Inflate(12, 12);
-            Primitives2D.RectOutline(spriteBatch, invulnRect, UiTheme.Cream, 5);
+            Primitives2D.RectOutline(spriteBatch, invulnRect, UiTheme.Ink, 7);
+            Primitives2D.RectOutline(spriteBatch, invulnRect, UiTheme.Blue, 5);
         }
         if (Hp < MaxHp)
         {

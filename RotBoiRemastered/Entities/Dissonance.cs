@@ -356,8 +356,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     private double _ambientParticleCooldown;
     private double _motionTrailCooldown;
 
-    public double ActTransitionTimer { get; set; } = 2.2;
-    public string ActTitle { get; set; } = "ACT I // THE FIRST CHORD";
     public double HitFlash { get; set; }
     public double PerfectBreakFlash { get; set; }
     public double ShakeStrength { get; set; }
@@ -447,7 +445,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
     {
         HitFlash = Math.Max(0.0, HitFlash - dt);
         PerfectBreakFlash = Math.Max(0.0, PerfectBreakFlash - dt);
-        ActTransitionTimer = Math.Max(0.0, ActTransitionTimer - dt);
         _ambientParticleCooldown -= dt;
         _motionTrailCooldown -= dt;
         ShakeStrength = Math.Max(0.0, ShakeStrength - 16 * dt);
@@ -736,11 +733,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         var center = Center();
         BurstParticles(center.X, center.Y, PhaseAccent, 24, 2.8f);
         (PhaseLabel, PhaseFlavor, PhaseAccent) = PhaseMetadata[phase];
-        if (phase is 4 or 7)
-        {
-            ActTransitionTimer = 2.2;
-            ActTitle = phase == 4 ? "ACT II // THE EMPTY DRONE" : "ACT III // THE DEFENSE";
-        }
         switch (phase)
         {
             case 1:
@@ -2608,10 +2600,9 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         DrawLaggedSatellites(spriteBatch, rectCenter, orbitSpread, frontLayer: true);
 
         DrawJeraGrandStaff(spriteBatch);
-        // The word-wrapped speech bubble and the act-transition prose banner
-        // are both gone -- Dissonance no longer talks to the player.
-        if (ActTransitionTimer > 0)
-            DrawActTransition(spriteBatch);
+        // The speech bubble and the act-transition overlay are both gone.
+        // Dissonance announces a phase change through its own body and the
+        // rune it draws, never through a screen-wide banner.
         if (PerfectBreakFlash > 0)
             DrawPerfectBreak(spriteBatch);
     }
@@ -2689,21 +2680,6 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         UiTheme.DrawText(spriteBatch, "PERFECT BREAK", 36, UiTheme.Cream, center, "center");
         float width = viewport.Width * .34f * (float)PerfectBreakFlash;
         Primitives2D.Line(spriteBatch, center + new Vector2(-width, 34), center + new Vector2(width, 34), PhaseAccent, 4);
-    }
-
-    private void DrawActTransition(SpriteBatch spriteBatch)
-    {
-        var viewport = spriteBatch.GraphicsDevice.Viewport;
-        double progress = 1 - ActTransitionTimer / 2.2;
-        float alpha = (float)Math.Min(1.0, Math.Min(progress * 5, (1 - progress) * 5)) * 185f;
-        Primitives2D.FillRect(spriteBatch, new Rectangle(0, (int)(viewport.Height * .3f), viewport.Width, (int)(viewport.Height * .4f)), UiTheme.Void * (alpha / 255f));
-        // A wordless band: the act is announced by the rune the boss is about
-        // to draw, not by a caption.
-        int jitter = (int)Age % 4 == 0 ? 2 : 0;
-        float span = viewport.Width * .18f * (float)Math.Min(1.0, progress * 3);
-        var line = new Vector2(viewport.Width / 2f + jitter, viewport.Height * .5f);
-        Primitives2D.Line(spriteBatch, line - new Vector2(span, 0), line + new Vector2(span, 0),
-            PhaseAccent * (alpha / 255f), 3);
     }
 
 }

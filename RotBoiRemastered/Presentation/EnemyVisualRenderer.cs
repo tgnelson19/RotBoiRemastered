@@ -130,40 +130,85 @@ public static class EnemyVisualRenderer
         int width,
         Color bodyColor)
     {
-        Span<Vector2> outline = stackalloc Vector2[12];
-        int count;
-        if (kind == SoulBodyKind.Lens)
-        {
-            count = 8;
-            outline[0] = geometry.Point(-1f, 0); outline[1] = geometry.Point(-.48f, -.78f);
-            outline[2] = geometry.Point(0, -1f); outline[3] = geometry.Point(.48f, -.78f);
-            outline[4] = geometry.Point(1f, 0); outline[5] = geometry.Point(.48f, .78f);
-            outline[6] = geometry.Point(0, 1f); outline[7] = geometry.Point(-.48f, .78f);
-        }
-        else if (kind == SoulBodyKind.DreamPrism)
-        {
-            count = 12;
-            for (int index = 0; index < count; index++)
-            {
-                float angle = -MathF.PI / 2f + index * MathF.Tau / count;
-                float radius = index % 2 == 0 ? 1f : .63f;
-                outline[index] = geometry.Point(MathF.Cos(angle) * radius,
-                    MathF.Sin(angle) * radius);
-            }
-        }
-        else
-        {
-            count = 8;
-            outline[0] = geometry.Point(-.78f, -1f); outline[1] = geometry.Point(.72f, -1f);
-            outline[2] = geometry.Point(1f, -.58f); outline[3] = geometry.Point(1f, .58f);
-            outline[4] = geometry.Point(.72f, 1f); outline[5] = geometry.Point(-.78f, 1f);
-            outline[6] = geometry.Point(-1f, .58f); outline[7] = geometry.Point(-1f, -.58f);
-        }
+        Span<Vector2> outline = stackalloc Vector2[SilhouetteVertexCapacity];
+        int count = BuildSilhouette(kind, geometry, outline);
         Primitives2D.PolygonOutlineSpan(spriteBatch, outline[..count], color, width);
         // Tier 1: cheap 3-tone bevel -- lightens edges facing the shared
         // upper-left key light and darkens edges facing away, so every
         // enemy silhouette reads as faceted instead of flat-filled.
         Primitives2D.DrawPolygonBevel(spriteBatch, outline[..count], bodyColor, Math.Max(2, width - 1));
+    }
+
+    /// <summary>Largest vertex count <see cref="BuildSilhouette"/> can emit.</summary>
+    private const int SilhouetteVertexCapacity = 12;
+
+    /// <summary>
+    /// Writes the per-sense body silhouette into <paramref name="outline"/> and
+    /// returns how many vertices it used. Extracted so the invincibility ring
+    /// traces the same shape the body outline does, rather than approximating
+    /// it with a circle -- a Lens enemy's ring is a lens, a DreamPrism's is a
+    /// twelve-point star.
+    /// </summary>
+    private static int BuildSilhouette(
+        SoulBodyKind kind, in BodyGeometry geometry, Span<Vector2> outline)
+    {
+        if (kind == SoulBodyKind.Lens)
+        {
+            outline[0] = geometry.Point(-1f, 0); outline[1] = geometry.Point(-.48f, -.78f);
+            outline[2] = geometry.Point(0, -1f); outline[3] = geometry.Point(.48f, -.78f);
+            outline[4] = geometry.Point(1f, 0); outline[5] = geometry.Point(.48f, .78f);
+            outline[6] = geometry.Point(0, 1f); outline[7] = geometry.Point(-.48f, .78f);
+            return 8;
+        }
+        if (kind == SoulBodyKind.DreamPrism)
+        {
+            const int prismCount = 12;
+            for (int index = 0; index < prismCount; index++)
+            {
+                float angle = -MathF.PI / 2f + index * MathF.Tau / prismCount;
+                float radius = index % 2 == 0 ? 1f : .63f;
+                outline[index] = geometry.Point(MathF.Cos(angle) * radius,
+                    MathF.Sin(angle) * radius);
+            }
+            return prismCount;
+        }
+        outline[0] = geometry.Point(-.78f, -1f); outline[1] = geometry.Point(.72f, -1f);
+        outline[2] = geometry.Point(1f, -.58f); outline[3] = geometry.Point(1f, .58f);
+        outline[4] = geometry.Point(.72f, 1f); outline[5] = geometry.Point(-.78f, 1f);
+        outline[6] = geometry.Point(-1f, .58f); outline[7] = geometry.Point(-1f, -.58f);
+        return 8;
+    }
+
+    /// <summary>
+    /// A thin ring hugging the enemy's own silhouette, drawn while it is
+    /// braced through an attack wind-up and refusing damage. Sits outside the
+    /// body so it reads as "do not bother shooting this yet" at a glance, and
+    /// tightens as the wind-up completes so the release is anticipated rather
+    /// than a surprise.
+    /// </summary>
+    public static void DrawInvincibilityRing(
+        SpriteBatch spriteBatch,
+        EnemyRenderPose pose,
+        SoulBodyKind kind,
+        Color color,
+        float windupProgress,
+        float authoredSize)
+    {
+        // Starts wide and closes onto the body as the wind-up completes.
+        float swell = 1.22f - .1f * Math.Clamp(windupProgress, 0f, 1f);
+        float halfX = pose.Rect.Width * .48f * swell;
+        float halfY = pose.Rect.Height * .48f * swell;
+        var geometry = new BodyGeometry(
+            pose.Center,
+            Safe(pose.WorldRight, Vector2.UnitX),
+            Safe(pose.WorldDown, Vector2.UnitY),
+            halfX, halfY);
+
+        Span<Vector2> outline = stackalloc Vector2[SilhouetteVertexCapacity];
+        int count = BuildSilhouette(kind, geometry, outline);
+        int width = Math.Max(2, (int)(authoredSize * .035f));
+        Primitives2D.PolygonOutlineSpan(spriteBatch, outline[..count], UiTheme.Ink, width + 2);
+        Primitives2D.PolygonOutlineSpan(spriteBatch, outline[..count], color, width);
     }
 
     private static void DrawSoulCore(

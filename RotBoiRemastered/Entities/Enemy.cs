@@ -203,6 +203,13 @@ public class Enemy
     /// </summary>
     public double PhaseInterludeInvulnerabilitySeconds { get; set; }
 
+    /// <summary>
+    /// The wind-up / release / recover clock for a declared attack. Enemies
+    /// that only chase never leave <see cref="EnemyAttackStance.Idle"/>, so
+    /// this costs them a single branch per frame.
+    /// </summary>
+    public EnemyAttackPosture Posture { get; } = new();
+
     private Vector2 _lastVisualWorld;
     private Vector2 _visualFacing = Vector2.UnitX;
     /// <summary>
@@ -362,6 +369,11 @@ public class Enemy
         Age += timerStep;
         VisualAttackTimer = Math.Max(0f, VisualAttackTimer - timerStep);
         VisualHitTimer = Math.Max(0f, VisualHitTimer - timerStep);
+        // The attack posture rides here rather than in Update: this is the one
+        // method every enemy's frame reaches exactly once, including the
+        // subclasses that replace Update wholesale and return early. A clock
+        // ticked in a base Update body would freeze in those.
+        Posture.Tick(timerStep / Math.Max(1, Simulation.FrameRate));
     }
 
     /// <summary>
@@ -579,6 +591,11 @@ public class Enemy
 
     public virtual HitResult TakeDamage(double amount, string partId = "body", DamageSource source = DamageSource.Direct)
     {
+        // A braced enemy refuses deliberate hits, but never status ticks:
+        // letting damage-over-time through keeps a crowd of winding-up enemies
+        // from stalling a run outright, and keeps affliction builds working.
+        if (source == DamageSource.Direct && Posture.Invincible)
+            return new HitResult(false, false, 0, true);
         int rounded = (int)Math.Round(amount);
         Hp -= rounded;
         return new HitResult(true, Hp <= 0, rounded);
@@ -610,6 +627,15 @@ public class Enemy
             NewGamePlusLevelApplied);
 
         DrawStatusAccents(spriteBatch, pose);
+
+        // Above the body and its status badges, below the health bar: the ring
+        // is the single tell that this enemy is braced and refusing damage.
+        if (Posture.Invincible)
+        {
+            EnemyVisualRenderer.DrawInvincibilityRing(
+                spriteBatch, pose, visual.BodyKind, UiTheme.Blue,
+                Posture.WindupProgress, Size);
+        }
 
         if (Hp < MaxHp)
         {
