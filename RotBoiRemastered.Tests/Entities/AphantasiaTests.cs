@@ -487,14 +487,30 @@ public sealed class AphantasiaTests
         var boss = new Aphantasia(1000, 1000, arena, new Random(701),
             noHealing: true, noExtract: true);
         boss.DebugSetPhase(3);
+        // Pinned off of "blender" for the whole window -- that pattern
+        // deliberately suppresses this ambient system entirely (its own
+        // three-laser array would clash with it visually, see
+        // UpdatePersistentRotatingLaser), so re-selecting back to prism_bloom
+        // every time a natural subphase rotation lands on blender keeps the
+        // system observable throughout instead of going quiet for a stretch.
+        SelectPattern(boss, "prism_bloom");
         EnemyUpdateContext context = Context(boss, arena);
 
         // Enough spawns (cadence is 14s) that, at a 45% roll per spawn, the
         // chance every single one landed on the same straight/wavy outcome
         // is negligible -- proving the wave is a genuine per-spawn variation
         // rather than an always-on or never-on setting.
+        int previousPattern = boss.PatternIndex;
         for (int tick = 0; tick < Simulation.FrameRate * 150; tick++)
+        {
             boss.Update(context);
+            if (boss.PatternIndex != previousPattern)
+            {
+                if (boss.CurrentPattern.Key == "blender")
+                    SelectPattern(boss, "prism_bloom");
+                previousPattern = boss.PatternIndex;
+            }
+        }
 
         List<EnemyProjectile> lasers = context.ProjectileSink.Where(projectile =>
             projectile.Owner == "aphantasia_persistent_laser").ToList();
@@ -676,17 +692,22 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
-    public void PatternCatalog_ContainsAllEighteenAuthoredSubPhases()
+    public void PatternCatalog_ContainsAllNineteenAuthoredSubPhases()
     {
-        Assert.Equal(18, Aphantasia.AllPatterns.Count);
-        Assert.Equal(18, Aphantasia.AllPatterns.Select(pattern => pattern.Key).Distinct().Count());
+        Assert.Equal(19, Aphantasia.AllPatterns.Count);
+        Assert.Equal(19, Aphantasia.AllPatterns.Select(pattern => pattern.Key).Distinct().Count());
 
+        // Phase 3 alone is uneven: "blender" is a seventh, Standing-movement
+        // pattern on top of the otherwise-even 2/2/2 split every other phase
+        // keeps across its three movement modes.
         foreach (int phase in Enumerable.Range(1, 4))
         {
             IReadOnlyList<AphantasiaPattern> patterns = PatternsForPhase(phase);
-            Assert.Equal(phase <= 2 ? 3 : 6, patterns.Count);
+            int expectedTotal = phase switch { <= 2 => 3, 3 => 7, _ => 6 };
+            Assert.Equal(expectedTotal, patterns.Count);
             int expectedPerMovement = phase <= 2 ? 1 : 2;
-            Assert.Equal(expectedPerMovement,
+            int expectedStanding = phase == 3 ? expectedPerMovement + 1 : expectedPerMovement;
+            Assert.Equal(expectedStanding,
                 patterns.Count(pattern => pattern.Movement == AphantasiaMovementMode.Standing));
             Assert.Equal(expectedPerMovement,
                 patterns.Count(pattern => pattern.Movement == AphantasiaMovementMode.Pathed));
@@ -997,14 +1018,33 @@ public sealed class AphantasiaTests
                     projectile.Owner == "aphantasia_baseline_sine");
                 Assert.Contains(context.ProjectileSink, projectile =>
                     projectile.Owner == "aphantasia_baseline_shotgun");
-                foreach (string mini in phase < 4
-                    ? new[] { "light", "dark" }
-                    : Array.Empty<string>())
+                if (pattern.Key == "blender")
                 {
-                    List<EnemyProjectile> miniShots = context.ProjectileSink.Where(projectile =>
-                        projectile.Owner == $"aphantasia_mini_{mini}").ToList();
-                    Assert.Contains(miniShots, projectile => projectile.Path == "linear");
-                    Assert.Contains(miniShots, projectile => projectile.Path == "sine");
+                    // Blender's Minis abandon the usual aimed fan for four
+                    // fixed cardinal-direction streams (see
+                    // FireMiniCardinalBlender) -- all linear, under a
+                    // different owner prefix, so this pattern gets its own
+                    // check instead of the generic aimed-fan assertions below.
+                    foreach (string mini in new[] { "light", "dark" })
+                    {
+                        List<EnemyProjectile> streams = context.ProjectileSink.Where(projectile =>
+                            projectile.Owner == $"aphantasia_mini_blender_{mini}").ToList();
+                        Assert.Contains(streams, projectile => projectile.Path == "linear");
+                        Assert.Equal(4,
+                            streams.Select(projectile => projectile.Direction).Distinct().Count());
+                    }
+                }
+                else
+                {
+                    foreach (string mini in phase < 4
+                        ? new[] { "light", "dark" }
+                        : Array.Empty<string>())
+                    {
+                        List<EnemyProjectile> miniShots = context.ProjectileSink.Where(projectile =>
+                            projectile.Owner == $"aphantasia_mini_{mini}").ToList();
+                        Assert.Contains(miniShots, projectile => projectile.Path == "linear");
+                        Assert.Contains(miniShots, projectile => projectile.Path == "sine");
+                    }
                 }
                 Assert.DoesNotContain(context.ProjectileSink, projectile =>
                     projectile.Owner?.StartsWith("aphantasia_mini_") == true

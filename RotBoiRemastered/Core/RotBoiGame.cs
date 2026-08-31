@@ -163,8 +163,18 @@ public class RotBoiGame : Game
         // (see DevConsole's doc comment on why simulation pauses too).
         if (!_devConsole.IsOpen && Keybinds.Pressed("console_toggle") && _session is not null)
             _devConsole.Open();
-        else if (_devConsole.IsOpen && (Keybinds.Pressed("console_toggle") || InputState.KeysPressed.Contains(Keys.Escape)))
+        else if (_devConsole.IsOpen && Keybinds.Pressed("console_toggle"))
             _devConsole.Close();
+        else if (_devConsole.IsOpen && InputState.KeysPressed.Contains(Keys.Escape))
+        {
+            // The /testphase dropdown eats the first Escape for itself
+            // (DismissTestPhaseMenu returns true only when one was actually
+            // showing) so a developer arrowing through candidates can back
+            // out of the list without losing the whole console and its
+            // typed buffer; a second Escape then closes the console as usual.
+            if (!_devConsole.DismissTestPhaseMenu())
+                _devConsole.Close();
+        }
 
         var consoleResult = _devConsole.Update(_session, InputState.KeysPressed, gameTime.ElapsedGameTime.TotalSeconds);
         if (consoleResult.Kind == ConsoleActionKind.ExtractRequested

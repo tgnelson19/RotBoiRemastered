@@ -212,6 +212,26 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
     public const float PersistentLaserAngularSpeed = .22f;
     public const float PersistentLaserSizeTiles = .38f;
     public static readonly IReadOnlyList<int> PersistentLaserArmCounts = [1, 2, 2, 3, 3, 4, 5];
+    /// <summary>
+    /// The Blender subphase (Phase 3's "blender" pattern): three long-lasting
+    /// lasers pinned to the boss center, spun continuously via a fixed
+    /// <see cref="EnemyProjectile.AngularSpeed"/> rather than the manual
+    /// per-frame steering the Void Finale's five-armed sweep needs, since
+    /// Blender's rotation never reverses direction (see
+    /// <see cref="UpdateBlenderLasers"/>). Alongside it, both Minis abandon
+    /// their usual aimed-at-player fire for four simultaneous cardinal-axis
+    /// streams while orbiting the boss (see <see cref="FireMiniCardinalBlender"/>
+    /// and Aphantasia.Minis.cs's dedicated orbit anchor) -- the whole point is
+    /// a single readable shape instead of another aimed-ring/curtain remix.
+    /// </summary>
+    public const int BlenderLaserCount = 3;
+    public const float BlenderLaserAngularSpeed = .11f;
+    public const float BlenderLaserSizeTiles = .3f;
+    public const float BlenderMiniOrbitRadiusRatio = .5f;
+    public const float BlenderMiniOrbitSpeed = .15f;
+    public const float BlenderMiniStreamCadence = .5f;
+    public const float BlenderMiniStreamSpeed = .5f;
+    public const float BlenderMiniStreamSizeTiles = .22f;
     public const double HelixFireCadence = .68;
     public const double PhaseHandoffDuration = 7.0;
     public const double CombatPhraseDuration = 6.0;
@@ -241,6 +261,7 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
         new("folding_perimeter", "FOLDING PERIMETER", AphantasiaMovementMode.Pathed, AphantasiaSpecialAttack.Laser),
         new("ribbon_pursuit", "RIBBON PURSUIT", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.Bomb),
         new("satellite_spiral", "SATELLITE SPIRAL", AphantasiaMovementMode.Chase, AphantasiaSpecialAttack.DoubleHelix),
+        new("blender", "BLENDER", AphantasiaMovementMode.Standing, AphantasiaSpecialAttack.None),
     ];
 
     public static readonly IReadOnlyList<AphantasiaPattern> PhaseFourPatterns =
@@ -368,6 +389,9 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
     private readonly EnemyProjectile?[] _finaleSweepLasers = new EnemyProjectile?[FinaleSweepLaserCount];
     private bool _finaleSweepLasersActive;
     private double _finaleSweepElapsed;
+    /// <summary>Live references to the Blender pattern's three spinning lasers -- see <see cref="BlenderLaserCount"/>'s doc comment.</summary>
+    private readonly EnemyProjectile?[] _blenderLasers = new EnemyProjectile?[BlenderLaserCount];
+    private bool _blenderActive;
 
     public BossPresentationProfile PresentationProfile { get; } =
         BossPresentationProfile.For(BossMotionTheme.Phantasia, BossVisualTier.Finale);
@@ -680,6 +704,7 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
             UpdateArenaHalfPressure(context, dt);
             UpdateHelixStream(context, dt);
             UpdatePersistentRotatingLaser(context, dt);
+            UpdateBlenderLasers(context, dt);
         }
 
         switch (EncounterState)
@@ -1463,6 +1488,105 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
             ? AphantasiaSurvivalKind.VoidFinale
             : AphantasiaSurvivalKind.EssenceFinale,
             Phase == 4 ? PhaseFourFinaleDuration : PhaseThreeSurvivalDuration);
+    }
+
+    /// <summary>
+    /// Every key the debug console's `/testphase` command can jump this boss
+    /// straight to: one entry per authored combat pattern (see
+    /// <see cref="AllPatterns"/>) plus the named survival/finale sequences and
+    /// the mini-execution beat, keyed and labelled for
+    /// <see cref="RotBoiRemastered.UI.DevConsole"/>'s autocomplete list.
+    /// </summary>
+    public static IReadOnlyList<(string Key, string Label)> DebugTestPhaseKeys { get; } =
+        AllPatterns.Select(pattern => (pattern.Key, pattern.Label))
+            .Concat(new (string, string)[]
+            {
+                ("survival_phase1", "SURVIVAL: FIRST ECLIPSE"),
+                ("survival_phase2", "SURVIVAL: SECOND ECLIPSE"),
+                ("survival_phase3", "SURVIVAL: GRAND CHOICE"),
+                ("survival_phase4", "SURVIVAL: VOID ECLIPSE"),
+                ("finale_phase3", "FINALE: ESSENCE FINALE"),
+                ("finale_phase4", "FINALE: VOID FINALE"),
+                ("mini_execution", "MINI EXECUTION"),
+            })
+            .ToArray();
+
+    /// <summary>
+    /// Jumps straight to the pattern or sequence named by <paramref name="key"/>
+    /// (one of <see cref="DebugTestPhaseKeys"/>) -- backing
+    /// <see cref="RotBoiRemastered.Systems.GameSession.DebugJumpToTestPhase"/>.
+    /// A recognized pattern key reuses <see cref="DebugSetPhase"/> to land on
+    /// that pattern's phase, then walks <see cref="DebugAdvanceSubPhase"/>
+    /// forward (same technique the test suite's own SelectPattern helper
+    /// uses) until the shuffled bag lands on it -- at most one full cycle of
+    /// that phase's pattern count, and pure bookkeeping with no projectiles
+    /// fired, so it is instant and side-effect-free from the caller's view.
+    /// Returns false for an unrecognized key.
+    /// </summary>
+    public bool DebugJumpToTestPhase(string key)
+    {
+        AphantasiaPattern? pattern = AllPatterns.FirstOrDefault(candidate =>
+            string.Equals(candidate.Key, key, StringComparison.OrdinalIgnoreCase));
+        if (pattern is not null)
+        {
+            int phase = PhaseOnePatterns.Contains(pattern) ? 1
+                : PhaseTwoPatterns.Contains(pattern) ? 2
+                : PhaseThreePatterns.Contains(pattern) ? 3
+                : 4;
+            DebugSetPhase(phase);
+            for (int attempt = 0; attempt < PatternSelectionCycleCount(phase); attempt++)
+            {
+                if (CurrentPattern.Key == pattern.Key)
+                    return true;
+                DebugAdvanceSubPhase();
+            }
+            return CurrentPattern.Key == pattern.Key;
+        }
+
+        switch (key.ToLowerInvariant())
+        {
+            case "survival_phase1":
+                DebugSetPhase(1);
+                BeginSurvival(AphantasiaSurvivalKind.FirstEclipse, EarlySurvivalDuration);
+                return true;
+            case "survival_phase2":
+                DebugSetPhase(2);
+                BeginSurvival(AphantasiaSurvivalKind.SecondEclipse, EarlySurvivalDuration);
+                return true;
+            case "survival_phase3":
+                DebugSetPhase(3);
+                BeginSurvival(AphantasiaSurvivalKind.GrandChoice, PhaseThreeSurvivalDuration);
+                return true;
+            case "survival_phase4":
+                DebugSetPhase(4);
+                BeginSurvival(AphantasiaSurvivalKind.VoidEclipse, PhaseFourSurvivalDuration);
+                return true;
+            case "finale_phase3":
+                DebugSetPhase(3);
+                BeginFinale(AphantasiaSurvivalKind.EssenceFinale, PhaseThreeSurvivalDuration);
+                return true;
+            case "finale_phase4":
+                DebugSetPhase(4);
+                BeginFinale(AphantasiaSurvivalKind.VoidFinale, PhaseFourFinaleDuration);
+                return true;
+            case "mini_execution":
+                // Mirrors EndSurvival's GrandChoice completion (one mini
+                // destroyed, the other empowered) so the beat's own
+                // preconditions hold without having to actually play the
+                // Grand Choice survival out first.
+                DebugSetPhase(3);
+                Dark.PermanentlyDestroyed = true;
+                Dark.Hp = 0;
+                Light.Empowered = true;
+                Light.MaxHp = EmpoweredMiniHealth;
+                Light.Hp = Light.MaxHp;
+                Light.Aggressive = true;
+                _phaseThreeChoiceDone = true;
+                BeginMiniExecution();
+                return true;
+            default:
+                return false;
+        }
     }
 
     public Vector2 ConstrainPlayer(Vector2 playerTopLeft, float playerSize)

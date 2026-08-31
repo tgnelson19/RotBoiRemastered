@@ -50,6 +50,18 @@ public sealed partial class Aphantasia
                 MathF.Sin(t * .72f + side) * ArenaRadius * .2f);
         }
         else if (EncounterState == AphantasiaEncounterState.Combat
+            && CurrentPattern.Key == "blender")
+        {
+            // Blender's own slow orbit -- checked ahead of the Aggressive
+            // branch below so a mini stuck Aggressive/Empowered from an
+            // earlier survival window (ReviveMiniPair never clears
+            // Aggressive) still gets Blender's orbit rather than chasing the
+            // player through it.
+            float angle = t * BlenderMiniOrbitSpeed * side + (side < 0 ? MathF.PI : 0);
+            anchor = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
+                * ArenaRadius * BlenderMiniOrbitRadiusRatio;
+        }
+        else if (EncounterState == AphantasiaEncounterState.Combat
             && CurrentPattern.Movement == AphantasiaMovementMode.Pathed)
         {
             // Expand the route from the old .42-radius orbit to most of the
@@ -82,15 +94,45 @@ public sealed partial class Aphantasia
         mini.Velocity = delta * follow / Math.Max(.001f, (float)dt);
         mini.Position += delta * follow;
 
+        bool blenderActive = EncounterState == AphantasiaEncounterState.Combat
+            && CurrentPattern.Key == "blender";
         mini.FireCooldown -= (float)dt;
         if (allowFire && mini.FireCooldown <= 0)
         {
-            FireMini(mini, context.ProjectileSink,
-                new Vector2(context.PlayerWorldX, context.PlayerWorldY));
-            mini.FireCooldown = mini.Empowered
-                ? .42f
-                : mini.Aggressive ? (TrueLight ? .48f : .68f) : (TrueDark ? .58f : .94f);
+            if (blenderActive)
+            {
+                FireMiniCardinalBlender(mini, context.ProjectileSink);
+                mini.FireCooldown = BlenderMiniStreamCadence;
+            }
+            else
+            {
+                FireMini(mini, context.ProjectileSink,
+                    new Vector2(context.PlayerWorldX, context.PlayerWorldY));
+                mini.FireCooldown = mini.Empowered
+                    ? .42f
+                    : mini.Aggressive ? (TrueLight ? .48f : .68f) : (TrueDark ? .58f : .94f);
+            }
         }
+    }
+
+    /// <summary>
+    /// Blender's cardinal streams: four fixed-direction shots (world N/E/S/W,
+    /// not aimed at the player) fired together on a steady cadence -- the
+    /// slow hose-like "stream" the pattern's name comes from, in contrast to
+    /// <see cref="FireMini"/>'s aimed fan.
+    /// </summary>
+    private void FireMiniCardinalBlender(AphantasiaMini mini, List<EnemyProjectile> sink)
+    {
+        List<EnemyProjectile> staged = BeginVolley();
+        for (int index = 0; index < 4; index++)
+        {
+            float direction = index * MathF.PI / 2f;
+            AddShot(staged, mini.Position, direction,
+                BlenderMiniStreamSpeed, BlenderMiniStreamSizeTiles, mini.Accent,
+                $"mini_blender_{(ReferenceEquals(mini, Light) ? "light" : "dark")}",
+                "linear", 0f, 9f, shape: "needle");
+        }
+        CommitVolley(sink);
     }
 
     private void FireMini(AphantasiaMini mini, List<EnemyProjectile> sink, Vector2 player)

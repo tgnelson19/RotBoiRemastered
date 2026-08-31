@@ -433,13 +433,21 @@ public sealed partial class Aphantasia
                     new Vector2(context.PlayerWorldX, context.PlayerWorldY));
                 _attackRemaining = .48;
                 break;
-            default:
+            case 5:
                 FireRing(sink, center, 14, spin * 1.7f, 1.3f, .22f, "satellite_spiral", true);
                 FireFan(sink, Light.Position, AngleTo(Light.Position, ArenaCenter), 5, .5f, 1.5f,
                     Light.Accent, "satellite_light");
                 FireFan(sink, Dark.Position, AngleTo(Dark.Position, ArenaCenter), 7, .9f, .82f,
                     Dark.Accent, "satellite_dark");
                 _attackRemaining = .57;
+                break;
+            default:
+                // Blender's own signature attack (the three spinning lasers,
+                // the Minis' cardinal streams) runs continuously off
+                // UpdateBlenderLasers/UpdateMini rather than this per-volley
+                // switch -- nothing extra to fire here beyond the shared
+                // baseline overlay FireCurrentPattern already layers on top.
+                _attackRemaining = .9;
                 break;
         }
     }
@@ -816,8 +824,13 @@ public sealed partial class Aphantasia
     private void UpdatePersistentRotatingLaser(EnemyUpdateContext context, double dt)
     {
         if (Phase < 3 || EncounterState != AphantasiaEncounterState.Combat
-            || CombatFiringPaused)
+            || CombatFiringPaused || CurrentPattern.Key == "blender")
         {
+            // Blender's own three-armed laser (UpdateBlenderLasers) is this
+            // ambient system's signature moment turned into a dedicated
+            // pattern -- a second, independently-timed rotating laser array
+            // sprinkled in on top would just muddy the one shape Blender is
+            // supposed to read as.
             return;
         }
         _persistentLaserRemaining -= dt;
@@ -867,6 +880,78 @@ public sealed partial class Aphantasia
             staged.Add(laser);
         }
         CommitVolley(context.ProjectileSink);
+    }
+
+    /// <summary>
+    /// Drives the Blender pattern's three boss-centered lasers: spawns the
+    /// trio the moment Blender becomes the active combat pattern, then leaves
+    /// them alone -- each carries a fixed <see cref="EnemyProjectile.AngularSpeed"/>
+    /// so the engine's own per-frame turn keeps them spinning without any
+    /// manual steering (unlike <see cref="UpdateFinaleSweepLasers"/>'s
+    /// back-and-forth sweep, which needs one). Tears them down the instant
+    /// Blender stops being the active pattern -- covers a subphase timing out
+    /// into the next pattern, a health-gate cutting Combat short, or the bag
+    /// simply not reselecting Blender next time.
+    /// </summary>
+    private void UpdateBlenderLasers(EnemyUpdateContext context, double dt)
+    {
+        bool eligible = EncounterState == AphantasiaEncounterState.Combat
+            && CurrentPattern.Key == "blender";
+        if (!eligible)
+        {
+            if (_blenderActive)
+                EndBlenderLasers();
+            return;
+        }
+        bool anyLive = _blenderLasers.Any(laser => laser is { RemFlag: false });
+        if (!_blenderActive || !anyLive)
+            BeginBlenderLasers(context);
+    }
+
+    private void BeginBlenderLasers(EnemyUpdateContext context)
+    {
+        _blenderActive = true;
+        List<EnemyProjectile> staged = BeginVolley();
+        Vector2 origin = ArenaCenter;
+        float baseDirection = (float)(_rng.NextDouble() * MathF.Tau);
+        for (int index = 0; index < BlenderLaserCount; index++)
+        {
+            float direction = baseDirection + index * MathF.Tau / BlenderLaserCount;
+            var laser = new EnemyProjectile(
+                origin.X, origin.Y, direction, 0f,
+                Damage * .7f, Simulation.TileSize * BlenderLaserSizeTiles,
+                travelRange: ArenaRadius * 2.1f,
+                color: index switch { 0 => Light.Accent, 1 => Dark.Accent, _ => PhaseAccent },
+                shape: "diamond", path: "laser",
+                // Capped at a single subphase's length rather than padded
+                // past it (c.f. the Void Finale sweep's window + 3s) -- if a
+                // Blender subphase runs its full authored duration the trio
+                // simply re-spawns (UpdateBlenderLasers's anyLive check) for
+                // the last sliver, which reads as a clean re-seed rather than
+                // letting any one boss attack quietly outlive the 40s a
+                // subphase is ever allowed to last.
+                lifetime: (float)SubphaseDuration,
+                angularSpeed: BlenderLaserAngularSpeed,
+                owner: "aphantasia_blender_laser",
+                longLastingLaser: true)
+            {
+                TelegraphDuration = 1.6f,
+            };
+            _blenderLasers[index] = laser;
+            staged.Add(laser);
+        }
+        CommitVolley(context.ProjectileSink);
+    }
+
+    private void EndBlenderLasers()
+    {
+        for (int index = 0; index < _blenderLasers.Length; index++)
+        {
+            if (_blenderLasers[index] is { } laser)
+                laser.RemFlag = true;
+            _blenderLasers[index] = null;
+        }
+        _blenderActive = false;
     }
 
     private void AddSurvivalLaserGrid(List<EnemyProjectile> sink)

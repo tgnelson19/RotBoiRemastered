@@ -3349,6 +3349,87 @@ public sealed class GameSession
         }
     }
 
+    /// <summary>
+    /// (Key, Label) pairs the debug console's `/testphase` command offers for
+    /// whatever boss is currently active -- see
+    /// <see cref="DevConsole"/>'s autocomplete list, which calls this to
+    /// populate/filter its dropdown. Aphantasia gets its full authored
+    /// pattern/sequence list (<see cref="Aphantasia.DebugTestPhaseKeys"/>);
+    /// every other boss with a `DebugSetPhase(int)` hook gets a flat
+    /// "phase_1".."phase_N" list matching that boss's own phase count.
+    /// Empty when no boss is active, or the active boss exposes no debug
+    /// phase hook at all.
+    /// </summary>
+    public IReadOnlyList<(string Key, string Label)> DebugTestPhaseOptions() => State.ActiveBoss switch
+    {
+        Aphantasia => Aphantasia.DebugTestPhaseKeys,
+        Beaudis => NumberedPhases(5),
+        Dissonance => NumberedPhases(9),
+        Ache => NumberedPhases(8),
+        // Chronos extends Ishe, so it must be checked ahead of the Ishe case
+        // below -- a switch expression tries patterns top-to-bottom and a
+        // Chronos instance would otherwise match `Ishe` first.
+        Chronos => NumberedPhases(7),
+        Ishe => NumberedPhases(5),
+        Rot => NumberedPhases(7),
+        Hypno => NumberedPhases(5),
+        Malady => NumberedPhases(10),
+        Bair => NumberedPhases(5),
+        Sting => NumberedPhases(10),
+        Kage => NumberedPhases(5),
+        PathGuardianBoss => NumberedPhases(3),
+        PathChaseBoss => NumberedPhases(3),
+        _ => Array.Empty<(string, string)>(),
+    };
+
+    /// <summary>
+    /// Jumps the active boss straight to the phase/pattern/sequence named by
+    /// <paramref name="key"/> (one of <see cref="DebugTestPhaseOptions"/>'s
+    /// keys), clearing the projectile holster after -- same cleanup
+    /// <see cref="HandleBossDebugControls"/>'s number-key jumps already do,
+    /// so the outgoing pattern's shots don't linger into the new one. Returns
+    /// false for an unrecognized key or no active boss.
+    /// </summary>
+    public bool DebugJumpToTestPhase(string key)
+    {
+        bool applied = State.ActiveBoss switch
+        {
+            Aphantasia aphantasia => aphantasia.DebugJumpToTestPhase(key),
+            Beaudis beaudis => TryNumberedJump(key, 5, beaudis.DebugSetPhase),
+            Dissonance dissonance => TryNumberedJump(key, 9, dissonance.DebugSetPhase),
+            Chronos chronos => TryNumberedJump(key, 7, chronos.DebugSetPhase),
+            Ache ache => TryNumberedJump(key, 8, ache.DebugSetPhase),
+            Ishe ishe => TryNumberedJump(key, 5, ishe.DebugSetPhase),
+            Rot rot => TryNumberedJump(key, 7, rot.DebugSetPhase),
+            Hypno hypno => TryNumberedJump(key, 5, hypno.DebugSetPhase),
+            Malady malady => TryNumberedJump(key, 10, malady.DebugSetPhase),
+            Bair bair => TryNumberedJump(key, 5, bair.DebugSetPhase),
+            Sting sting => TryNumberedJump(key, 10, sting.DebugSetPhase),
+            Kage kage => TryNumberedJump(key, 5, kage.DebugSetPhase),
+            PathGuardianBoss guardian => TryNumberedJump(key, 3, guardian.DebugSetPhase),
+            PathChaseBoss pathBoss => TryNumberedJump(key, 3, pathBoss.DebugSetPhase),
+            _ => false,
+        };
+        if (applied)
+            State.EnemyProjectileHolster.Clear();
+        return applied;
+    }
+
+    private static IReadOnlyList<(string Key, string Label)> NumberedPhases(int maxPhase) =>
+        Enumerable.Range(1, maxPhase).Select(phase => ($"phase_{phase}", $"Phase {phase}")).ToArray();
+
+    private static bool TryNumberedJump(string key, int maxPhase, Action<int> setPhase)
+    {
+        if (!key.StartsWith("phase_", StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(key.AsSpan(6), out int phase)
+            || phase < 1 || phase > maxPhase)
+        {
+            return false;
+        }
+        setPhase(phase);
+        return true;
+    }
+
     private static readonly RasterizerState LootCrateScissorRasterizerState = new() { ScissorTestEnable = true, CullMode = CullMode.None };
 
     /// <summary>

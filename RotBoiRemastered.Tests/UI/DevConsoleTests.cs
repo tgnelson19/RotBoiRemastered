@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using RotBoiRemastered.Core;
 using RotBoiRemastered.Entities;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.UI;
@@ -54,5 +55,85 @@ public class DevConsoleTests
         var exception = Record.Exception(() => Submit(console, session, "/killall"));
 
         Assert.Null(exception);
+    }
+
+    private static Aphantasia MakeAphantasiaBoss(GameSession session)
+    {
+        var arena = BossArenaFactory.Create("aphantasia", Progression.FinalBossLevel);
+        var boss = new Aphantasia(1000, 1000, arena, new Random(9),
+            noHealing: true, noExtract: true);
+        session.State.ActiveBoss = boss;
+        return boss;
+    }
+
+    [Fact]
+    public void TestPhase_TypedKeyInFull_JumpsTheActiveBossToThatPattern()
+    {
+        var session = MakeSession();
+        Aphantasia boss = MakeAphantasiaBoss(session);
+        var console = new DevConsole();
+
+        Submit(console, session, "/testphase blender");
+
+        Assert.Equal(3, boss.Phase);
+        Assert.Equal("blender", boss.CurrentPattern.Key);
+    }
+
+    [Fact]
+    public void TestPhase_UnknownKey_LogsWithoutThrowingAndLeavesTheBossAlone()
+    {
+        var session = MakeSession();
+        Aphantasia boss = MakeAphantasiaBoss(session);
+        int phaseBefore = boss.Phase;
+        var console = new DevConsole();
+
+        var exception = Record.Exception(() => Submit(console, session, "/testphase nonexistent_key"));
+
+        Assert.Null(exception);
+        Assert.Equal(phaseBefore, boss.Phase);
+    }
+
+    [Fact]
+    public void TestPhase_WithNoActiveBoss_LogsWithoutThrowing()
+    {
+        var session = MakeSession();
+        var console = new DevConsole();
+
+        var exception = Record.Exception(() => Submit(console, session, "/testphase blender"));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void TestPhase_SpaceThenEnter_SelectsTheFirstDropdownCandidate()
+    {
+        var session = MakeSession();
+        Aphantasia boss = MakeAphantasiaBoss(session);
+        var console = new DevConsole();
+        console.Open();
+        foreach (char c in "/testphase ")
+            console.HandleTextInput(c);
+        // One Update populates the live dropdown from the buffer above;
+        // Enter with no further typing should run its top (first) candidate,
+        // matching the console's own doc comment on pressing space for a list.
+        console.Update(session, new HashSet<Keys>(), 0);
+        console.Update(session, new HashSet<Keys> { Keys.Enter }, 0);
+
+        Assert.Equal(Aphantasia.DebugTestPhaseKeys[0].Key, boss.CurrentPattern.Key);
+    }
+
+    [Fact]
+    public void TestPhase_SpaceThenDownThenEnter_SelectsTheSecondDropdownCandidate()
+    {
+        var session = MakeSession();
+        Aphantasia boss = MakeAphantasiaBoss(session);
+        var console = new DevConsole();
+        console.Open();
+        foreach (char c in "/testphase ")
+            console.HandleTextInput(c);
+        console.Update(session, new HashSet<Keys> { Keys.Down }, 0);
+        console.Update(session, new HashSet<Keys> { Keys.Enter }, 0);
+
+        Assert.Equal(Aphantasia.DebugTestPhaseKeys[1].Key, boss.CurrentPattern.Key);
     }
 }
