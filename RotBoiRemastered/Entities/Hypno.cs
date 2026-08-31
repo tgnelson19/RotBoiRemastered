@@ -27,6 +27,9 @@ public sealed class Hypno : PhantasiaBoss
     protected override bool VisualSurvivalActive =>
         ChosenSurvivalActive || base.VisualSurvivalActive;
 
+    /// <summary>Smoothed heading toward the player while actively chasing/pathing (see <see cref="BossFacing.SmoothFacingYaw"/>); the rotating core falls back to <see cref="PhantasiaBoss.CoreYaw"/>'s ambient spin otherwise. Kept on Hypno itself, not the shared base, since Malady/other siblings don't need it.</summary>
+    private float _facingYaw;
+
     public static readonly PathChaseBossConfig HypnoConfig = BaseConfig with
     {
         BossName = "HYPNO", Subtitle = "THE ORNATE SUGGESTION",
@@ -181,6 +184,15 @@ public sealed class Hypno : PhantasiaBoss
 
     public override void Update(EnemyUpdateContext context)
     {
+        // Computed once per frame (matching Beaudis/Malady/Rot's own
+        // Seconds()-then-facing ordering) so the facing update runs on
+        // every frame regardless of which branch below returns early --
+        // not just while ChosenSurvivalActive happens to be true.
+        double dt = Seconds();
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
+
         if (!ChosenSurvivalActive)
         {
             base.Update(context);
@@ -190,21 +202,23 @@ public sealed class Hypno : PhantasiaBoss
         base.Update(context);
         if (!ChosenSurvivalActive || Dying)
             return;
-        // The transition beat clears the arena first; the endurance clock only
-        // runs once it lands.
-        if (PhaseInterludeActive)
-            return;
-        ChosenSurvivalRemaining = Math.Max(0.0, ChosenSurvivalRemaining - Seconds());
+        ChosenSurvivalRemaining = Math.Max(0.0, ChosenSurvivalRemaining - dt);
         if (ChosenSurvivalRemaining <= 0 && !DebugPhaseLocked)
         {
             // Chosen is the closing endurance check: surviving it ends the
             // encounter, so there is no law to hand off to.
             ChosenSurvivalActive = false;
             ChosenSurvivalCleared = true;
-            Hp = 0;
-            BeginDeathSpectacle();
+            Hp = Math.Max(1, (int)Math.Round(MaxHp * .5));
+            SetDreamPhase(5);
         }
     }
+
+    /// <summary>Steers the shared rotating core (see <see cref="PhantasiaBoss.DrawBossBody"/>) toward the player while actively advancing; falls back to the base's ambient spin otherwise (e.g. during Chosen Survival's Stationary phase).</summary>
+    protected override float CoreYaw(float ambientSeconds) =>
+        MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath
+            ? _facingYaw
+            : base.CoreYaw(ambientSeconds);
 
     protected override void FirePhantasiaPattern(float playerX, float playerY, EnemyUpdateContext context)
     {

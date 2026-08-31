@@ -2569,10 +2569,30 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             // hand-rolled copy -- same yaw/pitch/beat/stagger math via
             // CoreCubeOrientation, just handed to the shared primitive.
             var (yaw, pitch) = CoreCubeOrientation(Age, Phase);
+            // Survival (end-of-act phases 3/6/9) is Dissonance's own
+            // sustained mid-fight dramatic state -- distinct from the
+            // Entrance/Death face-burst above -- so sandwich the opaque core
+            // between the two halves of a translucent wire shell here, the
+            // same "power visibly contained" treatment other finale bosses
+            // use at their own most dramatic moments.
+            if (SurvivalActive)
+                BossVisuals.DrawWireShellLayer(spriteBatch, rectCenter, Size * .43f * 1.4f,
+                    CoreVertices, CubeFaceIndices, Color.Lerp(new Color(91, 62, 181), PhaseAccent, .4f),
+                    PhaseAccent, (float)yaw, (float)pitch, 0f, front: false, cameraZ: 3.8f);
             BossVisuals.RotatingSolid3D(spriteBatch, rectCenter, Size * .43f,
                 CoreVertices, CubeFaceIndices, CoreFaceColor,
-                (float)yaw, (float)pitch, edgeAccent: PhaseAccent, cameraZ: 3.8f,
-                escalation: SecondFormBlend);
+                (float)yaw, (float)pitch, edgeAccent: PhaseAccent, cameraZ: 3.8f);
+            // Sells an ordinary phase change as an actual event rather than
+            // just the freeze-pose TransitionRemaining already applies to
+            // locomotion.
+            float transitionProgress = (float)(TransitionRemaining / TransitionDuration);
+            BossVisuals.DrawTransitionBurst(spriteBatch, rectCenter, Age, Size * .43f, PhaseAccent, transitionProgress);
+            if (SurvivalActive)
+                BossVisuals.DrawWireShellLayer(spriteBatch, rectCenter, Size * .43f * 1.4f,
+                    CoreVertices, CubeFaceIndices, Color.Lerp(new Color(91, 62, 181), PhaseAccent, .4f),
+                    PhaseAccent, (float)yaw, (float)pitch, 0f, front: true, cameraZ: 3.8f);
+            BossVisuals.DrawFacingMarker(spriteBatch, rectCenter, Size * .43f,
+                (float)yaw, (float)pitch, 0f, VisualAgeSeconds, PhaseAccent);
         }
 
         double coreVisibility = Math.Max(.15, 1 - entranceSpread * .22);

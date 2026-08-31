@@ -541,6 +541,19 @@ public abstract class PhantasiaBoss : PathChaseBoss
         }
     }
 
+    /// <summary>
+    /// Ambient idle spin for the rotating solid core <see cref="DrawBossBody"/>
+    /// draws for every subclass. A subclass that gains a facing mechanism
+    /// (see Hypno's own `_facingYaw`, following the shared
+    /// <see cref="BossFacing.SmoothFacingYaw"/> pattern) overrides this to
+    /// return that smoothed heading while actively chasing/pathing, falling
+    /// back to `base.CoreYaw` otherwise -- this default's pure-ambient spin
+    /// is intentionally undisturbed by that override, so any subclass that
+    /// never overrides it (or Malady, which never calls this base
+    /// `DrawBossBody` at all) is unaffected.
+    /// </summary>
+    protected virtual float CoreYaw(float ambientSeconds) => ambientSeconds * .55f;
+
     protected override void DrawBossBody(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
     {
         Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
@@ -558,6 +571,17 @@ public abstract class PhantasiaBoss : PathChaseBoss
         float turn = seconds * .32f;
         Color baseColor = Color.Lerp(Config.FinalBoss ? Config.FinalBodyColor : Config.BodyColor, PhaseAccent, .16f);
         Color bright = UiTheme.Lighten(baseColor, 44);
+
+        // A genuine rotating solid floating above the mask -- the dream's
+        // "true face" beneath the illusory petals/mask silhouette below.
+        // CoreYaw hands facing-capable subclasses (Hypno) a hook to steer
+        // this instead of the default ambient tumble.
+        Vector2 coreCenter = center - new Vector2(0, Size * .6f * separation);
+        float coreYaw = CoreYaw(seconds);
+        float corePitch = MathF.Sin(seconds * .23f) * .3f;
+        BossVisuals.RotatingCube3D(spriteBatch, coreCenter, Size * .16f,
+            baseColor, bright, PhaseAccent, coreYaw, corePitch);
+        BossVisuals.OscillatingAura(spriteBatch, coreCenter, Age, Size * .22f, PhaseAccent, bands: 3, speed: .65f);
 
         float flow = VisualSurvivalActive ? Phase * .37f : turn;
         int petalCount = 6 + Math.Min(4, Phase);

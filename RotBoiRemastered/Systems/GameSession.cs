@@ -1114,19 +1114,48 @@ public sealed class GameSession
             if (!BossCatalog.Shared.TryGet(bossKey, out var definition) || definition is null)
                 throw new InvalidOperationException($"Boss '{bossKey}' is not registered.");
 
-            Rectangle? forcedRect = null;
-            if (bossKey == "dissonance")
-            {
-                float arenaX = ArenaCenterWorld.X, arenaY = ArenaCenterWorld.Y;
-                float size = Simulation.TileSize * 1.9f;
-                forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
-                SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, forcedRect, bossKey);
-                StepPlayerBackFrom(ArenaCenterWorld, Simulation.TileSize * 9.6f);
-            }
-            else
+            if (midpoint)
             {
                 SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, bossKey: bossKey);
                 StepPlayerBackFrom(ArenaCenterWorld, Simulation.TileSize * 2.5f);
+            }
+            else
+            {
+                // Final boss: teleport to a dedicated, obstacle-free arena
+                // instead of fighting inside the shared room's fixed
+                // building layout -- the same BossArenaFactory swap Path
+                // mode's floor-10 finale already uses
+                // (EnterPathMajorBossInstance), just one-way since winning a
+                // Classic-mode finale ends the run immediately, so there's
+                // nothing to restore.
+                Battleground arena = BossArenaFactory.Create(bossKey, scale: 1.5f);
+                State.EnemyHolster.Clear();
+                State.EnemyProjectileHolster.Clear();
+                State.BulletHolster.Clear();
+                State.DamageTextList.Clear();
+                State.ExperienceList.Clear();
+                State.FragmentList.Clear();
+                State.LootCrateList.Clear();
+                State.NearbyCrate = null;
+                State.CurrEnemyCount = 0;
+                Battleground = arena;
+                RefreshLightingFixtures();
+                _enemyCollisionGrid.Reset();
+                Player.SetPosition(arena.SpawnPosition.X, arena.SpawnPosition.Y);
+
+                if (bossKey == "dissonance")
+                {
+                    float arenaX = ArenaCenterWorld.X, arenaY = ArenaCenterWorld.Y;
+                    float size = Simulation.TileSize * 1.9f;
+                    var forcedRect = new Rectangle((int)(arenaX - size / 2f), (int)(arenaY - size / 2f), (int)size, (int)size);
+                    SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, forcedRect, bossKey,
+                        clearFloorLoot: false, clearCombatants: false);
+                }
+                else
+                {
+                    SpawnBoss((x, y, r) => definition.Factory(x, y, Battleground, AwarenessRange, r), rng, bossKey: bossKey,
+                        clearFloorLoot: false, clearCombatants: false);
+                }
             }
             State.BossDebugRequested = false;
             return;

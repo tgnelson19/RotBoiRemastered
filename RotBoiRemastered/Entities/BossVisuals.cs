@@ -12,7 +12,7 @@ namespace RotBoiRemastered.Entities;
 /// </summary>
 internal static class BossVisuals
 {
-    private static readonly int[][] CubeFaces =
+    internal static readonly int[][] CubeFaces =
     [
         [0, 1, 2, 3],
         [4, 7, 6, 5],
@@ -64,7 +64,7 @@ internal static class BossVisuals
     }
 
     /// <summary>Local-space vertices of a unit cube, index-encoded the same way the original hand-built cube rig used.</summary>
-    private static readonly Vector3[] CubeVertices =
+    internal static readonly Vector3[] CubeVertices =
     [
         new(-1, -1, -1), new(1, -1, -1), new(1, 1, -1), new(-1, 1, -1),
         new(-1, -1, 1), new(1, -1, 1), new(1, 1, 1), new(-1, 1, 1),
@@ -230,6 +230,142 @@ internal static class BossVisuals
         }
     }
 
+    /// <summary>
+    /// A translucent wireframe shell around a rotating solid -- both halves
+    /// (near and far, split by which side of the camera each face/edge sits
+    /// on) drawn back-then-front, so a caller can sandwich an opaque solid
+    /// between the two calls in <see cref="DrawWireShell"/> (the far half
+    /// behind it, the near half in front). Generalized from Aphantasia's own
+    /// hand-built `DrawWireCube`/`DrawWireCubeLayer` (previously only usable
+    /// on her own fixed 8-vertex cube) the same way <see cref="RotatingSolid3D"/>
+    /// generalized <see cref="RotatingCube3D"/> -- any vertex/face set works,
+    /// edges are derived from the face list rather than needing a separate
+    /// edge table.
+    /// </summary>
+    public static void DrawWireShellLayer(
+        SpriteBatch batch,
+        Vector2 center,
+        float extent,
+        ReadOnlySpan<Vector3> localVertices,
+        int[][] faces,
+        Color fill,
+        Color edgeColor,
+        float yaw,
+        float pitch,
+        float roll,
+        bool front,
+        float cameraZ = 4.2f)
+    {
+        int vertexCount = localVertices.Length;
+        Span<Vector3> rotatedVertices = vertexCount <= 32 ? stackalloc Vector3[vertexCount] : new Vector3[vertexCount];
+        Span<Vector2> projected = vertexCount <= 32 ? stackalloc Vector2[vertexCount] : new Vector2[vertexCount];
+        float cosYaw = MathF.Cos(yaw), sinYaw = MathF.Sin(yaw);
+        float cosPitch = MathF.Cos(pitch), sinPitch = MathF.Sin(pitch);
+        float cosRoll = MathF.Cos(roll), sinRoll = MathF.Sin(roll);
+        for (int index = 0; index < vertexCount; index++)
+        {
+            Vector3 local = localVertices[index];
+            float yawX = local.X * cosYaw + local.Z * sinYaw;
+            float yawZ = -local.X * sinYaw + local.Z * cosYaw;
+            float pitchY = local.Y * cosPitch - yawZ * sinPitch;
+            float pitchZ = local.Y * sinPitch + yawZ * cosPitch;
+            float rollX = yawX * cosRoll - pitchY * sinRoll;
+            float rollY = yawX * sinRoll + pitchY * cosRoll;
+            rotatedVertices[index] = new Vector3(rollX, rollY, pitchZ);
+            float perspective = cameraZ / Math.Max(cameraZ * .4f, cameraZ - pitchZ);
+            projected[index] = center + new Vector2(rollX, rollY) * extent * perspective;
+        }
+
+        var camera = new Vector3(0, 0, cameraZ);
+        Span<Vector2> faceBuffer = stackalloc Vector2[8];
+        foreach (var face in faces)
+        {
+            Vector3 faceCenter = Vector3.Zero;
+            foreach (int vertexIndex in face)
+                faceCenter += rotatedVertices[vertexIndex];
+            faceCenter /= face.Length;
+            Vector3 normal = Vector3.Cross(
+                rotatedVertices[face[1]] - rotatedVertices[face[0]],
+                rotatedVertices[face[2]] - rotatedVertices[face[0]]);
+            if (Vector3.Dot(normal, faceCenter) < 0)
+                normal = -normal;
+            bool faceFront = Vector3.Dot(normal, camera - faceCenter) > 0;
+            if (faceFront != front)
+                continue;
+            for (int vertex = 0; vertex < face.Length; vertex++)
+                faceBuffer[vertex] = projected[face[vertex]];
+            Primitives2D.FillPolygonSpan(batch, faceBuffer[..face.Length], fill * .3f);
+        }
+
+        // Edges are every adjacent vertex pair inside each face, deduped so a
+        // shared edge between two faces (the common case) draws once.
+        Span<(int A, int B)> drawnEdges = stackalloc (int, int)[faces.Length * 4];
+        int drawnCount = 0;
+        foreach (var face in faces)
+        {
+            for (int vertex = 0; vertex < face.Length; vertex++)
+            {
+                int a = face[vertex], b = face[(vertex + 1) % face.Length];
+                int lo = Math.Min(a, b), hi = Math.Max(a, b);
+                bool seen = false;
+                for (int index = 0; index < drawnCount; index++)
+                {
+                    if (drawnEdges[index].A != lo || drawnEdges[index].B != hi)
+                        continue;
+                    seen = true;
+                    break;
+                }
+                if (seen)
+                    continue;
+                drawnEdges[drawnCount++] = (lo, hi);
+                float depth = (rotatedVertices[lo].Z + rotatedVertices[hi].Z) * .5f;
+                if ((depth > 0f) != front)
+                    continue;
+                Primitives2D.Line(batch, projected[lo], projected[hi], UiTheme.Ink, 8);
+                Primitives2D.Line(batch, projected[lo], projected[hi], edgeColor, 3);
+            }
+        }
+    }
+
+    /// <summary>Both halves of a wire shell, back then front -- see <see cref="DrawWireShellLayer"/>.</summary>
+    public static void DrawWireShell(
+        SpriteBatch batch, Vector2 center, float extent,
+        ReadOnlySpan<Vector3> localVertices, int[][] faces,
+        Color fill, Color edgeColor, float yaw, float pitch, float roll = 0f, float cameraZ = 4.2f)
+    {
+        DrawWireShellLayer(batch, center, extent, localVertices, faces, fill, edgeColor, yaw, pitch, roll, front: false, cameraZ);
+        DrawWireShellLayer(batch, center, extent, localVertices, faces, fill, edgeColor, yaw, pitch, roll, front: true, cameraZ);
+    }
+
+    /// <summary>
+    /// A radiating burst of tentacle-like spikes from a boss's core, meant to
+    /// sell a phase transition as an actual event rather than the generic
+    /// freeze-pose every <c>VisualTransitionRemaining</c> window already
+    /// applies to boss motion. Pass <paramref name="progress"/> as 1 at the
+    /// instant the transition begins, fading to 0 as it completes (i.e.
+    /// <c>VisualTransitionRemaining / duration-at-the-moment-it-was-set</c>)
+    /// -- spikes shrink and fade out together as the boss settles into its
+    /// new phase.
+    /// </summary>
+    public static void DrawTransitionBurst(SpriteBatch batch, Vector2 center, float age,
+        float radius, Color color, float progress, int spikes = 10, int seed = 0)
+    {
+        progress = Math.Clamp(progress, 0f, 1f);
+        if (progress <= .001f)
+            return;
+        float eased = progress * progress * (3f - 2f * progress);
+        for (int index = 0; index < spikes; index++)
+        {
+            float hashSeed = index * 12.9898f + seed * 3.77f;
+            float hash = hashSeed - MathF.Floor(hashSeed);
+            float angle = hash * MathF.Tau + age * .0015f;
+            Primitives2D.DrawTentacleSpike(batch, center, angle,
+                radius * (.6f + eased * 1.1f), radius * .1f * eased,
+                index * 1.7f, index / (float)spikes, age * .001f,
+                segments: 10, darken: 1f - eased, alpha: eased, themeColor: color);
+        }
+    }
+
     internal static Color PhysicalCubeFaceColor(int faceIndex, Color primary,
         Color secondary, Color accent) => faceIndex switch
     {
@@ -289,6 +425,37 @@ internal static class BossVisuals
         Primitives2D.PolygonOutlineSpan(batch, topOutline, UiTheme.Ink, Math.Max(3, (int)(thickness * .32f)));
         Primitives2D.Line(batch, first, second, edgeColor, Math.Max(2, (int)(thickness * .18f)));
         Primitives2D.Line(batch, first, fourth, Color.Lerp(edgeColor, topColor, .45f), 2);
+    }
+
+    /// <summary>
+    /// A small pulsing dot projected onto the front face of a rotating solid
+    /// (yaw/pitch/roll matching whatever was passed to <see cref="RotatingCube3D"/>/
+    /// <see cref="RotatingSolid3D"/> for the same body) -- reads as an eye or a
+    /// "this is the front" cue, making a turn-to-face mechanic much more
+    /// legible than the body rotation alone. Generalized from Aphantasia's
+    /// own private marker (originally hand-rolled only for her own cube rig)
+    /// so any rotating-solid boss core can share it.
+    /// </summary>
+    public static void DrawFacingMarker(SpriteBatch batch, Vector2 center, float extent,
+        float yaw, float pitch, float roll, double pulseSeconds, Color dotColor)
+    {
+        float cosYaw = MathF.Cos(yaw), sinYaw = MathF.Sin(yaw);
+        float cosPitch = MathF.Cos(pitch), sinPitch = MathF.Sin(pitch);
+        float cosRoll = MathF.Cos(roll), sinRoll = MathF.Sin(roll);
+        // Local +Z (the "front") rotated by the same yaw/pitch/roll math
+        // RotatingSolid3D uses internally, then perspective-projected the
+        // same cheap way every rotating solid in this game already is.
+        float yawX = sinYaw, yawZ = cosYaw;
+        float pitchY = -yawZ * sinPitch, pitchZ = yawZ * cosPitch;
+        float rollX = yawX * cosRoll - pitchY * sinRoll;
+        float rollY = yawX * sinRoll + pitchY * cosRoll;
+        float perspective = 1f + pitchZ * .12f;
+        Vector2 tip = center + new Vector2(rollX, rollY) * extent * perspective * 1.22f;
+        float pulse = .7f + .3f * MathF.Sin((float)pulseSeconds * 8f);
+        float dotRadius = Math.Max(3f, extent * .09f) * pulse;
+        Primitives2D.FillCircle(batch, tip + new Vector2(2, 3), dotRadius, UiTheme.Shadow);
+        Primitives2D.FillCircle(batch, tip, dotRadius, UiTheme.Cream);
+        Primitives2D.CircleOutline(batch, tip, Math.Max(4f, extent * .13f), dotColor, 2);
     }
 
     /// <summary>Concentric breathing ellipses make power feel stored rather than emitted as noise.</summary>

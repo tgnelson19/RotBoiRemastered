@@ -299,6 +299,16 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
 
     protected abstract void FireSinPattern(float playerX, float playerY, EnemyUpdateContext context);
 
+    /// <summary>
+    /// Yaw fed to the core's <see cref="BossVisuals.RotatingCube3D"/> spin.
+    /// Defaults to today's pure ambient spin so every existing boss in this
+    /// family (including Ache, which never calls this -- it has its own
+    /// independent DrawBossBody override) is unaffected; a subclass with its
+    /// own facing state (e.g. Kage) can override this to turn the core
+    /// toward the player while actively advancing instead.
+    /// </summary>
+    protected virtual float CoreYaw(float seconds) => seconds * 2.1f;
+
     public override void Update(EnemyUpdateContext context)
     {
         TickEncounterClock(Seconds());
@@ -437,7 +447,7 @@ public abstract class SinChemesthesisBoss : PathChaseBoss
                 reagent, UiTheme.Cream, angle);
         }
         BossVisuals.RotatingCube3D(spriteBatch, jittered, cubeSize * .45f,
-            orange, purple, PhaseAccent, seconds * 2.1f,
+            orange, purple, PhaseAccent, CoreYaw(seconds),
             .55f + BossAnimation.Sine(seconds, 1.9f) * .36f,
             BossAnimation.Sine(seconds, 1.3f, .2f) * .24f, escalation: SecondFormBlend);
         var inner = new Rectangle((int)(jittered.X - cubeSize * .13f), (int)(jittered.Y - cubeSize * .13f), (int)(cubeSize * .26f), (int)(cubeSize * .26f));

@@ -127,6 +127,8 @@ public sealed class Beaudis : Enemy
     private double _staggerRemaining;
     private float _previousPlayerDistance;
     private float _radialTrend;
+    /// <summary>Smoothed heading toward the player while actively chasing/pathing (see <see cref="BossFacing.SmoothFacingYaw"/>); the core cube falls back to an ambient spin otherwise.</summary>
+    private float _facingYaw;
     private readonly BossLocomotionController _locomotion;
 
     public int Phase { get; private set; } = 1;
@@ -481,6 +483,9 @@ public sealed class Beaudis : Enemy
     public override void Update(EnemyUpdateContext context)
     {
         double dt = Seconds();
+        if (MovementPhases[Phase - 1].Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
         AdvanceAge();
         _phaseElapsed += dt;
         _interlude.Tick(dt);
@@ -561,6 +566,21 @@ public sealed class Beaudis : Enemy
         Color chassis = Color.Lerp(new Color(43, 37, 69), color, .46f) * fade;
         BossVisuals.Resonator(spriteBatch, center, Size * .9f, chassis,
             color, compression, Math.Min(3, Math.Max(1, Phase - 1)));
+
+        // A small rotating cube reads through the resonator chamber as its
+        // "speaker cone" in genuine 3D -- Beaudis's scaled-down echo of
+        // Dissonance's own core cube (BossVisuals.RotatingCube3D), turned
+        // in the same shared facing pattern (BossFacing.SmoothFacingYaw,
+        // driven from Update) while actively chasing/pathing, and left to
+        // spin on its own ambient beat otherwise.
+        bool facingActive = MovementPhases[Phase - 1].Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        float coreYaw = facingActive ? _facingYaw : VisualAgeSeconds * 1.35f;
+        float corePitch = .38f + BossAnimation.Sine(VisualAgeSeconds, .62f) * .2f + compression * .12f;
+        BossVisuals.RotatingCube3D(spriteBatch, center, Size * (.26f + compression * .04f),
+            color, chassis, Color.Lerp(chassis, UiTheme.Cream, .35f),
+            coreYaw, corePitch, BossAnimation.Sine(VisualAgeSeconds, .9f) * .15f);
+        BossVisuals.OscillatingAura(spriteBatch, center, Age, Size * .5f,
+            Color.Lerp(color, UiTheme.Cream, .18f), bands: 3, speed: .7f);
         for (int side = -1; side <= 1; side += 2)
         {
             var shutter = center + new Vector2(side * Size * (.47f - compression * .035f), 0);

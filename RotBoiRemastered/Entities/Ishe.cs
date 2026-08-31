@@ -56,6 +56,7 @@ public class Ishe : PathChaseBoss
     private double _flashCooldown;
     private int _ishePatternRotation;
     private int _phaseDeclarations;
+    private float _facingYaw;
 
     public bool FlashSurvivalActive { get; private set; }
     public bool FlashSurvivalCleared { get; private set; }
@@ -407,6 +408,9 @@ public class Ishe : PathChaseBoss
         }
 
         double dt = Seconds();
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
         UpdatePendingVolleys(dt, context.ProjectileSink);
         if (!FlashSurvivalActive)
         {
@@ -466,6 +470,8 @@ public class Ishe : PathChaseBoss
         Color blue = new(62, 151, 211);
         Color ice = new(172, 224, 241);
 
+        BossVisuals.OscillatingAura(spriteBatch, center, Age, Size * .5f, PhaseAccent, bands: 3);
+
         if (Moved)
         {
             Vector2 normal = new(-renderPose.Facing.Y, renderPose.Facing.X);
@@ -493,6 +499,19 @@ public class Ishe : PathChaseBoss
         }
         BossVisuals.Aperture(spriteBatch, center, Size * .38f, blue,
             PhaseAccent, opening, heading + VisualAgeSeconds * .65f, 6);
+
+        // A genuine faceted lens sits behind the shutter blades -- the iris
+        // opens and closes over it rather than a flat painted pupil. Facing
+        // drives its yaw while chasing/pathing; otherwise it drifts on its
+        // own, matching Chronos's own gated-fallback wiring one size down.
+        bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        float lensYaw = facingActive ? _facingYaw : VisualAgeSeconds * .5f;
+        float lensPitch = .32f + MathF.Sin(VisualAgeSeconds * .5f) * .12f;
+        float lensRoll = MathF.Sin(VisualAgeSeconds * .33f) * .1f;
+        float lensExtent = Size * (.09f + opening * .16f);
+        BossVisuals.RotatingCube3D(spriteBatch, center, lensExtent, ice, blue,
+            PhaseAccent, lensYaw, lensPitch, lensRoll);
+
         Primitives2D.FillCircle(spriteBatch, center, Size * .055f,
             FlashSurvivalActive ? UiTheme.Void : UiTheme.Cream);
         DrawBossHealth(spriteBatch, new Rectangle((int)(center.X - Size * .46f),

@@ -80,6 +80,13 @@ public sealed class BannerCaptain : Enemy
         };
         Primitives2D.FillPolygon(spriteBatch, pennant, UiTheme.Cream);
         Primitives2D.DrawPolygonBevel(spriteBatch, pennant, UiTheme.Cream, 2);
+        // Small finial ornament capping the banner pole -- a light 3D
+        // flourish, not a full body redesign; just enough dimension to make
+        // the squad leader read as a cut above its rank-and-file minions.
+        // Ambient spin only, no facing mechanic needed for a garnish this size.
+        BossVisuals.RotatingCube3D(spriteBatch, new Vector2(rect.Center.X, rect.Y - 10 - Size * .08f),
+            Size * .15f, UiTheme.Gold, UiTheme.Cream, UiTheme.Lighten(UiTheme.Gold, 40),
+            Age * .6f, .4f + MathF.Sin(Age * .1f) * .1f);
         // Tier 2: a faint breathing ring marks the captain as a squad leader
         // rather than a rank-and-file spawn, same cue used by other elites.
         BossVisuals.OscillatingAura(spriteBatch, pose.Center, Age, Size * .5f, UiTheme.Gold, bands: 2);

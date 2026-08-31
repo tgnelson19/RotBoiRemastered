@@ -959,9 +959,33 @@ public sealed class Malady : PhantasiaBoss
         for (; armIndex < armCount && _floatingCubeScratch[armIndex].Depth < 0; armIndex++)
             DrawArm(spriteBatch, _floatingCubeScratch[armIndex], armIndex, primary, secondary, accent, seconds);
 
+        // Apotheosis sandwiches the living pillar inside a translucent
+        // containment shell -- reusing the pillar's own vertex/face set so
+        // the shell's silhouette matches its elongated shape instead of a
+        // generic cube -- selling "all of Malady's power straining against
+        // its container" at her most dramatic non-death state. Dying hides
+        // the pillar entirely (early-return above, replaced by the shared
+        // OscillatingAura/Disassemble death spectacle), so FinaleActive is
+        // the state where a shell actually wraps a body still on screen.
+        if (FinaleActive)
+            BossVisuals.DrawWireShellLayer(spriteBatch, core, Size * .58f * 1.2f, PillarVertices, BoxFaces,
+                accent, secondary, bodyYaw, bodyPitch, roll: 0f, front: false);
         BossVisuals.RotatingSolid3D(spriteBatch, core, Size * .58f, PillarVertices, BoxFaces,
             faceIndex => BossVisuals.PhysicalCubeFaceColor(faceIndex, primary, secondary, accent),
-            bodyYaw, bodyPitch, edgeAccent: accent, escalation: SecondFormBlend);
+            bodyYaw, bodyPitch, edgeAccent: accent);
+        if (FinaleActive)
+            BossVisuals.DrawWireShellLayer(spriteBatch, core, Size * .58f * 1.2f, PillarVertices, BoxFaces,
+                accent, secondary, bodyYaw, bodyPitch, roll: 0f, front: true);
+        // A radiating spike burst sells Malady's Act transitions (the
+        // full-screen curtain PhantasiaBoss.DrawActTransition draws while
+        // ActTransitionTimer counts down from ActTransitionDuration) as an
+        // event on the boss's own body, not just an overlay far above it.
+        if (ActTransitionTimer > 0)
+        {
+            float transitionProgress = (float)(ActTransitionTimer / ActTransitionDuration);
+            BossVisuals.DrawTransitionBurst(spriteBatch, core, seconds * 1000f, Size * .58f, accent, transitionProgress);
+        }
+        BossVisuals.DrawFacingMarker(spriteBatch, core, Size * .58f, bodyYaw, bodyPitch, 0f, seconds, accent);
 
         // The orb-lens turns slowly at the torso, in front of the pillar --
         // a real convex disc of stored inspiration rather than a flat dot.

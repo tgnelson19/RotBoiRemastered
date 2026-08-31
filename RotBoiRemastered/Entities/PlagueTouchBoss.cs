@@ -106,6 +106,17 @@ public class PlagueTouchBoss : PathChaseBoss
     public int PortalIndex { get; set; }
     public int PatternRotation { get; set; }
     public double PhaseAnnouncementTimer { get; set; } = 3.0;
+
+    /// <summary>
+    /// Smoothed body-facing yaw, driven toward the player while the boss is
+    /// actively advancing (Chase/FixedPath) and left to an ambient
+    /// time-based spin otherwise -- see <see cref="Update"/> and
+    /// <see cref="DrawBossBody"/>. Protected (not private) since this lives
+    /// in the shared base class; only <see cref="Bair"/> currently reads it,
+    /// as the legacy Sting passively inherits the same rotating core.
+    /// </summary>
+    protected float FacingYaw;
+
     private readonly List<PendingPortalVolley> _pendingPortalVolleys = new();
     private sealed record PendingPortalVolley(
         TouchPortal Portal, Vector2 Target, double Remaining);
@@ -354,6 +365,8 @@ public class PlagueTouchBoss : PathChaseBoss
         if (UpdateDeathSpectacle())
             return;
         double dt = Seconds();
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            FacingYaw = BossFacing.SmoothFacingYaw(FacingYaw, Center(), new Vector2(context.PlayerWorldX, context.PlayerWorldY), dt);
         if (UpdateFinaleSequence(dt))
             return;
         EntranceRemaining = Math.Max(0.0, EntranceRemaining - dt);
@@ -405,6 +418,21 @@ public class PlagueTouchBoss : PathChaseBoss
         Vector2 coreCenter = center + new Vector2(0, attack * Size * .035f);
         BossVisuals.Cuboid(spriteBatch, coreCenter, Size * .62f,
             Size * (.72f - compression), mud, orange, 0f);
+
+        // A genuinely rotating 3D solid layered over the flat crate core --
+        // Bair should read as a smaller, simpler sibling of Rot's own
+        // rotating core, so no roll here and a gentler pitch bob. Facing
+        // tracks the player while actively advancing; otherwise it holds a
+        // slow ambient spin so the core never looks frozen while stationary.
+        bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        float ambientYaw = Age * .0009f;
+        float bodyYaw = facingActive ? FacingYaw : ambientYaw;
+        float bodyPitch = .3f + BossAnimation.Sine(VisualAgeSeconds, 14f) * .1f;
+        BossVisuals.RotatingCube3D(spriteBatch, coreCenter, Size * .34f,
+            mud, orange, PhaseAccent, bodyYaw, bodyPitch);
+        BossVisuals.OscillatingAura(spriteBatch, coreCenter, Age, Size * .48f,
+            PhaseAccent, bands: 3, speed: .6f);
+
         float plateOffset = Size * (.43f * detach - attack * .025f);
         for (int side = -1; side <= 1; side += 2)
         {

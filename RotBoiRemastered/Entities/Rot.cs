@@ -86,6 +86,27 @@ public sealed class Rot : PathChaseBoss
     private static readonly IReadOnlyList<(string Part, Rectangle Rect)> NoHitboxes =
         Array.Empty<(string Part, Rectangle Rect)>();
 
+    // Local-space unit cube, same 8-corner index convention as
+    // BossVisuals' own (private) CubeVertices/CubeFaces -- kept as a local
+    // copy here since RotatingCube3D's rig isn't exposed for reuse, so the
+    // finale wire shell can share the exact topology of the core cube it
+    // sandwiches.
+    private static readonly Vector3[] ShellVertices =
+    [
+        new(-1, -1, -1), new(1, -1, -1), new(1, 1, -1), new(-1, 1, -1),
+        new(-1, -1, 1), new(1, -1, 1), new(1, 1, 1), new(-1, 1, 1),
+    ];
+
+    private static readonly int[][] ShellFaces =
+    [
+        [0, 1, 2, 3],
+        [4, 7, 6, 5],
+        [0, 4, 5, 1],
+        [3, 2, 6, 7],
+        [0, 3, 7, 4],
+        [1, 5, 6, 2],
+    ];
+
     private int _lastBurrowDeclaration;
     private Vector2 _burrowDestination;
     private double _burrowRemaining;
@@ -939,10 +960,33 @@ public sealed class Rot : PathChaseBoss
                 Primitives2D.FillCircle(spriteBatch, bulgePoint, Math.Max(2, bulgeSize), bulgeColor);
             }
 
-            BossVisuals.RotatingCube3D(spriteBatch, cubeCenter, Size * .36f,
+            float coreExtent = Size * .36f;
+            // Finale is Rot's most dramatic state: sandwich the opaque core
+            // between the two halves of a translucent wire shell so its
+            // power visibly reads as contained rather than merely bigger.
+            if (FinaleActive)
+                BossVisuals.DrawWireShellLayer(spriteBatch, cubeCenter, coreExtent * 1.4f,
+                    ShellVertices, ShellFaces, Color.Lerp(new Color(73, 101, 48), PhaseAccent, .4f),
+                    PhaseAccent, bodyYaw, bodyPitch, bodyRoll, front: false);
+
+            BossVisuals.RotatingCube3D(spriteBatch, cubeCenter, coreExtent,
                 new Color(91, 61, 37), new Color(48, 76, 42),
                 Color.Lerp(new Color(73, 101, 48), PhaseAccent, .25f),
                 bodyYaw, bodyPitch, bodyRoll, escalation: SecondFormBlend);
+
+            // Radiating burst that sells a phase change as an event -- fades
+            // out over the same window ApplyPhase primes VisualTransitionRemaining
+            // with (see Rot.ApplyPhase).
+            float transitionProgress = (float)(VisualTransitionRemaining / 1.5);
+            BossVisuals.DrawTransitionBurst(spriteBatch, cubeCenter, Age, coreExtent, PhaseAccent, transitionProgress);
+
+            if (FinaleActive)
+                BossVisuals.DrawWireShellLayer(spriteBatch, cubeCenter, coreExtent * 1.4f,
+                    ShellVertices, ShellFaces, Color.Lerp(new Color(73, 101, 48), PhaseAccent, .4f),
+                    PhaseAccent, bodyYaw, bodyPitch, bodyRoll, front: true);
+
+            BossVisuals.DrawFacingMarker(spriteBatch, cubeCenter, coreExtent,
+                bodyYaw, bodyPitch, bodyRoll, seconds, PhaseAccent);
 
             BossVisuals.OscillatingAura(spriteBatch, cubeCenter, Age, Size * .42f,
                 Color.Lerp(new Color(73, 101, 48), PhaseAccent, .3f), bands: 3, speed: .55f);

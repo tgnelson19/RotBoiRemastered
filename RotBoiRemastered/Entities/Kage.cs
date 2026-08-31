@@ -1,4 +1,5 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
@@ -115,6 +116,12 @@ public class Kage : SinChemesthesisBoss
     }
 
     private int _phaseDeclarations;
+    // Kage's own facing state for the inherited core (SinChemesthesisBoss's
+    // rotating cube) -- advanced only while actively chasing/pathing,
+    // matching Beaudis's/Aphantasia's shared BossFacing.SmoothFacingYaw
+    // pattern. Ache never reaches this: it has its own fully independent
+    // DrawBossBody/Update override and doesn't inherit through here.
+    private float _facingYaw;
     protected virtual bool UsesKageEncounter => true;
     public bool StagnantMirrorActive { get; private set; }
     public bool StagnantMirrorCleared { get; private set; }
@@ -355,5 +362,42 @@ public class Kage : SinChemesthesisBoss
             Shot(sink, baseDirection + offset, speed, damage,
                 lifetime: lifetime, ownerSuffix: suffix);
         }
+    }
+
+    public override void Update(EnemyUpdateContext context)
+    {
+        base.Update(context);
+        if (MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, Center(),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), Seconds());
+    }
+
+    /// <summary>
+    /// While actively chasing/pathing, turn the inherited core to face the
+    /// player instead of spinning on pure ambient rotation -- the same
+    /// facing-aware treatment Beaudis/Aphantasia already give their own
+    /// rotating cores. Falls back to the base ambient spin otherwise (e.g.
+    /// Stationary phases), matching every other boss's idle behavior.
+    /// </summary>
+    protected override float CoreYaw(float seconds) =>
+        MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath
+            ? _facingYaw
+            : base.CoreYaw(seconds);
+
+    public override void Draw(SpriteBatch spriteBatch, Camera camera, Vector2 playerWorldPosition, Vector2 screenShake)
+    {
+        base.Draw(spriteBatch, camera, playerWorldPosition, screenShake);
+        if (Dying)
+            return;
+
+        // A soft breathing rim around the reagent core, echoing Beaudis's own
+        // OscillatingAura treatment of its rotating cube -- computed from the
+        // same screen-space center SinChemesthesisBoss.DrawBossBody derives
+        // its (pre-jitter) core position from.
+        Vector2 screenPosition = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
+        var rect = new Rectangle((int)screenPosition.X, (int)screenPosition.Y, (int)Size, (int)Size);
+        Color auraColor = Color.Lerp(Config.BodyColor, Config.AccentColor, .5f);
+        BossVisuals.OscillatingAura(spriteBatch, rect.Center.ToVector2(), Age,
+            Size * .48f, auraColor, bands: 3, speed: .8f);
     }
 }

@@ -158,6 +158,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     /// <summary>Debug and test hook: re-baselines the lesson's damage budget.</summary>
     public void DebugRebasePhaseHealth() => _governor.RebaseHealth(Hp, MaxHp);
     private readonly BossLocomotionController _locomotion;
+    private float _facingYaw;
     private readonly List<Vector2> _playerTrail = new(8);
     private double _trailSampleCooldown;
     private double _distanceBandDwell;
@@ -544,6 +545,12 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             Phase, phaseProfile.Movement, new Vector2(centerX, centerY),
             new Vector2(context.PlayerWorldX, context.PlayerWorldY), ArenaCenter,
             ArenaRadius, Speed, seconds);
+        // Turn the core to face where it's heading while actually advancing,
+        // same mechanism as the level-10/20 bosses -- falls back to each
+        // sense's own ambient spin the rest of the time (see DrawSenseArchitecture).
+        if (phaseProfile.Movement.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath)
+            _facingYaw = BossFacing.SmoothFacingYaw(_facingYaw, new Vector2(centerX, centerY),
+                new Vector2(context.PlayerWorldX, context.PlayerWorldY), seconds);
         float dx = movement.Target.X - centerX, dy = movement.Target.Y - centerY;
         float distance = Math.Max(1f, MathF.Sqrt(dx * dx + dy * dy));
         float directionX = dx / distance, directionY = dy / distance;
@@ -1587,6 +1594,13 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     {
         float seconds = VisualAgeSeconds;
         int stroke = Math.Max(2, body.Width / 28);
+        // Every sense shares the same "turn to face the advance" cue -- see
+        // Update's _facingYaw wiring -- falling back to its own ambient spin
+        // rate whenever the guardian is holding position instead.
+        bool facingActive = _profile.Phases[Phase - 1].Movement.Mode
+            is BossMovementMode.Chase or BossMovementMode.FixedPath;
+        BossVisuals.OscillatingAura(spriteBatch, center, Age, radius * 1.3f,
+            PhaseAccent, bands: 2, speed: .6f);
         switch (SenseKey)
         {
             case "sound":
@@ -1595,6 +1609,10 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 float compression = Math.Clamp(beat * .28f + attack * .72f, 0f, 1f);
                 BossVisuals.Resonator(spriteBatch, center, body.Width * .84f,
                     bodyColor, SecondaryAccent, compression, Math.Min(3, Phase));
+                float soundYaw = facingActive ? _facingYaw : seconds * 1.1f;
+                BossVisuals.RotatingCube3D(spriteBatch, center, body.Width * .22f,
+                    bodyColor, SecondaryAccent, PhaseAccent, soundYaw,
+                    .4f + BossAnimation.Sine(seconds, 1.6f) * .2f);
                 for (int side = -1; side <= 1; side += 2)
                 {
                     float shutterX = center.X + side * body.Width * (.43f - compression * .035f);
@@ -1612,6 +1630,10 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 Vector2 pressCenter = center + new Vector2(0, body.Height * compression * .22f);
                 BossVisuals.Cuboid(spriteBatch, pressCenter, body.Width * .72f,
                     body.Height * (.78f - compression), bodyColor, SecondaryAccent, 0f);
+                float touchYaw = facingActive ? _facingYaw : seconds * .9f;
+                BossVisuals.RotatingCube3D(spriteBatch, pressCenter, body.Width * .24f,
+                    bodyColor, SecondaryAccent, PhaseAccent, touchYaw,
+                    .34f + BossAnimation.Sine(seconds, 4.2f) * .1f);
                 for (int side = -1; side <= 1; side += 2)
                 {
                     Vector2 plate = center + new Vector2(side * body.Width * (.44f - attack * .025f), 0);
@@ -1641,6 +1663,10 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 }
                 BossVisuals.Aperture(spriteBatch, center, body.Width * .42f,
                     bodyColor, SecondaryAccent, opening, rotation, 6);
+                float lensYaw = facingActive ? _facingYaw : rotation * .6f;
+                BossVisuals.RotatingCube3D(spriteBatch, center, body.Width * (.09f + opening * .12f),
+                    bodyColor, SecondaryAccent, PhaseAccent, lensYaw,
+                    .3f + BossAnimation.Sine(seconds, 3.1f) * .12f);
                 break;
             }
             case "chemesthesis":
@@ -1649,10 +1675,11 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                     BossAnimation.Sine(seconds, 1.9f) * body.Width * .025f
                         + BossAnimation.Sine(seconds, .73f) * body.Width * .012f,
                     BossAnimation.Sine(seconds, 1.37f, .31f) * body.Height * .022f);
+                float chemesthesisYaw = facingActive ? _facingYaw : seconds * 1.31f;
                 BossVisuals.RotatingCube3D(spriteBatch, jittered, body.Width * .25f,
                     bodyColor, SecondaryAccent, PhaseAccent,
-                    seconds * 1.31f, .48f + BossAnimation.Sine(seconds, 2.3f) * .38f,
-                    BossAnimation.Sine(seconds, 1.7f, .2f) * .22f, escalation: SecondFormBlend);
+                    chemesthesisYaw, .48f + BossAnimation.Sine(seconds, 2.3f) * .38f,
+                    BossAnimation.Sine(seconds, 1.7f, .2f) * .22f);
                 for (int index = 0; index < 4; index++)
                 {
                     float angle = index * MathF.PI / 2f + MathF.PI / 4f
@@ -1675,10 +1702,11 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             {
                 float flow = seconds * MathF.Tau / 4.8f;
                 int petals = 4 + Phase * 2;
+                float phantasiaYaw = facingActive ? _facingYaw : flow * .42f;
                 BossVisuals.RotatingCube3D(spriteBatch, center, body.Width * .2f,
                     bodyColor, SecondaryAccent, PhaseAccent,
-                    flow * .42f, .62f + BossAnimation.Sine(seconds, 5.1f) * .26f,
-                    BossAnimation.Sine(seconds, 6.4f) * .16f, escalation: SecondFormBlend);
+                    phantasiaYaw, .62f + BossAnimation.Sine(seconds, 5.1f) * .26f,
+                    BossAnimation.Sine(seconds, 6.4f) * .16f);
                 for (int index = 0; index < petals; index++)
                 {
                     float angle = flow + index * MathF.Tau / petals;

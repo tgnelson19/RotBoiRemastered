@@ -735,9 +735,36 @@ public sealed class Ache : Kage
 
         bool facingActive = MovementProfile.Mode is BossMovementMode.Chase or BossMovementMode.FixedPath;
         float coreYaw = facingActive ? _facingYaw : seconds * 2.46f;
+        float corePitch = .58f + BossAnimation.Sine(seconds, .79f) * .32f;
+        float coreRoll = BossAnimation.Sine(seconds, .98f) * .18f;
+        // IsStaggered is Chemesthesis's own fracture/stagger moment (see
+        // SinChemesthesisBoss's stagger mechanics) -- the dramatic beat this
+        // boss family actually earns mid-fight, unlike Dying (which already
+        // short-circuits into BossVisuals.Disassemble above and never reaches
+        // this core render at all). Sandwich the solid core between the wire
+        // shell's far and near halves so the contained power reads as coming
+        // from inside a shell rather than just glowing around it.
+        if (IsStaggered)
+            BossVisuals.DrawWireShellLayer(spriteBatch, jittered, coreExtent * 1.4f,
+                BossVisuals.CubeVertices, BossVisuals.CubeFaces, blue, orange,
+                coreYaw, corePitch, coreRoll, front: false);
         BossVisuals.RotatingCube3D(spriteBatch, jittered, coreExtent, orange, deepOrange, blue,
-            coreYaw, .58f + BossAnimation.Sine(seconds, .79f) * .32f,
-            BossAnimation.Sine(seconds, .98f) * .18f, escalation: SecondFormBlend);
+            coreYaw, corePitch, coreRoll);
+        if (IsStaggered)
+            BossVisuals.DrawWireShellLayer(spriteBatch, jittered, coreExtent * 1.4f,
+                BossVisuals.CubeVertices, BossVisuals.CubeFaces, blue, orange,
+                coreYaw, corePitch, coreRoll, front: true);
+        BossVisuals.DrawFacingMarker(spriteBatch, jittered, coreExtent, coreYaw, corePitch, coreRoll, seconds, blue);
+
+        // ActTransitionTimer/ActTransitionDuration (SinChemesthesisBoss) is
+        // the real "a phase/act just changed, freeze window in progress"
+        // signal for this boss family -- Ache's own SetSinPhase override sets
+        // it via base.SetSinPhase on every phase change (and zeroes it early
+        // for the phase-8 finale entry). VisualTransitionRemaining is the
+        // generic path-boss field and isn't what actually governs Ache's
+        // transition freeze/pose window, so it's not the right driver here.
+        float acheTransitionProgress = (float)(ActTransitionTimer / ActTransitionDuration);
+        BossVisuals.DrawTransitionBurst(spriteBatch, jittered, seconds * 1000f, coreExtent, blue, acheTransitionProgress);
 
         float energyRadius = Size * (.075f + .012f * BossAnimation.Sine(seconds, .57f));
         Primitives2D.FillCircle(spriteBatch, jittered, (int)energyRadius + 5, UiTheme.Ink);

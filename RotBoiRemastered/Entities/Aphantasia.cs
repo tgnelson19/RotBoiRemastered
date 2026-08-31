@@ -171,6 +171,16 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     public const double MinimumGateSeconds = 15.0;
     public const double VoidVortexGrowDuration = 6.0;
     public const double TesseractTransitionDuration = 5.0;
+    /// <summary>
+    /// Duration of <see cref="DrawVoidTransition"/>'s dark burst marking the
+    /// body flipping into or out of its voided monochrome look (see
+    /// <see cref="VoidedBodyActive"/>). Deliberately shorter than
+    /// <see cref="TesseractTransitionDuration"/>'s full 5s -- this fires on
+    /// every Phase 3/4 survival window (and its end), several times per
+    /// fight, so a full-length burst would repeatedly stall combat pacing;
+    /// 2.2s is enough to read as a real event without doing that.
+    /// </summary>
+    public const double VoidTransitionDuration = 2.2;
     public const int ProjectileCapacityMultiplier = 5;
     public const int ActiveThreatSoftCap = 320 * ProjectileCapacityMultiplier;
     public const int PerimeterThreatReserve = 24;
@@ -334,6 +344,11 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     private int _survivalGridVolleyCount;
     private bool _voidVortexActive;
     private float _voidVortexProgress;
+    /// <summary>Last frame's <see cref="VoidedBodyActive"/>, checked once per frame in <see cref="Update"/> to catch the flip and arm <see cref="_voidTransitionRemaining"/>.</summary>
+    private bool _wasVoidedBodyActive;
+    private double _voidTransitionRemaining;
+    /// <summary>True while <see cref="_voidTransitionRemaining"/> is counting down a flip into the voided look; false while counting down a flip back out of it.</summary>
+    private bool _voidTransitionEntering;
     /// <summary>
     /// Subphases played since the current phase began (0 for the first
     /// subphase of the phase). Drives <see cref="PerimeterPressureRampCount"/>
@@ -373,6 +388,18 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         && EncounterState is AphantasiaEncounterState.Survival
             or AphantasiaEncounterState.MiniExecution
             or AphantasiaEncounterState.Finale;
+    /// <summary>
+    /// True specifically during Phase 3's Survival(GrandChoice) ->
+    /// MiniExecution -> Finale(EssenceFinale) window and Phase 4's
+    /// Survival(VoidEclipse) -> Finale(VoidFinale) window --
+    /// <see cref="PresentationSurvivalActive"/> alone would also cover an
+    /// earlier phase's mini eclipse survival windows, which stay in the
+    /// ordinary rainbow palette; only Phase 3+ switches the body's own
+    /// render into the monochrome voided look (<see cref="VoidTone"/>) via
+    /// <see cref="DrawBossBody"/> and <see cref="DrawMini"/>'s Empowered
+    /// glow, entered/exited through <see cref="DrawVoidTransition"/>.
+    /// </summary>
+    private bool VoidedBodyActive => PresentationSurvivalActive && Phase >= 3;
     public bool Dying => EncounterState == AphantasiaEncounterState.Dying;
     /// <summary>True while the terminal collapse is controlling removal.</summary>
     public bool CompletionReady => Dying;
@@ -595,6 +622,23 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         {
             _voidVortexProgress = Math.Clamp(
                 _voidVortexProgress + (float)(dt / VoidVortexGrowDuration), 0f, 1f);
+        }
+
+        // Checked once per frame regardless of EncounterState (same reason
+        // as the void vortex growth just above) so the transition burst can
+        // still play out even if this frame's state branch returns early --
+        // e.g. the flip out of the voided look lands exactly on the frame
+        // Finale hands off into Transforming.
+        bool voidedBodyActive = VoidedBodyActive;
+        if (voidedBodyActive != _wasVoidedBodyActive)
+        {
+            _voidTransitionRemaining = VoidTransitionDuration;
+            _voidTransitionEntering = voidedBodyActive;
+            _wasVoidedBodyActive = voidedBodyActive;
+        }
+        else if (_voidTransitionRemaining > 0)
+        {
+            _voidTransitionRemaining = Math.Max(0, _voidTransitionRemaining - dt);
         }
 
         if (EncounterState == AphantasiaEncounterState.Entrance)
@@ -2980,13 +3024,17 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             Vector2 arenaCenterScreen = camera.WorldToScreen(ArenaCenter, playerWorldPosition, screenShake);
             DrawUltimateGroundSigil(spriteBatch, arenaCenterScreen);
         }
-        // Both transition tentacle bursts draw before the body so they read
-        // as a shadowy explosion blooming out from behind the boss, not a
-        // decal painted on top of it.
+        // All three transition tentacle bursts draw before the body so they
+        // read as a shadowy explosion blooming out from behind the boss, not
+        // a decal painted on top of it. DrawVoidTransition is independent of
+        // the other two (it fires off a flip in VoidedBodyActive rather than
+        // EncounterState) and guards its own no-op internally, so it draws
+        // unconditionally rather than joining the if/else chain.
         if (PhaseHandoffActive)
             DrawPhaseHandoff(spriteBatch, center);
         else if (CombatDeclarationActive)
             DrawSubphaseDeclaration(spriteBatch, center);
+        DrawVoidTransition(spriteBatch, center);
         DrawBossBody(spriteBatch, center);
         if (DamageWindowActive)
         {
@@ -3011,7 +3059,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         float pulse = 1f + MathF.Sin((float)_visualTime * 2.1f) * .05f;
         Color glowColor = TrueLight ? new Color(88, 125, 228)
             : TrueDark ? new Color(8, 18, 65)
-            : Phase >= 3 ? Rainbow((float)_visualTime * .07f)
+            : Phase >= 3 ? (VoidedBodyActive
+                ? VoidTone((float)_visualTime * .07f)
+                : Rainbow((float)_visualTime * .07f))
             : PhaseAccent;
         // Chasing and pathed patterns turn the body to face where it's
         // headed (see UpdateMovement); standing patterns and every
@@ -3050,13 +3100,19 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             // far side (facing away from camera, toward the floor) draws
             // first so the solid inner cube covers it, then its near side
             // (facing the camera) draws last, overlapping the inner cube.
-            DrawWireCubeLayer(spriteBatch, outer, rainbow: true, outerFill,
-                bodyYaw, outerPitch, front: false);
+            // edgeColor only matters to DrawWireCubeLayer when rainbow is
+            // false -- passing it unconditionally here is inert (and simpler)
+            // outside the voided window, since rainbow: true ignores it.
+            DrawWireCubeLayer(spriteBatch, outer, rainbow: !VoidedBodyActive, outerFill,
+                bodyYaw, outerPitch, front: false, edgeColor: VoidTone(orbitSpin * .08f));
             Vector2[] inner = ProjectCube(center, Size * .3f, -bodyYaw * .72f, bodyYaw * .43f);
-            DrawFilledCube(spriteBatch, inner, Rainbow(orbitSpin * .08f) * .82f, UiTheme.Cream,
+            Color innerFill = VoidedBodyActive
+                ? VoidTone(orbitSpin * .08f)
+                : Rainbow(orbitSpin * .08f);
+            DrawFilledCube(spriteBatch, inner, innerFill * .82f, UiTheme.Cream,
                 -bodyYaw * .72f, bodyYaw * .43f);
-            DrawWireCubeLayer(spriteBatch, outer, rainbow: true, outerFill,
-                bodyYaw, outerPitch, front: true);
+            DrawWireCubeLayer(spriteBatch, outer, rainbow: !VoidedBodyActive, outerFill,
+                bodyYaw, outerPitch, front: true, edgeColor: VoidTone(orbitSpin * .08f));
             if (EncounterState == AphantasiaEncounterState.Transforming)
                 DrawTransformationSweep(spriteBatch, center, Size * .62f * pulse);
             if (facingActive)
@@ -3077,7 +3133,10 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             // square, so it can pick up the same chase/pathed facing turn
             // the earlier phases do.
             Vector2[] core = ProjectCube(center, Size * .34f, bodyYaw, bodyPitch);
-            DrawFilledCube(spriteBatch, core, Rainbow(orbitSpin * .08f), UiTheme.Cream,
+            Color coreFill = VoidedBodyActive
+                ? VoidTone(orbitSpin * .08f)
+                : Rainbow(orbitSpin * .08f);
+            DrawFilledCube(spriteBatch, core, coreFill, UiTheme.Cream,
                 bodyYaw, bodyPitch, inkWidth: 8, accentWidth: 4);
             if (facingActive)
                 DrawFacingMarker(spriteBatch, center, Size * .34f, bodyYaw, bodyPitch);
@@ -3089,7 +3148,9 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
                 float half = Size * (.16f + index % 2 * .04f);
                 float tumbleYaw = orbitSpin * 1.4f + index * 1.3f;
                 float tumblePitch = orbitSpin * .9f + index * .8f;
-                Color edge = Rainbow(index / 6f + orbitSpin * .05f);
+                Color edge = VoidedBodyActive
+                    ? VoidTone(index / 6f + orbitSpin * .05f)
+                    : Rainbow(index / 6f + orbitSpin * .05f);
                 Vector2[] paneCube = ProjectCube(pane, half, tumbleYaw, tumblePitch);
                 DrawFilledCube(spriteBatch, paneCube, edge, UiTheme.Cream, tumbleYaw, tumblePitch,
                     inkWidth: 4, accentWidth: 2);
@@ -3235,11 +3296,17 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
         if (mini.Empowered)
         {
             float empoweredPulse = .5f + .5f * MathF.Sin((float)_visualTime * 7f);
+            // Only reachable during Phase 3's MiniExecution window (Phase 4
+            // never draws minis -- see Draw()'s `if (Phase < 4)` guard), so
+            // VoidedBodyActive here really is just the Phase 3 voided check.
+            Color empoweredGlow = VoidedBodyActive
+                ? VoidTone((float)_visualTime * .1f)
+                : Rainbow((float)_visualTime * .1f);
             Primitives2D.CircleOutline(spriteBatch, center,
                 glyphRadius * (1.28f + empoweredPulse * .12f),
-                Rainbow((float)_visualTime * .1f), 4);
+                empoweredGlow, 4);
             DrawRimGlow(spriteBatch, center, glyphRadius * 1.4f, glyphRadius * 2.1f,
-                Rainbow((float)_visualTime * .1f), hot: true);
+                empoweredGlow, hot: true);
         }
 
         if (mini.FireCooldown <= .18f)
@@ -3540,6 +3607,40 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     }
 
     /// <summary>
+    /// The dark-themed burst marking the body flipping into or out of its
+    /// voided monochrome look (see <see cref="VoidedBodyActive"/> and
+    /// <see cref="VoidTone"/>) at the start/end of Phase 3 and Phase 4's
+    /// survival windows -- the same shared tentacle-burst technique as
+    /// <see cref="DrawTransformationTentacles"/> and
+    /// <see cref="DrawPhaseHandoff"/>, driven by
+    /// <see cref="_voidTransitionRemaining"/> instead of either of those
+    /// timers since this one fires far more often per fight, and forced
+    /// strictly black/white (<c>voidOnly: true</c>) rather than the usual
+    /// black/white/rainbow cycle so it never reads as "another rainbow
+    /// flash" the instant before the body actually goes monochrome.
+    /// Mirrors <see cref="DrawTransformationTentacles"/>'s exact
+    /// grow-then-fade <c>Sin(progress * PI)</c> envelope -- invisible at
+    /// both ends of the transition regardless of direction -- rather than a
+    /// one-way linear fade, so it never pops discontinuously the instant
+    /// <see cref="_voidTransitionRemaining"/> hits zero.
+    /// <see cref="_voidTransitionEntering"/> doesn't reshape that envelope;
+    /// it only leans the black/white alternation's phase one way for a flip
+    /// into the voided look and the other way for a flip back out, a small
+    /// free tell for which direction the flip is going.
+    /// </summary>
+    private void DrawVoidTransition(SpriteBatch spriteBatch, Vector2 center)
+    {
+        if (_voidTransitionRemaining <= 0)
+            return;
+        float progress = Math.Clamp(
+            1f - (float)(_voidTransitionRemaining / VoidTransitionDuration), 0f, 1f);
+        float bloom = MathF.Sin(progress * MathF.PI);
+        float colorSeed = _voidTransitionEntering ? progress * .6f : 1f - progress * .6f;
+        DrawTentacleBurst(spriteBatch, center, 9, ArenaRadius * .2f, bloom, colorSeed,
+            voidOnly: true);
+    }
+
+    /// <summary>
     /// A tentacle spike with trailing after-image echoes -- darkened,
     /// fading copies of itself evaluated at slightly earlier moments in
     /// time, exactly like the Aphantasia portal decoration in The Mind
@@ -3585,17 +3686,31 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     };
 
     /// <summary>
+    /// <see cref="TentacleThemeColor"/>'s void-only counterpart for
+    /// <see cref="DrawVoidTransition"/>'s burst -- strictly alternates black
+    /// and white with no rainbow third (there's no <c>null</c> case to hand
+    /// back to <see cref="Primitives2D.DrawTentacleSpike"/>'s own Rainbow
+    /// stroke), so the whole burst stays monochrome.
+    /// </summary>
+    private static Color TentacleVoidThemeColor(int index) => index % 2 == 0
+        ? new Color(14, 12, 20)
+        : new Color(230, 226, 238);
+
+    /// <summary>
     /// A burst of tentacles rooted at <paramref name="center"/>, each a
-    /// different one of <see cref="TentacleThemeColor"/>'s three colors,
-    /// scaled by <paramref name="bloom"/> (0 = gone, 1 = full
-    /// <paramref name="reach"/>) so callers can drive them through a
-    /// grow-then-shrink envelope (typically <c>MathF.Sin(progress * MathF.PI)</c>)
-    /// over a transition's lifetime. Shared by every transition tentacle
-    /// effect in this file so they all read as the same shadowy-explosion
-    /// language rather than three separate one-off effects.
+    /// different one of <see cref="TentacleThemeColor"/>'s three colors (or,
+    /// with <paramref name="voidOnly"/>, <see cref="TentacleVoidThemeColor"/>'s
+    /// strict black/white alternation), scaled by <paramref name="bloom"/>
+    /// (0 = gone, 1 = full <paramref name="reach"/>) so callers can drive
+    /// them through a grow-then-shrink envelope (typically
+    /// <c>MathF.Sin(progress * MathF.PI)</c>) over a transition's lifetime.
+    /// Shared by every transition tentacle effect in this file so they all
+    /// read as the same shadowy-explosion language rather than separate
+    /// one-off effects.
     /// </summary>
     private void DrawTentacleBurst(SpriteBatch spriteBatch, Vector2 center,
-        int count, float reach, float bloom, float colorSeed = 0f, int segments = 40)
+        int count, float reach, float bloom, float colorSeed = 0f, int segments = 40,
+        bool voidOnly = false)
     {
         if (bloom <= .02f)
             return;
@@ -3604,9 +3719,12 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
             float baseAngle = index * MathF.Tau / count + colorSeed + (float)_visualTime * .35f;
             float length = reach * bloom;
             float width = reach * .1f;
+            Color? themeColor = voidOnly
+                ? TentacleVoidThemeColor(index)
+                : TentacleThemeColor(index);
             DrawTentacleSpikeWithTrail(spriteBatch, center, baseAngle, length, width,
                 phase: index * 2.1f, colorPhase: index / (float)count + colorSeed,
-                segments: segments, themeColor: TentacleThemeColor(index));
+                segments: segments, themeColor: themeColor);
         }
     }
 
@@ -4014,6 +4132,22 @@ public sealed class Aphantasia : Enemy, IBossArenaController, IBossArenaOcclusio
     }
 
     private static Color Rainbow(float phase) => Primitives2D.Rainbow(phase);
+
+    /// <summary>
+    /// <see cref="Rainbow"/>'s monochrome counterpart -- a drop-in
+    /// replacement with the same signature shape, but a black-to-white
+    /// VALUE gradient instead of a cycling hue, for the body's voided look
+    /// during Phase 3/4 survival windows (see <see cref="VoidedBodyActive"/>).
+    /// A value gradient reads calmer and less busy than a full hue sweep
+    /// would, which is the actual "refined, less busy" quality the voided
+    /// look is going for -- not simply "the same rainbow, but darker."
+    /// </summary>
+    private static Color VoidTone(float phase)
+    {
+        phase -= MathF.Floor(phase);
+        float value = .5f + .5f * MathF.Sin(phase * MathF.Tau);
+        return Color.Lerp(new Color(6, 5, 11), new Color(230, 226, 238), value);
+    }
 
     /// <summary>
     /// A darkened, low-saturation cousin of <see cref="Rainbow"/> for

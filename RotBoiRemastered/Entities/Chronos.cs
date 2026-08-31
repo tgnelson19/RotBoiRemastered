@@ -761,15 +761,6 @@ public sealed class Chronos : Ishe
 
         Vector2 screen = camera.WorldToScreen(new Vector2(WorldX, WorldY), playerWorldPosition, screenShake);
         Vector2 center = screen + new Vector2(Size / 2f, Size / 2f);
-        if (Dying)
-        {
-            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size * 1.15f,
-                new Color(102, 198, 230), new Color(207, 241, 250), 16);
-            return;
-        }
-
-        bool survival = MidpointSurvivalActive || FinaleActive;
-        float auraScale = survival ? 1.42f : 1f;
         Color sky = new(103, 197, 231);
         Color ice = new(194, 235, 248);
         float seconds = VisualAgeSeconds;
@@ -787,6 +778,26 @@ public sealed class Chronos : Ishe
         float yaw = facingActive ? _facingYaw : tickYaw;
         float pitch = .58f + MathF.Sin(seconds * .54f) * .26f;
         float roll = MathF.Sin(seconds * .39f) * .24f;
+
+        if (Dying)
+        {
+            BossVisuals.Disassemble(spriteBatch, center, Age, DeathProgress, Size * 1.15f,
+                new Color(102, 198, 230), new Color(207, 241, 250), 16);
+            // Death is Chronos's single most dramatic moment: sandwich the
+            // still-rotating core between a translucent wire shell (back half
+            // behind it, front half in front) so the last of its power reads
+            // as contained rather than simply switched off.
+            float shellExtent = Size * .34f * 1.4f;
+            BossVisuals.DrawWireShellLayer(spriteBatch, center, shellExtent, BossVisuals.CubeVertices,
+                BossVisuals.CubeFaces, PhaseAccent, ice, yaw, pitch, roll, front: false);
+            BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll);
+            BossVisuals.DrawWireShellLayer(spriteBatch, center, shellExtent, BossVisuals.CubeVertices,
+                BossVisuals.CubeFaces, PhaseAccent, ice, yaw, pitch, roll, front: true);
+            return;
+        }
+
+        bool survival = MidpointSurvivalActive || FinaleActive;
+        float auraScale = survival ? 1.42f : 1f;
 
         // Afterimage echoes hold each of the body's own recent ticked poses instead
         // of drifting independently, so the trail reads as "the recent past" rather
@@ -815,7 +826,12 @@ public sealed class Chronos : Ishe
                 moteSize * 2, moteSize * 2), Color.Lerp(sky, UiTheme.Cream, pulse));
         }
 
-        BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll, escalation: SecondFormBlend);
+        BossVisuals.RotatingCube3D(spriteBatch, center, Size * .34f, sky, ice, PhaseAccent, yaw, pitch, roll);
+        // Sells an ordinary phase change as an actual event rather than just
+        // the freeze-pose VisualTransitionRemaining already applies to motion.
+        float transitionProgress = (float)(VisualTransitionRemaining / 1.4);
+        BossVisuals.DrawTransitionBurst(spriteBatch, center, Age, Size * .34f, PhaseAccent, transitionProgress);
+        BossVisuals.DrawFacingMarker(spriteBatch, center, Size * .34f, yaw, pitch, roll, seconds, PhaseAccent);
 
         float sweep = BossAnimation.EaseInOutSine(BossAnimation.LoopPhase(seconds, 3.8f));
         Vector2 sweepStart = center + new Vector2(-Size * .23f, Size * (.16f - sweep * .32f));
