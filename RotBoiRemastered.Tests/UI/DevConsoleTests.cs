@@ -136,4 +136,53 @@ public class DevConsoleTests
 
         Assert.Equal(Aphantasia.DebugTestPhaseKeys[1].Key, boss.CurrentPattern.Key);
     }
+
+    [Fact]
+    public void CommandMenu_SlashGThenDownThenEnter_SelectsGodAndRunsItImmediately()
+    {
+        // "g" matches "give", "god", and "vfxgallery" (in that Commands-table
+        // order) -- "god" takes no arguments, so selecting it should run
+        // immediately rather than filling "/god " and waiting for more.
+        var session = MakeSession();
+        var console = new DevConsole();
+        console.Open();
+        foreach (char c in "/g")
+            console.HandleTextInput(c);
+        bool before = session.State.BossDebugInvincible;
+
+        console.Update(session, new HashSet<Keys> { Keys.Down }, 0);
+        console.Update(session, new HashSet<Keys> { Keys.Enter }, 0);
+
+        Assert.NotEqual(before, session.State.BossDebugInvincible);
+    }
+
+    [Fact]
+    public void CommandMenu_SpawnChainsThroughItemAndRarityDropdownsBeforeExecutingOnce()
+    {
+        var session = MakeSession();
+        var console = new DevConsole();
+        console.Open();
+
+        // "spawn" is the sole match for "/spawn" and takes arguments --
+        // selecting it must fill "/spawn " into the buffer rather than
+        // running it (there's nothing valid to spawn yet).
+        foreach (char c in "/spawn")
+            console.HandleTextInput(c);
+        console.Update(session, new HashSet<Keys> { Keys.Enter }, 0);
+        Assert.Empty(session.State.LootCrateList);
+
+        // The item-name dropdown is now live and unfiltered; a bare Enter
+        // picks its first candidate and fills it in rather than running,
+        // since rarity is still an unfilled slot after it.
+        foreach (char c in "3 ")
+            console.HandleTextInput(c);
+        console.Update(session, new HashSet<Keys> { Keys.Enter }, 0);
+        Assert.Empty(session.State.LootCrateList);
+
+        // Rarity is the last configured slot -- a bare Enter here picks its
+        // first candidate and runs the finished command.
+        console.Update(session, new HashSet<Keys> { Keys.Enter }, 0);
+
+        Assert.Single(session.State.LootCrateList);
+    }
 }

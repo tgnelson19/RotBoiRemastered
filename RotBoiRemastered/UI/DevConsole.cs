@@ -5,6 +5,9 @@ using RotBoiRemastered.Core;
 using RotBoiRemastered.Presentation;
 using RotBoiRemastered.Systems;
 using RotBoiRemastered.World;
+using ArgumentProvider = System.Func<RotBoiRemastered.Systems.GameSession,
+    System.Collections.Generic.IReadOnlyList<string>,
+    System.Collections.Generic.IReadOnlyList<(string Value, string Label)>>;
 
 namespace RotBoiRemastered.UI;
 
@@ -34,40 +37,90 @@ public readonly record struct ConsoleResult(ConsoleActionKind Kind = ConsoleActi
 ///                                               Extract button, bypassing its BeaudisDefeated gate
 ///   /vfxgallery [0-100] [path] [tier]       -- spawns the visual-language gallery
 ///   /testphase &lt;key&gt;                        -- jump the active boss to a specific
-///                                               phase/pattern/sequence; type a space
-///                                               after "/testphase" for a live, filterable
-///                                               dropdown of every key that boss supports
+///                                               phase/pattern/sequence
 ///   /help                                   -- lists the above
+///
+/// Autocomplete: pressing "/" opens a live, arrow-key-navigable, type-to-
+/// filter dropdown of every command above (see <see cref="Commands"/>).
+/// Selecting (or typing out) one that takes no arguments runs it immediately;
+/// one that does instead fills "/name " into the buffer and swaps in a
+/// dropdown of that argument's own candidates (item names, rarities, a
+/// boss's test-phase keys, ...) -- selecting one of those chains the same
+/// way into the next argument's dropdown, or runs the finished command once
+/// there is nothing left to fill in. See <see cref="RefreshCommandMenu"/>.
 /// </summary>
 public sealed class DevConsole
 {
     private const int MaxHistoryLines = 50;
     private const int VisibleHistoryLines = 10;
     private const int MaxBufferLength = 80;
-    private const string TestPhasePrefix = "/testphase ";
-    private const int MaxTestPhaseMenuRows = 8;
+    private const int MaxCommandMenuRows = 8;
+
+    /// <summary>
+    /// One authored command: its display name, the one-line usage shown in
+    /// both /help and the top-level "/" dropdown, and one candidate-provider
+    /// per positional argument (null for an argument with no sensible
+    /// enumerable set, e.g. /spawn's free-form &lt;count&gt;). An empty list
+    /// means "takes no arguments" -- see <see cref="RefreshCommandMenu"/>'s
+    /// doc comment for what that changes about selecting it from a dropdown.
+    /// </summary>
+    private sealed record ConsoleCommandSpec(
+        string Name, string Usage, IReadOnlyList<ArgumentProvider?> ArgumentProviders);
+
+    private enum MenuMode { None, CommandName, Argument }
+
+    private static readonly IReadOnlyList<ConsoleCommandSpec> Commands = new ConsoleCommandSpec[]
+    {
+        new("spawn", "/spawn <count> \"<item>\" [rarity] -- drop a crate at your position",
+            new ArgumentProvider?[] { null, ItemNameOptions, RarityOptions }),
+        new("give", "/give <count> \"<item>\" [rarity] -- add straight to inventory",
+            new ArgumentProvider?[] { null, ItemNameOptions, RarityOptions }),
+        new("god", "/god -- toggle invincibility", Array.Empty<ArgumentProvider?>()),
+        new("boss", "/boss -- force the boss encounter to start", Array.Empty<ArgumentProvider?>()),
+        new("levelup", "/levelup -- force an immediate level up", Array.Empty<ArgumentProvider?>()),
+        new("killall", "/killall -- kill every enemy, boss included", Array.Empty<ArgumentProvider?>()),
+        new("extract", "/extract -- end the run as an extraction", Array.Empty<ArgumentProvider?>()),
+        new("vfxgallery", "/vfxgallery [0-100] [path] [tier] -- spawn the visual-language gallery",
+            Array.Empty<ArgumentProvider?>()),
+        new("testphase", "/testphase <key> -- jump the active boss to a phase/pattern/sequence",
+            new ArgumentProvider?[] { TestPhaseOptions }),
+        new("help", "/help -- list every command", Array.Empty<ArgumentProvider?>()),
+    };
 
     private readonly List<string> _history = new();
     private string _buffer = "";
     private double _seconds;
     private bool _open;
+
     /// <summary>
     /// Live-filtered candidates for the current buffer, recomputed each
-    /// <see cref="Update"/> call (see <see cref="RefreshTestPhaseMenu"/>) and
+    /// <see cref="Update"/> call (see <see cref="RefreshCommandMenu"/>) and
     /// read back by <see cref="Draw"/> -- Draw itself has no GameSession
-    /// reference, so it can't query <see cref="GameSession.DebugTestPhaseOptions"/>
-    /// directly.
+    /// reference, so it can't recompute this on its own.
     /// </summary>
-    private readonly List<(string Key, string Label)> _testPhaseCandidates = new();
-    private int _testPhaseSelection;
-    private string _testPhaseFilter = "";
+    private readonly List<(string Value, string Label)> _menuCandidates = new();
+    private int _menuSelection;
+    private MenuMode _menuMode;
+    /// <summary>Set alongside <see cref="_menuMode"/> being Argument -- which command's dropdown is showing and which of its argument slots.</summary>
+    private ConsoleCommandSpec? _menuCommand;
+    private string? _menuCommandName;
+    private int _menuArgIndex = -1;
+    /// <summary>Already-confirmed argument tokens before the slot currently being filled -- carried into the rebuilt command when a candidate is selected.</summary>
+    private IReadOnlyList<string> _menuPrecedingArgs = Array.Empty<string>();
     /// <summary>
-    /// Set by <see cref="DismissTestPhaseMenu"/> (the console's Escape
-    /// handler in RotBoiGame, so a first Escape closes just the dropdown
-    /// rather than the whole console) and cleared the moment the filter text
+    /// Identifies *what* is currently being filtered (mode + command + slot +
+    /// filter text) -- a change resets <see cref="_menuSelection"/> to 0 and
+    /// clears <see cref="_menuDismissed"/>, same as <see cref="Update"/>'s
+    /// Up/Down navigation working from a stable list frame to frame.
+    /// </summary>
+    private string _menuStateKey = "";
+    /// <summary>
+    /// Set by <see cref="DismissCommandMenu"/> (the console's Escape handler
+    /// in RotBoiGame, so a first Escape closes just the dropdown rather than
+    /// the whole console) and cleared the moment <see cref="_menuStateKey"/>
     /// changes again, so resuming typing brings the menu back.
     /// </summary>
-    private bool _testPhaseMenuDismissed;
+    private bool _menuDismissed;
 
     public bool IsOpen => _open;
 
@@ -80,10 +133,7 @@ public sealed class DevConsole
     public void Close()
     {
         _open = false;
-        _buffer = "";
-        _testPhaseCandidates.Clear();
-        _testPhaseFilter = "";
-        _testPhaseMenuDismissed = false;
+        ResetBuffer();
     }
 
     /// <summary>Fed from RotBoiGame's Window.TextInput subscription (see Initialize) -- MonoGame's only source of actual typed characters, as opposed to InputState's raw Keys tracking.</summary>
@@ -108,90 +158,216 @@ public sealed class DevConsole
         if (keysPressed.Contains(Keys.Back) && _buffer.Length > 0)
             _buffer = _buffer[..^1];
 
-        RefreshTestPhaseMenu(session);
-        if (_testPhaseCandidates.Count > 0)
+        RefreshCommandMenu(session);
+        if (_menuCandidates.Count > 0)
         {
             if (keysPressed.Contains(Keys.Down))
-                _testPhaseSelection = (_testPhaseSelection + 1) % _testPhaseCandidates.Count;
+                _menuSelection = (_menuSelection + 1) % _menuCandidates.Count;
             if (keysPressed.Contains(Keys.Up))
-            {
-                _testPhaseSelection = (_testPhaseSelection - 1 + _testPhaseCandidates.Count)
-                    % _testPhaseCandidates.Count;
-            }
+                _menuSelection = (_menuSelection - 1 + _menuCandidates.Count) % _menuCandidates.Count;
         }
 
-        if (keysPressed.Contains(Keys.Enter) && (_buffer.Length > 0 || _testPhaseCandidates.Count > 0))
+        if (!keysPressed.Contains(Keys.Enter) || (_buffer.Length == 0 && _menuCandidates.Count == 0))
+            return default;
+
+        if (_menuCandidates.Count == 0)
         {
-            // A visible dropdown wins over the raw buffer -- the player may
-            // have only typed a partial filter, so the highlighted candidate
-            // (not the literal buffer text) is what actually runs.
-            string command = _testPhaseCandidates.Count > 0
-                ? $"/testphase {_testPhaseCandidates[Math.Clamp(_testPhaseSelection, 0, _testPhaseCandidates.Count - 1)].Key}"
-                : _buffer.Trim();
-            var result = Execute(command, session);
-            _buffer = "";
-            _testPhaseCandidates.Clear();
-            _testPhaseFilter = "";
-            _testPhaseMenuDismissed = false;
+            var result = Execute(_buffer.Trim(), session);
+            ResetBuffer();
             return result;
         }
+
+        string selectedValue = _menuCandidates[Math.Clamp(_menuSelection, 0, _menuCandidates.Count - 1)].Value;
+        if (_menuMode == MenuMode.CommandName)
+        {
+            ConsoleCommandSpec? spec = FindCommand(selectedValue);
+            if (spec is null || spec.ArgumentProviders.Count == 0)
+            {
+                // No arguments to fill in -- running it immediately is the
+                // whole point of picking it, rather than making the
+                // developer press Enter a second time on an empty prompt.
+                var result = Execute("/" + selectedValue, session);
+                ResetBuffer();
+                return result;
+            }
+            _buffer = "/" + selectedValue + " ";
+            return default;
+        }
+
+        // MenuMode.Argument: rebuild the command from every argument
+        // confirmed so far plus this selection, then either run it (nothing
+        // left to fill) or fill it in and wait for the next slot's dropdown.
+        var args = new List<string>(_menuPrecedingArgs) { selectedValue };
+        string newBuffer = ComposeCommand(_menuCommandName!, args);
+        bool isLastSlot = _menuArgIndex + 1 >= _menuCommand!.ArgumentProviders.Count;
+        if (isLastSlot)
+        {
+            var result2 = Execute(newBuffer, session);
+            ResetBuffer();
+            return result2;
+        }
+        _buffer = newBuffer + " ";
         return default;
     }
 
     /// <summary>
-    /// Recomputes <see cref="_testPhaseCandidates"/> from the current buffer.
-    /// The dropdown appears the instant the buffer reads "/testphase " (right
-    /// after the trailing space -- so typing the bare command alone shows
-    /// nothing yet, matching the console's own doc comment), filtered by
-    /// whatever comes after that prefix against both key and label, and
-    /// disappears again the moment the buffer no longer matches (backspaced
-    /// short, or a different command entirely).
+    /// Recomputes <see cref="_menuCandidates"/> (and the mode/slot fields
+    /// Update's Enter handler reads) from the current buffer:
+    /// - Buffer is "/" plus no space yet -&gt; <see cref="MenuMode.CommandName"/>,
+    ///   candidates are every <see cref="Commands"/> entry whose name matches
+    ///   what follows the "/".
+    /// - Buffer is "/&lt;command&gt; " (a recognized command, at least one space
+    ///   after it) -&gt; <see cref="MenuMode.Argument"/>, candidates come from
+    ///   that command's provider for whichever argument slot the buffer is
+    ///   currently on (the slot after the last complete token when the
+    ///   buffer ends with a space, otherwise the slot still being typed,
+    ///   filtered by its partial text).
+    /// - Anything else (no session, empty buffer, unrecognized command, a
+    ///   slot with no provider or past the command's last slot) -&gt; empty,
+    ///   same as no dropdown at all.
+    /// Tokenizes with <see cref="Tokenize"/> (quote-aware, same as Execute)
+    /// rather than a raw space-split, so a quoted item name's internal
+    /// spaces don't get mistaken for argument boundaries.
     /// </summary>
-    private void RefreshTestPhaseMenu(GameSession? session)
+    private void RefreshCommandMenu(GameSession? session)
     {
-        if (session is null || !_buffer.StartsWith(TestPhasePrefix, StringComparison.OrdinalIgnoreCase))
+        _menuCandidates.Clear();
+        _menuMode = MenuMode.None;
+        _menuCommand = null;
+        _menuCommandName = null;
+        _menuArgIndex = -1;
+        _menuPrecedingArgs = Array.Empty<string>();
+
+        if (session is null || !_buffer.StartsWith("/", StringComparison.Ordinal))
         {
-            _testPhaseCandidates.Clear();
-            _testPhaseFilter = "";
-            _testPhaseMenuDismissed = false;
+            ApplyStateKey("");
             return;
         }
-        string filter = _buffer[TestPhasePrefix.Length..].TrimStart();
-        if (filter != _testPhaseFilter)
+
+        if (!_buffer.Contains(' '))
         {
-            _testPhaseFilter = filter;
-            _testPhaseSelection = 0;
-            _testPhaseMenuDismissed = false;
-        }
-        _testPhaseCandidates.Clear();
-        if (_testPhaseMenuDismissed)
-            return;
-        foreach (var option in session.DebugTestPhaseOptions())
-        {
-            if (filter.Length == 0
-                || option.Key.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                || option.Label.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            string filter = _buffer[1..];
+            _menuMode = MenuMode.CommandName;
+            ApplyStateKey($"name{filter}");
+            if (_menuDismissed)
+                return;
+            foreach (ConsoleCommandSpec spec in Commands)
             {
-                _testPhaseCandidates.Add(option);
+                if (filter.Length == 0 || spec.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                    _menuCandidates.Add((spec.Name, spec.Usage));
+            }
+            ClampSelection();
+            return;
+        }
+
+        List<string> tokens = Tokenize(_buffer);
+        if (tokens.Count == 0)
+        {
+            ApplyStateKey("");
+            return;
+        }
+        string commandName = tokens[0].TrimStart('/').ToLowerInvariant();
+        ConsoleCommandSpec? spec2 = FindCommand(commandName);
+        if (spec2 is null)
+        {
+            ApplyStateKey("");
+            return;
+        }
+
+        List<string> argTokens = tokens.Skip(1).ToList();
+        bool endsWithSpace = _buffer.Length > 0 && char.IsWhiteSpace(_buffer[^1]);
+        int argIndex = endsWithSpace ? argTokens.Count : argTokens.Count - 1;
+        string argFilter = endsWithSpace ? "" : argTokens[^1];
+        List<string> precedingArgs = endsWithSpace
+            ? argTokens
+            : argTokens.Take(argTokens.Count - 1).ToList();
+
+        _menuMode = MenuMode.Argument;
+        _menuCommand = spec2;
+        _menuCommandName = commandName;
+        _menuArgIndex = argIndex;
+        _menuPrecedingArgs = precedingArgs;
+        ApplyStateKey($"arg{commandName}{argIndex}{argFilter}");
+
+        if (_menuDismissed || argIndex < 0 || argIndex >= spec2.ArgumentProviders.Count)
+            return;
+        ArgumentProvider? provider = spec2.ArgumentProviders[argIndex];
+        if (provider is null)
+            return;
+        foreach ((string value, string label) in provider(session, precedingArgs))
+        {
+            if (argFilter.Length == 0
+                || value.Contains(argFilter, StringComparison.OrdinalIgnoreCase)
+                || label.Contains(argFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                _menuCandidates.Add((value, label));
             }
         }
-        if (_testPhaseSelection >= _testPhaseCandidates.Count)
-            _testPhaseSelection = Math.Max(0, _testPhaseCandidates.Count - 1);
+        ClampSelection();
     }
 
-    /// <summary>
-    /// Called from RotBoiGame's Escape handling: dismisses the /testphase
-    /// dropdown without closing the console or touching the typed buffer,
-    /// returning true iff there was a menu open to dismiss. The caller only
-    /// proceeds to close the whole console when this returns false, so the
-    /// first Escape while suggestions are showing just clears them.
-    /// </summary>
-    public bool DismissTestPhaseMenu()
+    /// <summary>Resets selection and un-dismisses whenever what's being filtered actually changes -- called once per <see cref="RefreshCommandMenu"/> pass with a key describing the current mode/command/slot/filter-text.</summary>
+    private void ApplyStateKey(string key)
     {
-        if (_testPhaseCandidates.Count == 0 || _testPhaseMenuDismissed)
+        if (key == _menuStateKey)
+            return;
+        _menuStateKey = key;
+        _menuSelection = 0;
+        _menuDismissed = false;
+    }
+
+    private void ClampSelection()
+    {
+        if (_menuSelection >= _menuCandidates.Count)
+            _menuSelection = Math.Max(0, _menuCandidates.Count - 1);
+    }
+
+    private void ResetBuffer()
+    {
+        _buffer = "";
+        _menuCandidates.Clear();
+        _menuStateKey = "";
+        _menuDismissed = false;
+    }
+
+    private static ConsoleCommandSpec? FindCommand(string name) =>
+        Commands.FirstOrDefault(spec => string.Equals(spec.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Rebuilds "/name arg1 arg2 ..." from scratch, quoting any argument that contains whitespace (item names) -- used instead of splicing the buffer in place, matching how a selection already replaced the whole partially-typed argument rather than trying to edit it mid-word.</summary>
+    private static string ComposeCommand(string commandName, IEnumerable<string> args)
+    {
+        var parts = new List<string> { "/" + commandName };
+        parts.AddRange(args.Select(arg => arg.Any(char.IsWhiteSpace) ? $"\"{arg}\"" : arg));
+        return string.Join(' ', parts);
+    }
+
+    private static IReadOnlyList<(string Value, string Label)> ItemNameOptions(
+        GameSession session, IReadOnlyList<string> precedingArgs) =>
+        Items.Uniques.Select(item => (item.Name, $"{item.Name} (Unique)"))
+            .Concat(Items.Definitions.Select(item => (item.Name, item.Name)))
+            .ToArray();
+
+    private static IReadOnlyList<(string Value, string Label)> RarityOptions(
+        GameSession session, IReadOnlyList<string> precedingArgs) =>
+        Upgrades.RarityOrder.Select(rarity => (rarity, rarity)).ToArray();
+
+    private static IReadOnlyList<(string Value, string Label)> TestPhaseOptions(
+        GameSession session, IReadOnlyList<string> precedingArgs) =>
+        session.DebugTestPhaseOptions().Select(option => (option.Key, option.Label)).ToArray();
+
+    /// <summary>
+    /// Called from RotBoiGame's Escape handling: dismisses the "/" dropdown
+    /// without closing the console or touching the typed buffer, returning
+    /// true iff there was a menu open to dismiss. The caller only proceeds
+    /// to close the whole console when this returns false, so the first
+    /// Escape while suggestions are showing just clears them.
+    /// </summary>
+    public bool DismissCommandMenu()
+    {
+        if (_menuCandidates.Count == 0 || _menuDismissed)
             return false;
-        _testPhaseMenuDismissed = true;
-        _testPhaseCandidates.Clear();
+        _menuDismissed = true;
+        _menuCandidates.Clear();
         return true;
     }
 
@@ -221,7 +397,7 @@ public sealed class DevConsole
             Log("/extract                                -- end the run as an extraction");
             Log("/vfxgallery [0-100] [path] [tier]       -- spawn the visual-language gallery");
             Log("/testphase <key>                        -- jump the active boss to a phase/pattern/sequence");
-            Log("                                            (space after \"/testphase\" for a filterable dropdown)");
+            Log("Press \"/\" for a dropdown of every command; keep typing to filter it.");
             return default;
         }
         if (session is null)
@@ -303,10 +479,10 @@ public sealed class DevConsole
 
     /// <summary>
     /// Jumps the active boss to a specific phase/pattern/sequence. Meant to
-    /// be driven through the dropdown (type "/testphase " and either arrow
-    /// down to a candidate and press Enter, or keep typing to filter first) --
-    /// see <see cref="RefreshTestPhaseMenu"/> -- but also accepts a key typed
-    /// out in full, e.g. "/testphase blender".
+    /// be driven through the "/" dropdown (type "/testphase " and either
+    /// arrow down to a candidate and press Enter, or keep typing to filter
+    /// first) -- see <see cref="RefreshCommandMenu"/> -- but also accepts a
+    /// key typed out in full, e.g. "/testphase blender".
     /// </summary>
     private ConsoleResult HandleTestPhase(IReadOnlyList<string> tokens, GameSession session)
     {
@@ -502,43 +678,43 @@ public sealed class DevConsole
         UiTheme.DrawText(spriteBatch, $"> {_buffer}{(caretOn ? "_" : "")}", 13 * scale, UiTheme.Text,
             new Vector2(Px(12), inputRect.Y + Px(6)));
 
-        if (_testPhaseCandidates.Count > 0)
-            DrawTestPhaseMenu(spriteBatch, screenWidth, inputRect, scale);
+        if (_menuCandidates.Count > 0)
+            DrawCommandMenu(spriteBatch, screenWidth, inputRect, scale);
     }
 
     /// <summary>
-    /// The "/testphase " autocomplete dropdown, anchored directly under the
-    /// input bar -- up to <see cref="MaxTestPhaseMenuRows"/> candidates, the
-    /// current one (<see cref="_testPhaseSelection"/>, moved by Up/Down in
-    /// <see cref="Update"/>) highlighted, with an "and N more" hint when the
-    /// live filter still matches more than fit on screen.
+    /// The "/" autocomplete dropdown, anchored directly under the input bar
+    /// -- up to <see cref="MaxCommandMenuRows"/> candidates, the current one
+    /// (<see cref="_menuSelection"/>, moved by Up/Down in <see cref="Update"/>)
+    /// highlighted, with an "and N more" hint when the live filter still
+    /// matches more than fit on screen.
     /// </summary>
-    private void DrawTestPhaseMenu(SpriteBatch spriteBatch, int screenWidth, Rectangle inputRect, float scale)
+    private void DrawCommandMenu(SpriteBatch spriteBatch, int screenWidth, Rectangle inputRect, float scale)
     {
         int Px(float value) => Math.Max(1, (int)MathF.Round(value * scale));
         int rowHeight = Px(18);
-        int shown = Math.Min(MaxTestPhaseMenuRows, _testPhaseCandidates.Count);
-        bool overflow = _testPhaseCandidates.Count > shown;
+        int shown = Math.Min(MaxCommandMenuRows, _menuCandidates.Count);
+        bool overflow = _menuCandidates.Count > shown;
         int menuHeight = shown * rowHeight + Px(6) + (overflow ? Px(14) : 0);
         var menuRect = new Rectangle(inputRect.X, inputRect.Bottom, screenWidth, menuHeight);
         UiTheme.DrawPanel(spriteBatch, menuRect, UiTheme.Panel * .97f, UiTheme.Border, shadow: 3);
 
         int y = menuRect.Y + Px(3);
-        int selected = Math.Clamp(_testPhaseSelection, 0, shown - 1);
+        int selected = Math.Clamp(_menuSelection, 0, shown - 1);
         for (int index = 0; index < shown; index++)
         {
             bool isSelected = index == selected;
-            (string key, string label) = _testPhaseCandidates[index];
+            (string value, string label) = _menuCandidates[index];
             if (isSelected)
                 Primitives2D.FillRect(spriteBatch, new Rectangle(menuRect.X, y, screenWidth, rowHeight), UiTheme.PanelHover);
-            UiTheme.DrawText(spriteBatch, $"{(isSelected ? ">" : " ")} {label}  ({key})",
+            UiTheme.DrawText(spriteBatch, $"{(isSelected ? ">" : " ")} {label}",
                 12 * scale, isSelected ? UiTheme.Gold : UiTheme.Text, new Vector2(Px(12), y + Px(2)));
             y += rowHeight;
         }
         if (overflow)
         {
             UiTheme.DrawText(spriteBatch,
-                $"...and {_testPhaseCandidates.Count - shown} more (keep typing to narrow)",
+                $"...and {_menuCandidates.Count - shown} more (keep typing to narrow)",
                 11 * scale, UiTheme.Muted, new Vector2(Px(12), y + Px(2)));
         }
     }

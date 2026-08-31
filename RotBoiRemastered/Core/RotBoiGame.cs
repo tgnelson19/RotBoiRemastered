@@ -167,12 +167,12 @@ public class RotBoiGame : Game
             _devConsole.Close();
         else if (_devConsole.IsOpen && InputState.KeysPressed.Contains(Keys.Escape))
         {
-            // The /testphase dropdown eats the first Escape for itself
-            // (DismissTestPhaseMenu returns true only when one was actually
+            // The "/" autocomplete dropdown eats the first Escape for itself
+            // (DismissCommandMenu returns true only when one was actually
             // showing) so a developer arrowing through candidates can back
             // out of the list without losing the whole console and its
             // typed buffer; a second Escape then closes the console as usual.
-            if (!_devConsole.DismissTestPhaseMenu())
+            if (!_devConsole.DismissCommandMenu())
                 _devConsole.Close();
         }
 
