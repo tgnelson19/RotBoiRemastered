@@ -288,7 +288,7 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
         : 0f;
 
     /// <summary>The shared sense-finale difficulty curve.</summary>
-    private static BossDifficultyScalars Difficulty => BossDifficultyScalars.Finale;
+    private static new BossDifficultyScalars Difficulty => BossDifficultyScalars.Finale;
 
     public double PhaseTimeLimit => _governor.TimeLimit;
     public double PhaseClockElapsed => _governor.Elapsed;

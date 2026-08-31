@@ -288,19 +288,6 @@ public sealed class Player
             }
         }
 
-        // The shadow deliberately does NOT use axisX/axisY: those rotate with
-        // aim direction, which used to spin the shadow around the player as
-        // they turned. A shadow is a ground contact cue, not part of the aim
-        // pose, so it stays pinned to true south (screen-down) regardless of
-        // which way the player is facing.
-        Vector2 Pshadow(float x, float y) =>
-            bodyCenter + new Vector2(x * rect.Width * .5f, y * rect.Height * .5f);
-        Vector2 worldShadow = new(0f, 4f);
-        Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[]
-        {
-            Pshadow(-1, -1) + worldShadow, Pshadow(1, -1) + worldShadow,
-            Pshadow(1, 1) + worldShadow, Pshadow(-1, 1) + worldShadow,
-        }, UiTheme.Shadow);
         Span<Vector2> body = stackalloc Vector2[]
         {
             P(-1, -1), P(1, -1), P(1, 1), P(-1, 1),

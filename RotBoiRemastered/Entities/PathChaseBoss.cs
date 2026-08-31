@@ -179,7 +179,7 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
     protected virtual double PhaseTimeLimitFor(int phase) => Config.FinalBoss ? 21.0 : 17.0;
 
     /// <summary>Difficulty curve applied on top of this boss's authored baseline.</summary>
-    protected virtual BossDifficultyScalars Difficulty => Config.FinalBoss
+    protected new virtual BossDifficultyScalars Difficulty => Config.FinalBoss
         ? BossDifficultyScalars.Finale
         : BossDifficultyScalars.Midpoint;
 

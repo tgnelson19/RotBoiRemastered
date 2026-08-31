@@ -176,6 +176,7 @@ internal static class BossVisuals
 
         var shadowOffset = new Vector2(5, 7);
         Span<Vector2> faceBuffer = stackalloc Vector2[8];
+        Span<Vector2> inset = stackalloc Vector2[8];
         for (int orderedIndex = 0; orderedIndex < visibleFaces; orderedIndex++)
         {
             var face = faces[faceOrder[orderedIndex]];
@@ -205,7 +206,6 @@ internal static class BossVisuals
             // -- the solid keeps its authored shape and simply gains depth.
             if (escalation > .01f)
             {
-                Span<Vector2> inset = stackalloc Vector2[8];
                 Vector2 faceMiddle = Vector2.Zero;
                 for (int vertex = 0; vertex < face.Length; vertex++)
                     faceMiddle += points[vertex];
