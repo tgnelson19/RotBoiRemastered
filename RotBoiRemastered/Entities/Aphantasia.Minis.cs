@@ -52,12 +52,16 @@ public sealed partial class Aphantasia
         else if (EncounterState == AphantasiaEncounterState.Combat
             && CurrentPattern.Key == "blender")
         {
-            // Blender's own slow orbit -- checked ahead of the Aggressive
-            // branch below so a mini stuck Aggressive/Empowered from an
-            // earlier survival window (ReviveMiniPair never clears
-            // Aggressive) still gets Blender's orbit rather than chasing the
-            // player through it.
-            float angle = t * BlenderMiniOrbitSpeed * side + (side < 0 ? MathF.PI : 0);
+            // Blender's own orbit -- checked ahead of the Aggressive branch
+            // below so a mini stuck Aggressive/Empowered from an earlier
+            // survival window (ReviveMiniPair never clears Aggressive) still
+            // gets Blender's orbit rather than chasing the player through it.
+            // Both Minis turn the same direction at the same rate with a
+            // fixed half-turn offset (rather than mirrored +side/-side
+            // rates, which would only be opposite each other for an instant
+            // before drifting back together) so they stay diametrically
+            // opposite for the whole orbit.
+            float angle = t * BlenderMiniOrbitSpeed + (side < 0 ? 0f : MathF.PI);
             anchor = ArenaCenter + new Vector2(MathF.Cos(angle), MathF.Sin(angle))
                 * ArenaRadius * BlenderMiniOrbitRadiusRatio;
         }

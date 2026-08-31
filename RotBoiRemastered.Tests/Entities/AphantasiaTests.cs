@@ -1067,6 +1067,37 @@ public sealed class AphantasiaTests
     }
 
     [Fact]
+    public void Blender_MinisOrbitDirectlyOppositeEachOtherThroughoutTheOrbit()
+    {
+        Battleground arena = MakeArena();
+        var boss = new Aphantasia(1000, 1000, arena, new Random(811),
+            noHealing: true, noExtract: true);
+        boss.DebugSetPhase(3);
+        SelectPattern(boss, "blender");
+        EnemyUpdateContext context = Context(boss, arena);
+
+        // Sampled repeatedly across a stretch long enough to cover more than
+        // a full orbit -- mirrored +side/-side rotation rates would only
+        // line the pair up opposite each other for an instant before
+        // drifting back together, so this has to hold at every sample, not
+        // just the first one.
+        for (int sample = 0; sample < 8; sample++)
+        {
+            for (int tick = 0; tick < Simulation.FrameRate * 2; tick++)
+                boss.Update(context);
+
+            float lightAngle = MathF.Atan2(
+                boss.Light.Position.Y - boss.ArenaCenter.Y,
+                boss.Light.Position.X - boss.ArenaCenter.X);
+            float darkAngle = MathF.Atan2(
+                boss.Dark.Position.Y - boss.ArenaCenter.Y,
+                boss.Dark.Position.X - boss.ArenaCenter.X);
+            float difference = MathF.Abs(MathF.IEEERemainder(lightAngle - darkAngle, MathF.Tau));
+            Assert.InRange(difference, MathF.PI - .15f, MathF.PI + .15f);
+        }
+    }
+
+    [Fact]
     public void TesseractEight_FiresTelegraphedCapacityReservedRefractors()
     {
         Battleground arena = MakeArena();

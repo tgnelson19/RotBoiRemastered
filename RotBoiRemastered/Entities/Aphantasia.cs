@@ -225,12 +225,12 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
     /// a single readable shape instead of another aimed-ring/curtain remix.
     /// </summary>
     public const int BlenderLaserCount = 3;
-    public const float BlenderLaserAngularSpeed = .11f;
+    public const float BlenderLaserAngularSpeed = .22f;
     public const float BlenderLaserSizeTiles = .3f;
     public const float BlenderMiniOrbitRadiusRatio = .5f;
-    public const float BlenderMiniOrbitSpeed = .15f;
+    public const float BlenderMiniOrbitSpeed = .3f;
     public const float BlenderMiniStreamCadence = .5f;
-    public const float BlenderMiniStreamSpeed = .5f;
+    public const float BlenderMiniStreamSpeed = 1.5f;
     public const float BlenderMiniStreamSizeTiles = .22f;
     public const double HelixFireCadence = .68;
     public const double PhaseHandoffDuration = 7.0;
