@@ -1509,6 +1509,7 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
                 ("finale_phase4", "FINALE: VOID FINALE"),
                 ("mini_execution", "MINI EXECUTION"),
             })
+            .Select((entry, index) => (entry.Item1, $"{index + 1} : {entry.Item2}"))
             .ToArray();
 
     /// <summary>

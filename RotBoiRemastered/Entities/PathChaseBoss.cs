@@ -99,6 +99,13 @@ public class PathChaseBoss : Enemy, IBossArenaController, IBossArenaOcclusion
 {
     protected readonly Random Rng;
     protected PathChaseBossConfig Config { get; }
+
+    /// <summary>
+    /// This boss's authored phase names in order (index 0 = phase 1), for the
+    /// debug console's `/testphase` numbered-phase list -- see
+    /// <see cref="RotBoiRemastered.Systems.GameSession.DebugTestPhaseOptions"/>.
+    /// </summary>
+    public IReadOnlyList<string> PhaseLabels => Config.PhaseLabels;
     public Vector2 ArenaCenter { get; }
     public float ArenaRadius { get; }
     public float Contraction => 0f;

@@ -43,14 +43,11 @@ public sealed class FooterHudTests
         Assert.True(layout.Experience.Width >= layout.Bounds.Width * .9);
         Assert.True(FooterHud.SafeArea(width, height).Bottom <= layout.Bounds.Top + 12 * scale);
 
-        // The stash strip sits just below Bounds (not inside it -- see
-        // CalculateLayout's doc comment). The Bounds.Top check above already
-        // covers it being fully within the reserved/safe-area shrink (Bounds
-        // moves up by exactly the strip's height to make room for it); this
-        // just confirms the strip itself stays on-screen and its slots stay
-        // inside it.
+        // The stash grid now lives inline inside Bounds, directly beside the
+        // (now left-aligned) Equipment slots, rather than in its own strip
+        // below the panel -- see CalculateLayout's doc comment.
         Assert.Equal(InformationSheet.InventorySlotCount, layout.StashSlots.Count);
-        Assert.True(screen.Contains(layout.Stash));
+        Assert.True(layout.Bounds.Contains(layout.Stash));
         Assert.All(layout.StashSlots, slot => Assert.True(layout.Stash.Contains(slot)));
     }
 

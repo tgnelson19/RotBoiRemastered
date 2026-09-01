@@ -3363,22 +3363,22 @@ public sealed class GameSession
     public IReadOnlyList<(string Key, string Label)> DebugTestPhaseOptions() => State.ActiveBoss switch
     {
         Aphantasia => Aphantasia.DebugTestPhaseKeys,
-        Beaudis => NumberedPhases(5),
-        Dissonance => NumberedPhases(9),
-        Ache => NumberedPhases(8),
+        Beaudis => NumberedPhases(Beaudis.PhaseLabels),
+        Dissonance => NumberedPhases(Dissonance.PhaseLabels),
+        Ache ache => NumberedPhases(ache.PhaseLabels),
         // Chronos extends Ishe, so it must be checked ahead of the Ishe case
         // below -- a switch expression tries patterns top-to-bottom and a
         // Chronos instance would otherwise match `Ishe` first.
-        Chronos => NumberedPhases(7),
-        Ishe => NumberedPhases(5),
-        Rot => NumberedPhases(7),
-        Hypno => NumberedPhases(5),
-        Malady => NumberedPhases(10),
-        Bair => NumberedPhases(5),
-        Sting => NumberedPhases(10),
-        Kage => NumberedPhases(5),
-        PathGuardianBoss => NumberedPhases(3),
-        PathChaseBoss => NumberedPhases(3),
+        Chronos chronos => NumberedPhases(chronos.PhaseLabels),
+        Ishe ishe => NumberedPhases(ishe.PhaseLabels),
+        Rot rot => NumberedPhases(rot.PhaseLabels),
+        Hypno hypno => NumberedPhases(hypno.PhaseLabels),
+        Malady malady => NumberedPhases(malady.PhaseLabels),
+        Bair bair => NumberedPhases(bair.PhaseLabels),
+        Sting sting => NumberedPhases(sting.PhaseLabels),
+        Kage kage => NumberedPhases(kage.PhaseLabels),
+        PathGuardianBoss guardian => NumberedPhases(guardian.PhaseLabels),
+        PathChaseBoss pathBoss => NumberedPhases(pathBoss.PhaseLabels),
         _ => Array.Empty<(string, string)>(),
     };
 
@@ -3395,19 +3395,19 @@ public sealed class GameSession
         bool applied = State.ActiveBoss switch
         {
             Aphantasia aphantasia => aphantasia.DebugJumpToTestPhase(key),
-            Beaudis beaudis => TryNumberedJump(key, 5, beaudis.DebugSetPhase),
-            Dissonance dissonance => TryNumberedJump(key, 9, dissonance.DebugSetPhase),
-            Chronos chronos => TryNumberedJump(key, 7, chronos.DebugSetPhase),
-            Ache ache => TryNumberedJump(key, 8, ache.DebugSetPhase),
-            Ishe ishe => TryNumberedJump(key, 5, ishe.DebugSetPhase),
-            Rot rot => TryNumberedJump(key, 7, rot.DebugSetPhase),
-            Hypno hypno => TryNumberedJump(key, 5, hypno.DebugSetPhase),
-            Malady malady => TryNumberedJump(key, 10, malady.DebugSetPhase),
-            Bair bair => TryNumberedJump(key, 5, bair.DebugSetPhase),
-            Sting sting => TryNumberedJump(key, 10, sting.DebugSetPhase),
-            Kage kage => TryNumberedJump(key, 5, kage.DebugSetPhase),
-            PathGuardianBoss guardian => TryNumberedJump(key, 3, guardian.DebugSetPhase),
-            PathChaseBoss pathBoss => TryNumberedJump(key, 3, pathBoss.DebugSetPhase),
+            Beaudis beaudis => TryNumberedJump(key, Beaudis.PhaseLabels.Count, beaudis.DebugSetPhase),
+            Dissonance dissonance => TryNumberedJump(key, Dissonance.PhaseLabels.Count, dissonance.DebugSetPhase),
+            Chronos chronos => TryNumberedJump(key, chronos.PhaseLabels.Count, chronos.DebugSetPhase),
+            Ache ache => TryNumberedJump(key, ache.PhaseLabels.Count, ache.DebugSetPhase),
+            Ishe ishe => TryNumberedJump(key, ishe.PhaseLabels.Count, ishe.DebugSetPhase),
+            Rot rot => TryNumberedJump(key, rot.PhaseLabels.Count, rot.DebugSetPhase),
+            Hypno hypno => TryNumberedJump(key, hypno.PhaseLabels.Count, hypno.DebugSetPhase),
+            Malady malady => TryNumberedJump(key, malady.PhaseLabels.Count, malady.DebugSetPhase),
+            Bair bair => TryNumberedJump(key, bair.PhaseLabels.Count, bair.DebugSetPhase),
+            Sting sting => TryNumberedJump(key, sting.PhaseLabels.Count, sting.DebugSetPhase),
+            Kage kage => TryNumberedJump(key, kage.PhaseLabels.Count, kage.DebugSetPhase),
+            PathGuardianBoss guardian => TryNumberedJump(key, guardian.PhaseLabels.Count, guardian.DebugSetPhase),
+            PathChaseBoss pathBoss => TryNumberedJump(key, pathBoss.PhaseLabels.Count, pathBoss.DebugSetPhase),
             _ => false,
         };
         if (applied)
@@ -3415,8 +3415,14 @@ public sealed class GameSession
         return applied;
     }
 
-    private static IReadOnlyList<(string Key, string Label)> NumberedPhases(int maxPhase) =>
-        Enumerable.Range(1, maxPhase).Select(phase => ($"phase_{phase}", $"Phase {phase}")).ToArray();
+    /// <summary>
+    /// Turns a boss's authored phase names into the debug console's
+    /// "<c>N : NAME</c>" keyed options -- every phase across every boss (see
+    /// <see cref="DebugTestPhaseOptions"/>) shares this format so a phase can
+    /// always be found by typing its number alone.
+    /// </summary>
+    private static IReadOnlyList<(string Key, string Label)> NumberedPhases(IReadOnlyList<string> labels) =>
+        labels.Select((label, index) => ($"phase_{index + 1}", $"{index + 1} : {label}")).ToArray();
 
     private static bool TryNumberedJump(string key, int maxPhase, Action<int> setPhase)
     {
@@ -5014,8 +5020,19 @@ public sealed class GameSession
         InformationSheet.HandleLoadoutNavigation(State, PlayerWorldCenter,
             keysPressed, vaultSlotRects, dossier);
 
-    public void DrawSoulFooter(SpriteBatch spriteBatch, Point mousePosition, float animationTime) =>
-        FooterHud.DrawSoul(spriteBatch, State, mousePosition, animationTime);
+    /// <summary>
+    /// Feeds the footer's freshly-drawn equipment/stash rects into the same
+    /// drag machinery combat's DrawFooter/ConfigureLiveLootLayout uses (no
+    /// quick-loot rects here -- the Mind never spawns a nearby crate) so
+    /// <see cref="HandleQuickLootInput"/> can resolve drags started or ended
+    /// on this bar (see RotBoiGame.UpdateSoul).
+    /// </summary>
+    public void DrawSoulFooter(SpriteBatch spriteBatch, Point mousePosition, float animationTime)
+    {
+        FooterHud.DrawSoul(spriteBatch, State, mousePosition, animationTime, InformationSheet.DraggingItem);
+        InformationSheet.ConfigureLiveLootLayout(FooterHud.EquipmentSlotRects,
+            Array.Empty<Rectangle>(), FooterHud.StashSlotRects);
+    }
 
     public void DrawSoulLoadoutPanel(SpriteBatch spriteBatch, Rectangle panel,
         Point mousePosition, float animationTime) =>

@@ -179,6 +179,14 @@ public sealed class Dissonance : Enemy, IBossArenaOcclusion
             [9] = ("JERA LAST CHORD", "Remember every phrase. Prove that meaning can still survive.", UiTheme.Red),
         };
 
+    /// <summary>
+    /// Authored phase names in order (index 0 = phase 1), for the debug
+    /// console's `/testphase` numbered-phase list -- see
+    /// <see cref="RotBoiRemastered.Systems.GameSession.DebugTestPhaseOptions"/>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> PhaseLabels =
+        PhaseMetadata.OrderBy(pair => pair.Key).Select(pair => pair.Value.Label).ToArray();
+
     public sealed class VisualParticle
     {
         public float X, Y, Vx, Vy, Life;

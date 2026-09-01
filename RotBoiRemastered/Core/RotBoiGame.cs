@@ -176,7 +176,8 @@ public class RotBoiGame : Game
                 _devConsole.Close();
         }
 
-        var consoleResult = _devConsole.Update(_session, InputState.KeysPressed, gameTime.ElapsedGameTime.TotalSeconds);
+        var consoleResult = _devConsole.Update(_session, InputState.KeysPressed, gameTime.ElapsedGameTime.TotalSeconds,
+            InputState.ScrollWheelDelta);
         if (consoleResult.Kind == ConsoleActionKind.ExtractRequested
             && _session is not null
             && State == GameState.GameRun)
@@ -583,13 +584,6 @@ public class RotBoiGame : Game
             State = GameState.Leveling;
             return;
         }
-        if (footerAction == FooterAction.OpenDossier)
-        {
-            _dossierReturnState = GameState.GameRun;
-            _dossierOpenedAt = gameTime.TotalGameTime.TotalSeconds;
-            State = GameState.Dossier;
-            return;
-        }
 
         bool moveUp = Keybinds.Held("move_up"), moveDown = Keybinds.Held("move_down");
         bool moveLeft = Keybinds.Held("move_left"), moveRight = Keybinds.Held("move_right");
@@ -806,6 +800,15 @@ public class RotBoiGame : Game
     private void UpdateSoul(GameTime gameTime)
     {
         var session = _session!;
+        // The footer's equipment/stash are live drag-and-drop targets here
+        // too now, same machinery combat's UpdateGameRun uses -- but only
+        // while the footer itself is actually drawn/interactive (see
+        // SoulHub.DrawForeground's matching `_overlay is null &&
+        // _confirmingPortalKey is null` gate); the Storage station's own
+        // richer panel (DrawSoulLoadoutPanel) owns dragging while its
+        // overlay is open, and reuses the same underlying drag state.
+        if (!_soulHub.OverlayOpen)
+            session.HandleQuickLootInput(InputState.MousePosition, InputState.MouseDown, InputState.MousePressed);
         bool ordinaryMovementAdvancedVisuals = !_soulHub.IsEnteringPortal;
         // Once a portal's pull-in animation is running, SoulHub.UpdatePortalTravel
         // drives the player's world position directly -- ordinary WASD input would
@@ -850,9 +853,15 @@ public class RotBoiGame : Game
             // click is already claimed by the overlay's own buttons
             // (see IsOverlayTarget/ClickTargetAt below). Auto-fire and
             // controller-fire aren't a click on anything, so they're left
-            // alone and keep firing exactly as requested.
-            bool mouseFiring = InputState.MouseDown && !_soulHub.OverlayOpen;
-            session.HandleBulletCreation(aim, mouseFiring, session.InformationSheet.DragInProgress, controllerFiring: InputState.ControllerFireHeld);
+            // alone and keep firing exactly as requested. A click over the
+            // footer (now a live equipment/stash drag target here too, same
+            // as combat -- see GameSession.HandleQuickLootInput below) is
+            // suppressed the same way UpdateGameRun already does, so dragging
+            // an item doesn't also fire at the practice dummy underneath it.
+            bool overFooter = session.FooterHud.Contains(InputState.MousePosition);
+            bool mouseFiring = InputState.MouseDown && !_soulHub.OverlayOpen && !overFooter;
+            session.HandleBulletCreation(aim, mouseFiring,
+                session.InformationSheet.DragInProgress || overFooter, controllerFiring: InputState.ControllerFireHeld);
             session.UpdateBullets();
         }
         // Always ticks, even mid-overlay/confirm/animation, so the portal

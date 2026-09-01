@@ -6,7 +6,7 @@ using RotBoiRemastered.World;
 
 namespace RotBoiRemastered.UI;
 
-public enum FooterAction { None, OpenDossier, OpenLevelUp }
+public enum FooterAction { None, OpenLevelUp }
 
 public sealed record QuickLootCommand(int LootIndex, string EquipmentKey);
 
@@ -20,9 +20,10 @@ public sealed class FooterLayout
     public required Rectangle Stats { get; init; }
     public required Rectangle Experience { get; init; }
     /// <summary>
-    /// The carried stash, always visible directly beneath Equipment (not
-    /// inside Bounds -- see CalculateLayout's doc comment on why it's its
-    /// own band below the main panel rather than squeezed into it).
+    /// The carried stash's background panel -- a 2-row, 4-column grid sitting
+    /// inline inside Bounds, immediately to the right of the (now
+    /// left-aligned) Equipment slots. See CalculateLayout's doc comment on
+    /// why this replaced the old strip below the whole panel.
     /// </summary>
     public required Rectangle Stash { get; init; }
     public required IReadOnlyList<Rectangle> EquipmentSlots { get; init; }
@@ -42,9 +43,13 @@ public sealed class QuickLootLayout
 /// Compact combat HUD. Equipment and the carried stash are both live during
 /// combat now (see FooterLayout.Stash/StashSlots and DrawStash) -- items can
 /// be dragged between them, or swapped with the 1-8 keys
-/// (RotBoiGame.UpdateGameRun), any time during a run. Only nearby world loot
-/// still needs its own transient quick-loot strip (DrawQuickLoot), since a
-/// crate isn't always around to show a permanent panel for.
+/// (RotBoiGame.UpdateGameRun), any time during a run. The stash sits inline
+/// inside the main panel, directly beside Equipment, rather than in its own
+/// band underneath it -- that used to grow the panel's total reserved
+/// height and visibly push the whole bar upward whenever the stash was on
+/// screen. Only nearby world loot still needs its own transient quick-loot
+/// strip (DrawQuickLoot), since a crate isn't always around to show a
+/// permanent panel for.
 /// </summary>
 public sealed class FooterHud
 {
@@ -54,7 +59,6 @@ public sealed class FooterHud
     private static readonly string[] EquipmentLabels = ["W", "A", "R", "1", "2"];
 
     private Rectangle _bounds;
-    private Rectangle _stashBounds;
     private Rectangle _quickLootBounds;
     private Rectangle _equipmentHit;
     private Rectangle _experienceHit;
@@ -69,28 +73,18 @@ public sealed class FooterHud
     public IReadOnlyDictionary<string, Rectangle> EquipmentSlotRects => _equipmentSlotRects;
     public IReadOnlyList<Rectangle> StashSlotRects => _stashSlotRects;
     public IReadOnlyList<Rectangle> QuickLootSlotRects => _quickLootSlotRects;
-    // Includes the stash strip (which sits below _bounds, not inside it --
-    // see CalculateLayout) so hovering it also suppresses aim/fire the same
-    // way hovering the rest of the footer already does (UpdateGameRun).
+    // The stash now lives inline inside _bounds (see CalculateLayout), so it
+    // no longer needs its own separate check the way it did when it sat in
+    // its own band below the panel.
     public bool Contains(Point point) =>
-        _bounds.Contains(point) || _stashBounds.Contains(point) || _quickLootBounds.Contains(point);
-
-    /// <summary>
-    /// Extra vertical band CalculateLayout reserves below Bounds for the
-    /// always-visible stash row -- shared with ReservedHeight so the world
-    /// viewport always shrinks by exactly as much room as the stash row
-    /// actually occupies, in both combat and the Mind (CalculateLayout is
-    /// shared by Draw and DrawSoul; DrawSoul just doesn't populate Stash).
-    /// </summary>
-    private static int StashStripExtra(float scale) =>
-        Math.Max(22, (int)(34 * scale)) + Math.Max(3, (int)(6 * scale));
+        _bounds.Contains(point) || _quickLootBounds.Contains(point);
 
     public static int ReservedHeight(int screenWidth, int screenHeight)
     {
         float scale = UiTheme.DisplayScale(screenWidth, screenHeight);
         bool compact = screenWidth < 900 || screenWidth < 1050 * scale;
         return Math.Min(screenHeight / 2,
-            Math.Max((int)(compact ? 124 * scale : 91 * scale), (int)(66 * scale)) + StashStripExtra(scale));
+            Math.Max((int)(compact ? 124 * scale : 91 * scale), (int)(66 * scale)));
     }
 
     public static Rectangle SafeArea(int screenWidth, int screenHeight)
@@ -106,18 +100,8 @@ public sealed class FooterHud
         int width = Math.Max(1, Math.Min(screenWidth - margin * 2, (int)(1500 * scale)));
         int height = Math.Min(screenHeight / 2,
             Math.Max((int)((compact ? 116 : 84) * scale), (int)(62 * scale)));
-        // The stash row sits below the main panel rather than inside it: the
-        // panel's internal geometry (health/dash/equipment/resources/stats)
-        // is tuned for its own bodyHeight, and folding an 8-slot row into
-        // that would either shrink everything else or need every one of
-        // those proportions re-tuned. Reserving a second band underneath
-        // instead (bottom-anchored the same way `bounds` always was) keeps
-        // all of that untouched and just makes the whole combined panel
-        // taller -- see ReservedHeight/StashStripExtra for the matching
-        // world-viewport shrink.
-        int stashExtra = StashStripExtra(scale);
         var bounds = new Rectangle((screenWidth - width) / 2,
-            screenHeight - height - margin - stashExtra, width, height);
+            screenHeight - height - margin, width, height);
         int pad = Math.Max(4, (int)(8 * scale));
         int xpHeight = Math.Max(10, (int)(17 * scale));
         var experience = new Rectangle(bounds.X + pad, bounds.Bottom - xpHeight - pad,
@@ -159,14 +143,49 @@ public sealed class FooterHud
                 bounds.Right - pad - (resources.Right + pad), rowHeight);
         }
 
+        // Left-aligned rather than centered: slot size is capped by the
+        // column's own height long before it uses the column's full width
+        // (five icons rarely need a whole third of the bar), so centering
+        // used to leave that leftover width sitting empty on both sides.
+        // Hugging the left edge instead frees it for the stash grid placed
+        // directly beside it below.
         int slotGap = Math.Max(2, (int)(5 * scale));
         int slotSize = Math.Max(18, Math.Min(equipment.Height,
             (equipment.Width - slotGap * 4) / 5));
         int slotsWidth = slotSize * 5 + slotGap * 4;
-        int slotsX = equipment.Center.X - slotsWidth / 2;
+        int slotsX = equipment.X;
         int slotsY = equipment.Center.Y - slotSize / 2;
         var equipmentSlots = Enumerable.Range(0, 5)
             .Select(index => new Rectangle(slotsX + index * (slotSize + slotGap), slotsY, slotSize, slotSize))
+            .ToArray();
+
+        // The carried stash now lives inline immediately to the right of the
+        // equipment slots, inside the same Equipment column, as a 2-tall,
+        // 4-wide grid -- see the class doc comment on why this replaced the
+        // old strip below the whole panel (it grew the panel's total
+        // reserved height and visibly pushed the whole bar upward whenever
+        // the stash was on screen). The panel rect matches Equipment's own
+        // Y-range and hugs its right edge exactly (rather than growing
+        // outward from the grid it contains) so it's contained in Bounds by
+        // construction the same way Equipment already is, with slot size
+        // then solved to fit inside *that* fixed rect -- never the other way
+        // around -- so an extreme low-res/min-scale combination shrinks the
+        // icons instead of spilling the panel past the column's edge.
+        const int stashColumns = 4;
+        const int stashRows = 2;
+        int stashGap = Math.Max(2, (int)(4 * scale));
+        int stashPad = Math.Max(3, (int)(5 * scale));
+        int stashAreaX = slotsX + slotsWidth + Math.Max(pad, slotGap * 2);
+        int stashAreaWidth = Math.Max(0, equipment.Right - stashAreaX);
+        var stash = new Rectangle(stashAreaX, equipment.Y, stashAreaWidth, equipment.Height);
+        int stashSlotSize = Math.Max(1, Math.Min(
+            (stash.Height - stashPad * 2 - stashGap * (stashRows - 1)) / stashRows,
+            (stash.Width - stashPad * 2 - stashGap * (stashColumns - 1)) / stashColumns));
+        var stashSlots = Enumerable.Range(0, InformationSheet.InventorySlotCount)
+            .Select(index => new Rectangle(
+                stash.X + stashPad + index % stashColumns * (stashSlotSize + stashGap),
+                stash.Y + stashPad + index / stashColumns * (stashSlotSize + stashGap),
+                stashSlotSize, stashSlotSize))
             .ToArray();
 
         const int statColumns = 5;
@@ -180,24 +199,6 @@ public sealed class FooterHud
                 stats.Y + index / statColumns * (statHeight + statGap),
                 statWidth,
                 statHeight))
-            .ToArray();
-
-        // Below Bounds, not inside it (see the doc comment on `stashExtra`
-        // above) -- horizontally aligned under Equipment specifically, so it
-        // visibly reads as "the player's stash, right below their gear"
-        // rather than just another strip spanning the whole bar.
-        int stashGap = Math.Max(3, (int)(6 * scale));
-        int stashHeight = Math.Max(22, (int)(34 * scale));
-        var stash = new Rectangle(equipment.X, bounds.Bottom + stashGap, equipment.Width, stashHeight);
-        int stashSlotGap = Math.Max(2, (int)(4 * scale));
-        int stashSlotSize = Math.Max(14, Math.Min(stash.Height,
-            (stash.Width - stashSlotGap * (InformationSheet.InventorySlotCount - 1)) / InformationSheet.InventorySlotCount));
-        int stashSlotsWidth = stashSlotSize * InformationSheet.InventorySlotCount
-            + stashSlotGap * (InformationSheet.InventorySlotCount - 1);
-        int stashSlotsX = stash.Center.X - stashSlotsWidth / 2;
-        var stashSlots = Enumerable.Range(0, InformationSheet.InventorySlotCount)
-            .Select(index => new Rectangle(stashSlotsX + index * (stashSlotSize + stashSlotGap),
-                stash.Center.Y - stashSlotSize / 2, stashSlotSize, stashSlotSize))
             .ToArray();
 
         return new FooterLayout
@@ -265,7 +266,6 @@ public sealed class FooterHud
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         FooterLayout layout = CalculateLayout(viewport.Width, viewport.Height, scale);
         _bounds = layout.Bounds;
-        _stashBounds = layout.Stash;
         _equipmentHit = layout.Equipment;
         _experienceHit = layout.Experience;
         _quickLootBounds = Rectangle.Empty;
@@ -301,18 +301,22 @@ public sealed class FooterHud
             DrawTooltip(spriteBatch, _tooltipItem, mousePosition, scale, viewport.Bounds);
     }
 
-    public void DrawSoul(SpriteBatch spriteBatch, RunState state, Point mousePosition, float time)
+    /// <summary>
+    /// The Mind's footer now shows the same live, draggable Equipment+Stash
+    /// pair combat does (see DrawStash) -- items can be swapped between them
+    /// while walking around, not just at the Storage station's own richer
+    /// panel (SoulHub/DrawSoulLoadoutPanel), which still owns the deeper
+    /// Vault. <paramref name="draggedItem"/> mirrors <see cref="Draw"/>'s own
+    /// parameter so the dragged icon still follows the mouse here.
+    /// </summary>
+    public void DrawSoul(SpriteBatch spriteBatch, RunState state, Point mousePosition, float time,
+        ItemDrop? draggedItem = null)
     {
         _playerLevelCap = Progression.MaxLevel;
         float scale = UiTheme.DisplayScale(spriteBatch);
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         FooterLayout layout = CalculateLayout(viewport.Width, viewport.Height, scale);
         _bounds = layout.Bounds;
-        // The Mind keeps its own, better stash+equipment merge at the
-        // Storage station (SoulHub/DrawSoulLoadoutPanel) -- this footer
-        // doesn't duplicate a stash strip, so there's nothing live below it.
-        _stashBounds = Rectangle.Empty;
-        _stashSlotRects.Clear();
         _equipmentHit = layout.Equipment;
         _experienceHit = Rectangle.Empty;
         _quickLootBounds = Rectangle.Empty;
@@ -321,22 +325,42 @@ public sealed class FooterHud
         UiTheme.DrawFramedPanel(spriteBatch, layout.Bounds,
             UiTheme.Void * .96f, UiTheme.Cream, shadow: 7);
         DrawEquipment(spriteBatch, layout, state, mousePosition, scale);
+        DrawStash(spriteBatch, layout, state, mousePosition, scale);
 
         // The hub reuses the exact same Health/Dash/Resources/Stats geometry
-        // combat uses (see CalculateLayout), but combat's own DrawHealth/
-        // DrawStats have nothing to show here -- no active run stats exist
-        // outside a run. Filling every reserved region with hub-relevant
-        // cards (instead of a couple of text lines dropped in corners)
-        // is what keeps the bar reading as a deliberate hub layout rather
-        // than a combat layout with holes in it.
-        DrawMindStatusCard(spriteBatch, layout, scale);
+        // combat uses (see CalculateLayout), but combat's own DrawHealth
+        // has nothing to show here -- no active run stats exist outside a
+        // run. That left side of the bar is deliberately blank for now
+        // rather than covered by a status card again -- a previous card here
+        // spanned Health through Resources and, since Equipment sits
+        // between them, ended up drawn on top of the equipment slots.
         DrawStats(spriteBatch, layout, state, scale, StatDisplay.HubDefinitions);
-        UiTheme.DrawText(spriteBatch, "VISIT THE VAULT TO MANAGE CARRIED RELICS", 8 * scale, UiTheme.Muted,
+        UiTheme.DrawText(spriteBatch, "VISIT THE VAULT FOR MORE STORAGE", 8 * scale, UiTheme.Muted,
             layout.Experience.Center.ToVector2(), "center");
-        if (_tooltipItem is not null)
+
+        if (draggedItem is not null)
+        {
+            int dragSize = Math.Max(30, (int)(48 * scale));
+            var dragRect = new Rectangle(mousePosition.X - dragSize / 2,
+                mousePosition.Y - dragSize / 2, dragSize, dragSize);
+            ItemCards.DrawItemCard(spriteBatch, dragRect, draggedItem, hovered: true, time);
+        }
+
+        if (_tooltipItem is not null && draggedItem is null)
             DrawTooltip(spriteBatch, _tooltipItem, mousePosition, scale, viewport.Bounds);
     }
 
+    /// <summary>
+    /// Clicking the bar's background used to open the Tab menu (GameState.Dossier)
+    /// -- removed because equipment and the stash are both live drag-and-drop
+    /// targets over the whole bar now (InformationSheet.HandleLiveLootDrag,
+    /// called before this every frame -- see GameSession.HandleQuickLootInput),
+    /// and a press landing on empty space (an empty gear/stash slot, or just
+    /// the panel background mid-drag) would otherwise yank the menu open out
+    /// from under it. The Tab menu is still reachable via its own "hud_toggle"
+    /// keybind (RotBoiGame.UpdateInputToggles) -- only the click-to-open path
+    /// on this bar is gone.
+    /// </summary>
     public FooterAction HandleInput(RunState state, Point mousePosition, bool mousePressed)
     {
         if (!mousePressed)
@@ -346,17 +370,6 @@ public sealed class FooterHud
                 && state.ExpCount >= state.ExpNeededForNextLevel;
         if (canLevel && _experienceHit.Contains(mousePosition))
             return FooterAction.OpenLevelUp;
-        // A press directly on an equipped item now starts a drag instead
-        // (InformationSheet.HandleLiveLootDrag, called before this every
-        // frame -- see GameSession.HandleQuickLootInput) -- opening the Tab
-        // menu out from under that same press would strand the drag mid-air
-        // on a screen that no longer has anywhere to drop it. Clicking
-        // anywhere else on the bar (background, health, stats, an empty
-        // gear slot) still opens it, same as before.
-        bool overEquippedSlot = _equipmentSlotRects.Any(pair =>
-            pair.Value.Contains(mousePosition) && state.Equipment.GetValueOrDefault(pair.Key) is not null);
-        if (!overEquippedSlot && _bounds.Contains(mousePosition))
-            return FooterAction.OpenDossier;
         return FooterAction.None;
     }
 
@@ -399,43 +412,6 @@ public sealed class FooterHud
         UiTheme.DrawProgress(spriteBatch, dashRect, (float)dashReady, UiTheme.Blue, 4);
     }
 
-    /// <summary>
-    /// Hub-only replacement for DrawHealth: there's no health/dash to show
-    /// outside a run, so this fills the same Health+Dash+Resources footprint
-    /// with a single card of hub-relevant status (which campaign stage is
-    /// open, and which optional braziers are currently lit) instead of
-    /// leaving that whole left side of the bar blank.
-    /// </summary>
-    private static void DrawMindStatusCard(SpriteBatch spriteBatch, FooterLayout layout, float scale)
-    {
-        var rect = Rectangle.Union(Rectangle.Union(layout.Health, layout.Dash), layout.Resources);
-        int radius = UiTheme.SmallCornerRadius(scale);
-        Primitives2D.FillRoundedRect(spriteBatch, rect, UiTheme.Ink, radius);
-        Primitives2D.RoundedRectOutline(spriteBatch, rect, UiTheme.Border * .72f, Math.Max(1, (int)scale), radius);
-
-        int pad = Math.Max(3, (int)(6 * scale));
-        string campaignLabel = CampaignProgression.Data.SoulUnlocked ? "THE SOUL"
-            : CampaignProgression.Data.BodyUnlocked ? "THE BODY"
-            : "THE BODY  //  LOCKED";
-        UiTheme.DrawText(spriteBatch, "CAMPAIGN", 6.5 * scale, UiTheme.Muted,
-            new Vector2(rect.X + pad, rect.Y + Math.Max(1, 2 * scale)));
-        UiTheme.DrawText(spriteBatch, campaignLabel, 11 * scale, UiTheme.Text,
-            new Vector2(rect.X + pad, rect.Y + Math.Max(1, 2 * scale) + 8 * scale));
-
-        var flags = new List<(string Label, bool Active, Color Color)>
-        {
-            ("HARD", GameProfile.Profile.HardModeEnabled, UiTheme.Red),
-            ("NO-EXTRACT", GameProfile.Profile.NoExtractEnabled, UiTheme.Gold),
-            ("GOLDEN", GameProfile.Profile.GoldenFlameEnabled, UiTheme.Gold),
-            ("VOID", GameProfile.Profile.VoidEnabled, UiTheme.Purple),
-        };
-        string flagLine = string.Join("   ", flags.Where(f => f.Active).Select(f => f.Label));
-        UiTheme.DrawText(spriteBatch,
-            flagLine.Length > 0 ? $"LIT  {flagLine}" : "NO BRAZIERS LIT",
-            6.5 * scale, flags.Any(f => f.Active) ? UiTheme.Gold : UiTheme.Muted,
-            new Vector2(rect.X + pad, rect.Bottom - Math.Max(3, (int)(6 * scale))), "bottomleft");
-    }
-
     private void DrawEquipment(SpriteBatch spriteBatch, FooterLayout layout, RunState state,
         Point mousePosition, float scale)
     {
@@ -465,8 +441,9 @@ public sealed class FooterHud
     }
 
     /// <summary>
-    /// The carried stash, always visible directly below Equipment and always
-    /// live -- draggable to/from equipment any time during a run (see
+    /// The carried stash, always visible as a 2-row, 4-column grid directly
+    /// beside Equipment (see CalculateLayout) and always live -- draggable
+    /// to/from equipment any time during a run (see
     /// InformationSheet.HandleLiveLootDrag, which no longer requires a
     /// nearby crate), or swapped with the 1-8 keys (RotBoiGame.UpdateGameRun,
     /// GameSession.SwapStashSlotWithEquipment). Replaces the old

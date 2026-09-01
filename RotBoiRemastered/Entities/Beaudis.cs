@@ -107,6 +107,14 @@ public sealed class Beaudis : Enemy
             [5] = ("SONIC BOOM", "Motion and echo collapse into one pursuit.", UiTheme.Red),
         };
 
+    /// <summary>
+    /// Authored phase names in order (index 0 = phase 1), for the debug
+    /// console's `/testphase` numbered-phase list -- see
+    /// <see cref="RotBoiRemastered.Systems.GameSession.DebugTestPhaseOptions"/>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> PhaseLabels =
+        PhaseMetadata.OrderBy(pair => pair.Key).Select(pair => pair.Value.Label).ToArray();
+
     public static readonly IReadOnlyList<BossMovementPhaseProfile> MovementPhases =
     [
         BossMovementPhaseProfile.Chase(),

@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
@@ -178,6 +179,13 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     public string PhaseFlavor => TrialActive
         ? _profile.TrialFlavor
         : _profile.Phases[Math.Clamp(Phase - 1, 0, _profile.Phases.Count - 1)].Flavor;
+
+    /// <summary>
+    /// This sense's authored phase names in order (index 0 = phase 1), for
+    /// the debug console's `/testphase` numbered-phase list -- see
+    /// <see cref="RotBoiRemastered.Systems.GameSession.DebugTestPhaseOptions"/>.
+    /// </summary>
+    public IReadOnlyList<string> PhaseLabels => _profile.Phases.Select(p => p.Label).ToArray();
     public Color PhaseAccent => GamePaths.PathsByKey[SenseKey].Accent;
     public Color SecondaryAccent => _profile.SecondaryAccent;
     public BossPresentationProfile PresentationProfile { get; }

@@ -42,12 +42,20 @@ public readonly record struct ConsoleResult(ConsoleActionKind Kind = ConsoleActi
 ///
 /// Autocomplete: pressing "/" opens a live, arrow-key-navigable, type-to-
 /// filter dropdown of every command above (see <see cref="Commands"/>).
-/// Selecting (or typing out) one that takes no arguments runs it immediately;
-/// one that does instead fills "/name " into the buffer and swaps in a
-/// dropdown of that argument's own candidates (item names, rarities, a
-/// boss's test-phase keys, ...) -- selecting one of those chains the same
-/// way into the next argument's dropdown, or runs the finished command once
-/// there is nothing left to fill in. See <see cref="RefreshCommandMenu"/>.
+/// Pressing Enter on one that takes no arguments runs it immediately; one
+/// that does instead fills "/name " into the buffer and swaps in a dropdown
+/// of that argument's own candidates (item names, rarities, a boss's
+/// test-phase keys, ...) -- selecting one of those chains the same way into
+/// the next argument's dropdown, or runs the finished command once there is
+/// nothing left to fill in. Pressing Tab instead of Enter fills in the
+/// selected candidate the same way but never runs anything, even on that
+/// last, otherwise-executing slot -- useful for lining up a command before
+/// committing to it. Down past the last visible row (and Up past the first)
+/// scrolls the dropdown to reveal candidates <see cref="MaxCommandMenuRows"/>
+/// would otherwise hide, one row at a time; the mouse scroll wheel moves the
+/// selection the same way Up/Down do (see <see cref="Update"/>'s
+/// <c>scrollWheelDelta</c> parameter). See <see cref="RefreshCommandMenu"/>
+/// and <see cref="SyncScrollToSelection"/>.
 /// </summary>
 public sealed class DevConsole
 {
@@ -55,6 +63,8 @@ public sealed class DevConsole
     private const int VisibleHistoryLines = 10;
     private const int MaxBufferLength = 80;
     private const int MaxCommandMenuRows = 8;
+    /// <summary>MonoGame's ScrollWheelValue changes by this much per physical notch -- same constant RotBoiGame's camera zoom and SoulHub's dossier scroll divide by.</summary>
+    private const int WheelNotchSize = 120;
 
     /// <summary>
     /// One authored command: its display name, the one-line usage shown in
@@ -100,6 +110,13 @@ public sealed class DevConsole
     /// </summary>
     private readonly List<(string Value, string Label)> _menuCandidates = new();
     private int _menuSelection;
+    /// <summary>
+    /// Index of the first candidate currently drawn -- lets Down keep moving
+    /// <see cref="_menuSelection"/> past the last visible row without
+    /// wrapping the on-screen window back to the top; see
+    /// <see cref="SyncScrollToSelection"/>.
+    /// </summary>
+    private int _menuScrollOffset;
     private MenuMode _menuMode;
     /// <summary>Set alongside <see cref="_menuMode"/> being Argument -- which command's dropdown is showing and which of its argument slots.</summary>
     private ConsoleCommandSpec? _menuCommand;
@@ -123,6 +140,10 @@ public sealed class DevConsole
     private bool _menuDismissed;
 
     public bool IsOpen => _open;
+
+    /// <summary>Test-only window onto the live dropdown state (selection index, first drawn row, candidate count) -- exposed via `InternalsVisibleTo` rather than public since nothing outside tests and this class's own Draw/Update needs it.</summary>
+    internal (int Selection, int ScrollOffset, int CandidateCount) DebugMenuState =>
+        (_menuSelection, _menuScrollOffset, _menuCandidates.Count);
 
     public void Open()
     {
@@ -149,8 +170,18 @@ public sealed class DevConsole
             _buffer += character;
     }
 
-    /// <summary>Call once per frame regardless of IsOpen. Backspace/Enter come through KeysPressed (edge-triggered), same as every other bound action in this codebase.</summary>
-    public ConsoleResult Update(GameSession? session, IReadOnlySet<Keys> keysPressed, double elapsedSeconds)
+    /// <summary>
+    /// Call once per frame regardless of IsOpen. Backspace/Enter come through
+    /// KeysPressed (edge-triggered), same as every other bound action in this
+    /// codebase. <paramref name="scrollWheelDelta"/> is the raw frame-to-frame
+    /// change in MonoGame's cumulative <c>ScrollWheelValue</c> (see
+    /// RotBoiGame.CollectInput's <c>InputState.ScrollWheelDelta</c>) -- +-120
+    /// per notch -- and moves the dropdown selection the same way Up/Down do,
+    /// scrolling the window with it; 0 (the default) means no caller has
+    /// wired up a mouse, which every existing call site relied on before this
+    /// parameter existed.
+    /// </summary>
+    public ConsoleResult Update(GameSession? session, IReadOnlySet<Keys> keysPressed, double elapsedSeconds, int scrollWheelDelta = 0)
     {
         _seconds += elapsedSeconds;
         if (!_open)
@@ -162,52 +193,101 @@ public sealed class DevConsole
         if (_menuCandidates.Count > 0)
         {
             if (keysPressed.Contains(Keys.Down))
+            {
                 _menuSelection = (_menuSelection + 1) % _menuCandidates.Count;
+                SyncScrollToSelection();
+            }
             if (keysPressed.Contains(Keys.Up))
+            {
                 _menuSelection = (_menuSelection - 1 + _menuCandidates.Count) % _menuCandidates.Count;
+                SyncScrollToSelection();
+            }
+            if (scrollWheelDelta != 0)
+            {
+                // Scrolling the wheel away from you (a negative delta) steps
+                // the selection down, the same direction Down does; toward
+                // you steps it up -- matches every other scrollable list in
+                // this codebase (see SoulHub's dossier scroll). Applied one
+                // notch at a time (rather than jumping straight to the final
+                // index) so a multi-notch scroll drags the visible window
+                // along exactly the way that many individual Down/Up presses
+                // would, instead of only snapping it into view at the end.
+                int steps = -scrollWheelDelta / WheelNotchSize;
+                int count = _menuCandidates.Count;
+                for (int i = 0; i < Math.Abs(steps); i++)
+                {
+                    _menuSelection = steps > 0
+                        ? (_menuSelection + 1) % count
+                        : (_menuSelection - 1 + count) % count;
+                    SyncScrollToSelection();
+                }
+            }
+            // Tab fills the selected candidate into the buffer exactly like
+            // Enter does, but never executes -- even a no-argument command or
+            // an argument's last slot, which Enter would run immediately.
+            // That's the whole point: line up a command/argument without
+            // committing to running it yet.
+            if (keysPressed.Contains(Keys.Tab) && TryComposeSelection(out string tabBuffer, out _))
+            {
+                _buffer = tabBuffer + " ";
+                return default;
+            }
         }
 
         if (!keysPressed.Contains(Keys.Enter) || (_buffer.Length == 0 && _menuCandidates.Count == 0))
             return default;
 
-        if (_menuCandidates.Count == 0)
+        if (!TryComposeSelection(out string newBuffer, out bool isTerminal))
         {
             var result = Execute(_buffer.Trim(), session);
             ResetBuffer();
             return result;
         }
 
-        string selectedValue = _menuCandidates[Math.Clamp(_menuSelection, 0, _menuCandidates.Count - 1)].Value;
-        if (_menuMode == MenuMode.CommandName)
+        if (isTerminal)
         {
-            ConsoleCommandSpec? spec = FindCommand(selectedValue);
-            if (spec is null || spec.ArgumentProviders.Count == 0)
-            {
-                // No arguments to fill in -- running it immediately is the
-                // whole point of picking it, rather than making the
-                // developer press Enter a second time on an empty prompt.
-                var result = Execute("/" + selectedValue, session);
-                ResetBuffer();
-                return result;
-            }
-            _buffer = "/" + selectedValue + " ";
-            return default;
-        }
-
-        // MenuMode.Argument: rebuild the command from every argument
-        // confirmed so far plus this selection, then either run it (nothing
-        // left to fill) or fill it in and wait for the next slot's dropdown.
-        var args = new List<string>(_menuPrecedingArgs) { selectedValue };
-        string newBuffer = ComposeCommand(_menuCommandName!, args);
-        bool isLastSlot = _menuArgIndex + 1 >= _menuCommand!.ArgumentProviders.Count;
-        if (isLastSlot)
-        {
+            // Nothing left to fill in -- either the selected command takes
+            // no arguments, or this was the last argument slot -- so Enter
+            // runs it immediately rather than making the developer press
+            // Enter a second time on a finished prompt.
             var result2 = Execute(newBuffer, session);
             ResetBuffer();
             return result2;
         }
         _buffer = newBuffer + " ";
         return default;
+    }
+
+    /// <summary>
+    /// Builds the buffer that selecting the current <see cref="_menuCandidates"/>
+    /// entry would produce, shared by Enter (which executes it when
+    /// <paramref name="isTerminal"/> comes back true) and Tab (which never
+    /// executes, regardless of <paramref name="isTerminal"/>). Returns false
+    /// when there is no menu to select from.
+    /// </summary>
+    private bool TryComposeSelection(out string newBuffer, out bool isTerminal)
+    {
+        newBuffer = "";
+        isTerminal = false;
+        if (_menuCandidates.Count == 0)
+            return false;
+
+        string selectedValue = _menuCandidates[Math.Clamp(_menuSelection, 0, _menuCandidates.Count - 1)].Value;
+        if (_menuMode == MenuMode.CommandName)
+        {
+            ConsoleCommandSpec? spec = FindCommand(selectedValue);
+            newBuffer = "/" + selectedValue;
+            isTerminal = spec is null || spec.ArgumentProviders.Count == 0;
+            return true;
+        }
+
+        // MenuMode.Argument: rebuild the command from every argument
+        // confirmed so far plus this selection; terminal iff nothing is left
+        // to fill in after it.
+        var args = new List<string>(_menuPrecedingArgs) { selectedValue };
+        newBuffer = ComposeCommand(_menuCommandName!, args);
+        isTerminal = _menuArgIndex + 1 >= _menuCommand!.ArgumentProviders.Count;
+        return true;
     }
 
     /// <summary>
@@ -313,6 +393,7 @@ public sealed class DevConsole
             return;
         _menuStateKey = key;
         _menuSelection = 0;
+        _menuScrollOffset = 0;
         _menuDismissed = false;
     }
 
@@ -320,6 +401,28 @@ public sealed class DevConsole
     {
         if (_menuSelection >= _menuCandidates.Count)
             _menuSelection = Math.Max(0, _menuCandidates.Count - 1);
+        SyncScrollToSelection();
+    }
+
+    /// <summary>
+    /// Keeps <see cref="_menuScrollOffset"/> -- the first candidate <see
+    /// cref="DrawCommandMenu"/> draws -- following <see cref="_menuSelection"/>:
+    /// scrolls down one row at a time as Down moves the selection past the
+    /// last visible row (revealing entries otherwise hidden by <see
+    /// cref="MaxCommandMenuRows"/> overflow), scrolls up the same way, and
+    /// snaps back to the top once the selection wraps back to index 0. Also
+    /// reclamps against a shrinking candidate list (e.g. the developer typed
+    /// another filter character), so a stale offset never points past the end.
+    /// </summary>
+    private void SyncScrollToSelection()
+    {
+        int shown = Math.Min(MaxCommandMenuRows, _menuCandidates.Count);
+        if (_menuSelection < _menuScrollOffset)
+            _menuScrollOffset = _menuSelection;
+        else if (_menuSelection >= _menuScrollOffset + shown)
+            _menuScrollOffset = _menuSelection - shown + 1;
+        int maxScroll = Math.Max(0, _menuCandidates.Count - shown);
+        _menuScrollOffset = Math.Clamp(_menuScrollOffset, 0, maxScroll);
     }
 
     private void ResetBuffer()
@@ -327,6 +430,7 @@ public sealed class DevConsole
         _buffer = "";
         _menuCandidates.Clear();
         _menuStateKey = "";
+        _menuScrollOffset = 0;
         _menuDismissed = false;
     }
 
@@ -684,26 +788,37 @@ public sealed class DevConsole
 
     /// <summary>
     /// The "/" autocomplete dropdown, anchored directly under the input bar
-    /// -- up to <see cref="MaxCommandMenuRows"/> candidates, the current one
-    /// (<see cref="_menuSelection"/>, moved by Up/Down in <see cref="Update"/>)
-    /// highlighted, with an "and N more" hint when the live filter still
-    /// matches more than fit on screen.
+    /// -- up to <see cref="MaxCommandMenuRows"/> candidates starting at <see
+    /// cref="_menuScrollOffset"/>, the current one (<see cref="_menuSelection"/>,
+    /// moved by Up/Down in <see cref="Update"/>) highlighted. Pressing Down
+    /// past the last visible row scrolls this window down one entry at a
+    /// time rather than hiding everything past <see cref="MaxCommandMenuRows"/>
+    /// behind an uninspectable "N more" count; the hint lines above/below
+    /// only report what's still scrolled out of view in that direction.
     /// </summary>
     private void DrawCommandMenu(SpriteBatch spriteBatch, int screenWidth, Rectangle inputRect, float scale)
     {
         int Px(float value) => Math.Max(1, (int)MathF.Round(value * scale));
         int rowHeight = Px(18);
         int shown = Math.Min(MaxCommandMenuRows, _menuCandidates.Count);
-        bool overflow = _menuCandidates.Count > shown;
-        int menuHeight = shown * rowHeight + Px(6) + (overflow ? Px(14) : 0);
+        int scrollOffset = Math.Clamp(_menuScrollOffset, 0, Math.Max(0, _menuCandidates.Count - shown));
+        bool moreAbove = scrollOffset > 0;
+        bool moreBelow = scrollOffset + shown < _menuCandidates.Count;
+        int menuHeight = shown * rowHeight + Px(6) + (moreAbove ? Px(14) : 0) + (moreBelow ? Px(14) : 0);
         var menuRect = new Rectangle(inputRect.X, inputRect.Bottom, screenWidth, menuHeight);
         UiTheme.DrawPanel(spriteBatch, menuRect, UiTheme.Panel * .97f, UiTheme.Border, shadow: 3);
 
         int y = menuRect.Y + Px(3);
-        int selected = Math.Clamp(_menuSelection, 0, shown - 1);
-        for (int index = 0; index < shown; index++)
+        if (moreAbove)
         {
-            bool isSelected = index == selected;
+            UiTheme.DrawText(spriteBatch, $"^ {scrollOffset} more above (scroll up)",
+                11 * scale, UiTheme.Muted, new Vector2(Px(12), y + Px(2)));
+            y += Px(14);
+        }
+        for (int row = 0; row < shown; row++)
+        {
+            int index = scrollOffset + row;
+            bool isSelected = index == _menuSelection;
             (string value, string label) = _menuCandidates[index];
             if (isSelected)
                 Primitives2D.FillRect(spriteBatch, new Rectangle(menuRect.X, y, screenWidth, rowHeight), UiTheme.PanelHover);
@@ -711,10 +826,10 @@ public sealed class DevConsole
                 12 * scale, isSelected ? UiTheme.Gold : UiTheme.Text, new Vector2(Px(12), y + Px(2)));
             y += rowHeight;
         }
-        if (overflow)
+        if (moreBelow)
         {
-            UiTheme.DrawText(spriteBatch,
-                $"...and {_menuCandidates.Count - shown} more (keep typing to narrow)",
+            int hiddenBelow = _menuCandidates.Count - (scrollOffset + shown);
+            UiTheme.DrawText(spriteBatch, $"v {hiddenBelow} more below (scroll down)",
                 11 * scale, UiTheme.Muted, new Vector2(Px(12), y + Px(2)));
         }
     }
