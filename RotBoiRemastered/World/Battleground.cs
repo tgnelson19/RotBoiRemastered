@@ -41,6 +41,19 @@ public sealed class Battleground
     public int WallHeight { get; }
     public Vector2 SpawnPosition { get; }
     public string? VisualThemeKey { get; }
+    /// <summary>
+    /// Optional per-palette visual theme (parallel to Palettes). Lets one map
+    /// mix floor/wall motifs -- The Ego's terrains and sense holdouts -- while
+    /// VisualThemeKey stays the map-wide default.
+    /// </summary>
+    public IReadOnlyList<string?>? PaletteThemeKeys { get; }
+    public string? ThemeKeyForTile(int tileX, int tileY)
+    {
+        if (PaletteThemeKeys is null)
+            return VisualThemeKey;
+        int biome = BiomeForTile(tileX, tileY);
+        return biome < PaletteThemeKeys.Count ? PaletteThemeKeys[biome] ?? VisualThemeKey : VisualThemeKey;
+    }
     public int PathFloorNumber { get; }
     public IReadOnlyList<PathDecoration> PathDecorations { get; }
     public IReadOnlyList<PathDecoration> AnimatedFloorPathDecorations { get; }
@@ -58,8 +71,10 @@ public sealed class Battleground
         string? visualThemeKey = null,
         int pathFloorNumber = 0,
         IReadOnlyList<PathDecoration>? pathDecorations = null,
-        int[,]? biomeMap = null)
+        int[,]? biomeMap = null,
+        IReadOnlyList<string?>? paletteThemeKeys = null)
     {
+        PaletteThemeKeys = paletteThemeKeys;
         Tiles = tiles;
         Height = tiles.GetLength(0);
         Width = tiles.GetLength(1);
@@ -584,7 +599,7 @@ public sealed class Battleground
 
     private static double Hypot(double dx, double dy) => Math.Sqrt(dx * dx + dy * dy);
 
-    private static void PaintRoad(TileType[,] grid, (int X, int Y) start, (int X, int Y) end, int width = 1)
+    internal static void PaintRoad(TileType[,] grid, (int X, int Y) start, (int X, int Y) end, int width = 1)
     {
         int height = grid.GetLength(0), gridWidth = grid.GetLength(1);
         int steps = Math.Max(Math.Max(Math.Abs(end.X - start.X), Math.Abs(end.Y - start.Y)), 1);
@@ -607,7 +622,7 @@ public sealed class Battleground
         }
     }
 
-    private static void PaintBuilding(TileType[,] grid, int centerX, int centerY, int width = 11, int height = 9,
+    internal static void PaintBuilding(TileType[,] grid, int centerX, int centerY, int width = 11, int height = 9,
         bool verticalDoors = false, BuildingStyle style = BuildingStyle.Plain)
     {
         int left = centerX - width / 2;

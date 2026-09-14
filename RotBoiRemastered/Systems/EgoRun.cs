@@ -28,6 +28,10 @@ public sealed class EgoRegion
     /// <summary>Once cleared, the player must leave the spawn radius before a respawn can arm.</summary>
     public bool AwaitingPlayerExit { get; set; }
     public int TimesCleared { get; set; }
+    /// <summary>Terrain under the region's center (holdouts sit in any terrain; it only changes dressing).</summary>
+    public EgoTerrain Terrain { get; set; }
+    /// <summary>A plains holdout that generated with a ruined structure at its center.</summary>
+    public bool HasStructure { get; set; }
 
     public bool Contains(Vector2 world) =>
         Vector2.DistanceSquared(world, Center) <= RadiusWorld * RadiusWorld;
@@ -48,6 +52,11 @@ public sealed class EgoRun
     /// <summary>Player's horizontal view width in world units at run start; every distance rule keys off it.</summary>
     public float ViewWidth { get; }
     public Battleground Battleground { get; }
+    public EgoRegionField Field { get; }
+    public IReadOnlyList<EgoTrace> Traces { get; }
+    /// <summary>Run seconds at which the next hunter may be released (see EgoSpawnDirector).</summary>
+    public double NextHunterAt { get; set; } = EgoSpawnDirector.FirstHunterDelaySeconds;
+    public int HuntersReleased { get; set; }
     public Vector2 Spawn => Battleground.SpawnPosition;
     public IReadOnlyList<EgoRegion> Regions { get; }
     public IEnumerable<EgoRegion> Holdouts => Regions.Where(region => region.IsHoldout);
@@ -71,8 +80,11 @@ public sealed class EgoRun
         Seed = seed ?? Random.Shared.Next();
         ViewWidth = Math.Max(400f, viewWidth);
         var rng = new Random(Seed);
-        Battleground = EgoWorldGenerator.Generate(rng);
-        Regions = EgoWorldGenerator.PlaceRegions(Battleground, rng, ViewWidth);
+        EgoWorld world = EgoWorldGenerator.Build(rng, ViewWidth);
+        Battleground = world.Battleground;
+        Regions = world.Regions;
+        Field = world.Field;
+        Traces = world.Traces;
     }
 
     public bool IsVeteranSpace(Vector2 world) =>

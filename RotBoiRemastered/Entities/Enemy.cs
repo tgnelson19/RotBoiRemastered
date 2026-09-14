@@ -145,6 +145,12 @@ public class Enemy
     public int EncounterSlot { get; set; }
     public Vector2? EncounterPatrolTarget { get; set; }
     public Vector2? EncounterCombatTarget { get; set; }
+    /// <summary>
+    /// The Ego's border skirmishes: while set (and the player is out of
+    /// awareness) this enemy is steered and fires at the rival instead of
+    /// the player. Cleared by the spawn director when the feud ends.
+    /// </summary>
+    public Enemy? FeudTarget { get; set; }
     public int CombatSide { get; set; }
     public string Family { get; set; } = "basic";
     public string? ContentPath { get; set; }

@@ -98,6 +98,8 @@ public sealed class DevConsole
         new("egoportal", "/egoportal <sense> [veteran] -- drop an Ego dungeon door at your position",
             new ArgumentProvider?[] { SenseOptions, VeteranOptions }),
         new("egoevent", "/egoevent -- spawn The Ego's fractured event boss nearby", Array.Empty<ArgumentProvider?>()),
+        new("egohunter", "/egohunter -- release The Ego's hunter behind you now", Array.Empty<ArgumentProvider?>()),
+        new("egofog", "/egofog -- toggle The Ego's fog of war", Array.Empty<ArgumentProvider?>()),
         new("help", "/help -- list every command", Array.Empty<ArgumentProvider?>()),
     };
 
@@ -514,6 +516,8 @@ public sealed class DevConsole
             Log("/ego                                    -- start The Ego (dev: skips unlock + empty-hands checks)");
             Log("/egoportal <sense> [veteran]            -- drop an Ego dungeon door at your position");
             Log("/egoevent                               -- spawn The Ego's fractured event boss nearby");
+            Log("/egohunter                              -- release The Ego's hunter behind you now");
+            Log("/egofog                                 -- toggle The Ego's fog of war");
             Log("Press \"/\" for a dropdown of every command; keep typing to filter it.");
             return default;
         }
@@ -536,6 +540,8 @@ public sealed class DevConsole
             case "ego": return HandleEgo();
             case "egoportal": return HandleEgoPortal(tokens, session);
             case "egoevent": return HandleEgoEvent(session);
+            case "egohunter": return HandleEgoHunter(session);
+            case "egofog": return HandleEgoFog(session);
             default:
                 Log($"Unknown command: {command} (try /help)");
                 return default;
@@ -593,6 +599,30 @@ public sealed class DevConsole
         var portal = session.Ego.AddPortal(new EgoDungeonPortal(tokens[1].ToLowerInvariant(), veteran,
             session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 2f, 0)));
         Log($"Dropped a {(portal.Veteran ? "veteran" : "midpoint")} {portal.SenseKey} dungeon door.");
+        return default;
+    }
+
+    private ConsoleResult HandleEgoHunter(GameSession session)
+    {
+        if (session.Ego is null || !session.InEgoOverworld)
+        {
+            Log("Only available in The Ego's overworld.");
+            return default;
+        }
+        session.Ego.NextHunterAt = 0;
+        Log("Hunter clock zeroed; it will be released on the next tick.");
+        return default;
+    }
+
+    private ConsoleResult HandleEgoFog(GameSession session)
+    {
+        if (session.Ego is null || !session.InEgoOverworld)
+        {
+            Log("Only available in The Ego's overworld.");
+            return default;
+        }
+        session.DebugToggleEgoFog();
+        Log($"Ego fog: {(session.IsPathFogActive ? "ON" : "OFF")}");
         return default;
     }
 

@@ -176,7 +176,7 @@ public sealed class ArenaRenderer
                 if (!tile.IsSolid())
                 {
                     Primitives2D.RectOutline(spriteBatch, rect, GridLineColor, 1);
-                    DrawFloorDetail(spriteBatch, rect, tile, x, y, palette, battleground.VisualThemeKey);
+                    DrawFloorDetail(spriteBatch, rect, tile, x, y, palette, battleground.ThemeKeyForTile(x, y));
                 }
             }
         }
@@ -257,6 +257,59 @@ public sealed class ArenaRenderer
         Vector2 center = rect.Center.ToVector2();
         switch (themeKey)
         {
+            case "ego_plains":
+                // Grass tufts and the odd stone; trails read as packed dirt.
+                if (tile == TileType.Road)
+                {
+                    Primitives2D.Line(spriteBatch, new Vector2(rect.X + 6, rect.Bottom - 8),
+                        new Vector2(rect.Right - 6, rect.Bottom - 10), palette.Detail * .3f, 1);
+                    if (noise % 5 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 14 + noise % 17, rect.Y + 12 + noise % 21, 3, 2), palette.Accent * .7f);
+                }
+                else if (noise % 3 != 1)
+                {
+                    int tx = rect.X + 8 + noise % 29, ty = rect.Y + 10 + (noise * 7) % 27;
+                    Primitives2D.Line(spriteBatch, new Vector2(tx, ty + 6), new Vector2(tx - 3, ty), palette.Accent * .55f, 1);
+                    Primitives2D.Line(spriteBatch, new Vector2(tx, ty + 6), new Vector2(tx + 1, ty - 1), palette.Accent * .55f, 1);
+                    Primitives2D.Line(spriteBatch, new Vector2(tx, ty + 6), new Vector2(tx + 4, ty + 1), palette.Accent * .45f, 1);
+                    if (noise % 11 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Right - 16, rect.Bottom - 14, 5, 4), palette.Detail * .5f);
+                }
+                break;
+            case "ego_city":
+                // Cracked asphalt, kerb lines on roads, rubble in interiors.
+                if (tile == TileType.Road)
+                {
+                    Primitives2D.Line(spriteBatch, new Vector2(rect.X, rect.Y + 2), new Vector2(rect.Right, rect.Y + 2), palette.Detail * .35f, 2);
+                    if (noise % 4 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Center.X - 7, rect.Center.Y - 1, 14, 3), palette.Accent * .6f);
+                }
+                else if (tile == TileType.BuildingFloor)
+                {
+                    if (noise % 3 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 10 + noise % 19, rect.Y + 9 + noise % 23, 6, 4), palette.WallTop * .8f);
+                    if (noise % 5 == 0)
+                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 22, rect.Y + 28, 3, 3), palette.Detail * .6f);
+                }
+                else if (noise % 2 == 0)
+                {
+                    Vector2 a = new(rect.X + 6 + noise % 13, rect.Y + 8 + noise % 11);
+                    Vector2 b = a + new Vector2(11 + noise % 9, 7 + noise % 6);
+                    Vector2 c = b + new Vector2(-4 + noise % 7, 9 + noise % 5);
+                    Primitives2D.Line(spriteBatch, a, b, new Color(18, 20, 26), 2);
+                    Primitives2D.Line(spriteBatch, b, c, new Color(18, 20, 26), 1);
+                }
+                break;
+            case "ego_caverns":
+                // Damp stone: the classic cable/dot doodles plus wet glints.
+                if (noise < 9)
+                {
+                    Primitives2D.Line(spriteBatch, new Vector2(rect.X + 9, rect.Y + 14),
+                        new Vector2(rect.X + 20 + noise, rect.Y + 18 + noise / 2), new Color(22, 20, 28), 2);
+                }
+                else if (noise % 7 == 0)
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 12 + noise % 23, rect.Y + 12 + noise % 19, 2, 2), palette.Detail * .5f);
+                break;
             case "touch":
                 if (tile == TileType.Road)
                 {
@@ -1478,10 +1531,11 @@ public sealed class ArenaRenderer
         else if ((tileX + tileY) % 2 == 0)
             Primitives2D.Line(spriteBatch, new Vector2(centerX - 9, centerY), new Vector2(centerX + 9, centerY), palette.Accent, 2);
 
-        if (_bakedFor.VisualThemeKey is not null && (tileX * 31 + tileY * 17) % 3 == 0)
+        string? capTheme = _bakedFor.ThemeKeyForTile(tileX, tileY);
+        if (capTheme is not null && (tileX * 31 + tileY * 17) % 3 == 0)
         {
             Vector2 capCenter = new(centerX, centerY);
-            if (_bakedFor.VisualThemeKey == "phantasia")
+            if (capTheme == "phantasia")
                 Primitives2D.FillCircle(spriteBatch, capCenter, 3, palette.Detail);
             else
                 Primitives2D.Line(spriteBatch, capCenter - new Vector2(7, 3),
@@ -1511,7 +1565,7 @@ public sealed class ArenaRenderer
         Primitives2D.Line(spriteBatch, accentLeft, accentRight, palette.Accent, 2);
         DrawPathWallMaterial(
             spriteBatch, topLeft, topRight, bottomRight, bottomLeft,
-            tileX, tileY, _bakedFor!.VisualThemeKey, palette,
+            tileX, tileY, _bakedFor!.ThemeKeyForTile(tileX, tileY), palette,
             visualTime, visualIntensity);
     }
 

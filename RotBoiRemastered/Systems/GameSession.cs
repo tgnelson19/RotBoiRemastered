@@ -427,6 +427,8 @@ public sealed class GameSession
         CampaignActivity = Systems.CampaignActivity.Ego;
         CampaignActivitySense = null;
         State.EnemySpawningEnabled = true;
+        InstallEgoFog();
+        RefreshLightingFixtures();
         EnsureEgoEventBoss(rng);
         ShowEntrySplash("The Ego", "Everything you were stays behind. Everything you are must be earned again.", UiTheme.Purple);
     }
@@ -742,7 +744,30 @@ public sealed class GameSession
     private string ActiveLightingPathKey =>
         CampaignActivity == Systems.CampaignActivity.Aphantasia || EgoAphantasiaActive
             ? "aphantasia"
-            : PathRun?.CurrentSenseKey ?? CampaignActivitySense ?? GamePaths.Active().Key;
+            : InEgoOverworld
+                ? EgoLightingKey()
+                : PathRun?.CurrentSenseKey ?? CampaignActivitySense ?? GamePaths.Active().Key;
+
+    /// <summary>
+    /// The Ego's darkness follows the ground under the player: a holdout's
+    /// sense, otherwise the terrain -- open plains at dusk, a dim ruined city,
+    /// caverns lit only by what you carry.
+    /// </summary>
+    private string EgoLightingKey()
+    {
+        EgoRun ego = Ego!;
+        EgoRegion? holdout = ego.Holdouts.FirstOrDefault(region => region.Contains(PlayerWorldCenter));
+        if (holdout?.SenseKey is string sense)
+            return sense;
+        int tx = Math.Clamp((int)(PlayerWorldCenter.X / Simulation.TileSize), 0, ego.Field.Width - 1);
+        int ty = Math.Clamp((int)(PlayerWorldCenter.Y / Simulation.TileSize), 0, ego.Field.Height - 1);
+        return ego.Field.TerrainAt(tx, ty) switch
+        {
+            EgoTerrain.City => "ego_city",
+            EgoTerrain.Caverns => "ego_caverns",
+            _ => "ego_plains",
+        };
+    }
 
     private void RefreshLightingFixtures()
     {
@@ -751,6 +776,22 @@ public sealed class GameSession
         string pathKey = ActiveLightingPathKey;
         if (CampaignActivity == Systems.CampaignActivity.Aphantasia || EgoAphantasiaActive)
             return;
+        if (InEgoOverworld)
+        {
+            // Ruined cities keep a few of their lamps; holdouts glow with
+            // their sense's luminous props.
+            EgoRun ego = Ego!;
+            foreach (ArenaLightPost post in WorldLighting.BuildArenaLightPosts(Battleground))
+            {
+                int tx = (int)(post.WorldPosition.X / Simulation.TileSize), ty = (int)(post.WorldPosition.Y / Simulation.TileSize);
+                if (ego.Field.TerrainAt(tx, ty) != EgoTerrain.City || post.Variant == 0)
+                    continue;
+                _arenaLightPosts.Add(post);
+                _worldLightSources.Add(WorldLighting.SourceFor(post, WorldLighting.ThemeFor("ego_city"), "ego_city"));
+            }
+            _worldLightSources.AddRange(WorldLighting.BuildPathLightSources(Battleground, "sound"));
+            return;
+        }
         bool standaloneOrInstancedArena =
             PathRun is null || _dungeonBossInstance is not null;
         if (standaloneOrInstancedArena)
@@ -872,6 +913,15 @@ public sealed class GameSession
         if (_dungeonBossInstance is not null)
         {
             _pathFogActive = false;
+            return;
+        }
+        if (PathFog is not null && InEgoOverworld)
+        {
+            // Zoom / resize changes the on-screen radius; rebuilding is cheap.
+            if (PathFog.WindowRadiusTiles != EgoFogWindowTiles)
+                PathFog = new PathFogOfWar(Ego!.Battleground, EgoFogWindowTiles);
+            _pathFogActive = true;
+            PathFog.Update(PlayerWorldCenter);
             return;
         }
         if (PathFog is null || PathRun is null)
@@ -1150,7 +1200,7 @@ public sealed class GameSession
         {
             if (EgoAphantasiaActive)
                 return;
-            if (interactPressed && (TryEnterEgoDungeon(rng) || TryEnterEgoAphantasia(rng)))
+            if (interactPressed && (TryEnterEgoDungeon(rng) || TryEnterEgoAphantasia(rng) || TryReadEgoPlaque()))
                 return;
             if (State.EnemySpawningEnabled && State.ActiveBoss is null)
                 _egoDirector?.Update(this, rng, Simulation.GetTimerStep() / Simulation.FrameRate);
@@ -1557,8 +1607,30 @@ public sealed class GameSession
             enemy.Speed *= (float)control.MovementMultiplier;
             if (enemy.AttackCooldown is not null)
                 enemy.AttackCooldown += (float)(control.AttackDelay * seconds * Simulation.FrameRate);
+            // Ego skirmish: a feuding enemy whose rival is closer than the
+            // player (and the player is out of its awareness) is fed the
+            // rival's position as its "player" for this update.
+            Enemy? feudRival = null;
+            if (enemy.FeudTarget is { } rival && !rival.IsDead())
+            {
+                Vector2 own = EgoRun.EnemyCenter(enemy);
+                if (Vector2.Distance(own, playerCenter) > enemy.AwarenessRange)
+                {
+                    feudRival = rival;
+                    Vector2 rivalCenter = EgoRun.EnemyCenter(rival);
+                    context.PlayerWorldX = rivalCenter.X;
+                    context.PlayerWorldY = rivalCenter.Y;
+                }
+            }
             if (!control.Stunned && enemy.Hp > 0)
                 enemy.Update(context);
+            if (feudRival is not null)
+            {
+                context.PlayerWorldX = playerCenter.X;
+                context.PlayerWorldY = playerCenter.Y;
+                for (int index = projectileStart; index < State.EnemyProjectileHolster.Count; index++)
+                    State.EnemyProjectileHolster[index].FeudSense = enemy.ContentPath ?? "sound";
+            }
             enemy.Speed = originalSpeed;
             // A few authored attacks teleport directly rather than using
             // TryAxisMove; validate those destinations as well.
@@ -1775,6 +1847,27 @@ public sealed class GameSession
     }
 
     /// <summary>Ported from character.py's handlingEnemyProjectileUpdating(), including boss-arena containment and overflow trimming.</summary>
+    /// <summary>Skirmish shots wound enemies of any other sense; the holster's own damage pass handles the rest.</summary>
+    private void ResolveFeudProjectiles()
+    {
+        foreach (EnemyProjectile projectile in State.EnemyProjectileHolster)
+        {
+            if (projectile.FeudSense is null || projectile.RemFlag)
+                continue;
+            Rectangle rect = projectile.WorldRect();
+            foreach (Enemy enemy in State.EnemyHolster)
+            {
+                if (enemy.IsDead() || enemy.FeudTarget is null || enemy.ContentPath == projectile.FeudSense)
+                    continue;
+                if (!rect.Intersects(enemy.WorldRect()))
+                    continue;
+                enemy.TakeDamage(projectile.Damage);
+                projectile.RemFlag = true;
+                break;
+            }
+        }
+    }
+
     public void UpdateEnemyProjectiles()
     {
         if (AphantasiaPrecombatDraftsPending)
@@ -1795,6 +1888,8 @@ public sealed class GameSession
                 }
             }
         }
+        if (InEgoOverworld)
+            ResolveFeudProjectiles();
         _spawnedProjectileScratch.Clear();
         bool casualMode = GameProfile.Profile.CasualMode;
         (Vector2 Center, float Radius)? radialArena = State.ActiveBoss switch
@@ -1934,6 +2029,20 @@ public sealed class GameSession
                 Primitives2D.FillRect(spriteBatch, new Rectangle((int)at.X - 3, (int)at.Y - 3, 6, 6), accent * .7f);
             }
         }
+        foreach (EgoTrace trace in Ego.Traces)
+        {
+            if (trace.Kind != EgoTraceKind.Plaque)
+                continue;
+            if (Vector2.DistanceSquared(trace.World, PlayerWorldCenter) > MathF.Pow(Ego.ViewWidth * 1.2f, 2))
+                continue;
+            // A small stone tablet; dims once read.
+            Color stone = (trace.Read ? UiTheme.Muted * .6f : UiTheme.Cream * .85f);
+            var slab = new Rectangle((int)trace.World.X - 9, (int)trace.World.Y - 6, 18, 12);
+            Primitives2D.FillRect(spriteBatch, slab, UiTheme.Ink);
+            Primitives2D.RectOutline(spriteBatch, slab, stone, 1);
+            Primitives2D.Line(spriteBatch, new Vector2(slab.X + 3, slab.Y + 4), new Vector2(slab.Right - 3, slab.Y + 4), stone * .8f, 1);
+            Primitives2D.Line(spriteBatch, new Vector2(slab.X + 3, slab.Y + 8), new Vector2(slab.Right - 6, slab.Y + 8), stone * .6f, 1);
+        }
         if (Ego.AphantasiaPortalWorld is Vector2 door)
         {
             float radius = Simulation.TileSize * 1.1f;
@@ -1974,6 +2083,16 @@ public sealed class GameSession
         {
             UiTheme.DrawText(spriteBatch, $"APHANTASIA  //  {key} ENTER  //  NO DRAFTING, NO RETURN",
                 10 * scale, UiTheme.Purple, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
+        }
+        else if (_readingPlaque is { } plaque && State.RunTimeSeconds < _plaqueReadUntil)
+        {
+            UiTheme.DrawText(spriteBatch, EgoTraces.Inscriptions[plaque.TextIndex % EgoTraces.Inscriptions.Count],
+                10 * scale, UiTheme.Cream, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
+        }
+        else if (NearbyEgoPlaque() is { } nearby)
+        {
+            UiTheme.DrawText(spriteBatch, nearby.Read ? $"AN OLD INSCRIPTION  //  {key} READ AGAIN" : $"AN OLD INSCRIPTION  //  {key} READ",
+                10 * scale, UiTheme.Muted, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
         }
     }
 
@@ -2442,6 +2561,16 @@ public sealed class GameSession
                     GameProfile.IncrementQuest("bosses_defeated", state: State);
                     ShowEntrySplash("The Shard Breaks", "What it guarded now opens.", UiTheme.Purple);
                 }
+                else if (enemy is EgoHunter hunter)
+                {
+                    _egoDirector?.NotifyHunterGone(this, rng);
+                    if (rng.NextDouble() < EgoHunter.DungeonDropChance)
+                    {
+                        var hunterPortal = Ego.AddPortal(new EgoDungeonPortal(hunter.SenseKey, false, EgoRun.EnemyCenter(enemy)));
+                        ShowEntrySplash("The Hunter Falls", $"It carried a door to {GamePaths.PathsByKey[hunterPortal.SenseKey].Title}.",
+                            GamePaths.PathsByKey[hunterPortal.SenseKey].Accent);
+                    }
+                }
                 else if (Ego.RollDungeonDrop(enemy, enemy.ContentPath, rng) is { } droppedPortal)
                 {
                     ShowEntrySplash(droppedPortal.Veteran ? "Veteran Dungeon" : "Midpoint Dungeon",
@@ -2848,6 +2977,7 @@ public sealed class GameSession
         rng ??= Random.Shared;
         _egoSuspendedHolster.Clear();
         _egoSuspendedHolster.AddRange(State.EnemyHolster);
+        _egoDirector?.ForgetRemainsCrates();
         InstallPathRun(PathRun.CreateEgoDungeon(Ego, portal, rng), rng);
         ShowEntrySplash(portal.Veteran ? "Veteran Dungeon" : "Midpoint Dungeon",
             portal.Veteran
@@ -2859,16 +2989,55 @@ public sealed class GameSession
 
     private readonly List<Enemy> _egoSuspendedHolster = new();
 
+    /// <summary>
+    /// Windowed fog radius: half the larger screen axis plus a margin, so a
+    /// rotated camera never shows an un-traced corner. Nothing beyond it is
+    /// remembered -- the wilds stay black until you walk them again.
+    /// </summary>
+    public int EgoFogWindowTiles
+    {
+        get
+        {
+            Rectangle view = CombatLogicalViewport();
+            return (int)MathF.Ceiling(Math.Max(view.Width, view.Height) / 2f / Simulation.TileSize) + 3;
+        }
+    }
+
+    private bool _egoFogDisabled;
+
+    public void DebugToggleEgoFog()
+    {
+        _egoFogDisabled = !_egoFogDisabled;
+        if (_egoFogDisabled)
+        {
+            PathFog = null;
+            _pathFogActive = false;
+        }
+        else
+        {
+            InstallEgoFog();
+        }
+    }
+
+    private void InstallEgoFog()
+    {
+        if (_egoFogDisabled)
+            return;
+        if (Ego is null)
+            return;
+        PathFog = new PathFogOfWar(Ego.Battleground, EgoFogWindowTiles);
+        RefreshPathFog();
+    }
+
     private void ReturnFromEgoDungeon(Random rng)
     {
         EgoRun ego = Ego ?? throw new InvalidOperationException("Ego dungeon lost its overworld.");
         ego.CompleteDungeon();
         Vector2 returnPosition = ego.SuspendedReturnPosition ?? ego.Battleground.SpawnPosition;
         PathRun = null;
-        PathFog = null;
-        _pathFogActive = false;
         _dungeonBossInstance = null;
         Battleground = ego.Battleground;
+        InstallEgoFog();
         RefreshLightingFixtures();
         _enemyCollisionGrid.Reset();
         Player.SetPosition(returnPosition.X - (float)State.PlayerSize / 2f,
@@ -2938,6 +3107,32 @@ public sealed class GameSession
         ApplyRunDifficulty(shard);
         State.EnemyHolster.Add(shard);
         Ego!.EventBossSpawned = true;
+    }
+
+    public EgoTrace? NearbyEgoPlaque()
+    {
+        if (!InEgoOverworld)
+            return null;
+        float radius = Simulation.TileSize * EgoTraces.InteractRadiusTiles;
+        return Ego!.Traces
+            .Where(trace => trace.Kind == EgoTraceKind.Plaque
+                && Vector2.DistanceSquared(trace.World, PlayerWorldCenter) <= radius * radius)
+            .OrderBy(trace => Vector2.DistanceSquared(trace.World, PlayerWorldCenter))
+            .FirstOrDefault();
+    }
+
+    private EgoTrace? _readingPlaque;
+    private double _plaqueReadUntil;
+
+    public bool TryReadEgoPlaque()
+    {
+        EgoTrace? plaque = NearbyEgoPlaque();
+        if (plaque is null)
+            return false;
+        plaque.Read = true;
+        _readingPlaque = plaque;
+        _plaqueReadUntil = State.RunTimeSeconds + 6;
+        return true;
     }
 
     public bool TryEnterEgoAphantasia(Random? rng = null)
@@ -4534,7 +4729,7 @@ public sealed class GameSession
     /// </summary>
     public void DrawPathAmbience(SpriteBatch spriteBatch)
     {
-        if (PathRun is null)
+        if (PathRun is null && !InEgoOverworld)
         {
             DrawStandaloneSanctumAccents(spriteBatch);
             return;
@@ -4542,7 +4737,8 @@ public sealed class GameSession
 
         float time = (float)State.RunTimeSeconds;
         float intensity = _visualDensity.Optional;
-        RefreshRoomVisualEnergy(time);
+        if (PathRun is not null)
+            RefreshRoomVisualEnergy(time);
         _arenaRenderer.DrawAnimatedFloorAccents(
             spriteBatch,
             Battleground,
@@ -4553,14 +4749,21 @@ public sealed class GameSession
             time,
             intensity,
             _roomVisualEnergy);
-        DrawRoomRoleGlyphs(spriteBatch, time);
-        DrawRareRoomSpectacle(spriteBatch, time, intensity);
+        if (PathRun is not null)
+        {
+            DrawRoomRoleGlyphs(spriteBatch, time);
+            DrawRareRoomSpectacle(spriteBatch, time, intensity);
+        }
         if (intensity <= 0)
             return;
 
-        Color accent = PathRun.CurrentSense.Accent;
+        Color pathAccent = PathRun?.CurrentSense.Accent ?? UiTheme.Purple;
         foreach (var emitter in Battleground.AmbientPathDecorations)
         {
+            // In The Ego every emitter belongs to a holdout of one sense.
+            Color accent = PathRun is null
+                ? GamePaths.PathsByKey[EgoThemeVisuals.SenseForEmitter(emitter.Kind)].Accent
+                : pathAccent;
             Vector2 emitterScreen = Camera.WorldToScreen(emitter.WorldPosition, PlayerWorldCenter, ScreenShake);
             if (emitterScreen.X < -100 || emitterScreen.X > ScreenWidth + 100
                 || emitterScreen.Y < -100 || emitterScreen.Y > ScreenHeight + 100)
@@ -4568,7 +4771,7 @@ public sealed class GameSession
                 continue;
             }
 
-            int authoredParticles = PathRun.IsSecondAct ? 6 : 4;
+            int authoredParticles = PathRun?.IsSecondAct == true ? 6 : 4;
             int particles = Math.Max(1, (int)MathF.Ceiling(authoredParticles * (float)intensity));
             for (int index = 0; index < particles; index++)
             {

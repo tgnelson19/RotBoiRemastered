@@ -215,3 +215,101 @@ public sealed class EgoRunTests
         Assert.False(boss.PhaseFourEligible);
     }
 }
+
+[Collection("GameProfileState")]
+public sealed class EgoAliveTests
+{
+    private static GameSession StartEgo(int seed)
+    {
+        var session = new GameSession(Battleground.GenerateMind(), 1280, 720, new Random(1));
+        session.StartEgo(new Random(seed), ignoreHandsCheck: true);
+        session.State.GracePeriod = 0;
+        return session;
+    }
+
+    [Fact]
+    public void EgoInstallsWindowedFogWithNoMemory()
+    {
+        var session = StartEgo(2);
+        Assert.True(session.IsPathFogActive);
+        Assert.NotNull(session.PathFog!.WindowRadiusTiles);
+        Assert.Equal(session.EgoFogWindowTiles, session.PathFog.WindowRadiusTiles);
+        int tx = (int)(session.PlayerWorldCenter.X / Battleground.TileSize), ty = (int)(session.PlayerWorldCenter.Y / Battleground.TileSize);
+        Assert.True(session.PathFog.IsVisible(tx, ty));
+        Assert.False(session.PathFog.IsExplored(tx, ty));
+        Assert.False(session.PathFog.IsVisible(tx + session.EgoFogWindowTiles + 2, ty));
+    }
+
+    [Fact]
+    public void HunterIsReleasedOnScheduleBehindThePlayerAndNeverDespawns()
+    {
+        var session = StartEgo(3);
+        var rng = new Random(4);
+        session.State.CurrentLevel = 6;
+        // Walk east a little so a heading exists, then trip the clock.
+        for (int i = 0; i < 5; i++)
+        {
+            session.Player.SetPosition(session.Player.WorldX + 40, session.Player.WorldY);
+            session.HandleEnemyCreation(rng);
+        }
+        Assert.Empty(session.State.EnemyHolster.OfType<EgoHunter>());
+        session.Ego!.NextHunterAt = 0;
+        session.HandleEnemyCreation(rng);
+        EgoHunter hunter = Assert.Single(session.State.EnemyHolster.OfType<EgoHunter>());
+        Assert.True(EgoRun.EnemyCenter(hunter).X < session.PlayerWorldCenter.X, "hunter should spawn behind (west of) an eastward walker");
+        Assert.True(session.Ego.NextHunterAt >= session.State.RunTimeSeconds + EgoSpawnDirector.HunterMinGapSeconds);
+        Assert.Equal(1, session.Ego.HuntersReleased);
+
+        // A second one never overlaps the first, and distance never sheds it.
+        session.Ego.NextHunterAt = 0;
+        session.HandleEnemyCreation(rng);
+        Assert.Single(session.State.EnemyHolster.OfType<EgoHunter>());
+        Vector2 far = session.PlayerWorldCenter + new Vector2(session.Ego.DespawnRadius * 3, 0);
+        session.Player.SetPosition(far.X, far.Y);
+        session.HandleEnemyCreation(rng);
+        Assert.Contains(hunter, session.State.EnemyHolster);
+    }
+
+    [Fact]
+    public void SkirmishOnlyFlagsWhenTwoAwakeRivalHoldoutsAreNearThePlayer()
+    {
+        var session = StartEgo(5);
+        var ego = session.Ego!;
+        var a = new EgoRegion { Kind = EgoRegionKind.Holdout, SenseKey = "sound", Center = new Vector2(1000, 1000), RadiusWorld = 200, Populated = true };
+        var b = new EgoRegion { Kind = EgoRegionKind.Holdout, SenseKey = "sight", Center = new Vector2(1600, 1000), RadiusWorld = 200, Populated = true };
+        var soundGrunt = new WanderingRangedEnemy(1000, 1000, 1f, 30f, Color.White, 10, 100, 1, 1) { ContentPath = "sound" };
+        var sightGrunt = new WanderingRangedEnemy(1600, 1000, 1f, 30f, Color.White, 10, 100, 1, 1) { ContentPath = "sight" };
+        a.Live.Add(soundGrunt); b.Live.Add(sightGrunt);
+        session.State.EnemyHolster.Add(soundGrunt); session.State.EnemyHolster.Add(sightGrunt);
+        var regions = (List<EgoRegion>)ego.Regions;
+        regions.Add(a); regions.Add(b);
+
+        // Player out of spawn range (but not despawn range): no feud.
+        session.Player.SetPosition(1600 + ego.SpawnRadius * 1.2f, 1000);
+        session.HandleEnemyCreation(new Random(1));
+        Assert.Null(soundGrunt.FeudTarget);
+
+        session.Player.SetPosition(1300, 1000);
+        session.HandleEnemyCreation(new Random(1));
+        Assert.Same(sightGrunt, soundGrunt.FeudTarget);
+        Assert.Same(soundGrunt, sightGrunt.FeudTarget);
+
+        // Same sense never feuds.
+        b.SenseKey = "sound";
+        soundGrunt.FeudTarget = null; sightGrunt.FeudTarget = null;
+        session.HandleEnemyCreation(new Random(1));
+        Assert.Null(soundGrunt.FeudTarget);
+    }
+
+    [Fact]
+    public void TracesGenerateWithRemainsScorchesAndPlaquesAwayFromSpawn()
+    {
+        var run = new EgoRun(8, 1920f);
+        Assert.Contains(run.Traces, t => t.Kind == EgoTraceKind.Remains);
+        Assert.Contains(run.Traces, t => t.Kind == EgoTraceKind.Scorch);
+        Assert.Contains(run.Traces, t => t.Kind == EgoTraceKind.Plaque);
+        Assert.All(run.Traces, t => Assert.True(Vector2.Distance(t.World, run.Spawn) >= Battleground.TileSize * 20));
+        Assert.All(run.Traces.Where(t => t.Kind == EgoTraceKind.Plaque), t => Assert.InRange(t.TextIndex, 0, EgoTraces.Inscriptions.Count - 1));
+        Assert.Contains(run.Battleground.PathDecorations, d => d.Kind is PathDecorationKind.ScorchedCrater or PathDecorationKind.StormCrack);
+    }
+}

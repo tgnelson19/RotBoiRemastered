@@ -78,6 +78,19 @@ public sealed class WorldLighting
             new Color(2, 6, 18), 132,
             new Color(58, 116, 216), new Color(150, 205, 255),
             4.8f, 6.4f),
+        // The Ego's terrains: dusk plains, a dim ruined city, black caverns.
+        "ego_plains" => new LightingTheme(
+            new Color(8, 10, 8), 96,
+            new Color(196, 178, 128), new Color(255, 240, 200),
+            5.2f, 5.664f),
+        "ego_city" => new LightingTheme(
+            new Color(5, 6, 10), 150,
+            new Color(150, 170, 210), new Color(226, 236, 255),
+            4.2f, 5.9f),
+        "ego_caverns" => new LightingTheme(
+            new Color(3, 2, 5), 178,
+            new Color(120, 96, 160), new Color(210, 190, 240),
+            3.6f, 5.2f),
         "chemesthesis" => new LightingTheme(
             new Color(12, 5, 2), 151,
             new Color(222, 91, 43), new Color(255, 197, 107),

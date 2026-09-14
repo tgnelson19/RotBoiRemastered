@@ -45,6 +45,8 @@ public sealed class EnemyProjectile
     public float RemainingRange { get; set; }
     public Color Color { get; set; }
     public string? ContentPath { get; set; }
+    /// <summary>Set on shots fired during an Ego skirmish: they wound enemies of any other sense.</summary>
+    public string? FeudSense { get; set; }
     public string Shape { get; }
     public string Path { get; }
     public float Amplitude { get; }

@@ -38,6 +38,36 @@ public static class BiomePalettes
             Accent: new Color(52, 105, 191), Detail: new Color(99, 160, 236)),
     };
 
+    /// <summary>The Ego's three terrains: dusk plains, grey-blue ruined city, near-black caverns.</summary>
+    public static readonly BiomePalette EgoPlains = new(
+        Ground: new Color(30, 38, 26), GroundAlt: new Color(36, 46, 30),
+        Road: new Color(52, 46, 34), Interior: new Color(34, 32, 28),
+        WallTop: new Color(74, 78, 70), WallFace: new Color(46, 49, 44),
+        Accent: new Color(120, 132, 78), Detail: new Color(170, 176, 120));
+    public static readonly BiomePalette EgoCity = new(
+        Ground: new Color(26, 29, 36), GroundAlt: new Color(31, 34, 42),
+        Road: new Color(38, 40, 48), Interior: new Color(22, 24, 31),
+        WallTop: new Color(70, 78, 94), WallFace: new Color(40, 45, 56),
+        Accent: new Color(104, 124, 158), Detail: new Color(160, 176, 200));
+    public static readonly BiomePalette EgoCaverns = new(
+        Ground: new Color(14, 13, 18), GroundAlt: new Color(18, 17, 24),
+        Road: new Color(24, 22, 30), Interior: new Color(16, 15, 21),
+        WallTop: new Color(44, 40, 54), WallFace: new Color(26, 24, 33),
+        Accent: new Color(84, 70, 110), Detail: new Color(132, 116, 160));
+
+    /// <summary>
+    /// Palette list for The Ego's biome map: index 0-2 are the terrains,
+    /// 3-7 are the five senses (in <see cref="Systems.CampaignProgression.SenseKeys"/>
+    /// order) used inside sense holdouts.
+    /// </summary>
+    public static IReadOnlyList<BiomePalette> Ego => _ego ??= new[]
+    {
+        EgoPlains, EgoCity, EgoCaverns,
+        Sound[0], Touch[0], Sight[0], Chemesthesis[0], Phantasia[0],
+    };
+    private static IReadOnlyList<BiomePalette>? _ego;
+    public const int EgoSensePaletteOffset = 3;
+
     public static readonly IReadOnlyList<BiomePalette> Soul = new[]
     {
         new BiomePalette(

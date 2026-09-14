@@ -23,11 +23,23 @@ public sealed class PathFogOfWar
     private readonly int[] _supportedCornerIndices;
     private Vector2? _lastObserverWorld;
 
-    public PathFogOfWar(Battleground battleground)
+    /// <summary>
+    /// Windowed mode (The Ego): sight is only traced inside this many tiles
+    /// of the observer -- sized to the screen so nothing on screen pops --
+    /// and nothing is remembered. Keeps a 400x400 map to a few thousand rays
+    /// per move instead of one per tile.
+    /// </summary>
+    public int? WindowRadiusTiles { get; }
+    private Rectangle _lastWindow = Rectangle.Empty;
+    private readonly List<Point> _windowTargets = new();
+    private readonly List<Point> _windowCorners = new();
+
+    public PathFogOfWar(Battleground battleground, int? windowRadiusTiles = null)
     {
         _battleground = battleground;
         _width = battleground.Width;
         _height = battleground.Height;
+        WindowRadiusTiles = windowRadiusTiles is int r ? Math.Max(2, r) : null;
         int tileCount = _width * _height;
         _solid = new bool[tileCount];
         _raised = new bool[tileCount];
@@ -43,7 +55,7 @@ public sealed class PathFogOfWar
                 int index = Index(x, y);
                 _solid[index] = tile.IsSolid();
                 _raised[index] = tile.IsRaised();
-                if (tile != TileType.OuterVoid)
+                if (WindowRadiusTiles is null && tile != TileType.OuterVoid)
                     visibilityTargets.Add(new Point(x, y));
             }
         }
@@ -56,7 +68,9 @@ public sealed class PathFogOfWar
                 convexWallCorners.Add(point);
         }
         _convexWallCorners = convexWallCorners.ToArray();
-        _supportedCornerIndices = new int[_convexWallCorners.Length];
+        _supportedCornerIndices = new int[WindowRadiusTiles is int w
+            ? (2 * w + 1) * (2 * w + 1)
+            : _convexWallCorners.Length];
     }
 
     public bool IsVisible(int tileX, int tileY) =>
@@ -121,6 +135,11 @@ public sealed class PathFogOfWar
         // twice.
         if (_lastObserverWorld == observerWorld)
             return;
+        if (WindowRadiusTiles is int window)
+        {
+            UpdateWindowed(observerWorld, window);
+            return;
+        }
         _lastObserverWorld = observerWorld;
         Array.Clear(_visible);
 
@@ -142,8 +161,56 @@ public sealed class PathFogOfWar
         _visible[observerIndex] = true;
         _explored[observerIndex] = true;
 
-        RevealSupportedWallCorners();
-        RevealWallsBorderingVisibleFloor();
+        RevealSupportedWallCorners(_convexWallCorners);
+        RevealWallsBorderingVisibleFloor(_visibilityTargets);
+    }
+
+    private void UpdateWindowed(Vector2 observerWorld, int window)
+    {
+        // Sub-tile jitter (knockback wobble, controller drift) never changes
+        // the window; re-trace only once the observer has actually moved.
+        if (_lastObserverWorld is Vector2 last
+            && Vector2.DistanceSquared(last, observerWorld) < MathF.Pow(Battleground.TileSize * .25f, 2))
+            return;
+        _lastObserverWorld = observerWorld;
+
+        // Only the previous window can hold visible tiles -- clear just that.
+        for (int y = _lastWindow.Top; y < _lastWindow.Bottom; y++)
+            for (int x = _lastWindow.Left; x < _lastWindow.Right; x++)
+                _visible[Index(x, y)] = false;
+
+        float observerTileX = observerWorld.X / Battleground.TileSize;
+        float observerTileY = observerWorld.Y / Battleground.TileSize;
+        int observerX = Math.Clamp((int)MathF.Floor(observerTileX), 0, _width - 1);
+        int observerY = Math.Clamp((int)MathF.Floor(observerTileY), 0, _height - 1);
+        int left = Math.Max(0, observerX - window), right = Math.Min(_width, observerX + window + 1);
+        int top = Math.Max(0, observerY - window), bottom = Math.Min(_height, observerY + window + 1);
+        _lastWindow = new Rectangle(left, top, right - left, bottom - top);
+
+        _windowTargets.Clear();
+        _windowCorners.Clear();
+        int windowSquared = window * window;
+        for (int y = top; y < bottom; y++)
+        {
+            for (int x = left; x < right; x++)
+            {
+                int dx = x - observerX, dy = y - observerY;
+                if (dx * dx + dy * dy > windowSquared)
+                    continue;
+                int index = Index(x, y);
+                if (_battleground.TileAt(x, y) == TileType.OuterVoid)
+                    continue;
+                var point = new Point(x, y);
+                _windowTargets.Add(point);
+                if (_raised[index] && IsConvexWallCorner(x, y))
+                    _windowCorners.Add(point);
+                if (HasLineOfSight(observerTileX, observerTileY, x, y))
+                    _visible[index] = true;
+            }
+        }
+        _visible[Index(observerX, observerY)] = true;
+        RevealSupportedWallCorners(_windowCorners);
+        RevealWallsBorderingVisibleFloor(_windowTargets);
     }
 
     /// <summary>
@@ -235,10 +302,10 @@ public sealed class PathFogOfWar
     /// neighbor. Candidates are collected before any are revealed, preventing
     /// visibility from cascading along an unseen wall.
     /// </summary>
-    private void RevealSupportedWallCorners()
+    private void RevealSupportedWallCorners(IReadOnlyList<Point> corners)
     {
         int supportedCount = 0;
-        foreach (Point corner in _convexWallCorners)
+        foreach (Point corner in corners)
         {
             int cornerIndex = Index(corner.X, corner.Y);
             if (_visible[cornerIndex])
@@ -256,7 +323,8 @@ public sealed class PathFogOfWar
         {
             int cornerIndex = _supportedCornerIndices[index];
             _visible[cornerIndex] = true;
-            _explored[cornerIndex] = true;
+            if (WindowRadiusTiles is null)
+                _explored[cornerIndex] = true;
         }
     }
 
@@ -268,9 +336,9 @@ public sealed class PathFogOfWar
     /// top-down equivalent of lighting a wall surface from the space in front
     /// of it and prevents hallway walls from tapering into a dark wedge.
     /// </summary>
-    private void RevealWallsBorderingVisibleFloor()
+    private void RevealWallsBorderingVisibleFloor(IReadOnlyList<Point> targets)
     {
-        foreach (Point target in _visibilityTargets)
+        foreach (Point target in targets)
         {
             int targetIndex = Index(target.X, target.Y);
             if (_visible[targetIndex] || !_raised[targetIndex])
@@ -282,7 +350,8 @@ public sealed class PathFogOfWar
                 || IsVisibleFloor(target.X - 1, target.Y))
             {
                 _visible[targetIndex] = true;
-                _explored[targetIndex] = true;
+                if (WindowRadiusTiles is null)
+                    _explored[targetIndex] = true;
             }
         }
     }
