@@ -68,9 +68,9 @@ None of these share a constant, so the "roundedness" of a card, a badge, an icon
 The two places the game announces a name at full-width, dramatic scale are:
 
 - `ModeEntrySplash.cs` — shown entering a Sense/Path, the Dungeon, or Aphantasia. A hand-jittered double-draw "glitch" title over a single accent underline, no border or bracket treatment (`ModeEntrySplash.cs:35-47`).
-- `GameSession.DrawBossHealthBar` — the boss name/health banner shown at encounter start. Uses `UiTheme.DrawLivingPanel`, the game's established motif of clipped corner brackets plus animated per-Sense segment ticks (`GameSession.cs:4425-4474`).
+- `GameSession.DrawBossHealthBar` — the boss name/health banner shown at encounter start.
 
-Both are conceptually the same beat — "here is an important name, framed dramatically" — but they don't share any chrome. The splash is a flat band with no border at all; the boss banner is built entirely out of the game's signature bracket-and-segment "living panel" language. A player moving from a world-entry splash into that world's boss fight sees two unrelated title treatments in the same session.
+**Resolved.** Both now draw through the shared `UiTheme.DrawFramedPanel`, so a world-entry splash and that world's boss banner are the same chrome in different accent colors. The animated per-Sense segment ticks the boss banner used to carry are gone along with `DrawLivingPanel` itself.
 
 This is polish, not a bug — the splash's glitch-text effect is a nice, deliberate flourish and shouldn't be flattened away. But giving it even a faint version of the living-panel bracket/segment motif (accent-colored, low-opacity, behind the jittered text) would tie it back into the same "this is a title card" family as the boss banner instead of reading as a one-off.
 

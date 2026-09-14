@@ -1,4 +1,4 @@
-using Microsoft.Xna.Framework;
+﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RotBoiRemastered.Core;
@@ -4010,9 +4010,7 @@ public sealed class GameSession
             (int)(430 * scale), (int)(82 * scale));
         PathVisualProfile path =
             SoulVisualLanguage.Path(_debugVisualGalleryPath);
-        UiTheme.DrawLivingPanel(
-            spriteBatch, panel, _debugVisualGalleryPath,
-            (float)State.RunTimeSeconds,
+        UiTheme.DrawFramedPanel(spriteBatch, panel,
             UiTheme.Panel * .96f, path.Accent, shadow: 5);
         UiTheme.DrawText(spriteBatch,
             $"LIVING SOUL GALLERY // {_debugVisualGalleryPath.ToUpperInvariant()} // {_debugVisualGalleryTier.ToUpperInvariant()}",
@@ -4054,11 +4052,8 @@ public sealed class GameSession
             (int)(14 * scale),
             (int)(224 * scale),
             (int)(144 * scale));
-        UiTheme.DrawLivingPanel(
-            spriteBatch, panel, PathRun.CurrentSenseKey,
-            (float)State.RunTimeSeconds,
-            UiTheme.Panel * .94f, PathRun.CurrentSense.Accent,
-            shadow: 5);
+        UiTheme.DrawFramedPanel(spriteBatch, panel,
+            UiTheme.Panel * .94f, PathRun.CurrentSense.Accent, shadow: 5);
         var elapsed = TimeSpan.FromSeconds(Math.Max(0, State.RunTimeSeconds));
         UiTheme.DrawText(spriteBatch,
             $"FLOOR {PathRun.FloorNumber:D2}/{totalFloors:D2}  //  {PathRun.SenseDisplayName.ToUpperInvariant()}",
@@ -4700,11 +4695,8 @@ public sealed class GameSession
         int width = (int)Math.Min(ScreenWidth * .72f, 780 * scale);
         var rect = new Rectangle((ScreenWidth - width) / 2,
             (int)(28 * scale), width, (int)(54 * scale));
-        UiTheme.DrawLivingPanel(
-            spriteBatch, rect, PathRun.CurrentSenseKey,
-            (float)State.RunTimeSeconds,
-            UiTheme.PanelRaised, PathRun.CurrentSense.Accent,
-            shadow: 7);
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
+            UiTheme.PanelRaised, PathRun.CurrentSense.Accent, shadow: 7);
         UiTheme.DrawText(spriteBatch, PathRun.TitleBanner, 24 * scale, UiTheme.Text,
             rect.Center.ToVector2(), "center");
     }
@@ -4759,10 +4751,7 @@ public sealed class GameSession
         bool aphantasiaLayout = boss is Aphantasia;
         int panelHeight = (int)((aphantasiaLayout ? 74 : 58) * scale);
         var rect = new Rectangle((ScreenWidth - width) / 2, (int)(16 * scale), width, panelHeight);
-        UiTheme.DrawLivingPanel(
-            spriteBatch, rect,
-            CampaignActivitySense ?? PathRun?.CurrentSenseKey ?? GamePaths.Active().Key,
-            (float)State.RunTimeSeconds,
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, presentation.Accent, shadow: 6);
         string bossKey = _activeBossKey ?? BossKeyFor(boss) ?? boss.Family;
         string name = boss is Aphantasia aphantasia
@@ -4839,12 +4828,8 @@ public sealed class GameSession
         float scale = UiTheme.DisplayScale(spriteBatch);
         int width = (int)Math.Min(ScreenWidth * .58f, 680 * scale);
         var rect = new Rectangle((ScreenWidth - width) / 2, (int)(22 * scale), width, (int)(76 * scale));
-        UiTheme.DrawLivingPanel(
-            spriteBatch, rect,
-            PathRun?.CurrentSenseKey ?? CampaignActivitySense ?? GamePaths.Active().Key,
-            (float)State.RunTimeSeconds,
-            UiTheme.PanelRaised, UiTheme.Cream,
-            shadow: 7, composite: PathRun is not null);
+        UiTheme.DrawFramedPanel(spriteBatch, rect,
+            UiTheme.PanelRaised, UiTheme.Cream, shadow: 7);
         string headline = CampaignActivity == Systems.CampaignActivity.Aphantasia
             ? State.IsTrueHardMode
                 ? "THE CORE OF THE VOID ENDED"

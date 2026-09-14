@@ -1,4 +1,4 @@
-using Microsoft.Xna.Framework;
+﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
 using RotBoiRemastered.Systems;
@@ -31,7 +31,7 @@ internal static class SoulVisualRenderer
 {
     private static readonly Color ChapelStone = new(54, 45, 70);
     private static readonly Color ChapelStoneLight = new(91, 73, 111);
-    private static readonly Color ChapelWarm = new(222, 177, 104);
+    private static readonly Color ChapelWarm = UiTheme.Warm;
     private static readonly Color ChapelGlass = new(173, 120, 188);
 
     public static SoulPortalPresentationState ResolvePortalState(
@@ -152,23 +152,14 @@ internal static class SoulVisualRenderer
         string stationKey,
         Color accent)
     {
-        UiTheme.DrawPanel(spriteBatch, panel, UiTheme.PanelRaised, accent, shadow: 10);
-        var inner = panel;
-        inner.Inflate(-9, -9);
-        Primitives2D.RectOutline(spriteBatch, inner, accent * .28f, 2);
+        // The panel, ghost outline and corner ornaments are now the shared
+        // theme's frame; the chapel arch and station watermarks below stay
+        // exclusive to The Mind so the sanctuary keeps its own identity.
+        UiTheme.DrawFramedPanel(spriteBatch, panel, UiTheme.PanelRaised, accent, shadow: 10);
 
-        // A restrained chapel arch and station watermark frame the existing
-        // information architecture without changing any content hit boxes.
         int archWidth = Math.Min(180, panel.Width / 4);
         var arch = new Rectangle(panel.Center.X - archWidth / 2, panel.Y + 8, archWidth, 42);
         Primitives2D.Arc(spriteBatch, arch, MathF.PI, MathF.Tau, accent * .28f, 3);
-        for (int corner = 0; corner < 4; corner++)
-        {
-            int x = corner % 2 == 0 ? panel.X + 16 : panel.Right - 22;
-            int y = corner < 2 ? panel.Y + 16 : panel.Bottom - 22;
-            Primitives2D.FillRect(spriteBatch, new Rectangle(x, y, 6, 6), accent * .58f);
-            Primitives2D.FillRect(spriteBatch, new Rectangle(x + (corner % 2 == 0 ? 8 : -8), y, 4, 4), ChapelWarm * .4f);
-        }
 
         Vector2 mark = new(panel.Right - 58, panel.Y + 54);
         switch (stationKey)

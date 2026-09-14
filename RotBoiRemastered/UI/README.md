@@ -4,6 +4,15 @@ HUD, menus, and shared drawing/theme helpers. Mapping from the Python source:
 
 - `UiTheme.cs` <- `uiTheme.py` (colors, draw_text/draw_button/draw_panel primitives,
   display_scale). **Done.** Nearly every other UI file calls into it.
+  `DrawFramedPanel` is the single piece of menu chrome -- a recessed panel,
+  an accent outline, a faint inner ghost outline, and four double-square
+  corner ornaments, lifted from The Mind's overlay frame so every screen
+  matches the sanctuary. It is entirely static: the older `DrawLivingPanel`/
+  `DrawCompositePanel` "Soul" panels, which cycled a row of blinking
+  per-Sense color segments along the top edge and breathed their corners on
+  a sine, have been removed. `SoulVisualRenderer.DrawOverlayFrame` now adds
+  only the chapel arch and per-station watermark on top of the shared frame,
+  so those stay exclusive to The Mind.
 - `StatCards.cs` <- `statCards.py`. **Done** -- per-upgrade-stat procedural
   icons (~15 branches) and rarity-backed mini card chrome, same shape as
   `ItemCards.cs`.

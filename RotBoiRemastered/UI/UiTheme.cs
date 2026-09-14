@@ -1,4 +1,4 @@
-using FontStashSharp;
+﻿using FontStashSharp;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using RotBoiRemastered.Core;
@@ -45,6 +45,12 @@ public static class UiTheme
     public static readonly Color Gold = new(225, 169, 65);
     public static readonly Color Purple = new(175, 105, 218);
     public static readonly Color Shadow = new(8, 9, 12);
+
+    /// <summary>
+    /// Warm ornament tone for the corner marks on <see cref="DrawFramedPanel"/>.
+    /// Shared with The Mind's chapel chrome so the two cannot drift apart.
+    /// </summary>
+    public static readonly Color Warm = new(222, 177, 104);
 
     /// <summary>
     /// Canonical "dim the world behind a modal" color. Every full-screen
@@ -316,128 +322,44 @@ public static class UiTheme
     }
 
     /// <summary>
-    /// Quiet menu chrome: a recessed surface, neutral outline, clipped-corner
-    /// brackets, and one short semantic accent rule. Unlike Living/Composite
-    /// panels it contains no ambient animation or cycling Soul colors.
+    /// The one piece of menu chrome: a recessed surface, an accent outline, a
+    /// faint inner "ghost" outline, and four small double-square corner
+    /// ornaments. This is The Mind's frame (see SoulVisualRenderer's
+    /// DrawOverlayFrame) promoted to the shared theme so every screen reads as
+    /// one family. It is entirely static -- the old Living/Composite panels'
+    /// cycling per-Sense segment ticks and breathing corners are gone.
     /// </summary>
     public static Rectangle DrawFramedPanel(SpriteBatch spriteBatch, Rectangle rect,
         Color? fill = null, Color? accent = null, int shadow = 4, bool hovered = false)
     {
         Color accentColor = accent ?? Border;
-        DrawPanel(spriteBatch, rect, fill ?? Panel, Border, shadow, hovered);
+        DrawPanel(spriteBatch, rect, fill ?? Panel, accentColor, shadow, hovered);
         float scale = DisplayScale(spriteBatch);
-        int inset = Math.Max(3, (int)MathF.Round(4 * scale));
-        int bracket = Math.Max(6, Math.Min(rect.Width, rect.Height) / 12);
-        int width = Math.Max(1, (int)MathF.Round(scale));
-        Color quiet = Lighten(Border, 16);
 
-        Primitives2D.Line(spriteBatch, new(rect.Left + inset, rect.Top + bracket),
-            new(rect.Left + inset, rect.Top + inset), quiet, width);
-        Primitives2D.Line(spriteBatch, new(rect.Left + inset, rect.Top + inset),
-            new(rect.Left + bracket, rect.Top + inset), quiet, width);
-        Primitives2D.Line(spriteBatch, new(rect.Right - bracket, rect.Bottom - inset),
-            new(rect.Right - inset, rect.Bottom - inset), quiet, width);
-        Primitives2D.Line(spriteBatch, new(rect.Right - inset, rect.Bottom - inset),
-            new(rect.Right - inset, rect.Bottom - bracket), quiet, width);
+        // Below this size the ornaments would collide with the panel's own
+        // border, so small rarity chips and quick-loot cards stay plain.
+        if (Math.Min(rect.Width, rect.Height) < 44 * scale)
+            return rect;
 
-        int ruleWidth = Math.Max(bracket * 2, Math.Min(rect.Width / 4, (int)(110 * scale)));
-        Primitives2D.FillRect(spriteBatch,
-            new Rectangle(rect.Left + bracket, rect.Top + inset, ruleWidth, width), accentColor);
-        return rect;
-    }
+        int ghost = Math.Max(4, (int)MathF.Round(9 * scale));
+        var inner = rect;
+        inner.Inflate(-ghost, -ghost);
+        Primitives2D.RectOutline(spriteBatch, inner, accentColor * .28f,
+            Math.Max(1, (int)MathF.Round(2 * scale)));
 
-    public static Rectangle DrawLivingPanel(
-        SpriteBatch spriteBatch,
-        Rectangle rect,
-        string? pathKey,
-        float animationTime,
-        Color? fill = null,
-        Color? border = null,
-        int shadow = 5,
-        bool hovered = false,
-        bool composite = false)
-    {
-        PathVisualProfile path = SoulVisualLanguage.Path(pathKey);
-        Color accent = border ?? path.Accent;
-        DrawPanel(spriteBatch, rect, fill, accent, shadow, hovered);
-        int corner = Math.Max(5, Math.Min(rect.Width, rect.Height) / 11);
-        int width = Math.Max(1, corner / 5);
-        float breathe = .68f + .22f * MathF.Sin(
-            animationTime * path.MotionCadence * 2f);
-        Color motif = path.Secondary * breathe;
-        Primitives2D.Line(spriteBatch,
-            new Vector2(rect.Left, rect.Top + corner),
-            new Vector2(rect.Left + corner, rect.Top), motif, width);
-        Primitives2D.Line(spriteBatch,
-            new Vector2(rect.Right - corner, rect.Top),
-            new Vector2(rect.Right, rect.Top + corner), motif, width);
-        Primitives2D.Line(spriteBatch,
-            new Vector2(rect.Left, rect.Bottom - corner),
-            new Vector2(rect.Left + corner, rect.Bottom), motif, width);
-        Primitives2D.Line(spriteBatch,
-            new Vector2(rect.Right - corner, rect.Bottom),
-            new Vector2(rect.Right, rect.Bottom - corner), motif, width);
-
-        int segments = composite ? GamePaths.Paths.Count : 3;
-        float segmentWidth = Math.Min(rect.Width * .42f,
-            170f * DisplayScale(spriteBatch)) / segments;
-        float start = rect.Center.X - segmentWidth * segments / 2f;
-        int lit = Math.Abs((int)MathF.Floor(animationTime * 3f)) % segments;
-        for (int index = 0; index < segments; index++)
+        int mark = Math.Max(3, (int)MathF.Round(6 * scale));
+        int warmMark = Math.Max(2, (int)MathF.Round(4 * scale));
+        int inset = Math.Max(8, (int)MathF.Round(16 * scale));
+        int offset = Math.Max(5, (int)MathF.Round(8 * scale));
+        for (int corner = 0; corner < 4; corner++)
         {
-            Color segmentColor = composite
-                ? GamePaths.Paths[index].Accent
-                : index == 1 ? path.Secondary : path.Accent;
+            bool left = corner % 2 == 0;
+            int x = left ? rect.X + inset : rect.Right - inset - mark;
+            int y = corner < 2 ? rect.Y + inset : rect.Bottom - inset - mark;
+            Primitives2D.FillRect(spriteBatch, new Rectangle(x, y, mark, mark), accentColor * .58f);
             Primitives2D.FillRect(spriteBatch,
-                new Rectangle(
-                    (int)(start + index * segmentWidth + 2),
-                    rect.Top + width,
-                    Math.Max(2, (int)segmentWidth - 4),
-                    Math.Max(1, width)),
-                segmentColor * (index == lit ? .9f : .38f));
-        }
-        return rect;
-    }
-
-    /// <summary>
-    /// Neutral five-sense chrome for interfaces which belong to the whole
-    /// Soul rather than whichever Path happens to be active.
-    /// </summary>
-    public static Rectangle DrawCompositePanel(
-        SpriteBatch spriteBatch,
-        Rectangle rect,
-        float animationTime,
-        Color? fill = null,
-        Color? border = null,
-        int shadow = 5,
-        bool hovered = false)
-    {
-        Color accent = border ?? Cream;
-        DrawPanel(spriteBatch, rect, fill ?? Panel, accent, shadow, hovered);
-        int corner = Math.Max(5, Math.Min(rect.Width, rect.Height) / 10);
-        int lineWidth = Math.Max(1, corner / 5);
-        float pulse = .56f + .12f * MathF.Sin(animationTime * 1.4f);
-        Color motif = Purple * pulse;
-        Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Top + corner),
-            new Vector2(rect.Left + corner, rect.Top), motif, lineWidth);
-        Primitives2D.Line(spriteBatch, new Vector2(rect.Right - corner, rect.Top),
-            new Vector2(rect.Right, rect.Top + corner), motif, lineWidth);
-        Primitives2D.Line(spriteBatch, new Vector2(rect.Left, rect.Bottom - corner),
-            new Vector2(rect.Left + corner, rect.Bottom), motif, lineWidth);
-        Primitives2D.Line(spriteBatch, new Vector2(rect.Right - corner, rect.Bottom),
-            new Vector2(rect.Right, rect.Bottom - corner), motif, lineWidth);
-
-        float segmentWidth = Math.Min(rect.Width * .46f, 230f * DisplayScale(spriteBatch))
-            / GamePaths.Paths.Count;
-        float start = rect.Center.X - segmentWidth * GamePaths.Paths.Count / 2f;
-        int lit = Math.Abs((int)MathF.Floor(animationTime * 2f)) % GamePaths.Paths.Count;
-        for (int index = 0; index < GamePaths.Paths.Count; index++)
-        {
-            Color color = GamePaths.Paths[index].Accent;
-            Primitives2D.FillRect(spriteBatch,
-                new Rectangle((int)(start + index * segmentWidth + 2), rect.Top + lineWidth,
-                    Math.Max(2, (int)segmentWidth - 4), Math.Max(1, lineWidth)),
-                color * (index == lit ? .78f : .28f));
+                new Rectangle(left ? x + offset : x - offset, y, warmMark, warmMark),
+                Warm * .4f);
         }
         return rect;
     }
