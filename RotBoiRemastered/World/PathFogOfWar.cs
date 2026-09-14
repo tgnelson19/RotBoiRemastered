@@ -30,13 +30,21 @@ public sealed class PathFogOfWar
     /// per move instead of one per tile.
     /// </summary>
     public int? WindowRadiusTiles { get; }
+    /// <summary>
+    /// Optional per-tile <see cref="EgoSightZones"/>. Open tiles are seen
+    /// freely by an open observer, interiors only from inside, caverns only
+    /// with a clear ray; every other pairing falls back to line of sight.
+    /// </summary>
+    private readonly byte[]? _sightZones;
     private Rectangle _lastWindow = Rectangle.Empty;
     private readonly List<Point> _windowTargets = new();
     private readonly List<Point> _windowCorners = new();
 
-    public PathFogOfWar(Battleground battleground, int? windowRadiusTiles = null)
+    public PathFogOfWar(Battleground battleground, int? windowRadiusTiles = null, byte[]? sightZones = null)
     {
         _battleground = battleground;
+        _sightZones = sightZones is not null && sightZones.Length == battleground.Width * battleground.Height
+            ? sightZones : null;
         _width = battleground.Width;
         _height = battleground.Height;
         WindowRadiusTiles = windowRadiusTiles is int r ? Math.Max(2, r) : null;
@@ -190,6 +198,7 @@ public sealed class PathFogOfWar
         _windowTargets.Clear();
         _windowCorners.Clear();
         int windowSquared = window * window;
+        byte observerZone = _sightZones?[Index(observerX, observerY)] ?? EgoSightZones.Open;
         for (int y = top; y < bottom; y++)
         {
             for (int x = left; x < right; x++)
@@ -204,13 +213,25 @@ public sealed class PathFogOfWar
                 _windowTargets.Add(point);
                 if (_raised[index] && IsConvexWallCorner(x, y))
                     _windowCorners.Add(point);
-                if (HasLineOfSight(observerTileX, observerTileY, x, y))
+                if (CanSee(observerZone, index, observerTileX, observerTileY, x, y))
                     _visible[index] = true;
             }
         }
         _visible[Index(observerX, observerY)] = true;
         RevealSupportedWallCorners(_windowCorners);
         RevealWallsBorderingVisibleFloor(_windowTargets);
+    }
+
+    private bool CanSee(byte observerZone, int targetIndex, float observerTileX, float observerTileY, int x, int y)
+    {
+        if (_sightZones is null)
+            return HasLineOfSight(observerTileX, observerTileY, x, y);
+        byte targetZone = _sightZones[targetIndex];
+        if (targetZone == EgoSightZones.Interior && observerZone != EgoSightZones.Interior)
+            return false;
+        if (targetZone == EgoSightZones.Open && observerZone == EgoSightZones.Open)
+            return true;
+        return HasLineOfSight(observerTileX, observerTileY, x, y);
     }
 
     /// <summary>

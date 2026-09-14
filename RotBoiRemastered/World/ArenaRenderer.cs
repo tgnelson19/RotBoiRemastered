@@ -151,6 +151,7 @@ public sealed class ArenaRenderer
         graphicsDevice.Clear(VoidColor);
         var offset = Matrix.CreateTranslation(-tileRange.X * Battleground.TileSize, -tileRange.Y * Battleground.TileSize, 0);
         spriteBatch.Begin(transformMatrix: offset);
+        bool ego = battleground.VisualThemeKey == "ego";
         for (int y = tileRange.Top; y < tileRange.Bottom; y++)
         {
             for (int x = tileRange.Left; x < tileRange.Right; x++)
@@ -168,6 +169,8 @@ public sealed class ArenaRenderer
                     color = palette.Road;
                 else if (tile == TileType.BuildingFloor)
                     color = palette.Interior;
+                else if (ego)
+                    color = palette.Ground;
                 else
                     color = (x + y) % 7 == 0 ? palette.GroundAlt : palette.Ground;
                 if (battleground.PathFloorNumber > 5 && tile != TileType.OuterVoid)
@@ -175,7 +178,13 @@ public sealed class ArenaRenderer
                 Primitives2D.FillRect(spriteBatch, rect, color);
                 if (!tile.IsSolid())
                 {
-                    Primitives2D.RectOutline(spriteBatch, rect, GridLineColor, 1);
+                    // The Ego's ground is unkempt: no tile grid, just worn
+                    // mottling and the odd bare patch, so the land reads as
+                    // one continuous dead surface rather than a board.
+                    if (ego)
+                        DrawEgoGroundWear(spriteBatch, rect, tile, x, y, palette, battleground.ThemeKeyForTile(x, y));
+                    else
+                        Primitives2D.RectOutline(spriteBatch, rect, GridLineColor, 1);
                     DrawFloorDetail(spriteBatch, rect, tile, x, y, palette, battleground.ThemeKeyForTile(x, y));
                 }
             }
@@ -194,6 +203,45 @@ public sealed class ArenaRenderer
         else
             graphicsDevice.SetRenderTargets(previousTargets);
         return target;
+    }
+
+    /// <summary>Deterministic 0..1 per tile for The Ego's renderer-side wear, independent of the generator's field.</summary>
+    internal static float EgoTileHash(int x, int y, int salt)
+    {
+        unchecked
+        {
+            uint h = (uint)(x * 374761393) ^ (uint)(y * 668265263) ^ (uint)(salt * 2147483647 + 0x9E3779B1);
+            h = (h ^ (h >> 13)) * 1274126177u;
+            return ((h ^ (h >> 16)) & 0xFFFFFF) / 16777216f;
+        }
+    }
+
+    /// <summary>
+    /// Replaces the grid outline on The Ego's floor: a couple of darker
+    /// smudges per tile and, on plains/city, sparse bare patches where the
+    /// grass has died back to dirt or the asphalt to concrete.
+    /// </summary>
+    private static void DrawEgoGroundWear(SpriteBatch spriteBatch, Rectangle rect, TileType tile,
+        int x, int y, BiomePalette palette, string? themeKey)
+    {
+        if (tile == TileType.Road || tile == TileType.BuildingFloor)
+            return;
+        Color smudge = palette.Ground * .88f;
+        smudge.A = 255;
+        float a = EgoTileHash(x, y, 1), b = EgoTileHash(x, y, 2);
+        Primitives2D.FillRect(spriteBatch,
+            new Rectangle(rect.X + (int)(a * 30), rect.Y + (int)(b * 32), 12 + (int)(a * 10), 8 + (int)(b * 8)), smudge);
+        if (b > .5f)
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle(rect.X + (int)(b * 28), rect.Y + (int)(a * 30), 8 + (int)(b * 6), 6 + (int)(a * 6)), smudge);
+        // Bare patches: hashed over 3-tile cells so they clump.
+        if (themeKey is "ego_plains" or "ego_city" && EgoTileHash(x / 3, y / 3, 7) < .09f && EgoTileHash(x, y, 8) < .8f)
+        {
+            Color bare = themeKey == "ego_plains" ? palette.Interior : palette.Road;
+            Rectangle patch = rect;
+            patch.Inflate(-(int)(a * 8), -(int)(b * 8));
+            Primitives2D.FillRect(spriteBatch, patch, bare);
+        }
     }
 
     /// <summary>Ported from _draw_floor_detail: cheap per-tile cosmetic doodles for non-solid floor tiles.</summary>
@@ -266,14 +314,11 @@ public sealed class ArenaRenderer
                     if (noise % 5 == 0)
                         Primitives2D.FillRect(spriteBatch, new Rectangle(rect.X + 14 + noise % 17, rect.Y + 12 + noise % 21, 3, 2), palette.Accent * .7f);
                 }
-                else if (noise % 3 != 1)
+                else if (noise % 11 == 0)
                 {
-                    int tx = rect.X + 8 + noise % 29, ty = rect.Y + 10 + (noise * 7) % 27;
-                    Primitives2D.Line(spriteBatch, new Vector2(tx, ty + 6), new Vector2(tx - 3, ty), palette.Accent * .55f, 1);
-                    Primitives2D.Line(spriteBatch, new Vector2(tx, ty + 6), new Vector2(tx + 1, ty - 1), palette.Accent * .55f, 1);
-                    Primitives2D.Line(spriteBatch, new Vector2(tx, ty + 6), new Vector2(tx + 4, ty + 1), palette.Accent * .45f, 1);
-                    if (noise % 11 == 0)
-                        Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Right - 16, rect.Bottom - 14, 5, 4), palette.Detail * .5f);
+                    // Grass tufts themselves are drawn per frame by
+                    // DrawEgoGrass so they can sway; only the stones bake.
+                    Primitives2D.FillRect(spriteBatch, new Rectangle(rect.Right - 16, rect.Bottom - 14, 5, 4), palette.Detail * .5f);
                 }
                 break;
             case "ego_city":
@@ -692,6 +737,62 @@ public sealed class ArenaRenderer
                 Primitives2D.FillCircle(spriteBatch, center - new Vector2(0, 2 * scale),
                     Math.Max(2, (int)(2 * scale)), UiTheme.Ink);
                 break;
+        }
+    }
+
+    private static readonly Vector2 EgoWindDirection = Vector2.Normalize(new Vector2(1f, .35f));
+
+    /// <summary>The Ego's shared gust field, -1..1 at a world point; grass and pennants lean on the same wind.</summary>
+    internal static float EgoGust(float wx, float wy, float time, float phase = 0f) =>
+        .6f * MathF.Sin(time * 1.1f + wx * .011f + wy * .006f)
+        + .4f * MathF.Sin(time * 2.7f + wx * .023f - wy * .013f + phase);
+
+    /// <summary>
+    /// The Ego's plains grass, drawn every frame instead of baked so every
+    /// tuft in view leans under one shared gust field. Placement reuses the
+    /// baked floor-detail seed so tufts sit where the stones expect them.
+    /// Deterministic from time; zero VFX intensity still draws still grass.
+    /// </summary>
+    public void DrawEgoGrass(
+        SpriteBatch spriteBatch,
+        Camera camera,
+        Vector2 playerWorldPosition,
+        Vector2 screenShake,
+        Rectangle viewport,
+        float time,
+        float intensity)
+    {
+        if (_bakedFor is null || _bakedFor.VisualThemeKey != "ego")
+            return;
+        Rectangle visibility = camera.LogicalViewport(viewport);
+        visibility.Inflate(Battleground.TileSize, Battleground.TileSize);
+        Rectangle tiles = VisibleTileBounds(camera, playerWorldPosition, screenShake, visibility, _bakedFor);
+        float sway = Math.Clamp(intensity, 0f, 1f) * 4f;
+        Vector2 tipA = camera.WorldVectorToScreen(new Vector2(-3, -6));
+        Vector2 tipB = camera.WorldVectorToScreen(new Vector2(1, -7));
+        Vector2 tipC = camera.WorldVectorToScreen(new Vector2(4, -5));
+        for (int y = tiles.Top; y < tiles.Bottom; y++)
+        {
+            for (int x = tiles.Left; x < tiles.Right; x++)
+            {
+                if (_bakedFor.TileAt(x, y) != TileType.Default || _bakedFor.ThemeKeyForTile(x, y) != "ego_plains")
+                    continue;
+                int noise = (x * 37 + y * 71 + x * y * 3) % 113;
+                if (noise % 3 == 1)
+                    continue;
+                float wx = x * Battleground.TileSize + 8 + noise % 29;
+                float wy = y * Battleground.TileSize + 16 + (noise * 7) % 27;
+                Vector2 root = camera.WorldToScreen(new Vector2(wx, wy), playerWorldPosition, screenShake);
+                if (!visibility.Contains(root.ToPoint()))
+                    continue;
+                float gust = EgoGust(wx, wy, time, noise * .3f);
+                Vector2 lean = camera.WorldVectorToScreen(EgoWindDirection * (gust * sway));
+                BiomePalette palette = _bakedFor.Palettes[_bakedFor.BiomeForTile(x, y)];
+                Color blade = palette.Accent * .55f;
+                Primitives2D.Line(spriteBatch, root, root + tipA + lean, blade, 1);
+                Primitives2D.Line(spriteBatch, root, root + tipB + lean, blade, 1);
+                Primitives2D.Line(spriteBatch, root, root + tipC + lean * .8f, palette.Accent * .45f, 1);
+            }
         }
     }
 
@@ -1441,6 +1542,29 @@ public sealed class ArenaRenderer
     }
 
     /// <summary>Ported from _draw_camera_facing_wall's drawing half (see VisibleWallFaces for the culling/sort logic).</summary>
+    /// <summary>
+    /// Drawn height of a raised tile. The Ego's masonry is crumbling: on its
+    /// plains and city terrain roughly a third of wall tiles are broken to
+    /// stubs and a quarter are half-height, chosen per tile so silhouettes
+    /// break up. Shared with the fog occlusion mask so both agree.
+    /// </summary>
+    public static int WallHeightFor(Battleground battleground, int tileX, int tileY)
+    {
+        TileType tile = battleground.TileAt(tileX, tileY);
+        int height = battleground.WallHeight + (tile == TileType.ArenaWall ? 2 : 0);
+        if (battleground.VisualThemeKey != "ego" || tile != TileType.BuildingWall)
+            return height;
+        string? theme = battleground.ThemeKeyForTile(tileX, tileY);
+        if (theme is not ("ego_city" or "ego_plains"))
+            return height;
+        float roll = EgoTileHash(tileX, tileY, 3);
+        if (roll < .3f)
+            return Math.Max(4, (int)(height * (.35f + roll * .6f)));
+        if (roll < .55f)
+            return (int)(height * (.65f + (roll - .3f) * .8f));
+        return height;
+    }
+
     private void DrawCameraFacingWall(
         SpriteBatch spriteBatch,
         Camera camera,
@@ -1453,7 +1577,9 @@ public sealed class ArenaRenderer
         float visualTime = 0f,
         float visualIntensity = 1f)
     {
-        int height = _bakedFor!.WallHeight + (tile == TileType.ArenaWall ? 2 : 0);
+        int fullHeight = _bakedFor!.WallHeight + (tile == TileType.ArenaWall ? 2 : 0);
+        int height = WallHeightFor(_bakedFor, tileX, tileY);
+        bool crumbled = height < fullHeight;
         int size = Battleground.TileSize;
         Span<Vector2> ground = stackalloc Vector2[4]
         {
@@ -1504,11 +1630,22 @@ public sealed class ArenaRenderer
             int end = (start + 1) % 4;
             DrawWallFace(spriteBatch, cap[start], cap[end], ground[end], ground[start],
                 tileX, tileY, palette, visualTime, visualIntensity);
+            if (crumbled)
+                DrawRubbleFoot(spriteBatch, ground[start], ground[end], tileX, tileY, palette);
         }
 
         Primitives2D.FillQuad(spriteBatch, cap[0], cap[1], cap[2], cap[3], palette.WallTop);
         for (int edge = 0; edge < 4; edge++)
             Primitives2D.Line(spriteBatch, cap[edge], cap[(edge + 1) % 4], UiTheme.Ink, 2);
+        if (crumbled)
+        {
+            // A jagged bite out of the cap so a stub reads as broken, not short.
+            Vector2 biteA = Vector2.Lerp(cap[0], cap[1], .3f + EgoTileHash(tileX, tileY, 4) * .4f);
+            Vector2 biteB = Vector2.Lerp(cap[2], cap[3], .3f + EgoTileHash(tileX, tileY, 5) * .4f);
+            Vector2 mid = (biteA + biteB) * .5f + new Vector2(0, 1.5f);
+            Primitives2D.Line(spriteBatch, biteA, mid, UiTheme.Ink, 2);
+            Primitives2D.Line(spriteBatch, mid, biteB, palette.WallFace, 2);
+        }
 
         int topEdgeIndex = 0;
         float topEdgeY = (cap[0].Y + cap[1].Y) * .5f;
@@ -1526,13 +1663,21 @@ public sealed class ArenaRenderer
 
         float centerX = (cap[0].X + cap[1].X + cap[2].X + cap[3].X) * .25f;
         float centerY = (cap[0].Y + cap[1].Y + cap[2].Y + cap[3].Y) * .25f;
+        string? capTheme = _bakedFor.ThemeKeyForTile(tileX, tileY);
+        bool egoTerrain = capTheme is "ego_plains" or "ego_city" or "ego_caverns";
         if (tile == TileType.ArenaWall)
             Primitives2D.FillRect(spriteBatch, new Rectangle((int)centerX - 3, (int)centerY - 3, 6, 6), palette.Accent);
-        else if ((tileX + tileY) % 2 == 0)
+        else if (!egoTerrain && (tileX + tileY) % 2 == 0)
             Primitives2D.Line(spriteBatch, new Vector2(centerX - 9, centerY), new Vector2(centerX + 9, centerY), palette.Accent, 2);
 
-        string? capTheme = _bakedFor.ThemeKeyForTile(tileX, tileY);
-        if (capTheme is not null && (tileX * 31 + tileY * 17) % 3 == 0)
+        if (egoTerrain)
+        {
+            // Weathered cap: a crack instead of a trim line.
+            if (EgoTileHash(tileX, tileY, 6) < .5f)
+                Primitives2D.Line(spriteBatch, new Vector2(centerX - 8, centerY - 3 + EgoTileHash(tileX, tileY, 9) * 6),
+                    new Vector2(centerX + 7, centerY + 2), UiTheme.Ink * .7f, 1);
+        }
+        else if (capTheme is not null && (tileX * 31 + tileY * 17) % 3 == 0)
         {
             Vector2 capCenter = new(centerX, centerY);
             if (capTheme == "phantasia")
@@ -1540,6 +1685,20 @@ public sealed class ArenaRenderer
             else
                 Primitives2D.Line(spriteBatch, capCenter - new Vector2(7, 3),
                     capCenter + new Vector2(7, 3), palette.Detail * .72f, 1);
+        }
+    }
+
+    /// <summary>Fallen masonry along the visible foot of a crumbled Ego wall face.</summary>
+    private static void DrawRubbleFoot(SpriteBatch spriteBatch, Vector2 footLeft, Vector2 footRight,
+        int tileX, int tileY, BiomePalette palette)
+    {
+        Color stone = Color.Lerp(palette.WallFace, palette.WallTop, .35f);
+        for (int piece = 0; piece < 3; piece++)
+        {
+            float t = .15f + EgoTileHash(tileX, tileY, 10 + piece) * .7f;
+            Vector2 at = Vector2.Lerp(footLeft, footRight, t) + new Vector2(0, 1 + piece);
+            int w = 3 + piece, h = 2 + piece % 2;
+            Primitives2D.FillRect(spriteBatch, new Rectangle((int)at.X - w / 2, (int)at.Y, w, h), piece == 1 ? palette.WallFace : stone);
         }
     }
 
@@ -1593,6 +1752,7 @@ public sealed class ArenaRenderer
         int hash = Math.Abs(tileX * 47 + tileY * 83);
         Color line = palette.Detail * .38f;
         float activity = Math.Clamp(visualIntensity, 0f, 1f);
+        static Rectangle Rect(Vector2 at, int w, int h) => new((int)at.X - w / 2, (int)at.Y - h / 2, w, h);
 
         switch (themeKey)
         {
@@ -1631,6 +1791,29 @@ public sealed class ArenaRenderer
                 Primitives2D.Line(spriteBatch, crackMidA, crackMidB, line, 1);
                 Primitives2D.Line(spriteBatch, crackMidB, crackEnd, line, 1);
                 break;
+            case "ego_city":
+            {
+                // Cracked render and a missing brick; nothing in these walls still glows.
+                float cx = .2f + (hash % 5) * .13f;
+                Primitives2D.Line(spriteBatch, Top(cx), Across(cx + .18f, .5f), UiTheme.Ink * .8f, 1);
+                Primitives2D.Line(spriteBatch, Across(cx + .18f, .5f), Bottom(cx + .05f), UiTheme.Ink * .8f, 1);
+                if (hash % 3 == 0)
+                {
+                    Vector2 brick = Across(.55f + (hash % 4) * .08f, .3f + (hash % 7) * .06f);
+                    Primitives2D.FillRect(spriteBatch, new Rectangle((int)brick.X - 4, (int)brick.Y - 2, 8, 4), palette.WallFace * .6f);
+                }
+                return;
+            }
+            case "ego_plains":
+                // Boulders: a strata seam and a lichen spot.
+                Primitives2D.Line(spriteBatch, Across(.05f, .4f + (hash % 3) * .12f), Across(.95f, .45f + (hash % 3) * .1f), line * .7f, 1);
+                if (hash % 4 == 0)
+                    Primitives2D.FillRect(spriteBatch, Rect(Across(.3f + (hash % 5) * .1f, .7f), 3, 3), palette.Accent * .4f);
+                return;
+            case "ego_caverns":
+                if (hash % 5 == 0)
+                    Primitives2D.FillRect(spriteBatch, Rect(Across(.4f + (hash % 3) * .15f, .55f), 2, 2), palette.Detail * .45f);
+                return;
         }
 
         if (activity <= 0 || hash % 4 != 0)
@@ -2007,6 +2190,46 @@ public sealed class ArenaRenderer
                 Primitives2D.FillCircle(spriteBatch, P(0, -29), S(4), palette.Detail);
                 break;
 
+            case PathDecorationKind.GlowFungus:
+                {
+                    // A clump of domed caps on short stalks, each breathing a little out of step.
+                    Color cap = Color.Lerp(palette.Detail, new Color(120, 200, 170), .6f);
+                    int caps = 3 + decoration.Variant % 3;
+                    for (int index = 0; index < caps; index++)
+                    {
+                        float ox = (index - (caps - 1) / 2f) * 7f + MathF.Sin(seed + index * 2.1f) * 2f;
+                        float h = 6 + (index * 5 + decoration.Variant * 3) % 7;
+                        float pulse = .8f + .2f * MathF.Sin(visualTime * 1.4f * motion + seed + index);
+                        Primitives2D.Line(spriteBatch, P(ox, 0), P(ox, -h), UiTheme.Ink, S(2));
+                        Primitives2D.FillEllipse(spriteBatch, Rect(ox - 4, -h - 3, 8, 5), UiTheme.Ink);
+                        Primitives2D.FillEllipse(spriteBatch, Rect(ox - 3, -h - 2, 6, 3), cap * pulse);
+                    }
+                    break;
+                }
+
+            case PathDecorationKind.WarningStake:
+                {
+                    // A leaning pole, a bone crossbar and a pennant that snaps on the wind.
+                    float leanSign = decoration.Variant % 2 == 0 ? 1f : -1f;
+                    float lean = leanSign * (4 + decoration.Variant % 3 * 2);
+                    Vector2 top = P(lean, -34);
+                    Primitives2D.Line(spriteBatch, P(0, 0), top, UiTheme.Ink, S(3));
+                    Primitives2D.Line(spriteBatch, P(0, 0), top, palette.WallFace, S(1));
+                    Color bone = new(196, 188, 170);
+                    Primitives2D.Line(spriteBatch, top + new Vector2(-S(7), S(2)), top + new Vector2(S(7), -S(2)), bone, S(2));
+                    float gust = EgoGust(decoration.WorldPosition.X, decoration.WorldPosition.Y, visualTime, seed) * motion;
+                    int sense = Math.Clamp(decoration.Variant, 0, Systems.CampaignProgression.SenseKeys.Length - 1);
+                    Color pennant = Color.Lerp(GamePaths.PathsByKey[Systems.CampaignProgression.SenseKeys[sense]].Accent,
+                        new Color(90, 88, 84), .55f);
+                    Vector2 hoist = top + new Vector2(0, S(2));
+                    Vector2 foot = top + new Vector2(0, S(12));
+                    Vector2 fly = top + new Vector2(S(14 + gust * 5f), S(6 + gust * 3f));
+                    Vector2 flyLow = top + new Vector2(S(10 + gust * 4f), S(11 - gust * 2f));
+                    Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[] { hoist, fly, flyLow }, pennant);
+                    Primitives2D.FillPolygonSpan(spriteBatch, stackalloc Vector2[] { hoist, flyLow, foot }, pennant * .8f);
+                    break;
+                }
+
             case PathDecorationKind.RustBarricade:
                 Primitives2D.FillRect(spriteBatch, Rect(-16, -17, 32, 7), UiTheme.Ink);
                 Primitives2D.FillRect(spriteBatch, Rect(-14, -15, 28, 4), palette.Accent);
@@ -2120,6 +2343,10 @@ public sealed class ArenaRenderer
                 break;
             case PathDecorationKind.LanternSpire:
                 Primitives2D.FillCircle(spriteBatch, P(0, -29), S(4), synchronizedCore);
+                break;
+            case PathDecorationKind.GlowFungus:
+                Primitives2D.CircleOutline(spriteBatch, P(0, -6), S(11 + light.Halo * 3),
+                    Color.Lerp(palette.Detail, new Color(120, 200, 170), .6f) * Math.Clamp(.12f + light.Halo * .14f, 0f, .35f), S(2), 18);
                 break;
             case PathDecorationKind.FurnaceIdol:
                 Primitives2D.FillRect(spriteBatch, Rect(-5, -13, 10, 7),

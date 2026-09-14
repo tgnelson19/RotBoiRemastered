@@ -78,19 +78,23 @@ public sealed class WorldLighting
             new Color(2, 6, 18), 132,
             new Color(58, 116, 216), new Color(150, 205, 255),
             4.8f, 6.4f),
-        // The Ego's terrains: dusk plains, a dim ruined city, black caverns.
+        // The Ego's terrains: late-dusk plains, a dim ruined city, black caverns.
         "ego_plains" => new LightingTheme(
-            new Color(8, 10, 8), 96,
+            new Color(8, 10, 8), 124,
             new Color(196, 178, 128), new Color(255, 240, 200),
             5.2f, 5.664f),
         "ego_city" => new LightingTheme(
-            new Color(5, 6, 10), 150,
+            new Color(5, 6, 10), 162,
             new Color(150, 170, 210), new Color(226, 236, 255),
             4.2f, 5.9f),
+        "ego_interior" => new LightingTheme(
+            new Color(4, 5, 8), 172,
+            new Color(150, 170, 210), new Color(226, 236, 255),
+            3.8f, 5.9f),
         "ego_caverns" => new LightingTheme(
-            new Color(3, 2, 5), 178,
+            new Color(3, 2, 5), 214,
             new Color(120, 96, 160), new Color(210, 190, 240),
-            3.6f, 5.2f),
+            3.0f, 5.2f),
         "chemesthesis" => new LightingTheme(
             new Color(12, 5, 2), 151,
             new Color(222, 91, 43), new Color(255, 197, 107),
@@ -122,7 +126,8 @@ public sealed class WorldLighting
             or PathDecorationKind.Chime
             or PathDecorationKind.OrganStack => LightMotionStyle.Sound,
         PathDecorationKind.PrismObelisk
-            or PathDecorationKind.OrbitShrine => LightMotionStyle.Phantasia,
+            or PathDecorationKind.OrbitShrine
+            or PathDecorationKind.GlowFungus => LightMotionStyle.Phantasia,
         PathDecorationKind.LanternSpire
             or PathDecorationKind.FurnaceIdol => LightMotionStyle.Chemesthesis,
         _ => LightMotionStyle.Sound,
@@ -202,7 +207,8 @@ public sealed class WorldLighting
         or PathDecorationKind.PrismObelisk
         or PathDecorationKind.OrbitShrine
         or PathDecorationKind.LanternSpire
-        or PathDecorationKind.FurnaceIdol;
+        or PathDecorationKind.FurnaceIdol
+        or PathDecorationKind.GlowFungus;
 
     public static List<WorldLightSource> BuildPathLightSources(
         Battleground battleground,
@@ -555,6 +561,7 @@ public sealed class WorldLighting
         PathDecorationKind.LensBuoy => 24f,
         PathDecorationKind.PressureTank => 25f,
         PathDecorationKind.FurnaceIdol => 22f,
+        PathDecorationKind.GlowFungus => 8f,
         _ => 20f,
     };
 

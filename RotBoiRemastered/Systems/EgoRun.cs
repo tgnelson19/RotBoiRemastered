@@ -54,6 +54,11 @@ public sealed class EgoRun
     public Battleground Battleground { get; }
     public EgoRegionField Field { get; }
     public IReadOnlyList<EgoTrace> Traces { get; }
+    public IReadOnlyList<EgoLandmark> Landmarks { get; }
+    /// <summary>Effective (bled) terrain per tile.</summary>
+    public EgoTerrain[,] Terrain { get; }
+    /// <summary>Per-tile sight rules for the windowed fog; see <see cref="EgoSightZones"/>.</summary>
+    public byte[] SightZones { get; }
     /// <summary>Run seconds at which the next hunter may be released (see EgoSpawnDirector).</summary>
     public double NextHunterAt { get; set; } = EgoSpawnDirector.FirstHunterDelaySeconds;
     public int HuntersReleased { get; set; }
@@ -85,6 +90,9 @@ public sealed class EgoRun
         Regions = world.Regions;
         Field = world.Field;
         Traces = world.Traces;
+        Landmarks = world.Landmarks;
+        Terrain = world.Terrain;
+        SightZones = EgoSightZones.Build(Battleground, Terrain);
     }
 
     public bool IsVeteranSpace(Vector2 world) =>

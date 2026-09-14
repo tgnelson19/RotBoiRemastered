@@ -38,22 +38,26 @@ public static class BiomePalettes
             Accent: new Color(52, 105, 191), Detail: new Color(99, 160, 236)),
     };
 
-    /// <summary>The Ego's three terrains: dusk plains, grey-blue ruined city, near-black caverns.</summary>
+    /// <summary>
+    /// The Ego's three terrains: grey-olive dead plains, a cold ruined city,
+    /// near-black caverns. Deliberately desaturated -- colour in The Ego
+    /// belongs to the sense holdouts, not the land between them.
+    /// </summary>
     public static readonly BiomePalette EgoPlains = new(
-        Ground: new Color(30, 38, 26), GroundAlt: new Color(36, 46, 30),
-        Road: new Color(52, 46, 34), Interior: new Color(34, 32, 28),
-        WallTop: new Color(74, 78, 70), WallFace: new Color(46, 49, 44),
-        Accent: new Color(120, 132, 78), Detail: new Color(170, 176, 120));
+        Ground: new Color(24, 27, 20), GroundAlt: new Color(28, 31, 23),
+        Road: new Color(40, 36, 28), Interior: new Color(30, 28, 24),
+        WallTop: new Color(62, 64, 58), WallFace: new Color(38, 40, 36),
+        Accent: new Color(96, 102, 68), Detail: new Color(140, 142, 104));
     public static readonly BiomePalette EgoCity = new(
-        Ground: new Color(26, 29, 36), GroundAlt: new Color(31, 34, 42),
-        Road: new Color(38, 40, 48), Interior: new Color(22, 24, 31),
-        WallTop: new Color(70, 78, 94), WallFace: new Color(40, 45, 56),
-        Accent: new Color(104, 124, 158), Detail: new Color(160, 176, 200));
+        Ground: new Color(21, 23, 29), GroundAlt: new Color(25, 27, 34),
+        Road: new Color(31, 33, 40), Interior: new Color(18, 20, 26),
+        WallTop: new Color(60, 66, 80), WallFace: new Color(34, 38, 48),
+        Accent: new Color(88, 104, 132), Detail: new Color(138, 150, 172));
     public static readonly BiomePalette EgoCaverns = new(
-        Ground: new Color(14, 13, 18), GroundAlt: new Color(18, 17, 24),
+        Ground: new Color(14, 13, 18), GroundAlt: new Color(17, 16, 22),
         Road: new Color(24, 22, 30), Interior: new Color(16, 15, 21),
-        WallTop: new Color(44, 40, 54), WallFace: new Color(26, 24, 33),
-        Accent: new Color(84, 70, 110), Detail: new Color(132, 116, 160));
+        WallTop: new Color(42, 38, 52), WallFace: new Color(25, 23, 32),
+        Accent: new Color(78, 66, 102), Detail: new Color(124, 110, 150));
 
     /// <summary>
     /// Palette list for The Ego's biome map: index 0-2 are the terrains,

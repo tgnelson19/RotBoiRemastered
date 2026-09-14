@@ -750,18 +750,20 @@ public sealed class GameSession
 
     /// <summary>
     /// The Ego's darkness follows the ground under the player: a holdout's
-    /// sense, otherwise the terrain -- open plains at dusk, a dim ruined city,
-    /// caverns lit only by what you carry.
+    /// sense, otherwise the terrain -- open plains at dusk, a dim ruined city
+    /// (dimmer still indoors), caverns lit only by what you carry.
     /// </summary>
     private string EgoLightingKey()
     {
         EgoRun ego = Ego!;
+        int tx = Math.Clamp((int)(PlayerWorldCenter.X / Simulation.TileSize), 0, ego.Field.Width - 1);
+        int ty = Math.Clamp((int)(PlayerWorldCenter.Y / Simulation.TileSize), 0, ego.Field.Height - 1);
+        if (ego.Battleground.TileAt(tx, ty) == TileType.BuildingFloor)
+            return "ego_interior";
         EgoRegion? holdout = ego.Holdouts.FirstOrDefault(region => region.Contains(PlayerWorldCenter));
         if (holdout?.SenseKey is string sense)
             return sense;
-        int tx = Math.Clamp((int)(PlayerWorldCenter.X / Simulation.TileSize), 0, ego.Field.Width - 1);
-        int ty = Math.Clamp((int)(PlayerWorldCenter.Y / Simulation.TileSize), 0, ego.Field.Height - 1);
-        return ego.Field.TerrainAt(tx, ty) switch
+        return ego.Terrain[ty, tx] switch
         {
             EgoTerrain.City => "ego_city",
             EgoTerrain.Caverns => "ego_caverns",
@@ -919,7 +921,7 @@ public sealed class GameSession
         {
             // Zoom / resize changes the on-screen radius; rebuilding is cheap.
             if (PathFog.WindowRadiusTiles != EgoFogWindowTiles)
-                PathFog = new PathFogOfWar(Ego!.Battleground, EgoFogWindowTiles);
+                PathFog = new PathFogOfWar(Ego!.Battleground, EgoFogWindowTiles, Ego.SightZones);
             _pathFogActive = true;
             PathFog.Update(PlayerWorldCenter);
             return;
@@ -1200,8 +1202,9 @@ public sealed class GameSession
         {
             if (EgoAphantasiaActive)
                 return;
-            if (interactPressed && (TryEnterEgoDungeon(rng) || TryEnterEgoAphantasia(rng) || TryReadEgoPlaque()))
+            if (interactPressed && (TryEnterEgoDungeon(rng) || TryEnterEgoAphantasia(rng) || TryReadEgoPlaque() || TryDigEgoCache()))
                 return;
+            AnnounceEgoLandmark();
             if (State.EnemySpawningEnabled && State.ActiveBoss is null)
                 _egoDirector?.Update(this, rng, Simulation.GetTimerStep() / Simulation.FrameRate);
             return;
@@ -2031,17 +2034,55 @@ public sealed class GameSession
         }
         foreach (EgoTrace trace in Ego.Traces)
         {
-            if (trace.Kind != EgoTraceKind.Plaque)
+            float distanceSquared = Vector2.DistanceSquared(trace.World, PlayerWorldCenter);
+            if (distanceSquared > MathF.Pow(Ego.ViewWidth * 1.2f, 2))
                 continue;
-            if (Vector2.DistanceSquared(trace.World, PlayerWorldCenter) > MathF.Pow(Ego.ViewWidth * 1.2f, 2))
-                continue;
-            // A small stone tablet; dims once read.
-            Color stone = (trace.Read ? UiTheme.Muted * .6f : UiTheme.Cream * .85f);
-            var slab = new Rectangle((int)trace.World.X - 9, (int)trace.World.Y - 6, 18, 12);
-            Primitives2D.FillRect(spriteBatch, slab, UiTheme.Ink);
-            Primitives2D.RectOutline(spriteBatch, slab, stone, 1);
-            Primitives2D.Line(spriteBatch, new Vector2(slab.X + 3, slab.Y + 4), new Vector2(slab.Right - 3, slab.Y + 4), stone * .8f, 1);
-            Primitives2D.Line(spriteBatch, new Vector2(slab.X + 3, slab.Y + 8), new Vector2(slab.Right - 6, slab.Y + 8), stone * .6f, 1);
+            switch (trace.Kind)
+            {
+                case EgoTraceKind.Plaque:
+                {
+                    // A small stone tablet; dims once read.
+                    Color stone = (trace.Read ? UiTheme.Muted * .6f : UiTheme.Cream * .85f);
+                    var slab = new Rectangle((int)trace.World.X - 9, (int)trace.World.Y - 6, 18, 12);
+                    Primitives2D.FillRect(spriteBatch, slab, UiTheme.Ink);
+                    Primitives2D.RectOutline(spriteBatch, slab, stone, 1);
+                    Primitives2D.Line(spriteBatch, new Vector2(slab.X + 3, slab.Y + 4), new Vector2(slab.Right - 3, slab.Y + 4), stone * .8f, 1);
+                    Primitives2D.Line(spriteBatch, new Vector2(slab.X + 3, slab.Y + 8), new Vector2(slab.Right - 6, slab.Y + 8), stone * .6f, 1);
+                    break;
+                }
+                case EgoTraceKind.Monument:
+                {
+                    // A plinth in the landmark's sense colour, engraved on its face.
+                    Color accent = GamePaths.PathsByKey[EgoLandmarks.SenseFor(trace.LandmarkKind!.Value)].Accent;
+                    Color face = trace.Read ? Color.Lerp(accent, UiTheme.Muted, .5f) : accent;
+                    var plinth = new Rectangle((int)trace.World.X - 16, (int)trace.World.Y - 11, 32, 22);
+                    Primitives2D.FillRect(spriteBatch, plinth, UiTheme.Ink);
+                    Primitives2D.RectOutline(spriteBatch, plinth, face, 2);
+                    for (int line = 0; line < 3; line++)
+                        Primitives2D.Line(spriteBatch, new Vector2(plinth.X + 5, plinth.Y + 6 + line * 5),
+                            new Vector2(plinth.Right - 5 - line * 3, plinth.Y + 6 + line * 5), face * (.8f - line * .15f), 1);
+                    Primitives2D.CircleOutline(spriteBatch, trace.World, 22f + 2f * MathF.Sin(time * 1.3f),
+                        face * (trace.Read ? .15f : .35f), 1, 24);
+                    break;
+                }
+                case EgoTraceKind.Cache when !trace.Taken && !trace.Dug:
+                {
+                    // Invisible from afar; a diamond of four dots and a hairline
+                    // cross surface only underfoot.
+                    float reveal = EgoTraces.CacheRevealTiles * Simulation.TileSize;
+                    if (distanceSquared > reveal * reveal)
+                        break;
+                    float near = 1f - MathF.Sqrt(distanceSquared) / reveal;
+                    float alpha = near * near * (.35f + .15f * MathF.Sin(time * 2f));
+                    Color mark = UiTheme.Cream * alpha;
+                    Vector2 at = trace.World;
+                    foreach (Vector2 offset in new[] { new Vector2(0, -9), new Vector2(9, 0), new Vector2(0, 9), new Vector2(-9, 0) })
+                        Primitives2D.FillRect(spriteBatch, new Rectangle((int)(at.X + offset.X) - 1, (int)(at.Y + offset.Y) - 1, 3, 3), mark);
+                    Primitives2D.Line(spriteBatch, at - new Vector2(5, 0), at + new Vector2(5, 0), mark * .6f, 1);
+                    Primitives2D.Line(spriteBatch, at - new Vector2(0, 5), at + new Vector2(0, 5), mark * .6f, 1);
+                    break;
+                }
+            }
         }
         if (Ego.AphantasiaPortalWorld is Vector2 door)
         {
@@ -2086,13 +2127,24 @@ public sealed class GameSession
         }
         else if (_readingPlaque is { } plaque && State.RunTimeSeconds < _plaqueReadUntil)
         {
-            UiTheme.DrawText(spriteBatch, EgoTraces.Inscriptions[plaque.TextIndex % EgoTraces.Inscriptions.Count],
+            UiTheme.DrawText(spriteBatch, plaque.Inscription,
                 10 * scale, UiTheme.Cream, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
         }
         else if (NearbyEgoPlaque() is { } nearby)
         {
-            UiTheme.DrawText(spriteBatch, nearby.Read ? $"AN OLD INSCRIPTION  //  {key} READ AGAIN" : $"AN OLD INSCRIPTION  //  {key} READ",
-                10 * scale, UiTheme.Muted, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
+            string what = nearby.Kind == EgoTraceKind.Monument
+                ? EgoLandmarks.TitleFor(nearby.LandmarkKind!.Value)
+                : "AN OLD INSCRIPTION";
+            Color tint = nearby.Kind == EgoTraceKind.Monument
+                ? GamePaths.PathsByKey[EgoLandmarks.SenseFor(nearby.LandmarkKind!.Value)].Accent
+                : UiTheme.Muted;
+            UiTheme.DrawText(spriteBatch, nearby.Read ? $"{what}  //  {key} READ AGAIN" : $"{what}  //  {key} READ",
+                10 * scale, tint, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
+        }
+        else if (NearbyEgoCache() is not null)
+        {
+            UiTheme.DrawText(spriteBatch, $"SOMETHING BURIED  //  {key} DIG",
+                10 * scale, UiTheme.Cream, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
         }
     }
 
@@ -3025,7 +3077,7 @@ public sealed class GameSession
             return;
         if (Ego is null)
             return;
-        PathFog = new PathFogOfWar(Ego.Battleground, EgoFogWindowTiles);
+        PathFog = new PathFogOfWar(Ego.Battleground, EgoFogWindowTiles, Ego.SightZones);
         RefreshPathFog();
     }
 
@@ -3115,10 +3167,46 @@ public sealed class GameSession
             return null;
         float radius = Simulation.TileSize * EgoTraces.InteractRadiusTiles;
         return Ego!.Traces
-            .Where(trace => trace.Kind == EgoTraceKind.Plaque
+            .Where(trace => trace.IsReadable
                 && Vector2.DistanceSquared(trace.World, PlayerWorldCenter) <= radius * radius)
             .OrderBy(trace => Vector2.DistanceSquared(trace.World, PlayerWorldCenter))
             .FirstOrDefault();
+    }
+
+    public EgoTrace? NearbyEgoCache()
+    {
+        if (!InEgoOverworld)
+            return null;
+        float radius = Simulation.TileSize * EgoTraces.InteractRadiusTiles;
+        return Ego!.Traces
+            .Where(trace => trace.Kind == EgoTraceKind.Cache && !trace.Dug && !trace.Taken
+                && Vector2.DistanceSquared(trace.World, PlayerWorldCenter) <= radius * radius)
+            .OrderBy(trace => Vector2.DistanceSquared(trace.World, PlayerWorldCenter))
+            .FirstOrDefault();
+    }
+
+    /// <summary>Digging marks the cache; the spawn director then raises its crate like remains.</summary>
+    public bool TryDigEgoCache()
+    {
+        EgoTrace? cache = NearbyEgoCache();
+        if (cache is null)
+            return false;
+        cache.Dug = true;
+        return true;
+    }
+
+    /// <summary>One-time title card the first time the player walks into a landmark.</summary>
+    private void AnnounceEgoLandmark()
+    {
+        foreach (EgoLandmark landmark in Ego!.Landmarks)
+        {
+            if (landmark.Seen || !landmark.Contains(PlayerWorldCenter))
+                continue;
+            landmark.Seen = true;
+            var path = GamePaths.PathsByKey[landmark.SenseKey];
+            ShowEntrySplash(landmark.Title, $"Where {path.Title} fell. Nothing hunts here.", path.Accent);
+            return;
+        }
     }
 
     private EgoTrace? _readingPlaque;
@@ -3131,7 +3219,7 @@ public sealed class GameSession
             return false;
         plaque.Read = true;
         _readingPlaque = plaque;
-        _plaqueReadUntil = State.RunTimeSeconds + 6;
+        _plaqueReadUntil = State.RunTimeSeconds + (plaque.Kind == EgoTraceKind.Monument ? 8 : 6);
         return true;
     }
 
@@ -4749,6 +4837,8 @@ public sealed class GameSession
             time,
             intensity,
             _roomVisualEnergy);
+        if (InEgoOverworld)
+            _arenaRenderer.DrawEgoGrass(spriteBatch, Camera, PlayerWorldCenter, ScreenShake, CombatViewport, time, intensity);
         if (PathRun is not null)
         {
             DrawRoomRoleGlyphs(spriteBatch, time);
@@ -5240,9 +5330,53 @@ public sealed class GameSession
                     : new Color(2, 3, 7, 250);
                 ArenaRenderer.DrawWallOcclusionMask(
                     spriteBatch, Camera, PlayerWorldCenter, ScreenShake,
-                    x, y, Battleground.WallHeight, fogColor);
+                    x, y, ArenaRenderer.WallHeightFor(Battleground, x, y), fogColor);
             }
         }
+
+        if (InEgoOverworld)
+            DrawEgoMurkEdge(spriteBatch, fog, left, right, top, bottom, rotation);
+    }
+
+    /// <summary>Width in tiles of the band where The Ego's view window dissolves into the dark.</summary>
+    public const int EgoMurkBandTiles = 4;
+
+    /// <summary>
+    /// The Ego's windowed fog cuts to black at a hard tile edge; this fades
+    /// the last few visible tiles toward it so the world thins into murk
+    /// instead of ending. Alpha for a tile a given distance from the player.
+    /// </summary>
+    public static int EgoMurkAlpha(float distanceTiles, int windowRadiusTiles)
+    {
+        float inner = windowRadiusTiles - EgoMurkBandTiles;
+        if (distanceTiles <= inner)
+            return 0;
+        float t = Math.Clamp((distanceTiles - inner) / EgoMurkBandTiles, 0f, 1f);
+        return (int)(t * t * 200f);
+    }
+
+    private void DrawEgoMurkEdge(SpriteBatch spriteBatch, PathFogOfWar fog, int left, int right, int top, int bottom, float rotation)
+    {
+        int radius = EgoFogWindowTiles;
+        float px = PlayerWorldCenter.X / Battleground.TileSize, py = PlayerWorldCenter.Y / Battleground.TileSize;
+        for (int y = top; y <= bottom; y++)
+            for (int x = left; x <= right; x++)
+            {
+                if (!fog.IsVisible(x, y))
+                    continue;
+                float dx = x + .5f - px, dy = y + .5f - py;
+                int alpha = EgoMurkAlpha(MathF.Sqrt(dx * dx + dy * dy), radius);
+                if (alpha <= 0)
+                    continue;
+                Color murk = new(2, 3, 7, alpha);
+                Vector2 topLeft = Camera.WorldToScreen(
+                    new Vector2(x * Battleground.TileSize, y * Battleground.TileSize), PlayerWorldCenter, ScreenShake);
+                Primitives2D.FillRotatedRect(spriteBatch, topLeft,
+                    new Vector2(Battleground.TileSize + 1f, Battleground.TileSize + 1f), rotation, murk);
+                if (Battleground.IsRaisedAt(x, y))
+                    ArenaRenderer.DrawWallOcclusionMask(spriteBatch, Camera, PlayerWorldCenter, ScreenShake,
+                        x, y, ArenaRenderer.WallHeightFor(Battleground, x, y), murk);
+            }
     }
 
     private void DrawPathTitleBanner(SpriteBatch spriteBatch)

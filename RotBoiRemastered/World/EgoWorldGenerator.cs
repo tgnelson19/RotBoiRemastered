@@ -4,7 +4,7 @@ using RotBoiRemastered.Systems;
 namespace RotBoiRemastered.World;
 
 public sealed record EgoWorld(Battleground Battleground, IReadOnlyList<EgoRegion> Regions, EgoRegionField Field,
-    IReadOnlyList<EgoTrace> Traces);
+    IReadOnlyList<EgoTrace> Traces, EgoTerrain[,] Terrain, IReadOnlyList<EgoLandmark> Landmarks);
 
 /// <summary>
 /// The Ego's overworld: three terrains (open plains, ruined city grids, close
@@ -44,27 +44,34 @@ public static class EgoWorldGenerator
         int viewTiles = Math.Max(8, (int)MathF.Round(viewWidth / Battleground.TileSize));
         var field = new EgoRegionField(rng, Width, Height, viewTiles);
         var terrain = EffectiveTerrain(field, rng);
-        var tiles = GenerateTiles(field, terrain, rng, viewTiles);
+        var caveRooms = new List<Point>();
+        var tiles = GenerateTiles(field, terrain, rng, viewTiles, caveRooms);
+        var landmarks = EgoLandmarks.Place(tiles, terrain, field, rng, viewWidth);
+        EgoLandmarks.Stamp(tiles, landmarks, rng);
         ClearSpawnClearing(tiles);
         EnsureConnected(tiles, new Point(Width / 2, Height / 2), rng);
 
         Vector2 spawn = new((Width / 2 + .125f) * Battleground.TileSize, (Height / 2 + .125f) * Battleground.TileSize);
         var probe = new Battleground(tiles, BiomePalettes.Ego, 18, spawn, "ego");
-        var regions = PlaceRegions(probe, rng, viewWidth, terrain);
+        var regions = PlaceRegions(probe, rng, viewWidth, terrain, landmarks);
         StampHoldoutStructures(tiles, regions, rng);
         ClearSpawnClearing(tiles);
         EnsureConnected(tiles, new Point(Width / 2, Height / 2), rng);
         ExpeditionWorldGenerator.AddWallShell(tiles);
         int[,] biomeMap = BuildBiomeMap(terrain, regions, field);
         var finalProbe = new Battleground(tiles, BiomePalettes.Ego, 18, spawn, "ego");
-        var traces = EgoTraces.Generate(finalProbe, terrain, regions, rng);
+        var traces = EgoTraces.Generate(finalProbe, terrain, regions, rng, landmarks);
         var decorations = EgoThemeVisuals.GenerateDecorations(tiles, regions, terrain, rng)
-            .Concat(EgoTraces.ScorchDecorations(traces, rng)).ToList();
+            .Concat(EgoTraces.ScorchDecorations(traces, rng))
+            .Concat(EgoLandmarks.Decorations(tiles, landmarks, rng))
+            .Concat(EgoThemeVisuals.GenerateTerrainDecorations(tiles, terrain, regions, field, traces, landmarks))
+            .Concat(EgoThemeVisuals.GenerateGrottos(tiles, terrain, caveRooms, field, regions, landmarks))
+            .Concat(EgoThemeVisuals.GenerateFrontier(tiles, regions, landmarks, field, viewWidth)).ToList();
         var battleground = new Battleground(tiles, BiomePalettes.Ego, 18, spawn, "ego",
             pathDecorations: decorations, biomeMap: biomeMap, paletteThemeKeys: PaletteThemeKeys);
         foreach (EgoRegion region in regions)
             region.Terrain = terrain[(int)(region.Center.Y / Battleground.TileSize), (int)(region.Center.X / Battleground.TileSize)];
-        return new EgoWorld(battleground, regions, field, traces);
+        return new EgoWorld(battleground, regions, field, traces, terrain, landmarks);
     }
 
     /// <summary>Kept for callers that only need a map; regions are placed separately.</summary>
@@ -88,7 +95,8 @@ public static class EgoWorldGenerator
         return terrain;
     }
 
-    private static TileType[,] GenerateTiles(EgoRegionField field, EgoTerrain[,] terrain, Random rng, int viewTiles)
+    private static TileType[,] GenerateTiles(EgoRegionField field, EgoTerrain[,] terrain, Random rng, int viewTiles,
+        List<Point>? caveRooms = null)
     {
         var tiles = new TileType[Height, Width];
         // Plains base: open ground everywhere, boulders scattered by hash.
@@ -122,7 +130,7 @@ public static class EgoWorldGenerator
                     LayCity(tiles, terrain, seed, rng, viewTiles);
                     break;
                 case EgoTerrain.Caverns:
-                    CarveCaverns(tiles, terrain, seed, rng, viewTiles);
+                    CarveCaverns(tiles, terrain, seed, rng, viewTiles, caveRooms);
                     break;
             }
         }
@@ -244,7 +252,8 @@ public static class EgoWorldGenerator
             }
     }
 
-    private static void CarveCaverns(TileType[,] tiles, EgoTerrain[,] terrain, EgoRegionField.Seed seed, Random rng, int viewTiles)
+    private static void CarveCaverns(TileType[,] tiles, EgoTerrain[,] terrain, EgoRegionField.Seed seed, Random rng, int viewTiles,
+        List<Point>? rooms = null)
     {
         int reach = viewTiles * 3;
         var candidates = new List<Point>();
@@ -267,6 +276,7 @@ public static class EgoWorldGenerator
             if (index > 2 && rng.NextDouble() < .4)
                 ExpeditionWorldGenerator.CarveTunnel(tiles, center, centers[rng.Next(index)], 1, rng.Next(2) == 0);
         }
+        rooms?.AddRange(centers);
     }
 
     /// <summary>
@@ -373,18 +383,22 @@ public static class EgoWorldGenerator
     /// each other or spawn), veteran holdouts (only beyond VeteranMinDistanceViews,
     /// preferring city/cavern ground), then tiles the rest with senseless cells.
     /// </summary>
-    public static IReadOnlyList<EgoRegion> PlaceRegions(Battleground battleground, Random rng, float viewWidth, EgoTerrain[,]? terrain)
+    public static IReadOnlyList<EgoRegion> PlaceRegions(Battleground battleground, Random rng, float viewWidth, EgoTerrain[,]? terrain,
+        IReadOnlyList<EgoLandmark>? landmarks = null)
     {
         var regions = new List<EgoRegion>();
         Vector2 spawn = battleground.SpawnPosition;
         float separation = viewWidth * HoldoutSeparationViews;
         float veteranMin = viewWidth * VeteranMinDistanceViews;
         var open = battleground.OpenTiles();
+        landmarks ??= Array.Empty<EgoLandmark>();
 
         bool Separated(Vector2 candidate, float radius) =>
             Vector2.Distance(candidate, spawn) >= separation + radius
             && regions.All(other =>
-                Vector2.Distance(other.Center, candidate) >= separation + radius + other.RadiusWorld);
+                Vector2.Distance(other.Center, candidate) >= separation + radius + other.RadiusWorld)
+            && landmarks.All(landmark =>
+                Vector2.Distance(landmark.Center, candidate) >= radius + landmark.RadiusWorld + Battleground.TileSize * 2);
 
         void TryPlace(EgoRegionKind kind, int target, float radius, Func<Vector2, (int X, int Y), bool> allowed, int senseOffset)
         {

@@ -93,6 +93,9 @@ public sealed class EgoSpawnDirector
                 continue;
             if (state.EnemyHolster.Count >= state.EnemyCap)
                 continue;
+            // Landmarks are found places, not arenas: senseless cells centred on one stay quiet.
+            if (!region.IsHoldout && _run.Landmarks.Any(landmark => landmark.Contains(region.Center)))
+                continue;
             Populate(session, region, player, viewRadius, rng);
         }
         UpdateSkirmishes(session, player);
@@ -152,13 +155,17 @@ public sealed class EgoSpawnDirector
             + rng.NextDouble() * (HunterMaxGapSeconds - HunterMinGapSeconds);
     }
 
-    /// <summary>Remains traces become a one-item crate as the player comes within spawn range.</summary>
+    /// <summary>
+    /// Remains traces become a one-item crate as the player comes within spawn
+    /// range; a dug-up cache does the same with two items.
+    /// </summary>
     private void UpdateRemains(GameSession session, Vector2 player, Random rng)
     {
         float spawnRadius = _run.SpawnRadius;
         foreach (EgoTrace trace in _run.Traces)
         {
-            if (trace.Kind != EgoTraceKind.Remains || trace.Taken)
+            bool cache = trace.Kind == EgoTraceKind.Cache && trace.Dug;
+            if ((trace.Kind != EgoTraceKind.Remains && !cache) || trace.Taken)
                 continue;
             if (trace.Crate is LootCrate crate)
             {
@@ -171,7 +178,7 @@ public sealed class EgoSpawnDirector
             }
             if (Vector2.DistanceSquared(trace.World, player) > spawnRadius * spawnRadius)
                 continue;
-            var drops = Items.GenerateDrops(1, rng, session.State.AnyHardModeActive, null,
+            var drops = Items.GenerateDrops(cache ? 2 : 1, rng, session.State.AnyHardModeActive, null,
                 session.State.NewGamePlusLevel, session.State.IsTrueHardMode);
             if (drops.Count == 0)
             {

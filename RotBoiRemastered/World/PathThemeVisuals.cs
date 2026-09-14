@@ -70,6 +70,10 @@ public enum PathDecorationKind
     FurnaceIdol,
     TreasureSeal,
     AshEmitter,
+    /// <summary>The Ego only: a clump of faintly luminous cavern fungus.</summary>
+    GlowFungus,
+    /// <summary>The Ego only: a leaning stake with a tattered pennant marking the veteran frontier.</summary>
+    WarningStake,
 }
 
 public sealed record PathDecoration(
@@ -830,7 +834,9 @@ public static class PathThemeVisuals
             or PathDecorationKind.RustBarricade
             or PathDecorationKind.DeadTree
             or PathDecorationKind.RuinSlab
-            or PathDecorationKind.FurnaceIdol => PathDecorationLayer.Raised,
+            or PathDecorationKind.FurnaceIdol
+            or PathDecorationKind.GlowFungus
+            or PathDecorationKind.WarningStake => PathDecorationLayer.Raised,
         PathDecorationKind.DripEmitter
             or PathDecorationKind.RippleEmitter
             or PathDecorationKind.WindEmitter
