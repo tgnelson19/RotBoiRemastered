@@ -45,12 +45,14 @@ public static class EgoWorldGenerator
         var field = new EgoRegionField(rng, Width, Height, viewTiles);
         var terrain = EffectiveTerrain(field, rng);
         var tiles = GenerateTiles(field, terrain, rng, viewTiles);
+        ClearSpawnClearing(tiles);
         EnsureConnected(tiles, new Point(Width / 2, Height / 2), rng);
 
         Vector2 spawn = new((Width / 2 + .125f) * Battleground.TileSize, (Height / 2 + .125f) * Battleground.TileSize);
         var probe = new Battleground(tiles, BiomePalettes.Ego, 18, spawn, "ego");
         var regions = PlaceRegions(probe, rng, viewWidth, terrain);
         StampHoldoutStructures(tiles, regions, rng);
+        ClearSpawnClearing(tiles);
         EnsureConnected(tiles, new Point(Width / 2, Height / 2), rng);
         ExpeditionWorldGenerator.AddWallShell(tiles);
         int[,] biomeMap = BuildBiomeMap(terrain, regions, field);
@@ -268,6 +270,21 @@ public static class EgoWorldGenerator
     }
 
     /// <summary>
+    /// The player always lands on open ground: nothing (boulder, dithered
+    /// city wall, cavern void) may generate on or right beside the spawn tile.
+    /// </summary>
+    public const int SpawnClearingRadius = 4;
+    internal static void ClearSpawnClearing(TileType[,] tiles)
+    {
+        int cx = Width / 2, cy = Height / 2;
+        for (int y = cy - SpawnClearingRadius; y <= cy + SpawnClearingRadius; y++)
+            for (int x = cx - SpawnClearingRadius; x <= cx + SpawnClearingRadius; x++)
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= SpawnClearingRadius * SpawnClearingRadius
+                    && tiles[y, x].IsSolid())
+                    tiles[y, x] = TileType.Default;
+    }
+
+    /// <summary>
     /// Flood-fills walkable tiles from spawn and tunnels every other pocket
     /// back to the main body (tiny pockets are simply sealed) so no holdout
     /// or trace can generate unreachable.
@@ -305,14 +322,14 @@ public static class EgoWorldGenerator
                     sizes.Add(size);
                     samples.Add(new Point(x, y));
                 }
-            if (count <= 1)
-                return;
             int main = component[spawn.Y, spawn.X];
             if (main == 0)
             {
                 ExpeditionWorldGenerator.CarveRoom(tiles, spawn, 4, 4);
                 continue;
             }
+            if (count <= 1)
+                return;
             bool changed = false;
             for (int id = 1; id <= count; id++)
             {

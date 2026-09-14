@@ -83,3 +83,21 @@ public sealed class EgoWorldGeneratorTests
         return seen;
     }
 }
+
+public sealed class EgoSpawnClearingTests
+{
+    [Fact]
+    public void SpawnAndItsSurroundingsAreAlwaysOpenAcrossManySeeds()
+    {
+        for (int seed = 0; seed < 12; seed++)
+        {
+            var map = EgoWorldGenerator.Build(new Random(seed), 1920f).Battleground;
+            int cx = map.Width / 2, cy = map.Height / 2;
+            for (int y = cy - 2; y <= cy + 2; y++)
+                for (int x = cx - 2; x <= cx + 2; x++)
+                    Assert.False(map.TileAt(x, y).IsSolid(), $"seed {seed}: solid tile at {x},{y} beside spawn");
+            Assert.False(map.RectHitsWall(new Microsoft.Xna.Framework.Rectangle(
+                (int)map.SpawnPosition.X, (int)map.SpawnPosition.Y, 30, 30)));
+        }
+    }
+}
