@@ -5538,7 +5538,7 @@ public sealed class GameSession
 
     /// <summary>
     /// The stash strip's number-key shortcut (see RotBoiGame.UpdateGameRun
-    /// and Keybinds' stash_swap_1..8): instantly trades the item in stash
+    /// and Keybinds' stash_swap_1..5): instantly trades the item in stash
     /// slot <paramref name="index"/> with whatever's currently equipped in
     /// its slot type, so pressing the same key again swaps them straight
     /// back. A no-op if that stash slot is empty (there's no type to swap

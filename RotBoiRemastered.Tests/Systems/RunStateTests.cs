@@ -37,7 +37,7 @@ public class RunStateTests : IDisposable
         Assert.Empty(state.FragmentList);
         Assert.Equal(5, state.Equipment.Count);
         Assert.All(state.Equipment.Values, Assert.Null);
-        Assert.Equal(8, state.Inventory.Count);
+        Assert.Equal(5, state.Inventory.Count);
         Assert.All(state.Inventory, Assert.Null);
     }
 

@@ -114,12 +114,12 @@ public sealed class GameProfileData
     /// </summary>
     public Dictionary<string, StoredItemData> CarriedEquipment { get; set; } = new();
     /// <summary>
-    /// Mirrors RunState.Inventory (8 slots, nullable) the same way CarriedEquipment mirrors
-    /// Equipment. Pre-padded to 8 nulls here (matching RunState.Inventory's own Reset())
+    /// Mirrors RunState.Inventory (5 slots, nullable) the same way CarriedEquipment mirrors
+    /// Equipment. Pre-padded to 5 nulls here (matching RunState.Inventory's own Reset())
     /// rather than relying solely on GameProfile.Normalize() to pad it, so a freshly
     /// constructed GameProfileData is already index-safe without going through LoadProfile.
     /// </summary>
-    public List<StoredItemData?> CarriedInventory { get; set; } = Enumerable.Repeat<StoredItemData?>(null, 8).ToList();
+    public List<StoredItemData?> CarriedInventory { get; set; } = Enumerable.Repeat<StoredItemData?>(null, 5).ToList();
     public List<ExtractedRunData> ExtractedRuns { get; set; } = new();
     public List<string> DiscoveredItems { get; set; } = new();
     public Dictionary<string, int> PathMastery { get; set; } = new();

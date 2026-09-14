@@ -274,7 +274,7 @@ public sealed class RunState
     public List<EnemyProjectile> EnemyProjectileHolster { get; } = new();
     public List<LootCrate> LootCrateList { get; } = new();
     public Dictionary<string, ItemDrop?> Equipment { get; private set; } = new();
-    /// <summary>Eight general-purpose hoarding slots -- unlike Equipment, never read by CombinePlayerStats, so contents never affect stats.</summary>
+    /// <summary>Five general-purpose hoarding slots -- unlike Equipment, never read by CombinePlayerStats, so contents never affect stats.</summary>
     public List<ItemDrop?> Inventory { get; private set; } = new();
     public LootCrate? NearbyCrate { get; set; }
 
@@ -389,7 +389,9 @@ public sealed class RunState
         NearbyCrate = null;
         Equipment = EquipmentSlotKeys.ToDictionary(slot => slot,
             _ => (ItemDrop?)null);
-        Inventory = Enumerable.Repeat<ItemDrop?>(null, 8).ToList();
+        // Kept as a literal rather than a cross-layer reference to the UI's
+        // InformationSheet.InventorySlotCount const -- see MetaProgression.ClearCarriedItems.
+        Inventory = Enumerable.Repeat<ItemDrop?>(null, 5).ToList();
         ActiveBoss = null;
         BeaudisEncounterStarted = false;
         BeaudisDefeated = false;

@@ -42,9 +42,6 @@ public static class Keybinds
         ("stash_swap_3", "Stash: Swap Slot 3", Keys.D3),
         ("stash_swap_4", "Stash: Swap Slot 4", Keys.D4),
         ("stash_swap_5", "Stash: Swap Slot 5", Keys.D5),
-        ("stash_swap_6", "Stash: Swap Slot 6", Keys.D6),
-        ("stash_swap_7", "Stash: Swap Slot 7", Keys.D7),
-        ("stash_swap_8", "Stash: Swap Slot 8", Keys.D8),
     };
 
     public static readonly IReadOnlyDictionary<string, Keys> ActionDefaults =

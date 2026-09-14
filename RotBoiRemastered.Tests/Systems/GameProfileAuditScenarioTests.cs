@@ -82,7 +82,7 @@ public sealed class GameProfileAuditScenarioTests : IDisposable
         Assert.True(GameProfile.SaveProfile());
         GameProfileData loaded = GameProfile.LoadProfile(path);
 
-        Assert.Equal(8, loaded.CarriedInventory.Count);
+        Assert.Equal(5, loaded.CarriedInventory.Count);
         Assert.Equal(CampaignProgression.SenseKeys.Length,
             loaded.Campaign.SilverStatues.Count);
         Assert.All(loaded.SkillLevels, pair =>

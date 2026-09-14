@@ -20,12 +20,15 @@ public sealed class FooterLayout
     public required Rectangle Stats { get; init; }
     public required Rectangle Experience { get; init; }
     /// <summary>
-    /// The carried stash's background panel -- a 2-row, 4-column grid sitting
-    /// inline inside Bounds, immediately to the right of the (now
-    /// left-aligned) Equipment slots. See CalculateLayout's doc comment on
-    /// why this replaced the old strip below the whole panel.
+    /// The carried stash's background panel -- a single row of slots, sized
+    /// to match the equipment slots, sitting inline inside Bounds
+    /// immediately to the right of the (now left-aligned) Equipment slots,
+    /// separated by Divider. See CalculateLayout's doc comment on why this
+    /// replaced the old strip below the whole panel.
     /// </summary>
     public required Rectangle Stash { get; init; }
+    /// <summary>Thin vertical rule between the equipment slots and the stash slots.</summary>
+    public required Rectangle Divider { get; init; }
     public required IReadOnlyList<Rectangle> EquipmentSlots { get; init; }
     public required IReadOnlyList<Rectangle> StatSlots { get; init; }
     public required IReadOnlyList<Rectangle> StashSlots { get; init; }
@@ -42,14 +45,15 @@ public sealed class QuickLootLayout
 /// <summary>
 /// Compact combat HUD. Equipment and the carried stash are both live during
 /// combat now (see FooterLayout.Stash/StashSlots and DrawStash) -- items can
-/// be dragged between them, or swapped with the 1-8 keys
+/// be dragged between them, or swapped with the 1-5 keys
 /// (RotBoiGame.UpdateGameRun), any time during a run. The stash sits inline
-/// inside the main panel, directly beside Equipment, rather than in its own
-/// band underneath it -- that used to grow the panel's total reserved
-/// height and visibly push the whole bar upward whenever the stash was on
-/// screen. Only nearby world loot still needs its own transient quick-loot
-/// strip (DrawQuickLoot), since a crate isn't always around to show a
-/// permanent panel for.
+/// inside the main panel, directly beside Equipment and separated from it by
+/// a thin divider (FooterLayout.Divider), rather than in its own band
+/// underneath it -- that used to grow the panel's total reserved height and
+/// visibly push the whole bar upward whenever the stash was on screen. Only
+/// nearby world loot still needs its own transient quick-loot strip
+/// (DrawQuickLoot), since a crate isn't always around to show a permanent
+/// panel for.
 /// </summary>
 public sealed class FooterHud
 {
@@ -116,9 +120,14 @@ public sealed class FooterHud
         if (!compact)
         {
             int bodyY = bounds.Y + pad;
-            int healthWidth = (int)(bounds.Width * .22f);
-            int equipmentWidth = (int)(bounds.Width * .31f);
-            int resourcesWidth = (int)(bounds.Width * .10f);
+            int healthWidth = (int)(bounds.Width * .20f);
+            // Equipment now hosts both the 5 equipment slots and the 5
+            // same-size stash slots side by side (see the slot-sizing math
+            // below), so it needs roughly what used to be split across
+            // Equipment and a chunk of Stats -- widened from .31 accordingly,
+            // with Stats giving up the difference.
+            int equipmentWidth = (int)(bounds.Width * .46f);
+            int resourcesWidth = (int)(bounds.Width * .09f);
             health = new Rectangle(bounds.X + pad, bodyY, healthWidth - pad, bodyHeight);
             dash = new Rectangle(health.Right - Math.Max(28, (int)(42 * scale)), bodyY,
                 Math.Max(28, (int)(42 * scale)), bodyHeight);
@@ -143,15 +152,27 @@ public sealed class FooterHud
                 bounds.Right - pad - (resources.Right + pad), rowHeight);
         }
 
-        // Left-aligned rather than centered: slot size is capped by the
-        // column's own height long before it uses the column's full width
-        // (five icons rarely need a whole third of the bar), so centering
-        // used to leave that leftover width sitting empty on both sides.
-        // Hugging the left edge instead frees it for the stash grid placed
-        // directly beside it below.
+        // Left-aligned rather than centered: hugging the left edge of the
+        // Equipment column frees the rest of it for the stash slots and
+        // divider placed directly beside it below, rather than leaving
+        // leftover width split evenly on both sides.
+        //
+        // Both the equipment slots and the stash slots share one slotSize so
+        // they read as a single continuous row -- solved from the full
+        // width budget (5 equipment slots + divider + 5 stash slots, with
+        // their gaps/margins) up front, the same "fit the rect, never grow
+        // past it" approach the old stash grid used, so an extreme
+        // low-res/min-scale combination shrinks every icon evenly instead of
+        // spilling past the column's edge.
         int slotGap = Math.Max(2, (int)(5 * scale));
+        int dividerMargin = Math.Max(pad, slotGap * 2);
+        int dividerWidth = Math.Max(2, (int)(3 * scale));
+        int stashPad = Math.Max(3, (int)(5 * scale));
+        int stashCount = InformationSheet.InventorySlotCount;
+        int fixedWidth = slotGap * 4 + dividerMargin * 2 + dividerWidth + stashPad * 2
+            + slotGap * Math.Max(0, stashCount - 1);
         int slotSize = Math.Max(18, Math.Min(equipment.Height,
-            (equipment.Width - slotGap * 4) / 5));
+            (equipment.Width - fixedWidth) / (5 + stashCount)));
         int slotsWidth = slotSize * 5 + slotGap * 4;
         int slotsX = equipment.X;
         int slotsY = equipment.Center.Y - slotSize / 2;
@@ -159,33 +180,38 @@ public sealed class FooterHud
             .Select(index => new Rectangle(slotsX + index * (slotSize + slotGap), slotsY, slotSize, slotSize))
             .ToArray();
 
-        // The carried stash now lives inline immediately to the right of the
-        // equipment slots, inside the same Equipment column, as a 2-tall,
-        // 4-wide grid -- see the class doc comment on why this replaced the
-        // old strip below the whole panel (it grew the panel's total
-        // reserved height and visibly pushed the whole bar upward whenever
-        // the stash was on screen). The panel rect matches Equipment's own
-        // Y-range and hugs its right edge exactly (rather than growing
-        // outward from the grid it contains) so it's contained in Bounds by
-        // construction the same way Equipment already is, with slot size
-        // then solved to fit inside *that* fixed rect -- never the other way
-        // around -- so an extreme low-res/min-scale combination shrinks the
-        // icons instead of spilling the panel past the column's edge.
-        const int stashColumns = 4;
-        const int stashRows = 2;
-        int stashGap = Math.Max(2, (int)(4 * scale));
-        int stashPad = Math.Max(3, (int)(5 * scale));
-        int stashAreaX = slotsX + slotsWidth + Math.Max(pad, slotGap * 2);
-        int stashAreaWidth = Math.Max(0, equipment.Right - stashAreaX);
-        var stash = new Rectangle(stashAreaX, equipment.Y, stashAreaWidth, equipment.Height);
-        int stashSlotSize = Math.Max(1, Math.Min(
-            (stash.Height - stashPad * 2 - stashGap * (stashRows - 1)) / stashRows,
-            (stash.Width - stashPad * 2 - stashGap * (stashColumns - 1)) / stashColumns));
-        var stashSlots = Enumerable.Range(0, InformationSheet.InventorySlotCount)
+        // Height wraps the slot row itself (with stashPad breathing room)
+        // rather than reusing equipment.Height directly -- slotSize is
+        // floored at 18px even when equipment.Height is smaller (an extreme
+        // low-res/min-scale corner case), so tying it to equipment.Height
+        // could clip the very slots it's sized to match. Clamped into
+        // Bounds (rather than just Math.Max(bounds.Y, ...), which could
+        // still push the bottom edge past Bounds in that same corner case)
+        // so it always keeps Bounds.Contains(Stash) true, the same way the
+        // slots themselves are guaranteed to fit inside it.
+        int stashRowTop = Math.Min(Math.Max(bounds.Y, slotsY - stashPad), slotsY);
+        int stashRowBottom = Math.Max(Math.Min(bounds.Bottom, slotsY + slotSize + stashPad), slotsY + slotSize);
+        int stashRowHeight = stashRowBottom - stashRowTop;
+
+        // A thin vertical rule marks the boundary between equipment and the
+        // carried stash -- drawn by FooterHud.Draw, using this rect.
+        int dividerX = slotsX + slotsWidth + dividerMargin;
+        var divider = new Rectangle(dividerX, stashRowTop, dividerWidth, stashRowHeight);
+
+        // The carried stash lives inline immediately to the right of the
+        // divider, inside the same Equipment column, as a single row sized
+        // to match the equipment slots exactly -- see the class doc comment
+        // on why the stash sits beside Equipment rather than in its own
+        // strip below the whole panel (that grew the panel's total reserved
+        // height and visibly pushed the whole bar upward whenever the stash
+        // was on screen).
+        int stashSlotsWidth = slotSize * stashCount + slotGap * Math.Max(0, stashCount - 1);
+        var stash = new Rectangle(dividerX + dividerWidth + dividerMargin, stashRowTop,
+            stashPad * 2 + stashSlotsWidth, stashRowHeight);
+        int stashSlotsX = stash.X + stashPad;
+        var stashSlots = Enumerable.Range(0, stashCount)
             .Select(index => new Rectangle(
-                stash.X + stashPad + index % stashColumns * (stashSlotSize + stashGap),
-                stash.Y + stashPad + index / stashColumns * (stashSlotSize + stashGap),
-                stashSlotSize, stashSlotSize))
+                stashSlotsX + index * (slotSize + slotGap), slotsY, slotSize, slotSize))
             .ToArray();
 
         const int statColumns = 5;
@@ -211,6 +237,7 @@ public sealed class FooterHud
             Stats = stats,
             Experience = experience,
             Stash = stash,
+            Divider = divider,
             EquipmentSlots = equipmentSlots,
             StatSlots = statSlots,
             StashSlots = stashSlots,
@@ -282,6 +309,7 @@ public sealed class FooterHud
         DrawResources(spriteBatch, layout, state, scale);
         DrawStats(spriteBatch, layout, state, scale);
         DrawExperience(spriteBatch, layout, state, scale, _playerLevelCap);
+        DrawDivider(spriteBatch, layout);
         DrawStash(spriteBatch, layout, state, mousePosition, scale);
 
         if (state.NearbyCrate is { Items.Count: > 0 })
@@ -325,6 +353,7 @@ public sealed class FooterHud
         UiTheme.DrawFramedPanel(spriteBatch, layout.Bounds,
             UiTheme.Void * .96f, UiTheme.Cream, shadow: 7);
         DrawEquipment(spriteBatch, layout, state, mousePosition, scale);
+        DrawDivider(spriteBatch, layout);
         DrawStash(spriteBatch, layout, state, mousePosition, scale);
 
         // The hub reuses the exact same Health/Dash/Resources/Stats geometry
@@ -440,12 +469,16 @@ public sealed class FooterHud
         }
     }
 
+    /// <summary>Thin vertical rule marking the boundary between Equipment and the stash.</summary>
+    private static void DrawDivider(SpriteBatch spriteBatch, FooterLayout layout) =>
+        Primitives2D.FillRect(spriteBatch, layout.Divider, UiTheme.Border);
+
     /// <summary>
-    /// The carried stash, always visible as a 2-row, 4-column grid directly
-    /// beside Equipment (see CalculateLayout) and always live -- draggable
-    /// to/from equipment any time during a run (see
-    /// InformationSheet.HandleLiveLootDrag, which no longer requires a
-    /// nearby crate), or swapped with the 1-8 keys (RotBoiGame.UpdateGameRun,
+    /// The carried stash, always visible as a single row directly beside
+    /// Equipment (see CalculateLayout), sized to match the equipment slots
+    /// and always live -- draggable to/from equipment any time during a run
+    /// (see InformationSheet.HandleLiveLootDrag, which no longer requires a
+    /// nearby crate), or swapped with the 1-5 keys (RotBoiGame.UpdateGameRun,
     /// GameSession.SwapStashSlotWithEquipment). Replaces the old
     /// paused-Dossier-only stash grid and the read-only "TAB ONLY" quick-loot
     /// preview -- both are gone now that this is the one live stash panel.

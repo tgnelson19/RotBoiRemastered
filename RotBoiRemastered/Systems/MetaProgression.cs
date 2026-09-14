@@ -167,9 +167,9 @@ public static class MetaProgression
     public static void ClearCarriedItems()
     {
         GameProfile.Profile.CarriedEquipment.Clear();
-        // Matches RunState.Inventory's fixed 8 slots (see its Reset()) -- kept as a literal
+        // Matches RunState.Inventory's fixed 5 slots (see its Reset()) -- kept as a literal
         // here too rather than a cross-layer reference to the UI's InventorySlotCount const.
-        GameProfile.Profile.CarriedInventory = Enumerable.Repeat<StoredItemData?>(null, 8).ToList();
+        GameProfile.Profile.CarriedInventory = Enumerable.Repeat<StoredItemData?>(null, 5).ToList();
         GameProfile.SaveProfile();
     }
 

@@ -99,7 +99,7 @@ public sealed class InformationSheet
 
     public const int CrateSlotCount = 4;
 
-    public const int InventorySlotCount = 8;
+    public const int InventorySlotCount = 5;
 
     private abstract record DragSource;
     private sealed record EquipmentDragSource(string Key) : DragSource;
@@ -525,15 +525,17 @@ public sealed class InformationSheet
     }
 
     /// <summary>
-    /// Eight general-purpose hoarding slots, directly below the equipment
+    /// Five general-purpose hoarding slots, directly below the equipment
     /// hub. Unlike equipment, a stash slot accepts any item regardless of
     /// SlotType (see ResolveDrop) and never contributes to stats (see
     /// RunState.Inventory's doc comment) -- it's purely for carrying extra
-    /// loot toward extraction without committing to equip it.
+    /// loot toward extraction without committing to equip it. One row of
+    /// InventorySlotCount matches the footer's own single-row stash strip
+    /// (see FooterHud.CalculateLayout).
     /// </summary>
     private int DrawStash(SpriteBatch spriteBatch, RunState state, Point mousePosition, int y)
     {
-        const int columns = 4;
+        const int columns = InventorySlotCount;
         int rows = (InventorySlotCount + columns - 1) / columns;
         int headerHeight = Px(22);
         int slotSize = Px(38);
