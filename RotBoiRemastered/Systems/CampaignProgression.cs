@@ -1,7 +1,7 @@
 namespace RotBoiRemastered.Systems;
 
 public enum CampaignWorld { Body, Soul }
-public enum CampaignActivity { Body, Soul, Arena, Core, Aphantasia }
+public enum CampaignActivity { Body, Soul, Arena, Core, Aphantasia, Ego }
 
 [Flags]
 public enum ChallengeClear
@@ -37,6 +37,11 @@ public sealed class CampaignProgressData
     /// use the same blood/crack/rainbow language as the sense statues.
     /// </summary>
     public StatueProgress AphantasiaStatue { get; set; } = new();
+    /// <summary>The Ego (final mode) has been cleared end to end at least once.</summary>
+    public bool EgoCompleted { get; set; }
+
+    /// <summary>The Ego opens once Aphantasia has fallen; the gate sits just above The Mind's chapel center.</summary>
+    public bool EgoUnlocked => AphantasiaStatue?.Unlocked == true;
 
     public bool BodyUnlocked => CampaignProgression.SenseKeys.All(sense =>
         SilverStatues.GetValueOrDefault(sense)?.Unlocked == true);
@@ -89,6 +94,7 @@ public static class CampaignProgression
         "dungeon" => true,
         "core" => Data.CoreUnlocked,
         "aphantasia" => Data.AphantasiaUnlocked,
+        "ego" => Data.EgoUnlocked,
         _ when SenseKeys.Contains(key) => true,
         _ => false,
     };
@@ -112,6 +118,13 @@ public static class CampaignProgression
     {
         Normalize(Data);
         RecordChallengeClear(Data.AphantasiaStatue, noHealing, noExtract);
+        Save();
+    }
+
+    public static void CompleteEgo()
+    {
+        Normalize(Data);
+        Data.EgoCompleted = true;
         Save();
     }
 

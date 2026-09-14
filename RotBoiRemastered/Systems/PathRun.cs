@@ -37,6 +37,9 @@ public sealed class PathRun
 
     public int FloorNumber { get; private set; } = 1;
     public bool IsSecretDungeon { get; private init; }
+    /// <summary>The Ego's dropped dungeons: single-floor Midpoint (5) or Veteran (10) boss runs that return to the overworld.</summary>
+    public bool IsEgoDungeon { get; private init; }
+    public EgoRun? Ego { get; private init; }
     public ExpeditionRun? Expedition { get; private init; }
     public string CurrentSenseKey => _senseOrder[FloorNumber - 1];
     public GamePath CurrentSense => GamePaths.PathsByKey[CurrentSenseKey];
@@ -102,6 +105,22 @@ public sealed class PathRun
             : Math.Clamp(cleared + 1, 1, 4);
         for (int index = 0; index < run._senseOrder.Count; index++)
             run._senseOrder[index] = secret.SenseKey;
+        run.Layout = run.GenerateFloor(run.FloorNumber);
+        return run;
+    }
+
+    public static PathRun CreateEgoDungeon(EgoRun ego, EgoDungeonPortal portal, Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        var run = new PathRun(rng)
+        {
+            IsSecretDungeon = true,
+            IsEgoDungeon = true,
+            Ego = ego,
+        };
+        run.FloorNumber = portal.Veteran ? TotalFloors : FloorsPerAct;
+        for (int index = 0; index < run._senseOrder.Count; index++)
+            run._senseOrder[index] = portal.SenseKey;
         run.Layout = run.GenerateFloor(run.FloorNumber);
         return run;
     }

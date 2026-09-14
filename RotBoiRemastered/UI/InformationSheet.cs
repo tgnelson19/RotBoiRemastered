@@ -742,8 +742,9 @@ public sealed class InformationSheet
     /// nothing has to lay out at a transitional size.
     /// </summary>
     public void DrawDossier(SpriteBatch spriteBatch, RunState state, Point mousePosition, float revealT,
-        ExpeditionRun? expedition = null)
+        ExpeditionRun? expedition = null, EgoRun? ego = null)
     {
+        _ego = ego;
         var viewport = spriteBatch.GraphicsDevice.Viewport;
         SyncLayout(viewport.Width, viewport.Height);
         _presentationTime = (float)state.RunTimeSeconds;
@@ -869,6 +870,11 @@ public sealed class InformationSheet
             y = DrawExpeditionObjectives(spriteBatch, expedition, content, y);
             y += Px(18);
         }
+        if (_ego is not null)
+        {
+            y = DrawEgoObjectives(spriteBatch, _ego, state, content, y);
+            y += Px(18);
+        }
 
         UiTheme.DrawText(spriteBatch, "MIND PROGRESSION", Px(15), UiTheme.Text,
             new Vector2(content.Center.X, y), "midtop");
@@ -912,6 +918,38 @@ public sealed class InformationSheet
     /// left to the deliberately cryptic JournalClue flavor text alone.
     /// Returns the y cursor after everything it drew.
     /// </summary>
+    private EgoRun? _ego;
+
+    /// <summary>The Ego's running tally: midpoint bosses, veteran bosses by sense, and the road to Aphantasia.</summary>
+    private int DrawEgoObjectives(SpriteBatch spriteBatch, EgoRun ego, RunState state, Rectangle content, int y)
+    {
+        UiTheme.DrawText(spriteBatch, "CURRENT RUN -- THE EGO", Px(15), UiTheme.Text,
+            new Vector2(content.Center.X, y), "midtop");
+        y += Px(20);
+        UiTheme.DrawText(spriteBatch,
+            $"{ego.MidpointBossesDefeated} MIDPOINT BOSSES  //  {ego.VeteranBossesDefeated.Count}/5 VETERAN BOSSES  //  {ego.DungeonPortals.Count} DOORS OPEN",
+            Px(10), UiTheme.Muted, new Vector2(content.Center.X, y), "midtop");
+        y += Px(20);
+        foreach (string sense in CampaignProgression.SenseKeys)
+        {
+            bool veteran = ego.VeteranBossesDefeated.Contains(sense);
+            UiTheme.DrawText(spriteBatch, sense.ToUpperInvariant(), Px(9.5), UiTheme.Text, new Vector2(content.X, y));
+            UiTheme.DrawText(spriteBatch, veteran ? "VETERAN BOSS DEFEATED" : "VETERAN BOSS STANDING", Px(9.5),
+                veteran ? UiTheme.Gold : UiTheme.Muted, new Vector2(content.Right, y), "topright");
+            y += Px(16);
+        }
+        string aphantasia = ego.EventBossDefeated
+            ? "APHANTASIA'S DOOR IS OPEN"
+            : ego.EventBossSpawned
+                ? "A FRACTURE WALKS THE FAR WILDS"
+                : state.CurrentLevel >= Progression.FinalBossLevel
+                    ? "THE FRACTURE STIRS"
+                    : $"REACH LEVEL {Progression.FinalBossLevel} TO DRAW OUT THE FRACTURE";
+        UiTheme.DrawText(spriteBatch, aphantasia, Px(9.5), UiTheme.Purple, new Vector2(content.Center.X, y), "midtop");
+        y += Px(16);
+        return y;
+    }
+
     private int DrawExpeditionObjectives(SpriteBatch spriteBatch, ExpeditionRun expedition, Rectangle content, int y)
     {
         UiTheme.DrawText(spriteBatch,

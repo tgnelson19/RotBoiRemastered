@@ -1023,6 +1023,7 @@ public sealed partial class Aphantasia
     private void FireRing(List<EnemyProjectile> sink, Vector2 origin, int count,
         float rotation, float speed, float size, string owner, bool alternating)
     {
+        count = DensityCount(count);
         for (int index = 0; index < count; index++)
         {
             Color color = alternating
@@ -1038,6 +1039,7 @@ public sealed partial class Aphantasia
     private void FireOrderedRing(List<EnemyProjectile> sink, Vector2 origin, int count,
         float rotation, float speed, float size, string owner, int sineEvery)
     {
+        count = DensityCount(count);
         for (int index = 0; index < count; index++)
         {
             bool sinusoidal = sineEvery > 0 && index % sineEvery == 0;
@@ -1057,6 +1059,7 @@ public sealed partial class Aphantasia
     private void FireBrokenRing(List<EnemyProjectile> sink, Vector2 origin, int count,
         float rotation, float speed, float size, string owner)
     {
+        count = DensityCount(count);
         for (int index = 0; index < count; index++)
         {
             if ((index + (int)(_stateElapsed * 1.7)) % 6 is 2 or 3)
@@ -1073,6 +1076,7 @@ public sealed partial class Aphantasia
     private void FireFan(List<EnemyProjectile> sink, Vector2 origin, float direction,
         int count, float spread, float speed, Color color, string owner)
     {
+        count = DensityCount(count);
         for (int index = 0; index < count; index++)
         {
             float fraction = count == 1 ? .5f : (float)index / (count - 1);
@@ -1086,6 +1090,7 @@ public sealed partial class Aphantasia
     private void FireAimedRibbon(List<EnemyProjectile> sink, Vector2 origin,
         Vector2 target, int count, float speed, string owner)
     {
+        count = DensityCount(count);
         float aim = AngleTo(origin, target);
         for (int index = 0; index < count; index++)
         {
@@ -1100,6 +1105,7 @@ public sealed partial class Aphantasia
     private void FireEdgeCurtain(List<EnemyProjectile> sink, bool vertical,
         bool reverse, int lanes, float speed, string owner)
     {
+        lanes = DensityCount(lanes);
         for (int index = 0; index < lanes; index++)
         {
             float across = -ArenaRadius * .82f + ArenaRadius * 1.64f
@@ -1128,6 +1134,7 @@ public sealed partial class Aphantasia
     private void FireOrderedCurtain(List<EnemyProjectile> sink, bool vertical,
         bool reverse, int lanes, float speed, string owner)
     {
+        lanes = DensityCount(lanes);
         int movingGap = (_regularVolleyCount / 2) % Math.Max(1, lanes);
         for (int index = 0; index < lanes; index++)
         {
@@ -1192,6 +1199,7 @@ public sealed partial class Aphantasia
     private void FireFracturedCurtain(List<EnemyProjectile> sink, bool vertical,
         bool reverse, int lanes, string owner)
     {
+        lanes = DensityCount(lanes);
         int firstGap = (_regularVolleyCount * 3) % Math.Max(1, lanes);
         for (int index = 0; index < lanes; index++)
         {
@@ -1365,9 +1373,9 @@ public sealed partial class Aphantasia
         bool perimeterVolley = _volleyScratch.Count > 0
             && _volleyScratch.All(projectile =>
                 projectile.Owner == "aphantasia_perimeter_drift");
-        int volleyCap = perimeterVolley
+        int volleyCap = (int)Math.Round((perimeterVolley
             ? ActiveThreatSoftCap
-            : ActiveThreatSoftCap - PerimeterThreatReserve;
+            : ActiveThreatSoftCap - PerimeterThreatReserve) * _densityScale);
         foreach (EnemyProjectile projectile in _volleyScratch)
         {
             int projectileCost = Math.Max(1, projectile.ThreatReservationCost);

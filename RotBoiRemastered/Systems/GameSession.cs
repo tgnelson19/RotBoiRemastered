@@ -18,7 +18,7 @@ public enum LevelUpOutcome { StillChoosing, ContinueLeveling, ReturnToGame }
 /// heterogeneous dict value) -- InformationSheet.BountyDetails is the only
 /// place that needs to tell them apart.
 /// </summary>
-public sealed record BountyInfo(Vector2 World, double Score, string Label, object Target);
+public sealed record BountyInfo(Vector2 World, double Score, string Label, object Target, Color? Accent = null);
 
 /// <summary>
 /// One run in progress: owns the player, run state, battleground, camera,
@@ -83,6 +83,12 @@ public sealed class GameSession
     public RunRewardSummary? LastRunRewardSummary { get; private set; }
     public PathRun? PathRun { get; private set; }
     public ExpeditionRun? Expedition { get; private set; }
+    /// <summary>The Ego's overworld state; survives dungeon / Aphantasia detours, cleared by ResetAll.</summary>
+    public EgoRun? Ego { get; private set; }
+    private EgoSpawnDirector? _egoDirector;
+    /// <summary>True while The Ego's Aphantasia arena is installed over the suspended overworld.</summary>
+    public bool EgoAphantasiaActive { get; private set; }
+    public bool InEgoOverworld => Ego is not null && PathRun is null && !EgoAphantasiaActive;
     public CampaignActivity? CampaignActivity { get; private set; }
     public string? CampaignActivitySense { get; private set; }
     public bool AphantasiaPrecombatDraftsPending =>
@@ -210,6 +216,7 @@ public sealed class GameSession
             Systems.CampaignActivity.Body or Systems.CampaignActivity.Soul =>
                 Expedition?.DefeatedGuardians > 0,
             Systems.CampaignActivity.Aphantasia => false,
+            Systems.CampaignActivity.Ego => Ego?.MidpointBossesDefeated > 0 && !EgoAphantasiaActive,
             _ => State.BeaudisDefeated,
         };
     internal IReadOnlyList<ArenaLightPost> ArenaLightPosts =>
@@ -265,6 +272,9 @@ public sealed class GameSession
         _playerBuildSnapshot = null;
         PathRun = null;
         Expedition = null;
+        Ego = null;
+        _egoDirector = null;
+        EgoAphantasiaActive = false;
         CampaignActivity = null;
         CampaignActivitySense = null;
         PathFog = null;
@@ -384,6 +394,41 @@ public sealed class GameSession
                 ? "Descend through flesh; what follows will remember the wound."
                 : "The journey continues. One sense waits at its end.",
             world == CampaignWorld.Body ? UiTheme.Red : UiTheme.Gold);
+    }
+
+    /// <summary>Every equipment and inventory slot is empty -- The Ego's entry condition.</summary>
+    public static bool HandsEmpty(RunState state) =>
+        state.Equipment.Values.All(item => item is null) && state.Inventory.All(item => item is null);
+
+    /// <summary>Horizontal view width in world units; The Ego's spawn/holdout distances are multiples of it.</summary>
+    public float HorizontalViewWorld => Math.Max(400f, CombatLogicalViewport().Width);
+
+    /// <summary>
+    /// Starts The Ego. Nothing comes with the player: the profile's carried
+    /// items are ignored for this run (they stay in the Vault / profile) and
+    /// the session begins with bare hands.
+    /// </summary>
+    public void StartEgo(Random? rng = null, bool ignoreHandsCheck = false)
+    {
+        rng ??= Random.Shared;
+        if (!ignoreHandsCheck && !CampaignProgression.PortalUnlocked("ego"))
+            throw new InvalidOperationException("The Ego is sealed until Aphantasia has fallen.");
+        if (!ignoreHandsCheck && !HandsEmpty(State))
+            throw new InvalidOperationException("The Ego admits nothing: empty every equipment and inventory slot first.");
+        GamePaths.SetActive("sound");
+        var ego = new EgoRun(rng.Next(), HorizontalViewWorld);
+        ResetAll(ego.Battleground, rng);
+        // ResetAll reloads the profile's carried items; The Ego starts bare.
+        State.SetEquipment(RunState.EquipmentSlotKeys.ToDictionary(key => key, _ => (ItemDrop?)null));
+        for (int index = 0; index < State.Inventory.Count; index++)
+            State.Inventory[index] = null;
+        Ego = ego;
+        _egoDirector = new EgoSpawnDirector(ego);
+        CampaignActivity = Systems.CampaignActivity.Ego;
+        CampaignActivitySense = null;
+        State.EnemySpawningEnabled = true;
+        EnsureEgoEventBoss(rng);
+        ShowEntrySplash("The Ego", "Everything you were stays behind. Everything you are must be earned again.", UiTheme.Purple);
     }
 
     /// <summary>
@@ -546,6 +591,11 @@ public sealed class GameSession
             StartAphantasia(rng);
             return;
         }
+        if (Ego is not null || CampaignActivity == Systems.CampaignActivity.Ego)
+        {
+            StartEgo(rng, ignoreHandsCheck: true);
+            return;
+        }
         if (Expedition is not null)
         {
             StartExpedition(Expedition.World,
@@ -690,7 +740,7 @@ public sealed class GameSession
     }
 
     private string ActiveLightingPathKey =>
-        CampaignActivity == Systems.CampaignActivity.Aphantasia
+        CampaignActivity == Systems.CampaignActivity.Aphantasia || EgoAphantasiaActive
             ? "aphantasia"
             : PathRun?.CurrentSenseKey ?? CampaignActivitySense ?? GamePaths.Active().Key;
 
@@ -699,7 +749,7 @@ public sealed class GameSession
         _arenaLightPosts.Clear();
         _worldLightSources.Clear();
         string pathKey = ActiveLightingPathKey;
-        if (CampaignActivity == Systems.CampaignActivity.Aphantasia)
+        if (CampaignActivity == Systems.CampaignActivity.Aphantasia || EgoAphantasiaActive)
             return;
         bool standaloneOrInstancedArena =
             PathRun is null || _dungeonBossInstance is not null;
@@ -1094,6 +1144,16 @@ public sealed class GameSession
         if (PathRun is not null)
         {
             HandlePathEnemyCreation(rng, interactPressed);
+            return;
+        }
+        if (Ego is not null)
+        {
+            if (EgoAphantasiaActive)
+                return;
+            if (interactPressed && (TryEnterEgoDungeon(rng) || TryEnterEgoAphantasia(rng)))
+                return;
+            if (State.EnemySpawningEnabled && State.ActiveBoss is null)
+                _egoDirector?.Update(this, rng, Simulation.GetTimerStep() / Simulation.FrameRate);
             return;
         }
         bool naturalMidBossRequested = NaturalMidBossRequested;
@@ -1853,6 +1913,70 @@ public sealed class GameSession
         }
     }
 
+    /// <summary>World-pass rings for The Ego's dropped dungeon portals and the Aphantasia door.</summary>
+    public void DrawEgoPortals(SpriteBatch spriteBatch)
+    {
+        if (!InEgoOverworld)
+            return;
+        float time = (float)State.RunTimeSeconds;
+        foreach (EgoDungeonPortal portal in Ego!.DungeonPortals)
+        {
+            Color accent = GamePaths.PathsByKey[portal.SenseKey].Accent;
+            float radius = Simulation.TileSize * (portal.Veteran ? .95f : .78f);
+            Primitives2D.FillCircle(spriteBatch, portal.World, radius * .78f, UiTheme.Ink);
+            Primitives2D.CircleOutline(spriteBatch, portal.World, radius,
+                accent * (.82f + .18f * MathF.Sin(time * 2.1f)), portal.Veteran ? 5 : 4);
+            int runes = portal.Veteran ? 8 : 5;
+            for (int rune = 0; rune < runes; rune++)
+            {
+                float angle = rune * MathF.Tau / runes + time * .7f;
+                Vector2 at = portal.World + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * radius * .72f;
+                Primitives2D.FillRect(spriteBatch, new Rectangle((int)at.X - 3, (int)at.Y - 3, 6, 6), accent * .7f);
+            }
+        }
+        if (Ego.AphantasiaPortalWorld is Vector2 door)
+        {
+            float radius = Simulation.TileSize * 1.1f;
+            Primitives2D.FillCircle(spriteBatch, door, radius * .8f, UiTheme.Ink);
+            for (int band = 0; band < 6; band++)
+            {
+                float hue = (time * .25f + band / 6f) % 1f;
+                Color rainbow = ColorFromHue(hue);
+                float ringRadius = radius * (.5f + band * .1f);
+                var arcRect = new Rectangle((int)(door.X - ringRadius), (int)(door.Y - ringRadius), (int)(ringRadius * 2), (int)(ringRadius * 2));
+                float phase = time * (1.1f + band * .2f) + band;
+                Primitives2D.Arc(spriteBatch, arcRect, phase, phase + MathF.PI * .7f, rainbow, 3);
+            }
+            Primitives2D.CircleOutline(spriteBatch, door, radius, UiTheme.Purple, 3);
+        }
+    }
+
+    private static Color ColorFromHue(float hue)
+    {
+        float r = Math.Abs(hue * 6f - 3f) - 1f, g = 2f - Math.Abs(hue * 6f - 2f), b = 2f - Math.Abs(hue * 6f - 4f);
+        return new Color(Math.Clamp(r, 0f, 1f), Math.Clamp(g, 0f, 1f), Math.Clamp(b, 0f, 1f));
+    }
+
+    public void DrawEgoHint(SpriteBatch spriteBatch)
+    {
+        if (!InEgoOverworld)
+            return;
+        float scale = UiTheme.DisplayScale(ScreenWidth, ScreenHeight);
+        string key = Keybinds.LabelForKey(Keybinds.KeyFor("interact"));
+        if (NearbyEgoDungeonPortal() is { } portal)
+        {
+            var path = GamePaths.PathsByKey[portal.SenseKey];
+            UiTheme.DrawText(spriteBatch,
+                $"{(portal.Veteran ? "VETERAN" : "MIDPOINT")} DUNGEON OF {path.Title.ToUpperInvariant()}  //  {key} ENTER",
+                10 * scale, path.Accent, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
+        }
+        else if (NearEgoAphantasiaPortal())
+        {
+            UiTheme.DrawText(spriteBatch, $"APHANTASIA  //  {key} ENTER  //  NO DRAFTING, NO RETURN",
+                10 * scale, UiTheme.Purple, new Vector2(ScreenWidth / 2f, ScreenHeight - 82 * scale), "center");
+        }
+    }
+
     public void DrawExpeditionHint(SpriteBatch spriteBatch)
     {
         if (CampaignActivity == Systems.CampaignActivity.Aphantasia)
@@ -2310,10 +2434,33 @@ public sealed class GameSession
                 EmitDropFanfare(new Vector2(enemy.WorldX + enemy.Size / 2f, enemy.WorldY + enemy.Size / 2f), drops);
             }
 
+            if (Ego is not null && PathRun is null && !EgoAphantasiaActive)
+            {
+                if (enemy is FracturedAphantasia)
+                {
+                    Ego.RecordEventBossDefeated(EgoRun.EnemyCenter(enemy));
+                    GameProfile.IncrementQuest("bosses_defeated", state: State);
+                    ShowEntrySplash("The Shard Breaks", "What it guarded now opens.", UiTheme.Purple);
+                }
+                else if (Ego.RollDungeonDrop(enemy, enemy.ContentPath, rng) is { } droppedPortal)
+                {
+                    ShowEntrySplash(droppedPortal.Veteran ? "Veteran Dungeon" : "Midpoint Dungeon",
+                        $"A door to {GamePaths.PathsByKey[droppedPortal.SenseKey].Title} tears open.",
+                        GamePaths.PathsByKey[droppedPortal.SenseKey].Accent);
+                }
+            }
+
             if (defeatedBossKey is not null)
             {
                 GameProfile.IncrementQuest("bosses_defeated", state: State);
-                if (defeatedBossKey == "aphantasia")
+                if (defeatedBossKey == "aphantasia" && Ego is not null)
+                {
+                    State.GameCompleted = true;
+                    CampaignProgression.CompleteEgo();
+                    MetaProgression.RecordCoreOfTheVoidDefeat();
+                    FinalizeSuccessfulRun(RunOutcomes.EgoDefeated, completed: true);
+                }
+                else if (defeatedBossKey == "aphantasia")
                 {
                     State.GameCompleted = true;
                     Aphantasia? defeatedAphantasia = enemy as Aphantasia;
@@ -2346,7 +2493,9 @@ public sealed class GameSession
                 ScreenShake = Vector2.Zero;
                 State.EnemyProjectileHolster.Clear();
                 PathRun?.NotifyBossDefeated();
-                if (PathRun?.IsSecretDungeon == true && PathRun.IsComplete)
+                if (PathRun?.IsEgoDungeon == true && PathRun.IsComplete)
+                    ReturnFromEgoDungeon(rng);
+                else if (PathRun?.IsSecretDungeon == true && PathRun.IsComplete)
                     ReturnFromSecretDungeon();
             }
         }
@@ -2374,6 +2523,8 @@ public sealed class GameSession
     private static string? BossKeyFor(Enemy enemy) => enemy switch
     {
         Aphantasia => "aphantasia",
+        FracturedAphantasia => "fractured_essence",
+        VeteranGuardianBoss veteran => $"veteran_guardian_{veteran.SenseKey}",
         Beaudis => "beaudis", Dissonance => "dissonance", Chronos => "chronos", Ishe => "ishe",
         Bair => "bair", Sting => "sting", Rot => "rot", Ache => "ache", Kage => "kage", Hypno => "hypno", Malady => "malady",
         _ => null,
@@ -2666,6 +2817,186 @@ public sealed class GameSession
                 State.NoHealing, State.NoExtract);
         // The standalone dungeon is intentionally progression-neutral. Gold
         // statues belong exclusively to completed Soul finales.
+    }
+
+    public const float EgoPortalInteractRadiusTiles = 1.6f;
+
+    public EgoDungeonPortal? NearbyEgoDungeonPortal()
+    {
+        if (!InEgoOverworld)
+            return null;
+        float radius = Simulation.TileSize * EgoPortalInteractRadiusTiles;
+        return Ego!.DungeonPortals
+            .Where(portal => Vector2.DistanceSquared(portal.World, PlayerWorldCenter) <= radius * radius)
+            .OrderBy(portal => Vector2.DistanceSquared(portal.World, PlayerWorldCenter))
+            .FirstOrDefault();
+    }
+
+    public bool NearEgoAphantasiaPortal()
+    {
+        if (!InEgoOverworld || Ego!.AphantasiaPortalWorld is not Vector2 world)
+            return false;
+        float radius = Simulation.TileSize * EgoPortalInteractRadiusTiles;
+        return Vector2.DistanceSquared(world, PlayerWorldCenter) <= radius * radius;
+    }
+
+    public bool TryEnterEgoDungeon(Random? rng = null)
+    {
+        EgoDungeonPortal? portal = NearbyEgoDungeonPortal();
+        if (portal is null || !Ego!.EnterDungeon(portal, PlayerWorldCenter))
+            return false;
+        rng ??= Random.Shared;
+        _egoSuspendedHolster.Clear();
+        _egoSuspendedHolster.AddRange(State.EnemyHolster);
+        InstallPathRun(PathRun.CreateEgoDungeon(Ego, portal, rng), rng);
+        ShowEntrySplash(portal.Veteran ? "Veteran Dungeon" : "Midpoint Dungeon",
+            portal.Veteran
+                ? $"{GamePaths.PathsByKey[portal.SenseKey].FinalBoss.ToUpperInvariant()} waits at the end."
+                : $"{GamePaths.PathsByKey[portal.SenseKey].MidBoss.ToUpperInvariant()} waits at the end.",
+            GamePaths.PathsByKey[portal.SenseKey].Accent);
+        return true;
+    }
+
+    private readonly List<Enemy> _egoSuspendedHolster = new();
+
+    private void ReturnFromEgoDungeon(Random rng)
+    {
+        EgoRun ego = Ego ?? throw new InvalidOperationException("Ego dungeon lost its overworld.");
+        ego.CompleteDungeon();
+        Vector2 returnPosition = ego.SuspendedReturnPosition ?? ego.Battleground.SpawnPosition;
+        PathRun = null;
+        PathFog = null;
+        _pathFogActive = false;
+        _dungeonBossInstance = null;
+        Battleground = ego.Battleground;
+        RefreshLightingFixtures();
+        _enemyCollisionGrid.Reset();
+        Player.SetPosition(returnPosition.X - (float)State.PlayerSize / 2f,
+            returnPosition.Y - (float)State.PlayerSize / 2f);
+        State.ActiveBoss = null;
+        _activeBossKey = null;
+        State.EnemyHolster.Clear();
+        // Whatever was alive in the overworld is still there when the door closes.
+        State.EnemyHolster.AddRange(_egoSuspendedHolster);
+        _egoSuspendedHolster.Clear();
+        State.EnemyProjectileHolster.Clear();
+        State.BulletHolster.Clear();
+        State.LootCrateList.Clear();
+        State.NearbyCrate = null;
+        State.CurrEnemyCount = State.EnemyHolster.Count;
+        State.GameCompleted = false;
+        State.EnemySpawningEnabled = true;
+        State.GracePeriod = Simulation.FrameRate * 2.0;
+        LastRunRewardSummary = null;
+        GamePaths.SetActive("sound");
+        EnsureEgoEventBoss(rng);
+    }
+
+    /// <summary>
+    /// Once the player reaches level 20 in The Ego, a lone fractured shard of
+    /// Aphantasia roams the veteran wilds. It is re-placed whenever the
+    /// player re-enters the overworld and it is neither alive nor defeated.
+    /// </summary>
+    internal void EnsureEgoEventBoss(Random rng)
+    {
+        if (!InEgoOverworld || Ego!.EventBossDefeated)
+            return;
+        if (State.CurrentLevel < Progression.FinalBossLevel)
+            return;
+        if (State.EnemyHolster.Any(enemy => enemy is FracturedAphantasia && !enemy.IsDead()))
+            return;
+        var candidates = Ego.Regions
+            .Where(region => region.Kind == EgoRegionKind.VeteranSenseless
+                && Vector2.Distance(region.Center, PlayerWorldCenter) >= Ego.SpawnRadius)
+            .ToList();
+        if (candidates.Count == 0)
+            candidates = Ego.Regions.Where(region => !region.IsHoldout).ToList();
+        if (candidates.Count == 0)
+            return;
+        EgoRegion region = candidates[rng.Next(candidates.Count)];
+        Rectangle? spot = Battleground.FindSpawnRectWithin((int)(Simulation.TileSize * 1.9f), region.Center,
+            region.RadiusWorld, PlayerWorldCenter, Ego.ViewWidth, rng)
+            ?? Battleground.FindSpawnRect((int)(Simulation.TileSize * 1.9f), PlayerWorldCenter,
+                (int)(Ego.ViewWidth / Simulation.TileSize), rng);
+        if (spot is not Rectangle rect)
+            return;
+        var shard = new FracturedAphantasia(rect.X, rect.Y, AwarenessRange, rng);
+        ApplyRunDifficulty(shard);
+        State.EnemyHolster.Add(shard);
+        Ego.EventBossSpawned = true;
+        ShowEntrySplash("A Fracture in Thought", "Something of Aphantasia walks the far wilds.", UiTheme.Purple);
+    }
+
+    /// <summary>Dev console: force the fractured shard to appear regardless of level, near (but outside view of) the player.</summary>
+    public void DebugSpawnEgoEventBoss(Random? rng = null)
+    {
+        if (!InEgoOverworld)
+            return;
+        rng ??= Random.Shared;
+        Rectangle spot = Battleground.FindSpawnRect((int)(Simulation.TileSize * 1.9f), PlayerWorldCenter, 6, rng);
+        var shard = new FracturedAphantasia(spot.X, spot.Y, AwarenessRange, rng);
+        ApplyRunDifficulty(shard);
+        State.EnemyHolster.Add(shard);
+        Ego!.EventBossSpawned = true;
+    }
+
+    public bool TryEnterEgoAphantasia(Random? rng = null)
+    {
+        if (!NearEgoAphantasiaPortal())
+            return false;
+        EnterEgoAphantasia(rng ?? Random.Shared);
+        return true;
+    }
+
+    /// <summary>
+    /// The Ego's Aphantasia: no pre-fight drafting, 1.5x shot density, and
+    /// Phase 4 regardless of the braziers. The overworld is suspended the same
+    /// way a dungeon boss instance suspends its floor.
+    /// </summary>
+    public void EnterEgoAphantasia(Random rng)
+    {
+        EgoRun ego = Ego ?? throw new InvalidOperationException("The Ego is not active.");
+        if (EgoAphantasiaActive)
+            return;
+        ego.SuspendForAphantasia(PlayerWorldCenter);
+        _egoSuspendedHolster.Clear();
+        Battleground arena = BossArenaFactory.Create("aphantasia", Progression.FinalBossLevel);
+        Vector2 center = new(arena.Width * Simulation.TileSize / 2f, arena.Height * Simulation.TileSize / 2f);
+        _dungeonBossInstance = new DungeonBossInstanceState(ego.Battleground, null, arena, "aphantasia",
+            Progression.FinalBossLevel, center);
+        EgoAphantasiaActive = true;
+        GamePaths.SetActive("phantasia");
+        CampaignActivitySense = "phantasia";
+        State.EnemyHolster.Clear();
+        State.EnemyProjectileHolster.Clear();
+        State.BulletHolster.Clear();
+        State.DamageTextList.Clear();
+        State.ExperienceList.Clear();
+        State.FragmentList.Clear();
+        State.LootCrateList.Clear();
+        State.NearbyCrate = null;
+        State.BossAfflictions.Reset();
+        State.DreamState.Reset();
+        State.CurrEnemyCount = 0;
+        Battleground = arena;
+        RefreshLightingFixtures();
+        PathFog = null;
+        _pathFogActive = false;
+        _enemyCollisionGrid.Reset();
+        Player.SetPosition(arena.SpawnPosition.X, arena.SpawnPosition.Y);
+        ScreenShake = Vector2.Zero;
+        SpawnBoss(
+            (x, y, spawnRng) => new Aphantasia(x, y, Battleground, spawnRng, State.NoHealing, State.NoExtract,
+                densityScale: Aphantasia.EgoDensityScale, forcePhaseFour: true)
+            {
+                ContentPath = "phantasia",
+            },
+            rng,
+            bossKey: "aphantasia",
+            clearFloorLoot: false,
+            clearCombatants: false);
+        State.GracePeriod = Simulation.FrameRate * 2.0;
+        ShowEntrySplash("Aphantasia", "There is no drafting here. What you brought is what you are.", UiTheme.Purple);
     }
 
     private void ReturnFromSecretDungeon()
@@ -3199,6 +3530,8 @@ public sealed class GameSession
             State.ExpNeededForNextLevel *= State.LevelScaleIncreaseFunction;
             State.FillHealthForMilestone();
         }
+        if (Ego is not null && State.CurrentLevel >= Progression.FinalBossLevel)
+            EnsureEgoEventBoss(Random.Shared);
     }
 
     /// <summary>Dev/testing hotkey. Ported from character.py's debugForceLevelUp().</summary>
@@ -3707,6 +4040,27 @@ public sealed class GameSession
                 double.PositiveInfinity, boss.Family, boss);
         }
 
+        if (InEgoOverworld)
+        {
+            Enemy? shard = State.EnemyHolster.FirstOrDefault(enemy => enemy is FracturedAphantasia && !enemy.IsDead());
+            if (shard is not null)
+                return new BountyInfo(EgoRun.EnemyCenter(shard), double.PositiveInfinity, FracturedAphantasia.BossName, shard, UiTheme.Purple);
+            if (Ego!.AphantasiaPortalWorld is Vector2 aphantasiaPortal)
+                return new BountyInfo(aphantasiaPortal, double.PositiveInfinity, "APHANTASIA", Ego, UiTheme.Purple);
+            EgoRegion? holdout = Ego.Holdouts
+                .Where(region => !(region.TimesCleared > 0 && !region.Populated))
+                .OrderBy(region => Vector2.DistanceSquared(region.Center, PlayerWorldCenter))
+                .FirstOrDefault();
+            if (holdout is not null)
+            {
+                var path = GamePaths.PathsByKey[holdout.SenseKey!];
+                return new BountyInfo(holdout.Center,
+                    1.0 / Math.Max(1.0, Vector2.Distance(holdout.Center, PlayerWorldCenter)),
+                    $"{path.Title.ToUpperInvariant()} {(holdout.IsVeteran ? "VETERAN " : "")}HOLDOUT",
+                    holdout, path.Accent);
+            }
+        }
+
         double bestScore = double.NegativeInfinity;
         Vector2 bestWorld = default;
         string? bestLabel = null;
@@ -3916,12 +4270,13 @@ public sealed class GameSession
         var (points, tip, direction) = geometry.Value;
 
         var shadow = points.Select(p => p + new Vector2(4, 5)).ToArray();
+        Color accent = bounty.Accent ?? UiTheme.Red;
         Primitives2D.FillPolygon(spriteBatch, shadow, UiTheme.Shadow);
-        Primitives2D.FillPolygon(spriteBatch, points, UiTheme.Red);
+        Primitives2D.FillPolygon(spriteBatch, points, accent);
         Primitives2D.PolygonOutline(spriteBatch, points, UiTheme.Ink, 4);
         // A compact inward label gives the marker meaning without covering the biome.
         var labelPosition = tip - direction * 52f;
-        UiTheme.DrawText(spriteBatch, "BOUNTY", 9, UiTheme.Red, labelPosition, "center");
+        UiTheme.DrawText(spriteBatch, bounty.Accent is null ? "BOUNTY" : bounty.Label, 9, accent, labelPosition, "center");
     }
 
     /// <summary>
@@ -4830,7 +5185,9 @@ public sealed class GameSession
         var rect = new Rectangle((ScreenWidth - width) / 2, (int)(22 * scale), width, (int)(76 * scale));
         UiTheme.DrawFramedPanel(spriteBatch, rect,
             UiTheme.PanelRaised, UiTheme.Cream, shadow: 7);
-        string headline = CampaignActivity == Systems.CampaignActivity.Aphantasia
+        string headline = CampaignActivity == Systems.CampaignActivity.Ego
+            ? "THE EGO OVERCOME"
+            : CampaignActivity == Systems.CampaignActivity.Aphantasia
             ? State.IsTrueHardMode
                 ? "THE CORE OF THE VOID ENDED"
                 : "APHANTASIA ENDED"
@@ -4838,7 +5195,9 @@ public sealed class GameSession
                 ? "THE WOVEN PATH TRAVERSED"
                 : $"{GamePaths.BossKey(false).ToUpperInvariant()} ENDED";
         const int totalFloors = global::RotBoiRemastered.Systems.PathRun.TotalFloors;
-        string detail = CampaignActivity == Systems.CampaignActivity.Aphantasia
+        string detail = CampaignActivity == Systems.CampaignActivity.Ego
+            ? "THE CORE OF THE VOID // EVERYTHING EARNED"
+            : CampaignActivity == Systems.CampaignActivity.Aphantasia
             ? "LEVEL 20 // FINAL CONVERGENCE COMPLETE"
             : PathRun is not null
                 ? $"FLOOR {totalFloors:D2} // ALL SENSES COMPLETE"
@@ -4967,7 +5326,7 @@ public sealed class GameSession
     /// rects when it draws).
     /// </summary>
     public void DrawDossier(SpriteBatch spriteBatch, Point mousePosition, float revealT) =>
-        InformationSheet.DrawDossier(spriteBatch, State, mousePosition, revealT, Expedition);
+        InformationSheet.DrawDossier(spriteBatch, State, mousePosition, revealT, Expedition, Ego);
 
     public DossierAction HandleDossierAction(IReadOnlySet<Keys> keysPressed) =>
         InformationSheet.HandleDossierAction(keysPressed);

@@ -13,9 +13,10 @@ public static class RunOutcomes
     public const string RunComplete = "RUN COMPLETE";
     public const string DungeonComplete = "DUNGEON COMPLETE";
     public const string AphantasiaDefeated = "APHANTASIA DEFEATED";
+    public const string EgoDefeated = "THE EGO OVERCOME";
 
     public static bool IsSuccess(string outcome) => outcome is
-        Extracted or RunComplete or DungeonComplete or AphantasiaDefeated;
+        Extracted or RunComplete or DungeonComplete or AphantasiaDefeated or EgoDefeated;
 }
 
 /// <summary>Ported from characterStats.py's `upgradeCollection["history"]` entries.</summary>

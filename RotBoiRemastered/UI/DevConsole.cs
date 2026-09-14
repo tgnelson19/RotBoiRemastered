@@ -12,7 +12,7 @@ using ArgumentProvider = System.Func<RotBoiRemastered.Systems.GameSession,
 namespace RotBoiRemastered.UI;
 
 /// <summary>What Update just decided should happen -- RotBoiGame.cs applies the actual state transition, matching Menus.cs's return-a-result shape (see /extract's doc comment on HandleExtract).</summary>
-public enum ConsoleActionKind { None, ExtractRequested }
+public enum ConsoleActionKind { None, ExtractRequested, StartEgoRequested }
 
 public readonly record struct ConsoleResult(ConsoleActionKind Kind = ConsoleActionKind.None);
 
@@ -94,8 +94,18 @@ public sealed class DevConsole
             Array.Empty<ArgumentProvider?>()),
         new("testphase", "/testphase <key> -- jump the active boss to a phase/pattern/sequence",
             new ArgumentProvider?[] { TestPhaseOptions }),
+        new("ego", "/ego -- start The Ego (dev: skips the unlock and empty-hands checks)", Array.Empty<ArgumentProvider?>()),
+        new("egoportal", "/egoportal <sense> [veteran] -- drop an Ego dungeon door at your position",
+            new ArgumentProvider?[] { SenseOptions, VeteranOptions }),
+        new("egoevent", "/egoevent -- spawn The Ego's fractured event boss nearby", Array.Empty<ArgumentProvider?>()),
         new("help", "/help -- list every command", Array.Empty<ArgumentProvider?>()),
     };
+
+    private static IReadOnlyList<(string Value, string Label)> SenseOptions(GameSession session, IReadOnlyList<string> tokens) =>
+        CampaignProgression.SenseKeys.Select(sense => (sense, sense.ToUpperInvariant())).ToList();
+
+    private static IReadOnlyList<(string Value, string Label)> VeteranOptions(GameSession session, IReadOnlyList<string> tokens) =>
+        new[] { ("midpoint", "MIDPOINT (LEVEL 10 BOSS)"), ("veteran", "VETERAN (LEVEL 20 BOSS)") };
 
     private readonly List<string> _history = new();
     private string _buffer = "";
@@ -501,6 +511,9 @@ public sealed class DevConsole
             Log("/extract                                -- end the run as an extraction");
             Log("/vfxgallery [0-100] [path] [tier]       -- spawn the visual-language gallery");
             Log("/testphase <key>                        -- jump the active boss to a phase/pattern/sequence");
+            Log("/ego                                    -- start The Ego (dev: skips unlock + empty-hands checks)");
+            Log("/egoportal <sense> [veteran]            -- drop an Ego dungeon door at your position");
+            Log("/egoevent                               -- spawn The Ego's fractured event boss nearby");
             Log("Press \"/\" for a dropdown of every command; keep typing to filter it.");
             return default;
         }
@@ -520,6 +533,9 @@ public sealed class DevConsole
             case "extract": return HandleExtract();
             case "vfxgallery": return HandleVfxGallery(tokens, session);
             case "testphase": return HandleTestPhase(tokens, session);
+            case "ego": return HandleEgo();
+            case "egoportal": return HandleEgoPortal(tokens, session);
+            case "egoevent": return HandleEgoEvent(session);
             default:
                 Log($"Unknown command: {command} (try /help)");
                 return default;
@@ -552,6 +568,48 @@ public sealed class DevConsole
         Log(given == count
             ? $"Gave {given}x {definition.Name} ({rarity})."
             : $"Gave {given}x {definition.Name} ({rarity}) -- inventory full, {count - given} not given.");
+        return default;
+    }
+
+    private ConsoleResult HandleEgo()
+    {
+        Log("Starting The Ego (dev).");
+        return new ConsoleResult(ConsoleActionKind.StartEgoRequested);
+    }
+
+    private ConsoleResult HandleEgoPortal(IReadOnlyList<string> tokens, GameSession session)
+    {
+        if (session.Ego is null || !session.InEgoOverworld)
+        {
+            Log("Only available in The Ego's overworld.");
+            return default;
+        }
+        if (tokens.Count < 2 || !CampaignProgression.SenseKeys.Contains(tokens[1].ToLowerInvariant()))
+        {
+            Log("Usage: /egoportal <sound|touch|sight|chemesthesis|phantasia> [veteran]");
+            return default;
+        }
+        bool veteran = tokens.Count > 2 && tokens[2].StartsWith("vet", StringComparison.OrdinalIgnoreCase);
+        var portal = session.Ego.AddPortal(new EgoDungeonPortal(tokens[1].ToLowerInvariant(), veteran,
+            session.PlayerWorldCenter + new Vector2(Simulation.TileSize * 2f, 0)));
+        Log($"Dropped a {(portal.Veteran ? "veteran" : "midpoint")} {portal.SenseKey} dungeon door.");
+        return default;
+    }
+
+    private ConsoleResult HandleEgoEvent(GameSession session)
+    {
+        if (session.Ego is null || !session.InEgoOverworld)
+        {
+            Log("Only available in The Ego's overworld.");
+            return default;
+        }
+        if (session.Ego.EventBossDefeated)
+        {
+            Log("The fracture has already been defeated this run.");
+            return default;
+        }
+        session.DebugSpawnEgoEventBoss();
+        Log("Fractured event boss spawned.");
         return default;
     }
 

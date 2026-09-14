@@ -24,6 +24,12 @@ internal static class SoulLayout
     /// decorative rather than colliding, so the wide nave remains navigable.
     /// </summary>
     public static readonly Point AphantasiaStatueTile = new(59, 80);
+    /// <summary>
+    /// The Ego's gate: just above the chapel crossing, inside the apse
+    /// ellipse. It needs no corridor of its own -- it simply appears (or
+    /// shows sealed) once Aphantasia has been defeated.
+    /// </summary>
+    public static readonly Point EgoPortalTile = new(59, 72);
     // Legacy name retained for source compatibility: this is the campaign's
     // combined Body / Soul entrance, below The Mind's home chapel.
     public static readonly Point CorePortalTile = new(59, 112);
@@ -88,7 +94,7 @@ internal static class SoulLayout
                 NexusTile.Y + entry.Value.Y * SelectionAreaScale));
 
     public static readonly IReadOnlySet<string> AllGateKeys =
-        PortalOffsets.Keys.Concat(["core", "aphantasia", "the_void"]).ToHashSet();
+        PortalOffsets.Keys.Concat(["core", "aphantasia", "ego", "the_void"]).ToHashSet();
 
     /// <summary>Maps legacy non-colliding chapel art into the wider layout.</summary>
     public static Point AuthoredTile(int x, int y) => new(x + 20, y + 13);

@@ -66,15 +66,18 @@ public static class ExpeditionWorldGenerator
     private static int DistanceSquared(Point a, Point b) =>
         (a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y);
 
-    private static void CarveRoom(TileType[,] tiles, Point center, int rx, int ry)
+    // Carve helpers read the grid's own dimensions so EgoWorldGenerator can
+    // reuse them on a far larger map.
+    internal static void CarveRoom(TileType[,] tiles, Point center, int rx, int ry)
     {
-        for (int y = Math.Max(2, center.Y - ry); y <= Math.Min(Height - 3, center.Y + ry); y++)
-            for (int x = Math.Max(2, center.X - rx); x <= Math.Min(Width - 3, center.X + rx); x++)
+        int height = tiles.GetLength(0), width = tiles.GetLength(1);
+        for (int y = Math.Max(2, center.Y - ry); y <= Math.Min(height - 3, center.Y + ry); y++)
+            for (int x = Math.Max(2, center.X - rx); x <= Math.Min(width - 3, center.X + rx); x++)
                 if (MathF.Pow((x - center.X) / (float)rx, 2) + MathF.Pow((y - center.Y) / (float)ry, 2) <= 1.12f)
                     tiles[y, x] = TileType.BuildingFloor;
     }
 
-    private static void CarveTunnel(TileType[,] tiles, Point from, Point to, int radius, bool horizontalFirst)
+    internal static void CarveTunnel(TileType[,] tiles, Point from, Point to, int radius, bool horizontalFirst)
     {
         Point bend = horizontalFirst ? new Point(to.X, from.Y) : new Point(from.X, to.Y);
         CarveLine(tiles, from, bend, radius);
@@ -94,17 +97,18 @@ public static class ExpeditionWorldGenerator
         }
     }
 
-    private static void AddWallShell(TileType[,] tiles)
+    internal static void AddWallShell(TileType[,] tiles)
     {
-        var shell = new bool[Height, Width];
-        for (int y = 1; y < Height - 1; y++)
-            for (int x = 1; x < Width - 1; x++)
+        int height = tiles.GetLength(0), width = tiles.GetLength(1);
+        var shell = new bool[height, width];
+        for (int y = 1; y < height - 1; y++)
+            for (int x = 1; x < width - 1; x++)
                 if (tiles[y, x] == TileType.OuterVoid)
                     for (int oy = -1; oy <= 1; oy++)
                         for (int ox = -1; ox <= 1; ox++)
                             shell[y, x] |= !tiles[y + oy, x + ox].IsSolid();
-        for (int y = 0; y < Height; y++)
-            for (int x = 0; x < Width; x++)
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
                 if (shell[y, x]) tiles[y, x] = TileType.BuildingWall;
     }
 }

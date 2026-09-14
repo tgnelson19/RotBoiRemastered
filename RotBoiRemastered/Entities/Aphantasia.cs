@@ -428,6 +428,13 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
     /// <summary>True while the terminal collapse is controlling removal.</summary>
     public bool CompletionReady => Dying;
     public bool PhaseFourEligible { get; }
+    /// <summary>The Ego's Aphantasia multiplies every ring/fan/curtain count and the threat cap by this.</summary>
+    public const float EgoDensityScale = 1.5f;
+    private readonly float _densityScale = 1f;
+    public float DensityScale => _densityScale;
+    private int DensityCount(int count) => _densityScale == 1f
+        ? count
+        : Math.Max(1, (int)Math.Round(count * _densityScale));
     public bool Phase4Eligible => PhaseFourEligible;
     public bool CapturedNoHealing { get; }
     public bool CapturedNoExtract { get; }
@@ -565,7 +572,9 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
         Battleground battleground,
         Random? rng = null,
         bool noHealing = false,
-        bool noExtract = false)
+        bool noExtract = false,
+        float densityScale = 1f,
+        bool forcePhaseFour = false)
         : base(worldX, worldY, 1.45f, Simulation.TileSize * 2.15f,
             new Color(8, 22, 72), 420, BaseBarHealth, 2_400, 5.0,
             float.PositiveInfinity, "finale", "hard", rng)
@@ -583,7 +592,8 @@ public sealed partial class Aphantasia : Enemy, IBossArenaController, IBossArena
             Math.Clamp(wallBiome, 0, battleground.Palettes.Count - 1)];
         CapturedNoHealing = noHealing;
         CapturedNoExtract = noExtract;
-        PhaseFourEligible = noHealing && noExtract;
+        _densityScale = Math.Max(.25f, densityScale);
+        PhaseFourEligible = forcePhaseFour || (noHealing && noExtract);
         ContentPath = "phantasia";
         Family = "aphantasia";
         Light = NewMini("THE LIGHT", new Color(245, 228, 136));

@@ -34,9 +34,15 @@ public sealed record PathGuardianSenseProfile(
 /// transition cleanup, an invulnerable intermission, a threat budget, and a
 /// readable death beat.
 /// </summary>
-public sealed class PathGuardianBoss : Enemy, IBossArenaController
+public class PathGuardianBoss : Enemy, IBossArenaController
 {
     public bool IsMiniGuardian { get; set; }
+    /// <summary>
+    /// Veteran holdout leader (The Ego). Denser volleys, a signature follow-up
+    /// after every declaration, and a doubled threat budget. See
+    /// <see cref="VeteranGuardianBoss"/>.
+    /// </summary>
+    public bool IsVeteran { get; protected set; }
     public const int ActiveThreatSoftCap = 62;
     public const int MinimumAttacksPerPhase = 2;
     public const double DeathDuration = 1.8;
@@ -171,7 +177,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
     public int Phase { get; private set; } = 1;
     public int AttacksCompletedInPhase => _attacksCompletedInPhase;
     public int PhaseDeclarations => _attacksCompletedInPhase;
-    public string BossDisplayName => _profile.BossName;
+    public string BossDisplayName => IsVeteran ? $"VETERAN {_profile.BossName}" : _profile.BossName;
     public string BossSubtitle => _profile.Subtitle;
     public string PhaseLabel => TrialActive
         ? _profile.TrialLabel
@@ -657,6 +663,8 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
             FireRareSensePattern(stagedContext);
         else
             FireSensePattern(stagedContext);
+        if (IsVeteran && !trial)
+            FireVeteranSignature(stagedContext);
 
         Vector2 ownerCenter = Center();
         foreach (var projectile in staged)
@@ -667,7 +675,7 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 Math.Max(.55f, projectile.TelegraphDuration));
         }
         if (staged.Count == 0
-            || ActiveThreatCount(context.ProjectileSink) + staged.Count > ActiveThreatSoftCap)
+            || ActiveThreatCount(context.ProjectileSink) + staged.Count > ActiveThreatSoftCap * (IsVeteran ? 2 : 1))
         {
             return false;
         }
@@ -704,6 +712,18 @@ public sealed class PathGuardianBoss : Enemy, IBossArenaController
                 FirePhantasia(context);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Veteran leaders answer every declaration with a second, sense-specific
+    /// volley. For now that is the rare pattern of the same sense so the fight
+    /// reads as "more shots" immediately; each sense should eventually get a
+    /// unique veteran attack here.
+    /// </summary>
+    protected virtual void FireVeteranSignature(EnemyUpdateContext context)
+    {
+        // TODO(ego): unique veteran attack per sense (sound/touch/sight/chemesthesis/phantasia).
+        FireRareSensePattern(context);
     }
 
     private void FireRareSensePattern(EnemyUpdateContext context)

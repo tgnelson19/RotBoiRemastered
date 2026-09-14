@@ -35,6 +35,8 @@ public class SoulHub
     public const string BodyPortalKey = "__body";
     public const string CorePortalKey = "__core";
     public const string AphantasiaPortalKey = "__aphantasia";
+    public const string EgoPortalKey = "__ego";
+    public const string EgoEmptyHandsPrompt = "THE EGO ADMITS NOTHING  //  EMPTY YOUR HANDS";
     [Obsolete("Use CorePortalKey for the standalone dungeon.")]
     public const string CompositePathPortalKey = CorePortalKey;
     private const float StationOpenRadiusTiles = 1.45f;
@@ -178,6 +180,7 @@ public class SoulHub
     /// the exact same drag mechanic/feel as equipment/stash/crate dragging in a real run.
     /// </summary>
     private List<Rectangle> _vaultSlotRects = new();
+    private double _egoRefusalUntil = -1;
 
     public void Enter(GameSession session)
     {
@@ -204,6 +207,7 @@ public class SoulHub
         _pathPortalWorld[CorePortalKey] = nexus;
         _pathPortalWorld[BodyPortalKey] = SoulLayout.TileWorldCenter(SoulLayout.CorePortalTile);
         _pathPortalWorld[AphantasiaPortalKey] = SoulLayout.TileWorldCenter(SoulLayout.AphantasiaPortalTile);
+        _pathPortalWorld[EgoPortalKey] = SoulLayout.TileWorldCenter(SoulLayout.EgoPortalTile);
         _dummyHits.Clear();
         _seconds = 0;
         _measurementStart = 0;
@@ -358,7 +362,7 @@ public class SoulHub
             bool higherTier = keysPressed.Contains(Keys.Right) || keysPressed.Contains(Keys.D)
                 || InputState.UiRightPressed
                 || (mousePressed && _ngPlusRect.Contains(mouse));
-            if (_confirmingPortalKey is not (AphantasiaPortalKey or BodyPortalKey))
+            if (_confirmingPortalKey is not (AphantasiaPortalKey or BodyPortalKey or EgoPortalKey))
             {
                 string newGamePlusKey = NewGamePlusKey(_confirmingPortalKey);
                 if (lowerTier) AdjustNewGamePlus(newGamePlusKey, -1);
@@ -411,7 +415,14 @@ public class SoulHub
             var nearbyPortal = NearbyPathPortal(session);
             if (nearbyPortal is not null
                 && (keysPressed.Contains(Keys.F) || InputState.ControllerInteractPressed))
-                _confirmingPortalKey = nearbyPortal;
+            {
+                // The Ego admits nothing: every equipment and inventory slot
+                // must be empty (stash in the Vault) before the gate answers.
+                if (nearbyPortal == EgoPortalKey && !GameSession.HandsEmpty(session.State))
+                    _egoRefusalUntil = _seconds + 2.5;
+                else
+                    _confirmingPortalKey = nearbyPortal;
+            }
         }
         if (_overlay == "storage")
         {
@@ -803,6 +814,7 @@ public class SoulHub
         BodyPortalKey => CampaignProgression.PortalUnlocked("body"),
         CorePortalKey => true,
         AphantasiaPortalKey => CampaignProgression.PortalUnlocked("aphantasia"),
+        EgoPortalKey => CampaignProgression.PortalUnlocked("ego"),
         _ => CampaignProgression.PortalUnlocked(key),
     };
 
@@ -1828,6 +1840,7 @@ public class SoulHub
             $"APHANTASIA TROPHY  {DevAphantasiaStatueLabel()}", UiTheme.Purple));
         controls.Add(("rainbow", "TOGGLE ALL RAINBOW", UiTheme.Purple));
         controls.Add(("portal:aphantasia", $"APHANTASIA  {DevGateLabel("aphantasia")}", UiTheme.Purple));
+        controls.Add(("portal:ego", $"THE EGO  {DevGateLabel("ego")}", EgoPortalAccent));
         controls.Add(("reset", "RESET OVERRIDES TO SAVED", UiTheme.Red));
         UiTheme.DrawText(spriteBatch, "DEV UNLOCK TESTING", Fs(10), UiTheme.Gold,
             new Vector2(x + width / 2f, y - 18), "center");
@@ -1852,6 +1865,7 @@ public class SoulHub
         "body" => true,
         "core" => CampaignProgression.Data.CoreUnlocked,
         "aphantasia" => CampaignProgression.Data.AphantasiaUnlocked,
+        "ego" => CampaignProgression.Data.EgoUnlocked,
         _ => CampaignProgression.Data.ArenaUnlocks.Contains(gate),
     };
 
@@ -1948,6 +1962,7 @@ public class SoulHub
                     new Vector2(screen.X, screen.Y + radius + 23), "midtop");
         }
         DrawAphantasiaPortal(spriteBatch, session, nearbyPortal, time);
+        DrawEgoPortal(spriteBatch, session, nearbyPortal, time);
     }
 
     /// <summary>
@@ -2051,6 +2066,97 @@ public class SoulHub
                 new Vector2(screen.X, screen.Y + radius + 23), "midtop");
     }
 
+    /// <summary>Dark blue / black sibling of the Aphantasia gate's palette.</summary>
+    public static readonly Color EgoPortalAccent = new(46, 72, 168);
+
+    /// <summary>
+    /// The Ego's gate: the same void-core-with-tentacles language as
+    /// <see cref="DrawAphantasiaPortal"/> (it leads to the same fight, earned
+    /// the hard way), but themed in deep blue and black instead of rainbow --
+    /// the colors of Aphantasia's Essence rather than its Core.
+    /// </summary>
+    private void DrawEgoPortal(SpriteBatch spriteBatch, GameSession session,
+        string? nearbyPortal, float time)
+    {
+        if (!_pathPortalWorld.TryGetValue(EgoPortalKey, out Vector2 world))
+            return;
+        Vector2 screen = session.Camera.WorldToScreen(world, session.PlayerWorldCenter, Vector2.Zero);
+        bool unlocked = CampaignProgression.PortalUnlocked("ego");
+        float radius = Simulation.TileSize * .78f;
+        Color deepBlue = new(8, 22, 72);
+        Color inkBlue = new(3, 6, 20);
+
+        if (unlocked)
+        {
+            const int tuskCount = 7;
+            const int shadowCount = 5;
+            const float shadowDelay = .08f;
+            for (int index = 0; index < tuskCount; index++)
+            {
+                void DrawTusk(float evalTime, float darken, float alpha)
+                {
+                    float angle = index * MathF.Tau / tuskCount - evalTime * .22f;
+                    float length = radius * (2.6f + .7f * MathF.Sin(evalTime * 1.3f + index));
+                    // Slow blue-to-black breathing instead of a rainbow cycle.
+                    float breathe = .5f + .5f * MathF.Sin(evalTime * .9f + index * .8f);
+                    Color strand = Color.Lerp(inkBlue, EgoPortalAccent, .35f + .65f * breathe);
+                    Primitives2D.DrawTentacleSpike(spriteBatch, screen, angle, length,
+                        radius * .3f, phase: index * 2.3f, colorPhase: 0f,
+                        time: evalTime, segments: 40, darken: darken, alpha: alpha,
+                        themeColor: strand);
+                }
+
+                for (int shadow = shadowCount; shadow >= 1; shadow--)
+                {
+                    float t = shadow / (float)(shadowCount + 1);
+                    DrawTusk(time - shadow * shadowDelay, darken: t, alpha: 1f - t * .85f);
+                }
+                DrawTusk(time, darken: 0f, alpha: 1f);
+            }
+        }
+
+        const int discGradientSteps = 8;
+        for (int step = discGradientSteps; step >= 1; step--)
+        {
+            float t = step / (float)discGradientSteps;
+            Primitives2D.FillCircle(spriteBatch, screen, radius * .82f * t,
+                Color.Lerp(inkBlue, deepBlue, 1f - t) * (1f - t * t));
+        }
+        // A slow, dim blue rim that pulses rather than cycles.
+        float rim = .45f + .3f * MathF.Sin(time * 1.4f);
+        Primitives2D.CircleOutline(spriteBatch, screen, radius * .84f,
+            Color.Lerp(deepBlue, EgoPortalAccent, rim) * (unlocked ? 1f : .35f), 2);
+        for (int index = 0; index < 8; index++)
+        {
+            float starAngle = index * 2.399963f;
+            float starRadius = radius * (.15f + (index % 5) * .13f);
+            Vector2 star = screen + new Vector2(MathF.Cos(starAngle), MathF.Sin(starAngle)) * starRadius;
+            float twinkle = .3f + .7f * (.5f + .5f * MathF.Sin(time * 2.4f + index * 1.7f));
+            Primitives2D.FillRect(spriteBatch,
+                new Rectangle((int)star.X - 1, (int)star.Y - 1, 2, 2),
+                Color.Lerp(EgoPortalAccent, UiTheme.Cream, .5f) * (twinkle * (unlocked ? 1f : .3f)));
+        }
+
+        if (!unlocked)
+        {
+            Primitives2D.Line(spriteBatch, screen + new Vector2(-radius, -radius),
+                screen + new Vector2(radius, radius), UiTheme.Red * .75f, 4);
+            Primitives2D.Line(spriteBatch, screen + new Vector2(radius, -radius),
+                screen + new Vector2(-radius, radius), UiTheme.Red * .75f, 4);
+        }
+        UiTheme.DrawText(spriteBatch, unlocked ? "THE EGO" : "THE EGO // SEALED", Fs(8),
+            unlocked ? EgoPortalAccent : UiTheme.Muted,
+            new Vector2(screen.X, screen.Y + radius + 7), "midtop");
+        if (_seconds < _egoRefusalUntil)
+            UiTheme.DrawText(spriteBatch, EgoEmptyHandsPrompt, Fs(8), UiTheme.Red,
+                new Vector2(screen.X, screen.Y + radius + 23), "midtop");
+        else if (unlocked && nearbyPortal == EgoPortalKey
+            && _confirmingPortalKey != EgoPortalKey && _enteringPortalKey is null)
+            UiTheme.DrawText(spriteBatch,
+                GameSession.HandsEmpty(session.State) ? "F / B  //  ENTER" : "F / B  //  ENTER (EMPTY HANDS ONLY)",
+                Fs(8), UiTheme.Cream, new Vector2(screen.X, screen.Y + radius + 23), "midtop");
+    }
+
     private void DrawCompositePathPortal(
         SpriteBatch spriteBatch,
         GameSession session,
@@ -2133,7 +2239,7 @@ public class SoulHub
             DrawCompositePortalConfirm(spriteBatch, session, mouse, mouseDown);
             return;
         }
-        if (_confirmingPortalKey is BodyPortalKey or AphantasiaPortalKey)
+        if (_confirmingPortalKey is BodyPortalKey or AphantasiaPortalKey or EgoPortalKey)
         {
             DrawCampaignPortalConfirm(spriteBatch, session);
             return;
@@ -2177,6 +2283,7 @@ public class SoulHub
         string label = _confirmingPortalKey switch
         {
             BodyPortalKey => "ENTER THE BODY / THE SOUL?",
+            EgoPortalKey => "ENTER THE EGO?  //  NOTHING COMES WITH YOU",
             _ => "APPROACH APHANTASIA?",
         };
         int width = (int)(session.ScreenWidth * .42f);

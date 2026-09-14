@@ -79,6 +79,19 @@ public sealed class ArenaRenderer
         _visibleItemScratch = new();
     private readonly List<DepthSceneItem> _depthSceneScratch = new();
 
+    /// <summary>
+    /// Maps whose baked plane would exceed this many pixels on a side (The
+    /// Ego's overworld) are baked lazily in <see cref="ChunkTiles"/>-square
+    /// chunks around the camera instead of as one enormous render target.
+    /// </summary>
+    private const int MaxSingleBakePixels = 8192;
+    private const int ChunkTiles = 48;
+    private const int MaxLiveChunks = 20;
+    private bool _chunked;
+    private readonly Dictionary<(int X, int Y), RenderTarget2D> _chunks = new();
+    private readonly Dictionary<(int X, int Y), long> _chunkLastUsed = new();
+    private long _drawCounter;
+
     /// <summary>No-op once already baked for this exact Battleground reference. Call once at the top of the frame, before the frame's own SpriteBatch.Begin().</summary>
     public void EnsureBaked(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, Battleground battleground)
     {
@@ -87,15 +100,60 @@ public sealed class ArenaRenderer
 
         _decorations = ComputeGenericRaisedDecorations(battleground);
         _pathRaisedDecorations = battleground.RaisedPathDecorations;
+        DisposeChunks();
+        _bakedGround?.Dispose();
+        _bakedGround = null;
+        _chunked = battleground.Width * Battleground.TileSize > MaxSingleBakePixels
+            || battleground.Height * Battleground.TileSize > MaxSingleBakePixels;
+        _bakedFor = battleground;
+        if (_chunked)
+            return;
+        _bakedGround = BakeRegion(graphicsDevice, spriteBatch, battleground,
+            new Rectangle(0, 0, battleground.Width, battleground.Height));
+    }
 
+    private void DisposeChunks()
+    {
+        foreach (var chunk in _chunks.Values)
+            chunk.Dispose();
+        _chunks.Clear();
+        _chunkLastUsed.Clear();
+    }
+
+    private RenderTarget2D EnsureChunk(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch, int chunkX, int chunkY)
+    {
+        var key = (chunkX, chunkY);
+        _chunkLastUsed[key] = _drawCounter;
+        if (_chunks.TryGetValue(key, out var existing))
+            return existing;
+        if (_chunks.Count >= MaxLiveChunks)
+        {
+            var stale = _chunkLastUsed.Where(entry => _chunks.ContainsKey(entry.Key))
+                .OrderBy(entry => entry.Value).First().Key;
+            _chunks[stale].Dispose();
+            _chunks.Remove(stale);
+            _chunkLastUsed.Remove(stale);
+        }
+        var range = new Rectangle(chunkX * ChunkTiles, chunkY * ChunkTiles,
+            Math.Min(ChunkTiles, _bakedFor!.Width - chunkX * ChunkTiles),
+            Math.Min(ChunkTiles, _bakedFor.Height - chunkY * ChunkTiles));
+        var target = BakeRegion(graphicsDevice, spriteBatch, _bakedFor, range);
+        _chunks[key] = target;
+        return target;
+    }
+
+    private static RenderTarget2D BakeRegion(GraphicsDevice graphicsDevice, SpriteBatch spriteBatch,
+        Battleground battleground, Rectangle tileRange)
+    {
         var previousTargets = graphicsDevice.GetRenderTargets();
-        var target = new RenderTarget2D(graphicsDevice, battleground.Width * Battleground.TileSize, battleground.Height * Battleground.TileSize);
+        var target = new RenderTarget2D(graphicsDevice, tileRange.Width * Battleground.TileSize, tileRange.Height * Battleground.TileSize);
         graphicsDevice.SetRenderTarget(target);
         graphicsDevice.Clear(VoidColor);
-        spriteBatch.Begin();
-        for (int y = 0; y < battleground.Height; y++)
+        var offset = Matrix.CreateTranslation(-tileRange.X * Battleground.TileSize, -tileRange.Y * Battleground.TileSize, 0);
+        spriteBatch.Begin(transformMatrix: offset);
+        for (int y = tileRange.Top; y < tileRange.Bottom; y++)
         {
-            for (int x = 0; x < battleground.Width; x++)
+            for (int x = tileRange.Left; x < tileRange.Right; x++)
             {
                 var tile = battleground.TileAt(x, y);
                 var rect = battleground.TileRect(x, y);
@@ -122,9 +180,12 @@ public sealed class ArenaRenderer
                 }
             }
         }
+        var pixelRange = new Rectangle(tileRange.X * Battleground.TileSize, tileRange.Y * Battleground.TileSize,
+            tileRange.Width * Battleground.TileSize, tileRange.Height * Battleground.TileSize);
         foreach (var decoration in battleground.PathDecorations)
         {
-            if (decoration.Layer is PathDecorationLayer.Floor or PathDecorationLayer.Low)
+            if (decoration.Layer is PathDecorationLayer.Floor or PathDecorationLayer.Low
+                && pixelRange.Contains(decoration.WorldPosition))
                 DrawPathFloorDecoration(spriteBatch, battleground, decoration);
         }
         spriteBatch.End();
@@ -132,10 +193,7 @@ public sealed class ArenaRenderer
             graphicsDevice.SetRenderTarget(null);
         else
             graphicsDevice.SetRenderTargets(previousTargets);
-
-        _bakedGround?.Dispose();
-        _bakedGround = target;
-        _bakedFor = battleground;
+        return target;
     }
 
     /// <summary>Ported from _draw_floor_detail: cheap per-tile cosmetic doodles for non-solid floor tiles.</summary>
@@ -893,15 +951,42 @@ public sealed class ArenaRenderer
         float visualIntensity = 1f,
         IReadOnlyDictionary<int, float>? roomVisualEnergy = null)
     {
-        if (_bakedGround is null || _bakedFor is null)
+        if (_bakedFor is null || (!_chunked && _bakedGround is null))
             return;
+
+        float rotation = -MathHelper.ToRadians(camera.AngleDegrees);
+        List<(RenderTarget2D Target, Vector2 Origin)>? chunkDraws = null;
+        if (_chunked)
+        {
+            // Bake whatever chunks the camera can see before opening the
+            // frame's scissored batch -- baking needs its own Begin/End.
+            _drawCounter++;
+            var visible = camera.LogicalViewport(viewport);
+            visible.Inflate(Battleground.TileSize * 3, Battleground.TileSize * 3);
+            Rectangle tiles = VisibleTileBounds(camera, playerWorldPosition, screenShake, visible, _bakedFor);
+            chunkDraws = new();
+            for (int cy = tiles.Top / ChunkTiles; cy <= (tiles.Bottom - 1) / ChunkTiles; cy++)
+                for (int cx = tiles.Left / ChunkTiles; cx <= (tiles.Right - 1) / ChunkTiles; cx++)
+                {
+                    var target = EnsureChunk(graphicsDevice, spriteBatch, cx, cy);
+                    var offset = new Vector2(cx * ChunkTiles * Battleground.TileSize, cy * ChunkTiles * Battleground.TileSize);
+                    chunkDraws.Add((target, playerWorldPosition - offset));
+                }
+        }
 
         var previousScissor = graphicsDevice.ScissorRectangle;
         graphicsDevice.ScissorRectangle = viewport;
         spriteBatch.Begin(rasterizerState: ScissorRasterizerState, transformMatrix: camera.WorldTransform);
 
-        float rotation = -MathHelper.ToRadians(camera.AngleDegrees);
-        spriteBatch.Draw(_bakedGround, camera.Lock + screenShake, null, Color.White, rotation, playerWorldPosition, 1f, SpriteEffects.None, 0f);
+        if (chunkDraws is not null)
+        {
+            foreach (var (target, origin) in chunkDraws)
+                spriteBatch.Draw(target, camera.Lock + screenShake, null, Color.White, rotation, origin, 1f, SpriteEffects.None, 0f);
+        }
+        else
+        {
+            spriteBatch.Draw(_bakedGround, camera.Lock + screenShake, null, Color.White, rotation, playerWorldPosition, 1f, SpriteEffects.None, 0f);
+        }
 
         if (!drawRaisedScenery)
         {

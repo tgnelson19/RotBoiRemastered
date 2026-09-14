@@ -220,7 +220,8 @@ public sealed class EnemyCatalog
     /// <summary>Build an atomic curated composition using the tier live at this level.</summary>
     public (EncounterPackage Package, List<Enemy> Group)? SpawnEncounter(
         int level, double maxThreat, Battleground battleground, Vector2 playerWorldPosition, float awarenessRange,
-        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, int? statScalingLevel = null)
+        float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, int? statScalingLevel = null,
+        Rectangle? anchorOverride = null)
     {
         rng ??= Random.Shared;
         var activeKeys = (existing ?? Array.Empty<Enemy>()).Select(e => e.EncounterKey).ToList();
@@ -237,7 +238,7 @@ public sealed class EnemyCatalog
         if (estimated > maxThreat)
             return null;
 
-        var anchor = battleground.FindSpawnRect((int)(Simulation.TileSize * 1.2f), playerWorldPosition, 5, rng);
+        var anchor = anchorOverride ?? battleground.FindSpawnRect((int)(Simulation.TileSize * 1.2f), playerWorldPosition, 5, rng);
         var group = new List<Enemy>();
         for (int index = 0; index < definitions.Count; index++)
         {
@@ -262,7 +263,7 @@ public sealed class EnemyCatalog
     public (RuntimeEncounter Encounter, List<Enemy> Group)? SpawnPatrol(
         int level, double maxThreat, Battleground battleground, Vector2 playerWorldPosition, float awarenessRange,
         float screenHeight, IReadOnlyList<Enemy>? existing = null, Random? rng = null, string? contentPath = null,
-        int? statScalingLevel = null)
+        int? statScalingLevel = null, Rectangle? anchorOverride = null)
     {
         rng ??= Random.Shared;
         existing ??= Array.Empty<Enemy>();
@@ -298,7 +299,7 @@ public sealed class EnemyCatalog
         if (estimated > maxThreat)
             return null;
 
-        var anchor = battleground.FindSpawnRect((int)(Simulation.TileSize * 1.1f), playerWorldPosition, 5, rng);
+        var anchor = anchorOverride ?? battleground.FindSpawnRect((int)(Simulation.TileSize * 1.1f), playerWorldPosition, 5, rng);
         string key = $"patrol_{RuntimeEncounter.NextId}";
         var group = new List<Enemy>();
         for (int index = 0; index < definitions.Count; index++)

@@ -184,6 +184,14 @@ public class RotBoiGame : Game
         {
             BeginReturnToMind(force: true);
         }
+        else if (consoleResult.Kind == ConsoleActionKind.StartEgoRequested
+            && _session is not null
+            && State is GameState.GameRun or GameState.Soul)
+        {
+            _session.StartEgo(ignoreHandsCheck: true);
+            _devConsole.Close();
+            State = GameState.GameRun;
+        }
 
         if (_devConsole.IsOpen)
         {
@@ -835,6 +843,10 @@ public class RotBoiGame : Game
                 State = GameState.Leveling;
                 return;
             }
+            else if (enteredPathKey == SoulHub.EgoPortalKey)
+            {
+                session.StartEgo();
+            }
             else
             {
                 session.StartArena(enteredPathKey);
@@ -975,6 +987,7 @@ public class RotBoiGame : Game
         session.DrawBossFloorOcclusion(_spriteBatch);
         session.DrawPathAmbience(_spriteBatch);
         session.DrawExpeditionSecrets(_spriteBatch);
+        session.DrawEgoPortals(_spriteBatch);
         session.DrawVisualEffects(_spriteBatch, BitVfxLayer.Ground);
         session.DrawGroundEnemyProjectiles(_spriteBatch);
         // Actors, shots, and raised scenery share a camera-relative painter
@@ -999,6 +1012,7 @@ public class RotBoiGame : Game
             session.DrawBountyIndicator(_spriteBatch, bounty);
             session.DrawBossPortalIndicator(_spriteBatch);
             session.DrawExpeditionHint(_spriteBatch);
+            session.DrawEgoHint(_spriteBatch);
             session.DrawFooter(_spriteBatch, InputState.MousePosition);
             session.DrawAimReticle(_spriteBatch, InputState.MousePosition);
             session.DrawEntrySplash(_spriteBatch);

@@ -434,7 +434,7 @@ public sealed class Battleground
         }
     }
 
-    private (int X, int Y)[] OpenTiles()
+    public (int X, int Y)[] OpenTiles()
     {
         if (_openTiles is not null)
             return _openTiles;
@@ -445,6 +445,35 @@ public sealed class Battleground
                     tiles.Add((x, y));
         _openTiles = tiles.ToArray();
         return _openTiles;
+    }
+
+    /// <summary>
+    /// Random open tile inside a world-space disc, at least <paramref name="avoidRadius"/>
+    /// from <paramref name="avoid"/>. Used by The Ego's proximity spawner so groups
+    /// land inside their region but never inside the player's view. Null when no
+    /// probe succeeds.
+    /// </summary>
+    public Rectangle? FindSpawnRectWithin(int size, Vector2 center, float radius,
+        Vector2 avoid, float avoidRadius, Random rng, int attempts = 48)
+    {
+        for (int i = 0; i < attempts; i++)
+        {
+            float angle = (float)(rng.NextDouble() * Math.PI * 2);
+            float distance = radius * MathF.Sqrt((float)rng.NextDouble());
+            Vector2 world = center + new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * distance;
+            if (Vector2.DistanceSquared(world, avoid) < avoidRadius * avoidRadius)
+                continue;
+            int tileX = (int)MathF.Floor(world.X / TileSize), tileY = (int)MathF.Floor(world.Y / TileSize);
+            if (tileX < 1 || tileY < 1 || tileX >= Width - 1 || tileY >= Height - 1 || Tiles[tileY, tileX].IsSolid())
+                continue;
+            var candidate = new Rectangle(
+                (int)(tileX * TileSize + (TileSize - size) / 2.0),
+                (int)(tileY * TileSize + (TileSize - size) / 2.0),
+                size, size);
+            if (!RectHitsWall(candidate))
+                return candidate;
+        }
+        return null;
     }
 
     /// <summary>Returns a world-space rect that fits completely inside a random open floor tile.</summary>
